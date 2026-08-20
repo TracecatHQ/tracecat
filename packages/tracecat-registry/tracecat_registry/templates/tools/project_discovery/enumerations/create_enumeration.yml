@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Create enumeration
+  description: >-
+    Create an asset enumeration. Calls POST /v1/asset/enumerate directly.
+  display_group: ProjectDiscovery
+  doc_url: https://docs.projectdiscovery.io/api-reference/enumerations/create-enumeration
+  namespace: tools.project_discovery
+  name: create_enumeration
+  secrets:
+    - name: project_discovery
+      keys: ["PDCP_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: ProjectDiscovery Cloud API base URL.
+      default: null
+    payload:
+      type: dict[str, Any]
+      description: Enumeration request body (name, targets, configuration, etc.).
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.project_discovery.base_url || "https://api.projectdiscovery.io" }}/v1/asset/enumerate
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

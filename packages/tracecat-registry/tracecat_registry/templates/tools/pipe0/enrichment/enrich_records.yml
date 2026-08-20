@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Enrich records
+  description: Enrich records. Calls POST /v1/pipes/run/sync directly.
+  display_group: Pipe0
+  doc_url: https://www.pipe0.com/docs/api/pipes/run-sync
+  namespace: tools.pipe0
+  name: enrich_records
+  secrets:
+    - name: pipe0
+      keys: ["PIPE0_API_KEY"]
+  expects:
+    payload:
+      type: dict[str, Any] | None
+      description: API-native request body passed through without validation.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Pipe0 API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pipe0.base_url || "https://api.pipe0.com" }}/v1/pipes/run/sync
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.pipe0.PIPE0_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Lookup CVE scores
+  description: >-
+    Look up CVE scores. Calls GET /data/v1/epss directly for one or more CVE identifiers.
+  display_group: FIRST EPSS
+  doc_url: https://api.first.org/epss/
+  namespace: tools.first_epss
+  name: lookup_cve_scores
+  expects:
+    cve:
+      type: str
+      description: CVE identifier or comma-separated CVE identifiers.
+    params:
+      type: dict[str, Any] | None
+      description: Additional API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the FIRST API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.first_epss.base_url || "https://api.first.org" }}/data/v1/epss
+        method: GET
+        headers:
+          Accept: application/json
+        params: '${{ FN.merge([inputs.params || {}, {"cve": inputs.cve}]) }}'
+  returns: ${{ steps.request.result }}

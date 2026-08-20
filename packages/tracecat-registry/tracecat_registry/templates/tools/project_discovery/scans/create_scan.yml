@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Create scan
+  description: >-
+    Create a vulnerability scan. Calls POST /v1/scans directly.
+  display_group: ProjectDiscovery
+  doc_url: https://docs.projectdiscovery.io/api-reference/scans/create-scan
+  namespace: tools.project_discovery
+  name: create_scan
+  secrets:
+    - name: project_discovery
+      keys: ["PDCP_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: ProjectDiscovery Cloud API base URL.
+      default: null
+    payload:
+      type: dict[str, Any]
+      description: Scan request body (targets, templates, configuration, etc.).
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.project_discovery.base_url || "https://api.projectdiscovery.io" }}/v1/scans
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

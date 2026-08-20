@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: List data wells
+  description: >-
+    List data wells. Calls GET /data-wells directly. This endpoint does not require an API key.
+  display_group: DeHashed
+  doc_url: https://app.dehashed.com/documentation/api
+  namespace: tools.dehashed
+  name: list_data_wells
+  expects:
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the DeHashed API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.dehashed.base_url || "https://api.dehashed.com" }}/data-wells
+        method: GET
+        headers:
+          Accept: application/json
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

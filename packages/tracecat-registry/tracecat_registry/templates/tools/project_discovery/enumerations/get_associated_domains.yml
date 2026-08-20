@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Get associated domains
+  description: >-
+    Get associated domains. Calls GET /v1/domain/associated directly.
+  display_group: ProjectDiscovery
+  doc_url: https://docs.projectdiscovery.io/api-reference/enumerations/get-associated-domains
+  namespace: tools.project_discovery
+  name: get_associated_domains
+  secrets:
+    - name: project_discovery
+      keys: ["PDCP_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: ProjectDiscovery Cloud API base URL.
+      default: null
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.project_discovery.base_url || "https://api.projectdiscovery.io" }}/v1/domain/associated
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

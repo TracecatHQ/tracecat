@@ -47,3 +47,41 @@ Required secrets:
 Email address to search for leaks.
 
 </ParamField>
+
+## Search leak
+
+Action ID: `tools.leakcheck.search_leak`
+
+Search leaks. Calls GET /api/v2/query/&#123;query&#125; directly.
+
+Reference: [https://wiki.leakcheck.io/en/api/api-v2-pro](https://wiki.leakcheck.io/en/api/api-v2-pro)
+
+### Secrets
+
+Required secrets:
+
+- `leakcheck`: required values `LEAKCHECK_API_KEY`.
+
+### Input fields
+
+<ParamField path="query" type="string" required>
+
+Search value used as the API path value.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Base URL of the LeakCheck API.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="params" type="object | null">
+
+API-native query parameters.
+
+Default: `null`.
+
+</ParamField>

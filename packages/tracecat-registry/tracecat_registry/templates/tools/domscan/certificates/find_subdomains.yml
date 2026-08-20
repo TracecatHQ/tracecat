@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Find subdomains
+  description: Find subdomains. Calls GET /v1/subdomains directly.
+  display_group: DomScan
+  doc_url: https://domscan.net/docs/subdomains
+  namespace: tools.domscan
+  name: find_subdomains
+  secrets:
+    - name: domscan
+      keys: ["DOMSCAN_API_KEY"]
+  expects:
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the DomScan API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.domscan.base_url || "https://domscan.net" }}/v1/subdomains
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.domscan.DOMSCAN_API_KEY }}
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

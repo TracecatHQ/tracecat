@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Search by date
+  description: Search Hacker News by date. Calls GET /api/v1/search_by_date directly.
+  display_group: Hacker News
+  doc_url: https://hn.algolia.com/api
+  namespace: tools.hackernews
+  name: search_by_date
+  secrets: []
+  expects:
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the HN Algolia API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hackernews.base_url || "https://hn.algolia.com" }}/api/v1/search_by_date
+        method: GET
+        headers:
+          Accept: application/json
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

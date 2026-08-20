@@ -1,0 +1,27 @@
+type: action
+definition:
+  title: Get email leak stats
+  description: >-
+    Get public email leak statistics. Calls GET /v1/leaks/stats/email directly. No API key is
+    required.
+  display_group: ProjectDiscovery
+  doc_url: https://docs.projectdiscovery.io/api-reference/leaks/get-email-stats
+  namespace: tools.project_discovery
+  name: get_email_leak_stats
+  expects:
+    base_url:
+      type: str | None
+      description: ProjectDiscovery Cloud API base URL.
+      default: null
+    email:
+      type: str
+      description: Email address to get leak statistics for.
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.project_discovery.base_url || "https://api.projectdiscovery.io" }}/v1/leaks/stats/email
+        method: GET
+        params:
+          email: ${{ inputs.email }}
+  returns: ${{ steps.request.result }}

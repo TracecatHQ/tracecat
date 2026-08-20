@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: Aggregate search
+  description: >-
+    Aggregate search results. Calls POST /v3/global/search/aggregate directly.
+  display_group: Censys
+  doc_url: https://docs.censys.com/reference/v3-globaldata-search-aggregate
+  namespace: tools.censys
+  name: aggregate_search
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_TOKEN"]
+  expects:
+    query:
+      type: str
+      description: CenQL query string to aggregate upon.
+    field:
+      type: str
+      description: Field to aggregate by.
+    number_of_buckets:
+      type: int
+      description: Number of buckets to return.
+    count_by_level:
+      type: str | None
+      description: Optional document level to count by for nested fields.
+      default: null
+    filter_by_query:
+      type: bool | None
+      description: Limit aggregation results to values that satisfy the query constraints.
+      default: null
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Censys Platform API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.censys.base_url || "https://api.platform.censys.io" }}/v3/global/search/aggregate
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
+          Content-Type: application/json
+        params: ${{ inputs.params }}
+        payload:
+          query: ${{ inputs.query }}
+          field: ${{ inputs.field }}
+          number_of_buckets: ${{ inputs.number_of_buckets }}
+          count_by_level: ${{ inputs.count_by_level }}
+          filter_by_query: ${{ inputs.filter_by_query }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Resolve DNS
+  description: >-
+    Resolve hostnames to IP addresses. Calls GET /dns/resolve directly.
+  display_group: Shodan
+  doc_url: https://developer.shodan.io/api#dns-resolve
+  namespace: tools.shodan
+  name: resolve_dns
+  secrets:
+    - name: shodan
+      keys: ["SHODAN_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: Shodan REST API base URL.
+      default: null
+    hostnames:
+      type: str
+      description: Comma-separated list of hostnames, such as "example.com,www.example.com".
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.shodan.base_url || "https://api.shodan.io" }}/dns/resolve
+        method: GET
+        params: '${{ FN.merge([{"key": SECRETS.shodan.SHODAN_API_KEY, "hostnames": inputs.hostnames}, inputs.params || {}]) }}'
+  returns: ${{ steps.request.result }}

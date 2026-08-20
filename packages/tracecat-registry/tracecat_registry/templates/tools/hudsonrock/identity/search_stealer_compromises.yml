@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Search stealer compromises
+  description: >-
+    Search stealer compromises. Calls POST /json/v3/search-by-stealer directly.
+  display_group: HudsonRock
+  doc_url: https://docs.hudsonrock.com/reference/search-by-stealer
+  namespace: tools.hudsonrock
+  name: search_stealer_compromises
+  secrets:
+    - name: hudsonrock
+      keys: ["HUDSONROCK_API_KEY"]
+  expects:
+    stealers:
+      type: list[str]
+      description: HudsonRock stealer IDs to search.
+    payload:
+      type: dict[str, Any] | None
+      description: Additional API-native request body fields.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the HudsonRock API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hudsonrock.base_url || "https://api.hudsonrock.com" }}/json/v3/search-by-stealer
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+          api-key: ${{ SECRETS.hudsonrock.HUDSONROCK_API_KEY }}
+        payload: '${{ FN.merge([inputs.payload || {}, {"stealers": inputs.stealers}]) }}'
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get certificate
+  description: >-
+    Get a certificate. Calls GET /v3/global/asset/certificate/{certificate_id} directly.
+  display_group: Censys
+  doc_url: https://docs.censys.com/reference/v3-globaldata-asset-certificate
+  namespace: tools.censys
+  name: get_certificate
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_TOKEN"]
+  expects:
+    certificate_id:
+      type: str
+      description: SHA-256 certificate fingerprint.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Censys Platform API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.censys.base_url || "https://api.platform.censys.io" }}/v3/global/asset/certificate/${{ FN.url_encode(inputs.certificate_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

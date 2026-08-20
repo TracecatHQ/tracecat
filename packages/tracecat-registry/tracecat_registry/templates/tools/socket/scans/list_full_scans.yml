@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: List full scans
+  description: >-
+    List full scans. Calls GET /v0/orgs/{org_slug}/full-scans directly.
+  display_group: Socket
+  doc_url: https://docs.socket.dev/reference/getorgfullscanlist
+  namespace: tools.socket
+  name: list_full_scans
+  secrets:
+    - name: socket
+      keys: ["SOCKET_API_TOKEN"]
+  expects:
+    org_slug:
+      type: str
+      description: Socket organization slug.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Socket API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.socket.base_url || "https://api.socket.dev" }}/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/full-scans
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.socket.SOCKET_API_TOKEN }}
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

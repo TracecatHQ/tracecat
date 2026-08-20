@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get tweet
+  description: Get a post. Calls GET /2/tweets/{tweet_id} directly.
+  display_group: X
+  doc_url: https://docs.x.com/x-api/posts/get-post-by-id
+  namespace: tools.x
+  name: get_tweet
+  secrets:
+    - name: x
+      keys: ["X_APP_ONLY_TOKEN"]
+  expects:
+    tweet_id:
+      type: str
+      description: X post ID.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the X API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.x.base_url || "https://api.x.com" }}/2/tweets/${{ FN.url_encode(inputs.tweet_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.x.X_APP_ONLY_TOKEN }}
+          Accept: application/json
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

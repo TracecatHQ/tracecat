@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Combined enrichment
+  description: Combined enrichment. Calls GET /v2/combined/find directly.
+  display_group: Hunter.io
+  doc_url: https://hunter.io/api-documentation#combined-enrichment
+  namespace: tools.hunter
+  name: combined_enrichment
+  secrets:
+    - name: hunter
+      keys: ["HUNTER_API_KEY"]
+  expects:
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Hunter API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hunter.base_url || "https://api.hunter.io" }}/v2/combined/find
+        method: GET
+        headers:
+          Accept: application/json
+        params: '${{ FN.merge([{"api_key": SECRETS.hunter.HUNTER_API_KEY}, inputs.params || {}]) }}'
+  returns: ${{ steps.request.result }}

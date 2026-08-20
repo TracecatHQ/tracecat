@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Search vulnerabilities
+  description: >-
+    Search vulnerability findings. Calls GET /v2/vulnerability/search directly.
+  display_group: ProjectDiscovery
+  doc_url: https://docs.projectdiscovery.io/api-reference/full-text-search
+  namespace: tools.project_discovery
+  name: search_vulnerabilities
+  secrets:
+    - name: project_discovery
+      keys: ["PDCP_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: ProjectDiscovery Cloud API base URL.
+      default: null
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.project_discovery.base_url || "https://api.projectdiscovery.io" }}/v2/vulnerability/search
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

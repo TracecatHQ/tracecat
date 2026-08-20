@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Search IP compromises
+  description: >-
+    Search IP compromises. Calls POST /json/v3/search-by-ip directly.
+  display_group: HudsonRock
+  doc_url: https://docs.hudsonrock.com/docs/ipcidr-search
+  namespace: tools.hudsonrock
+  name: search_ip_compromises
+  secrets:
+    - name: hudsonrock
+      keys: ["HUDSONROCK_API_KEY"]
+  expects:
+    payload:
+      type: dict[str, Any] | None
+      description: HudsonRock API-native search body containing IPs or a CIDR range.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the HudsonRock API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hudsonrock.base_url || "https://api.hudsonrock.com" }}/json/v3/search-by-ip
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+          api-key: ${{ SECRETS.hudsonrock.HUDSONROCK_API_KEY }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

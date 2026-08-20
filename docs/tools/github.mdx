@@ -1118,6 +1118,44 @@ Default: `null`.
 
 </ParamField>
 
+## Get gist
+
+Action ID: `tools.github.get_gist`
+
+Get gist. Calls GET /gists/&#123;gist_id&#125; directly. Accepted OAuth scopes: gist (required only for secret or authenticated-user gists; omit for public gists).
+
+Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
+
+### Secrets
+
+Required secrets:
+
+- `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="gist_id" type="string" required>
+
+GitHub API path value for gist_id.
+
+</ParamField>
+
+<ParamField path="base_url" type="string">
+
+GitHub.com REST API base URL.
+
+Default: `"https://api.github.com"`.
+
+</ParamField>
+
+<ParamField path="params" type="object | null">
+
+API-native query parameters, including pagination and filters.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get global security advisory
 
 Action ID: `tools.github.get_global_security_advisory`
@@ -1909,6 +1947,44 @@ GitHub API path value for owner.
 <ParamField path="repo" type="string" required>
 
 GitHub API path value for repo.
+
+</ParamField>
+
+<ParamField path="base_url" type="string">
+
+GitHub.com REST API base URL.
+
+Default: `"https://api.github.com"`.
+
+</ParamField>
+
+<ParamField path="params" type="object | null">
+
+API-native query parameters, including pagination and filters.
+
+Default: `null`.
+
+</ParamField>
+
+## List gist commits
+
+Action ID: `tools.github.list_gist_commits`
+
+List gist commits. Calls GET /gists/&#123;gist_id&#125;/commits directly. Accepted OAuth scopes: gist (required only for secret or authenticated-user gists; omit for public gists).
+
+Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
+
+### Secrets
+
+Required secrets:
+
+- `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="gist_id" type="string" required>
+
+GitHub API path value for gist_id.
 
 </ParamField>
 
@@ -2893,6 +2969,102 @@ Default: `null`.
 Action ID: `tools.github.search_code`
 
 Search code. Calls GET /search/code directly. Accepted OAuth scopes: repo (default; omit only for public repository data).
+
+Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
+
+### Secrets
+
+Required secrets:
+
+- `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="base_url" type="string">
+
+GitHub.com REST API base URL.
+
+Default: `"https://api.github.com"`.
+
+</ParamField>
+
+<ParamField path="params" type="object | null">
+
+API-native query parameters, including pagination and filters.
+
+Default: `null`.
+
+</ParamField>
+
+## Search commits
+
+Action ID: `tools.github.search_commits`
+
+Search commits. Calls GET /search/commits directly. Accepted OAuth scopes: repo (default; omit only for public repository data).
+
+Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
+
+### Secrets
+
+Required secrets:
+
+- `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="base_url" type="string">
+
+GitHub.com REST API base URL.
+
+Default: `"https://api.github.com"`.
+
+</ParamField>
+
+<ParamField path="params" type="object | null">
+
+API-native query parameters, including pagination and filters.
+
+Default: `null`.
+
+</ParamField>
+
+## Search issues
+
+Action ID: `tools.github.search_issues`
+
+Search issues. Calls GET /search/issues directly. Accepted OAuth scopes: repo (default; omit only for public repository data). Pass advanced_search in params when GitHub requires it.
+
+Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
+
+### Secrets
+
+Required secrets:
+
+- `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="base_url" type="string">
+
+GitHub.com REST API base URL.
+
+Default: `"https://api.github.com"`.
+
+</ParamField>
+
+<ParamField path="params" type="object | null">
+
+API-native query parameters, including pagination and filters.
+
+Default: `null`.
+
+</ParamField>
+
+## Search repositories
+
+Action ID: `tools.github.search_repositories`
+
+Search repositories. Calls GET /search/repositories directly. Accepted OAuth scopes: repo (default; omit only for public repository data).
 
 Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 

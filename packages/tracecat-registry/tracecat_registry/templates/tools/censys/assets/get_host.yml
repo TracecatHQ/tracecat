@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get host
+  description: Get a host. Calls GET /v3/global/asset/host/{host_id} directly.
+  display_group: Censys
+  doc_url: https://docs.censys.com/reference/v3-globaldata-asset-host
+  namespace: tools.censys
+  name: get_host
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_TOKEN"]
+  expects:
+    host_id:
+      type: str
+      description: Host IP address.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Censys Platform API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.censys.base_url || "https://api.platform.censys.io" }}/v3/global/asset/host/${{ FN.url_encode(inputs.host_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

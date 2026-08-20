@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Search breaches
+  description: >-
+    Search breaches. Calls POST /v2/search directly with a DeHashed API-native payload.
+  display_group: DeHashed
+  doc_url: https://app.dehashed.com/documentation/api
+  namespace: tools.dehashed
+  name: search_breaches
+  secrets:
+    - name: dehashed
+      keys: ["DEHASHED_API_KEY"]
+  expects:
+    payload:
+      type: dict[str, Any] | None
+      description: DeHashed API-native search payload.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the DeHashed API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.dehashed.base_url || "https://api.dehashed.com" }}/v2/search
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+          DeHashed-Api-Key: ${{ SECRETS.dehashed.DEHASHED_API_KEY }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

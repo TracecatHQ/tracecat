@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Create full scan
+  description: >-
+    Create a full scan. Calls POST /v0/orgs/{org_slug}/full-scans directly with multipart files.
+  display_group: Socket
+  doc_url: https://docs.socket.dev/reference/createorgfullscan
+  namespace: tools.socket
+  name: create_full_scan
+  secrets:
+    - name: socket
+      keys: ["SOCKET_API_TOKEN"]
+  expects:
+    org_slug:
+      type: str
+      description: Socket organization slug.
+    repo:
+      type: str
+      description: Repository slug to associate with the full scan.
+    files:
+      type: dict[str, Any]
+      description: Multipart files map accepted by core.http_request.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters in addition to the required repo value.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Socket API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.socket.base_url || "https://api.socket.dev" }}/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/full-scans
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.socket.SOCKET_API_TOKEN }}
+        params: '${{ FN.merge([inputs.params || {}, {"repo": inputs.repo}]) }}'
+        files: ${{ inputs.files }}
+  returns: ${{ steps.request.result }}

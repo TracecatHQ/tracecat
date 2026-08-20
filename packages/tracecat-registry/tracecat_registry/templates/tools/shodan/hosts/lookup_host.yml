@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Lookup host
+  description: >-
+    Look up Shodan host information. Calls GET /shodan/host/{ip} directly.
+  display_group: Shodan
+  doc_url: https://developer.shodan.io/api#shodan-host-details
+  namespace: tools.shodan
+  name: lookup_host
+  secrets:
+    - name: shodan
+      keys: ["SHODAN_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: Shodan REST API base URL.
+      default: null
+    ip:
+      type: str
+      description: Host IP address.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.shodan.base_url || "https://api.shodan.io" }}/shodan/host/${{ FN.url_encode(inputs.ip) }}
+        method: GET
+        params: '${{ FN.merge([{"key": SECRETS.shodan.SHODAN_API_KEY}, inputs.params || {}]) }}'
+  returns: ${{ steps.request.result }}

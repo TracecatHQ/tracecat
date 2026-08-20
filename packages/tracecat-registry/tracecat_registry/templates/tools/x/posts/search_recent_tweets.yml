@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Search recent tweets
+  description: Search recent posts. Calls GET /2/tweets/search/recent directly.
+  display_group: X
+  doc_url: https://docs.x.com/x-api/posts/search-recent-posts
+  namespace: tools.x
+  name: search_recent_tweets
+  secrets:
+    - name: x
+      keys: ["X_APP_ONLY_TOKEN"]
+  expects:
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the X API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.x.base_url || "https://api.x.com" }}/2/tweets/search/recent
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.x.X_APP_ONLY_TOKEN }}
+          Accept: application/json
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

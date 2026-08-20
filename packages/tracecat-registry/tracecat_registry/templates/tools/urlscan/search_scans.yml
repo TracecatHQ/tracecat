@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Search scans
+  description: >-
+    Search urlscan scans. Calls GET /api/v1/search/ directly.
+  display_group: URLScan
+  doc_url: https://docs.urlscan.io/apis/urlscan-openapi/search/searchdatasource
+  namespace: tools.urlscan
+  name: search_scans
+  secrets:
+    - name: urlscan
+      keys: ["URLSCAN_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: urlscan base URL.
+      default: null
+    query:
+      type: str
+      description: urlscan search query. Maps to q.
+      default: "*"
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.urlscan.base_url || "https://urlscan.io" }}/api/v1/search/
+        method: GET
+        headers:
+          API-Key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+          Accept: application/json
+        params: '${{ FN.merge([{"q": inputs.query}, inputs.params || {}]) }}'
+  returns: ${{ steps.request.result }}

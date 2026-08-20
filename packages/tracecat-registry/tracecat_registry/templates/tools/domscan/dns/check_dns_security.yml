@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Check DNS security
+  description: Check DNS security. Calls GET /v1/dns/security directly.
+  display_group: DomScan
+  doc_url: https://domscan.net/docs/dns-security
+  namespace: tools.domscan
+  name: check_dns_security
+  secrets:
+    - name: domscan
+      keys: ["DOMSCAN_API_KEY"]
+  expects:
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the DomScan API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.domscan.base_url || "https://domscan.net" }}/v1/dns/security
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.domscan.DOMSCAN_API_KEY }}
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

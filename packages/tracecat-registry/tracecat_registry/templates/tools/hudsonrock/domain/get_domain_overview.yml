@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Get domain overview
+  description: >-
+    Get a domain overview. Calls POST /json/v3/search-by-domain/overview directly.
+  display_group: HudsonRock
+  doc_url: https://docs.hudsonrock.com/reference/domains-overview
+  namespace: tools.hudsonrock
+  name: get_domain_overview
+  secrets:
+    - name: hudsonrock
+      keys: ["HUDSONROCK_API_KEY"]
+  expects:
+    domains:
+      type: list[str]
+      description: Domains to summarize.
+    payload:
+      type: dict[str, Any] | None
+      description: Additional API-native request body fields.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the HudsonRock API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hudsonrock.base_url || "https://api.hudsonrock.com" }}/json/v3/search-by-domain/overview
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+          api-key: ${{ SECRETS.hudsonrock.HUDSONROCK_API_KEY }}
+        payload: '${{ FN.merge([inputs.payload || {}, {"domains": inputs.domains}]) }}'
+  returns: ${{ steps.request.result }}

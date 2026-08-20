@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Stream full scan
+  description: >-
+    Stream a full scan. Calls GET /v0/orgs/{org_slug}/full-scans/{full_scan_id} directly.
+  display_group: Socket
+  doc_url: https://docs.socket.dev/reference/getorgfullscan
+  namespace: tools.socket
+  name: stream_full_scan
+  secrets:
+    - name: socket
+      keys: ["SOCKET_API_TOKEN"]
+  expects:
+    org_slug:
+      type: str
+      description: Socket organization slug.
+    full_scan_id:
+      type: str
+      description: Socket full scan ID.
+    accept:
+      type: str
+      description: Response media type to request.
+      default: application/x-ndjson
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Socket API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.socket.base_url || "https://api.socket.dev" }}/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/full-scans/${{ FN.url_encode(inputs.full_scan_id) }}
+        method: GET
+        headers:
+          Accept: ${{ inputs.accept }}
+          Authorization: Bearer ${{ SECRETS.socket.SOCKET_API_TOKEN }}
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

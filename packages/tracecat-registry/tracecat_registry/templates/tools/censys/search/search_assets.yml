@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Search assets
+  description: Search assets. Calls POST /v3/global/search/query directly.
+  display_group: Censys
+  doc_url: https://docs.censys.com/reference/v3-globaldata-search-query
+  namespace: tools.censys
+  name: search_assets
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_TOKEN"]
+  expects:
+    query:
+      type: str
+      description: CenQL query string to search upon.
+    fields:
+      type: list[str] | None
+      description: Optional list of fields to return in the response.
+      default: null
+    page_size:
+      type: int | None
+      description: Number of results to return per page. Censys defaults to 100.
+      default: null
+    page_token:
+      type: str | None
+      description: Page token from a previous response.
+      default: null
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Censys Platform API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.censys.base_url || "https://api.platform.censys.io" }}/v3/global/search/query
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
+          Content-Type: application/json
+        params: ${{ inputs.params }}
+        payload:
+          query: ${{ inputs.query }}
+          fields: ${{ inputs.fields }}
+          page_size: ${{ inputs.page_size }}
+          page_token: ${{ inputs.page_token }}
+  returns: ${{ steps.request.result }}

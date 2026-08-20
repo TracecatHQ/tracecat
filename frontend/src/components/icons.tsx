@@ -684,7 +684,6 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.panther": createCatalogIconRenderer("panther_mcp"),
     "tools.rootly": createCatalogIconRenderer("rootly_mcp"),
     "tools.sentinel_one": createCatalogIconRenderer("sentinelone_mcp"),
-    "tools.sixtyfour": createCatalogIconRenderer("sixtyfour_mcp"),
     "tools.splunk": createCatalogIconRenderer("splunk_mcp"),
     // Semantic lucide fallbacks (no clean brand mark available)
     "tools.abuseipdb": createColoredLucideRenderer(

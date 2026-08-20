@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Get result
+  description: >-
+    Get a urlscan result. Calls GET /api/v1/result/{uuid}/ directly.
+  display_group: URLScan
+  doc_url: https://docs.urlscan.io/apis/urlscan-openapi/scanning/getresult
+  namespace: tools.urlscan
+  name: get_result
+  secrets:
+    - name: urlscan
+      keys: ["URLSCAN_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: urlscan base URL.
+      default: null
+    uuid:
+      type: str
+      description: urlscan scan UUID.
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.urlscan.base_url || "https://urlscan.io" }}/api/v1/result/${{ FN.url_encode(inputs.uuid) }}/
+        method: GET
+        headers:
+          API-Key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+          Accept: application/json
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Search PC compromises
+  description: >-
+    Search PC compromises. Calls POST /json/v3/search-by-pc directly.
+  display_group: HudsonRock
+  doc_url: https://docs.hudsonrock.com/reference/searchbypc
+  namespace: tools.hudsonrock
+  name: search_pc_compromises
+  secrets:
+    - name: hudsonrock
+      keys: ["HUDSONROCK_API_KEY"]
+  expects:
+    pcs:
+      type: list[str]
+      description: Computer names to search.
+    payload:
+      type: dict[str, Any] | None
+      description: Additional API-native request body fields.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the HudsonRock API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hudsonrock.base_url || "https://api.hudsonrock.com" }}/json/v3/search-by-pc
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+          api-key: ${{ SECRETS.hudsonrock.HUDSONROCK_API_KEY }}
+        payload: '${{ FN.merge([inputs.payload || {}, {"pcs": inputs.pcs}]) }}'
+  returns: ${{ steps.request.result }}

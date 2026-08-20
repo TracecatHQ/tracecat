@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Fetch packages by PURL
+  description: >-
+    Fetch packages by PURL. Calls POST /v0/orgs/{org_slug}/purl directly.
+  display_group: Socket
+  doc_url: https://docs.socket.dev/reference/batchpackagefetchbyorg
+  namespace: tools.socket
+  name: fetch_packages_by_purl
+  secrets:
+    - name: socket
+      keys: ["SOCKET_API_TOKEN"]
+  expects:
+    org_slug:
+      type: str
+      description: Socket organization slug.
+    components:
+      type: list[dict[str, Any]]
+      description: API-native package components containing PURLs.
+    accept:
+      type: str
+      description: Response media type to request.
+      default: application/x-ndjson
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Socket API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.socket.base_url || "https://api.socket.dev" }}/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/purl
+        method: POST
+        headers:
+          Accept: ${{ inputs.accept }}
+          Content-Type: application/json
+          Authorization: Bearer ${{ SECRETS.socket.SOCKET_API_TOKEN }}
+        params: ${{ inputs.params }}
+        payload:
+          components: ${{ inputs.components }}
+  returns: ${{ steps.request.result }}

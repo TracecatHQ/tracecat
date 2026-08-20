@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Get hosts
+  description: Get multiple hosts. Calls POST /v3/global/asset/host directly.
+  display_group: Censys
+  doc_url: https://docs.censys.com/reference/v3-globaldata-asset-host-list-post
+  namespace: tools.censys
+  name: get_hosts
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_TOKEN"]
+  expects:
+    host_ids:
+      type: list[str]
+      description: Host IP addresses to retrieve.
+    at_time:
+      type: str | None
+      description: Optional RFC3339 timestamp to view all requested hosts at a specific point in time.
+      default: null
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Censys Platform API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.censys.base_url || "https://api.platform.censys.io" }}/v3/global/asset/host
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
+          Content-Type: application/json
+        params: ${{ inputs.params }}
+        payload:
+          host_ids: ${{ inputs.host_ids }}
+          at_time: ${{ inputs.at_time }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Lookup IPs context
+  description: >-
+    Get full context for multiple IP addresses. Calls POST /v3/ip directly.
+  display_group: GreyNoise
+  doc_url: https://docs.greynoise.io/reference/v3multiip
+  namespace: tools.greynoise
+  name: lookup_ips_context
+  secrets:
+    - name: greynoise
+      keys: ["GREYNOISE_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: GreyNoise API base URL.
+      default: null
+    ips:
+      type: list[str]
+      description: IPv4 addresses to lookup. GreyNoise supports up to 10000 per request.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.greynoise.base_url || "https://api.greynoise.io" }}/v3/ip
+        method: POST
+        headers:
+          key: ${{ SECRETS.greynoise.GREYNOISE_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        params: ${{ inputs.params }}
+        payload:
+          ips: ${{ inputs.ips }}
+  returns: ${{ steps.request.result }}

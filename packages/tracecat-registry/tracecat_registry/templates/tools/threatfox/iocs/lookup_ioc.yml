@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Lookup IOC
+  description: >-
+    Look up an indicator. Calls POST /api/v1/ directly with query search_ioc.
+  display_group: ThreatFox
+  doc_url: https://threatfox.abuse.ch/api/#search-ioc
+  namespace: tools.threatfox
+  name: lookup_ioc
+  secrets:
+    - name: abusech
+      keys: ["ABUSECH_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: Base URL of the ThreatFox API.
+      default: null
+    ioc:
+      type: str
+      description: IOC value to search, such as a URL, domain, IP, IP:port, or hash.
+    exact_match:
+      type: bool | None
+      description: Search for the exact IOC instead of a wildcard search.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.threatfox.base_url || "https://threatfox-api.abuse.ch" }}/api/v1/
+        method: POST
+        headers:
+          Auth-Key: ${{ SECRETS.abusech.ABUSECH_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          query: search_ioc
+          search_term: ${{ inputs.ioc }}
+          exact_match: ${{ inputs.exact_match }}
+  returns: ${{ steps.request.result }}
