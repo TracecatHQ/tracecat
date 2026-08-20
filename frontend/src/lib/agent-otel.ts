@@ -299,7 +299,9 @@ function serializeResourceAttributes(
 }
 
 function parseResourceAttributes(value: string): Record<string, string> {
-  const attributes: Record<string, string> = {}
+  // Null prototype so attribute names like `toString` or `__proto__` are
+  // stored as own properties instead of colliding with Object.prototype.
+  const attributes: Record<string, string> = Object.create(null)
   for (const item of value.split(",")) {
     const separator = item.indexOf("=")
     if (separator <= 0 || separator === item.length - 1) {
@@ -323,7 +325,7 @@ function parseResourceAttributes(value: string): Record<string, string> {
         "OTEL_RESOURCE_ATTRIBUTES names and values cannot be empty."
       )
     }
-    if (attributes[key] !== undefined) {
+    if (Object.hasOwn(attributes, key)) {
       throw new Error(`OTEL_RESOURCE_ATTRIBUTES contains duplicate key ${key}.`)
     }
     attributes[key] = attributeValue

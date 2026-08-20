@@ -305,6 +305,17 @@ describe("validateForm / validateEnvMap", () => {
     ])
   })
 
+  it("accepts resource attribute names shadowing Object.prototype members", () => {
+    expect(
+      validateEnvMap({
+        OTEL_RESOURCE_ATTRIBUTES: "toString=a,constructor=b,__proto__=c",
+      })
+    ).toEqual([])
+    expect(
+      validateEnvMap({ OTEL_RESOURCE_ATTRIBUTES: "toString=a,toString=b" })
+    ).toEqual(["OTEL_RESOURCE_ATTRIBUTES contains duplicate key toString."])
+  })
+
   it("skips endpoint requirements when telemetry is disabled", () => {
     const options = { requireOtlpEndpoint: false }
     expect(validateEnvMap({ OTEL_LOGS_EXPORTER: "otlp" }, options)).toEqual([])
