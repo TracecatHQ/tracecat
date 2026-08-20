@@ -338,150 +338,6 @@ Default: `null`.
 
 </ParamField>
 
-## List behavioral detections
-
-Action ID: `tools.iru.list_behavioral_detections`
-
-List EDR behavioral detections. Threat state is read-only through the API; there is no endpoint to release a detection from quarantine.
-
-Reference: [https://api-docs.iru.com/#f376b345-8dc2-4ac6-97fd-0d81748e130f](https://api-docs.iru.com/#f376b345-8dc2-4ac6-97fd-0d81748e130f)
-
-### Secrets
-
-Required secrets:
-
-- `iru`: required values `IRU_API_TOKEN`.
-
-### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Iru (Kandji) API base URL (e.g. https://acme.api.kandji.io).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="classification" type="string | null">
-
-Detection classification to filter by.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="date_range" type="integer | null">
-
-Number of days to include.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="detection_date_from" type="string | null">
-
-Earliest detection date to include.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="detection_date_to" type="string | null">
-
-Latest detection date to include.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="device_id" type="string | null">
-
-Device UUID to filter by.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="informational_tags" type="string | null">
-
-Informational tags to filter by.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="limit" type="integer | null">
-
-Results per page. Maximum 1000.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="malware_family" type="string | null">
-
-Malware family to filter by.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="offset" type="integer | null">
-
-Number of results to skip.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="parent_process_name" type="string | null">
-
-Parent process name to filter by.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="sort_by" type="string | null">
-
-Field to sort results by.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="status" type="string | null">
-
-Detection status to filter by.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="target_process_name" type="string | null">
-
-Target process name to filter by.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="term" type="string | null">
-
-Free-text search term.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="threat_id" type="string | null">
-
-Threat UUID to filter by.
-
-Default: `null`.
-
-</ParamField>
-
 ## List blueprints
 
 Action ID: `tools.iru.list_blueprints`
@@ -617,6 +473,124 @@ Device UUID.
 <ParamField path="base_url" type="string | null">
 
 Iru (Kandji) API base URL (e.g. https://acme.api.kandji.io).
+
+Default: `null`.
+
+</ParamField>
+
+## List device behavioral detections
+
+Action ID: `tools.iru.list_device_behavioral_detections`
+
+List EDR behavioral detection events for a single device. The v2 endpoint is device-scoped, so a device UUID is required and fleet-wide sweeps are not available. Threat state is read-only through the API.
+
+Reference: [https://api-docs.iru.com/#39bfcf91-086a-4907-a69d-b5bca6a1a1a8](https://api-docs.iru.com/#39bfcf91-086a-4907-a69d-b5bca6a1a1a8)
+
+### Secrets
+
+Required secrets:
+
+- `iru`: required values `IRU_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="device_id" type="string" required>
+
+Required. Device UUID to return detection events for.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Iru base URL (e.g. https://acme.api.kandji.io).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="classifications" type="string | null">
+
+Detection classifications to filter by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="detection_from" type="string | null">
+
+Earliest detection timestamp in UTC (e.g. 2026-01-21T16:08:00.0).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="detection_to" type="string | null">
+
+Latest detection timestamp in UTC (e.g. 2026-01-21T16:08:00.0).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Results per page. Maximum 1000.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="management_state" type="string | null">
+
+Management states to filter by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+Number of results to skip.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search_term" type="string | null">
+
+Search term to filter results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severities" type="string | null">
+
+Severity levels to filter by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_by" type="string | null">
+
+Field to sort by; prefix with - to reverse the order.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="statuses" type="string | null">
+
+Detection statuses to filter by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tags" type="string | null">
+
+Tags to filter by.
 
 Default: `null`.
 
@@ -910,7 +884,7 @@ Action ID: `tools.iru.list_threat_details`
 
 List malware and potentially unwanted program detections. Threat state is read-only through the API; there is no endpoint to release a detection from quarantine.
 
-Reference: [https://api-docs.iru.com/#d041043a-ea47-47d5-b6f1-234ef422494d](https://api-docs.iru.com/#d041043a-ea47-47d5-b6f1-234ef422494d)
+Reference: [https://api-docs.iru.com/#92ff98c7-c048-4f1e-9ac2-3b65ea9af5dd](https://api-docs.iru.com/#92ff98c7-c048-4f1e-9ac2-3b65ea9af5dd)
 
 ### Secrets
 
@@ -920,9 +894,15 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="statuses" type="string" required>
+
+Required. Threat statuses to return, such as quarantined, not_quarantined, or released.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
-Iru (Kandji) API base URL (e.g. https://acme.api.kandji.io).
+Iru base URL (e.g. https://acme.api.kandji.io).
 
 Default: `null`.
 
@@ -930,7 +910,7 @@ Default: `null`.
 
 <ParamField path="classification" type="string | null">
 
-Detection classification, such as malware or pup.
+Threat classification to filter by, such as malware or pup.
 
 Default: `null`.
 
@@ -938,7 +918,23 @@ Default: `null`.
 
 <ParamField path="date_range" type="integer | null">
 
-Number of days to include.
+Return records from the last N days.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="detection_date_from" type="string | null">
+
+Earliest detection timestamp in UTC (e.g. 2026-01-21T16:08:00.0).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="detection_date_to" type="string | null">
+
+Latest detection timestamp in UTC (e.g. 2026-01-21T16:08:00.0).
 
 Default: `null`.
 
@@ -946,7 +942,7 @@ Default: `null`.
 
 <ParamField path="device_id" type="string | null">
 
-Device UUID to filter by.
+Return detections for a single device UUID.
 
 Default: `null`.
 
@@ -960,6 +956,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="management_state" type="string | null">
+
+Management states to filter by.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="offset" type="integer | null">
 
 Number of results to skip.
@@ -968,17 +972,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="sort_by" type="string | null">
+<ParamField path="severities" type="string | null">
 
-Field to sort results by.
+Severity levels to filter by.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="status" type="string | null">
+<ParamField path="sort_by" type="string | null">
 
-Detection status, such as quarantined, not_quarantined, or released.
+Field to sort by; prefix with - to reverse the order.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tags" type="string | null">
+
+Tags to filter by.
 
 Default: `null`.
 
@@ -986,7 +998,7 @@ Default: `null`.
 
 <ParamField path="term" type="string | null">
 
-Free-text search across device name and file hash.
+Search term matched against fields such as device name and file hash.
 
 Default: `null`.
 

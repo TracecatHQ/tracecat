@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: List threat details
-  description: List malware and potentially unwanted program detections. Threat state is read-only through the API; there is no endpoint to release a detection from quarantine.
+  title: List device behavioral detections
+  description: List EDR behavioral detection events for a single device. The v2 endpoint is device-scoped, so a device UUID is required and fleet-wide sweeps are not available. Threat state is read-only through the API.
   display_group: Iru (Kandji)
-  doc_url: https://api-docs.iru.com/#92ff98c7-c048-4f1e-9ac2-3b65ea9af5dd
+  doc_url: https://api-docs.iru.com/#39bfcf91-086a-4907-a69d-b5bca6a1a1a8
   namespace: tools.iru
-  name: list_threat_details
+  name: list_device_behavioral_detections
   secrets:
     - name: iru
       keys: ["IRU_API_TOKEN"]
@@ -14,16 +14,16 @@ definition:
       type: str | None
       description: Iru base URL (e.g. https://acme.api.kandji.io).
       default: null
-    statuses:
-      type: str
-      description: Required. Threat statuses to return, such as quarantined, not_quarantined, or released.
     device_id:
+      type: str
+      description: Required. Device UUID to return detection events for.
+    classifications:
       type: str | None
-      description: Return detections for a single device UUID.
+      description: Detection classifications to filter by.
       default: null
-    classification:
+    statuses:
       type: str | None
-      description: Threat classification to filter by, such as malware or pup.
+      description: Detection statuses to filter by.
       default: null
     severities:
       type: str | None
@@ -37,19 +37,15 @@ definition:
       type: str | None
       description: Tags to filter by.
       default: null
-    term:
+    search_term:
       type: str | None
-      description: Search term matched against fields such as device name and file hash.
+      description: Search term to filter results.
       default: null
-    date_range:
-      type: int | None
-      description: Return records from the last N days.
-      default: null
-    detection_date_from:
+    detection_from:
       type: str | None
       description: Earliest detection timestamp in UTC (e.g. 2026-01-21T16:08:00.0).
       default: null
-    detection_date_to:
+    detection_to:
       type: str | None
       description: Latest detection timestamp in UTC (e.g. 2026-01-21T16:08:00.0).
       default: null
@@ -71,28 +67,27 @@ definition:
       args:
         inputs:
           params:
-            statuses: ${{ inputs.statuses }}
             device_id: ${{ inputs.device_id }}
-            classification: ${{ inputs.classification }}
+            classifications: ${{ inputs.classifications }}
+            statuses: ${{ inputs.statuses }}
             severities: ${{ inputs.severities }}
             management_state: ${{ inputs.management_state }}
             tags: ${{ inputs.tags }}
-            term: ${{ inputs.term }}
-            date_range: ${{ inputs.date_range }}
-            detection_date_from: ${{ inputs.detection_date_from }}
-            detection_date_to: ${{ inputs.detection_date_to }}
+            search_term: ${{ inputs.search_term }}
+            detection_from: ${{ inputs.detection_from }}
+            detection_to: ${{ inputs.detection_to }}
             sort_by: ${{ inputs.sort_by }}
             limit: ${{ inputs.limit }}
             offset: ${{ inputs.offset }}
         script: |
           def main(params):
               return {k: v for k, v in params.items() if v is not None}
-    - ref: list_threat_details
+    - ref: list_device_behavioral_detections
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.iru.base_url }}/api/v2/threat/threat-details
+        url: ${{ inputs.base_url || VARS.iru.base_url }}/api/v2/threat/behavioral-detections/events
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.iru.IRU_API_TOKEN }}
         params: ${{ steps.build_params.result }}
-  returns: ${{ steps.list_threat_details.result }}
+  returns: ${{ steps.list_device_behavioral_detections.result }}
