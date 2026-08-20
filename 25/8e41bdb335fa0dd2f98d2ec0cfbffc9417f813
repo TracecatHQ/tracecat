@@ -1,0 +1,27 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_repositories.yml
+  s_3a7ca8e95d5b4e::t_ef8cdc315dc35e 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/github/gists/get_gist.yml
+  s_3a7ca8e95d5b4e::t_ef8cdc315dc35e 1-36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/gists/list_gist_commits.yml
+  s_3a7ca8e95d5b4e::t_ef8cdc315dc35e 1-36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_issues.yml
+  s_3a7ca8e95d5b4e::t_ef8cdc315dc35e 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_commits.yml
+  s_3a7ca8e95d5b4e::t_ef8cdc315dc35e 1-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "258e41bdb335fa0dd2f98d2ec0cfbffc9417f813",
+  "prompts": {},
+  "sessions": {
+    "s_3a7ca8e95d5b4e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a020ef-e796-7f82-ac88-6cc78c08883b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
