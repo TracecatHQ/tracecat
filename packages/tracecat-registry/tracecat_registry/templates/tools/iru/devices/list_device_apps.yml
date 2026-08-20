@@ -3,7 +3,7 @@ definition:
   title: List device apps
   description: Lists applications installed on a device.
   display_group: Iru (Kandji)
-  doc_url: https://api-docs.iru.com/
+  doc_url: https://api-docs.iru.com/#f8cd9733-89b6-40f0-a7ca-76829c6974df
   namespace: tools.iru
   name: list_device_apps
   secrets:

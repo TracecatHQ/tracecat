@@ -3,7 +3,7 @@ definition:
   title: Query Prism inventory
   description: Queries a fleet-wide Prism inventory category. This list-heavy endpoint shares the tenant-wide limit of 10,000 API requests per hour across all API tokens.
   display_group: Iru (Kandji)
-  doc_url: https://api-docs.iru.com/
+  doc_url: https://api-docs.iru.com/#d538b34f-5343-416e-be53-2ba108c51dfa
   namespace: tools.iru
   name: query_prism
   secrets:

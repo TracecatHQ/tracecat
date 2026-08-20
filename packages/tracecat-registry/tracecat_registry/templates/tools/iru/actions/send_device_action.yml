@@ -3,7 +3,7 @@ definition:
   title: Send device action
   description: Sends a payload-free device action. Lock and erase use dedicated actions because they accept request bodies.
   display_group: Iru (Kandji)
-  doc_url: https://api-docs.iru.com/
+  doc_url: https://api-docs.iru.com/#8c0c2c1a-4d57-4a56-80f9-87d0793f0006
   namespace: tools.iru
   name: send_device_action
   secrets:

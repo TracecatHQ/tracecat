@@ -3,7 +3,7 @@ definition:
   title: List device library items
   description: Lists Library Items assigned to a device.
   display_group: Iru (Kandji)
-  doc_url: https://api-docs.iru.com/
+  doc_url: https://api-docs.iru.com/#005bf79f-3458-4834-9c2f-4e0c792069f4
   namespace: tools.iru
   name: list_device_library_items
   secrets:

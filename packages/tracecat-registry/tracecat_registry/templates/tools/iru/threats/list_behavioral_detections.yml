@@ -3,7 +3,7 @@ definition:
   title: List behavioral detections
   description: Lists EDR behavioral detections. Threat state is read-only through the API; there is no endpoint to release a detection from quarantine, and released is only a filter value.
   display_group: Iru (Kandji)
-  doc_url: https://api-docs.iru.com/
+  doc_url: https://api-docs.iru.com/#f376b345-8dc2-4ac6-97fd-0d81748e130f
   namespace: tools.iru
   name: list_behavioral_detections
   secrets:

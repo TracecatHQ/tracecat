@@ -3,7 +3,7 @@ definition:
   title: List blueprints
   description: Lists tenant Blueprints with optional filtering and pagination.
   display_group: Iru (Kandji)
-  doc_url: https://api-docs.iru.com/
+  doc_url: https://api-docs.iru.com/#44d3765c-ef17-4226-9104-47e5cef1d370
   namespace: tools.iru
   name: list_blueprints
   secrets:

@@ -3,7 +3,7 @@ definition:
   title: List audit events
   description: Lists cursor-paginated audit events, including Blueprint and Library Item changes, access to sensitive data such as FileVault and recovery keys, device lifecycle events, and API token management. Responses include next and previous URLs. This list-heavy endpoint shares the tenant-wide limit of 10,000 API requests per hour across all API tokens.
   display_group: Iru (Kandji)
-  doc_url: https://api-docs.iru.com/
+  doc_url: https://api-docs.iru.com/#06022d9d-426b-4aea-826a-d7f084e4f1e3
   namespace: tools.iru
   name: list_audit_events
   secrets:

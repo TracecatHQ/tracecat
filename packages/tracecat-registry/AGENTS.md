@@ -14,8 +14,28 @@ do not break their public inputs or outputs without an explicitly planned migrat
   official documentation, the official OpenAPI specification when one exists, and
   relevant official SDK or MCP schemas. Check authentication, scopes, API versions,
   request and response shapes, pagination, errors, and asynchronous states.
-- Deep-link each action to its official endpoint documentation. If primary sources
-  are incomplete or conflict, surface the gap during planning instead of guessing.
+- Deep-link each action to its official endpoint documentation. A `doc_url` must
+  point at the specific endpoint whenever a per-endpoint URL exists at all; a
+  section index or documentation root is acceptable only after you have
+  established that no per-endpoint address is reachable. If primary sources are
+  incomplete or conflict, surface the gap during planning instead of guessing.
+- Dig for the deep link before settling for a root URL. Modern vendor references
+  are often single-page apps that look unlinkable but are not:
+  - ReadMe, Redoc, Scalar, and Swagger UI derive per-operation URLs or fragments
+    from the OpenAPI `operationId` or from `method + path`.
+  - Postman documenters address every request and folder by UUID fragment. Read
+    the published page's `href` for `/api/collections/<ownerId>/<publishedId>`,
+    fetch that JSON, and map each action to its request `id`.
+  - A `sitemap.xml`, `llms.txt`, or the OpenAPI document itself will often
+    enumerate the addressable pages.
+- Never invent a fragment or path you have not seen in the vendor's own data. A
+  fabricated anchor silently resolves to the page root, so it looks correct in
+  review and in CI while sending the reader nowhere. Prefer an honest root URL
+  over a plausible guess, and say which actions took that fallback.
+- Verify deep links against the vendor's own inventory, not HTTP status codes.
+  Single-page docs return 200 for any path or fragment, so a status check proves
+  nothing. Confirm each identifier appears in the sitemap, OpenAPI spec, or
+  collection JSON you pulled it from.
 - Strongly prefer YAML templates that call Tracecat's core HTTP actions for REST
   APIs. If research finds a maintained official Python SDK, ask the user during
   planning whether to use it. If approved, add generic direct and paginated SDK UDFs

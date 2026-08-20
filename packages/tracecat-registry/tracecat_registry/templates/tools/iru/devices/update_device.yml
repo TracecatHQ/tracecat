@@ -3,7 +3,7 @@ definition:
   title: Update device
   description: Updates device assignment and metadata; there is no separate blueprint-assignment endpoint, so use this action to assign a blueprint during onboarding.
   display_group: Iru (Kandji)
-  doc_url: https://api-docs.iru.com/
+  doc_url: https://api-docs.iru.com/#b70f2ddc-cc1b-4b4f-8eec-e481d8a17927
   namespace: tools.iru
   name: update_device
   secrets:

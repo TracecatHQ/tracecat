@@ -3,7 +3,7 @@ definition:
   title: List device activity
   description: Lists activity records for a device.
   display_group: Iru (Kandji)
-  doc_url: https://api-docs.iru.com/
+  doc_url: https://api-docs.iru.com/#80710108-fbdb-4dfd-af84-50adf15c5a23
   namespace: tools.iru
   name: list_device_activity
   secrets:

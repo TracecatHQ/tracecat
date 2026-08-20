@@ -3,7 +3,7 @@ definition:
   title: Get device details
   description: Gets detailed inventory information for a device.
   display_group: Iru (Kandji)
-  doc_url: https://api-docs.iru.com/
+  doc_url: https://api-docs.iru.com/#efa2170d-e5f7-4b97-8f4c-da6f84ba58b5
   namespace: tools.iru
   name: get_device_details
   secrets:
