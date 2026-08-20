@@ -1,11 +1,14 @@
+from collections.abc import Mapping
+from typing import Any, cast
+
 import pytest
 from pydantic import HttpUrl, SecretStr, ValidationError
 
 from tracecat.agent.otel_config import (
     AgentOtelConfig,
-    AgentOtelPlatformOverride,
-    load_agent_otel_platform_override,
     resolve_agent_otel_config,
+    secret_otel_headers,
+    validate_otel_header_items,
 )
 
 
@@ -16,11 +19,9 @@ def test_resolve_org_agent_otel_config_keeps_endpoint_host_side() -> None:
             endpoint=HttpUrl("https://collector.example.com"),
         ),
         org_headers={"Authorization": "Bearer token"},
-        platform_override=None,
     )
 
     assert resolved.enabled is True
-    assert resolved.source == "org"
     assert resolved.sandbox_env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
     # The shim is the endpoint's single writer; the resolver never emits one.
     assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in resolved.sandbox_env
@@ -32,60 +33,16 @@ def test_resolve_org_agent_otel_config_keeps_endpoint_host_side() -> None:
     assert resolved.headers["Authorization"].get_secret_value() == "Bearer token"
 
 
-def test_platform_override_wins_over_enabled_org_config() -> None:
-    resolved = resolve_agent_otel_config(
-        org_config=AgentOtelConfig(
-            enabled=True,
-            endpoint=HttpUrl("https://org.example.com"),
-        ),
-        org_headers={"Authorization": "Bearer org"},
-        platform_override=AgentOtelPlatformOverride(
-            config=AgentOtelConfig(
-                enabled=True,
-                endpoint=HttpUrl("https://platform.example.com"),
-            ),
-            headers={"x-api-key": SecretStr("platform")},
-        ),
-    )
-
-    assert resolved.source == "platform"
-    assert (
-        resolved.collector_env["OTEL_EXPORTER_OTLP_ENDPOINT"]
-        == "https://platform.example.com/"
-    )
-    assert set(resolved.headers) == {"x-api-key"}
-
-
-def test_platform_override_false_wins_over_enabled_org_config() -> None:
-    resolved = resolve_agent_otel_config(
-        org_config=AgentOtelConfig(
-            enabled=True,
-            endpoint=HttpUrl("https://org.example.com"),
-        ),
-        org_headers={"Authorization": "Bearer org"},
-        platform_override=AgentOtelPlatformOverride(
-            config=AgentOtelConfig(enabled=False), headers={}
-        ),
-    )
-
-    assert resolved.enabled is False
-    assert resolved.source == "platform"
-    assert resolved.sandbox_env == {}
-    assert resolved.collector_env == {}
-    assert resolved.headers == {}
-
-
 def test_disabled_org_config_resolves_to_empty_envs() -> None:
     resolved = resolve_agent_otel_config(
         org_config=None,
         org_headers={"Authorization": "Bearer org"},
-        platform_override=None,
     )
 
     assert resolved.enabled is False
-    assert resolved.source == "org"
     assert resolved.sandbox_env == {}
     assert resolved.collector_env == {}
+    assert resolved.headers == {}
 
 
 def test_agent_otel_config_rejects_raw_env_map() -> None:
@@ -234,64 +191,54 @@ def test_unset_agent_otel_fields_are_omitted_from_env() -> None:
     }
 
 
-def test_load_platform_override_parses_typed_config_and_headers() -> None:
-    override = load_agent_otel_platform_override(
-        config_json=('{"enabled":false,"logs_enabled":false,"log_tool_details":true}'),
-        headers='{"x-api-key":"secret"}',
+def test_secret_otel_headers_wraps_values() -> None:
+    headers = secret_otel_headers(
+        {"x-api-key": "secret", "Authorization": SecretStr("Bearer token")}
     )
 
-    assert override is not None
-    assert override.config.enabled is False
-    assert override.config.logs_enabled is False
-    assert override.config.log_tool_details is True
-    assert override.headers["x-api-key"].get_secret_value() == "secret"
+    assert headers["x-api-key"].get_secret_value() == "secret"
+    assert headers["Authorization"].get_secret_value() == "Bearer token"
 
 
-def test_load_platform_override_returns_none_when_config_unset() -> None:
-    assert load_agent_otel_platform_override(config_json=None) is None
-    assert load_agent_otel_platform_override(config_json="   ") is None
+def test_secret_otel_headers_returns_empty_for_none() -> None:
+    assert secret_otel_headers(None) == {}
+    assert secret_otel_headers({}) == {}
 
 
-def test_load_platform_override_rejects_headers_in_config() -> None:
-    with pytest.raises(ValueError, match="headers must be configured separately"):
-        load_agent_otel_platform_override(
-            config_json='{"enabled":true,"headers":{"x-api-key":"secret"}}'
-        )
-
-
-def test_load_platform_override_rejects_invalid_json() -> None:
-    with pytest.raises(ValueError, match="platform OTel config must be valid JSON"):
-        load_agent_otel_platform_override(config_json="{not json")
-
-
-def test_load_platform_override_rejects_non_object_config() -> None:
-    with pytest.raises(ValueError, match="platform OTel config must be a JSON object"):
-        load_agent_otel_platform_override(config_json="[1, 2]")
-
-
-def test_load_platform_override_rejects_non_object_headers() -> None:
-    with pytest.raises(ValueError, match="platform OTel headers must be a JSON object"):
-        load_agent_otel_platform_override(
-            config_json='{"enabled":false}', headers='["x-api-key"]'
-        )
-
-
-def test_load_platform_override_rejects_empty_header_value() -> None:
+def test_validate_otel_header_items_rejects_empty_header_value() -> None:
     with pytest.raises(ValueError, match="must have a non-empty string value"):
-        load_agent_otel_platform_override(
-            config_json='{"enabled":false}', headers='{"x-api-key":""}'
-        )
+        validate_otel_header_items({"x-api-key": ""})
 
 
-def test_load_platform_override_rejects_blank_header_value() -> None:
+def test_validate_otel_header_items_rejects_blank_header_value() -> None:
     with pytest.raises(ValueError, match="must have a non-empty string value"):
-        load_agent_otel_platform_override(
-            config_json='{"enabled":false}', headers='{"x-api-key":"   "}'
-        )
+        validate_otel_header_items({"x-api-key": "   "})
 
 
-def test_load_platform_override_rejects_blank_header_name() -> None:
+def test_validate_otel_header_items_rejects_blank_secret_header_value() -> None:
+    with pytest.raises(ValueError, match="must have a non-empty string value"):
+        validate_otel_header_items({"x-api-key": SecretStr("   ")})
+
+
+def test_validate_otel_header_items_rejects_non_string_header_value() -> None:
+    with pytest.raises(ValueError, match="must have a non-empty string value"):
+        validate_otel_header_items({"x-api-key": 1})
+
+
+def test_validate_otel_header_items_rejects_blank_header_name() -> None:
     with pytest.raises(ValueError, match="header names must be non-empty strings"):
-        load_agent_otel_platform_override(
-            config_json='{"enabled":false}', headers='{"  ":"secret"}'
-        )
+        validate_otel_header_items({"  ": "secret"})
+
+
+def test_validate_otel_header_items_rejects_non_string_header_name() -> None:
+    # Non-string keys can only arrive from untyped deserialized input.
+    headers = cast(Mapping[str, Any], {1: "secret"})
+    with pytest.raises(ValueError, match="header names must be non-empty strings"):
+        validate_otel_header_items(headers)
+
+
+def test_secret_otel_headers_rejects_malformed_headers() -> None:
+    with pytest.raises(ValueError, match="must have a non-empty string value"):
+        secret_otel_headers({"x-api-key": "   "})
+    with pytest.raises(ValueError, match="header names must be non-empty strings"):
+        secret_otel_headers({"": "secret"})

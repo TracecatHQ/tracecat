@@ -269,45 +269,6 @@ resource "aws_iam_role_policy_attachment" "worker_execution_secrets" {
   role       = aws_iam_role.worker_execution.name
 }
 
-# Agent executor execution role
-resource "aws_iam_role" "agent_executor_execution" {
-  name               = "${var.iam_name_prefix}AgentExecutorExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
-}
-
-resource "aws_iam_role_policy_attachment" "agent_executor_execution_ecs_poll" {
-  policy_arn = aws_iam_policy.ecs_poll.arn
-  role       = aws_iam_role.agent_executor_execution.name
-}
-
-resource "aws_iam_role_policy_attachment" "agent_executor_execution_secrets" {
-  policy_arn = aws_iam_policy.secrets_access.arn
-  role       = aws_iam_role.agent_executor_execution.name
-}
-
-resource "aws_iam_policy" "agent_executor_otel_headers_access" {
-  count       = var.agent_otel_platform_override_headers_arn != null ? 1 : 0
-  name        = "${var.iam_name_prefix}AgentExecutorOtelHeadersAccessPolicy"
-  description = "Policy for the agent executor to access platform OTel headers"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.agent_otel_platform_override_headers_arn]
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "agent_executor_execution_otel_headers" {
-  count      = var.agent_otel_platform_override_headers_arn != null ? 1 : 0
-  policy_arn = aws_iam_policy.agent_executor_otel_headers_access[0].arn
-  role       = aws_iam_role.agent_executor_execution.name
-}
-
 # API and Worker task role
 resource "aws_iam_role" "api_worker_task" {
   name               = "${var.iam_name_prefix}APIWorkerTaskRole"
@@ -658,11 +619,6 @@ resource "aws_iam_role_policy_attachment" "api_execution_cloudwatch_logs" {
 resource "aws_iam_role_policy_attachment" "worker_execution_cloudwatch_logs" {
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
   role       = aws_iam_role.worker_execution.name
-}
-
-resource "aws_iam_role_policy_attachment" "agent_executor_execution_cloudwatch_logs" {
-  policy_arn = aws_iam_policy.cloudwatch_logs.arn
-  role       = aws_iam_role.agent_executor_execution.name
 }
 
 resource "aws_iam_role_policy_attachment" "ui_execution_cloudwatch_logs" {
