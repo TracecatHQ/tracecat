@@ -1,0 +1,33 @@
+docs/tools/iru.mdx
+  s_b25f66adad735a::t_379b239eeded5e 111-126,143-150,865-872,881-888,905-912,1139-1146,1173,1269-1276
+docs/tools/jamf.mdx
+  s_b25f66adad735a::t_892af0f0dde4e5 483-506
+packages/tracecat-registry/AGENTS.md
+  s_b25f66adad735a::t_4497979952bd5a 71-85
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/actions/erase_device.yml
+  s_b25f66adad735a::t_a6b8cc3917027e 32-43,53-55
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_devices.yml
+  s_b25f66adad735a::t_0601c42d8f1461 65-76,124-126
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/update_device.yml
+  s_b25f66adad735a::t_9b1a87bb5d461e 36-39,50,52-56
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/prism/query_prism.yml
+  s_b25f66adad735a::t_dbd05f0c05b59c 42-46,60
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/prestage/list_computer_prestages.yml
+  s_b25f66adad735a::t_6a2461b9a1e08d 22-33,35-52,60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "c355f9ab4f178d5e26036bd8e03fb7e0b50a3911",
+  "prompts": {},
+  "sessions": {
+    "s_b25f66adad735a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "168fcfac-9066-4680-9220-3751759964d3",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
