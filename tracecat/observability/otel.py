@@ -7,10 +7,13 @@ settings. Platform services export to the operator-controlled OTLP endpoint.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import Lock
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Protocol
 
+from opentelemetry import context as otel_context
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -22,11 +25,18 @@ from opentelemetry.sdk.trace.export import (
     SimpleSpanProcessor,
     SpanExporter,
 )
-from opentelemetry.trace import Span, TraceFlags
+from opentelemetry.trace import Link, Span, SpanKind, Status, StatusCode, TraceFlags
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+from opentelemetry.util.types import Attributes
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
-from temporalio.contrib.opentelemetry import TracingInterceptor
+from temporalio.api.common.v1 import Payload
+from temporalio.contrib.opentelemetry import (
+    TracingInterceptor,
+    TracingWorkflowInboundInterceptor,
+)
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
+from temporalio.worker import WorkflowInboundInterceptor, WorkflowInterceptorClassInput
 
 from tracecat import __version__, config
 
@@ -55,6 +65,40 @@ _EXCLUDED_FASTAPI_URLS: Final = ",".join(
 _NEVER_CAPTURE_HTTP_HEADER: Final = r"(?!)"
 _REDACTED_HTTP_PATH: Final = "/[REDACTED]"
 _REDACTED_ATTRIBUTE_VALUE: Final = "[REDACTED]"
+_TRACE_CONTEXT_PROPAGATOR: Final = TraceContextTextMapPropagator()
+_TEMPORAL_FAILURE_TYPE: Final = "temporal.failure"
+
+type _TraceCarrier = dict[str, list[str] | str]
+
+
+class _TemporalInputWithHeaders(Protocol):
+    headers: Mapping[str, Payload]
+
+
+class _CompletedWorkflowSpanInput(Protocol):
+    @property
+    def context(self) -> Mapping[str, list[str] | str]: ...
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def attributes(self) -> Attributes: ...
+
+    @property
+    def time_ns(self) -> int: ...
+
+    @property
+    def link_context(self) -> Mapping[str, list[str] | str] | None: ...
+
+    @property
+    def exception(self) -> Exception | None: ...
+
+    @property
+    def kind(self) -> SpanKind: ...
+
+    @property
+    def parent_missing(self) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -121,7 +165,7 @@ def initialize_platform_tracing(
             # Baggage is deliberately excluded from the platform propagation
             # contract so arbitrary caller-provided values do not cross service
             # and Temporal boundaries.
-            set_global_textmap(TraceContextTextMapPropagator())
+            set_global_textmap(_TRACE_CONTEXT_PROPAGATOR)
             _runtime = PlatformTracing(
                 service_name=service_name,
                 tracer_provider=provider,
@@ -168,10 +212,111 @@ def temporal_tracing_interceptor() -> TracingInterceptor | None:
     runtime = get_platform_tracing()
     if runtime is None:
         return None
-    return TracingInterceptor(
+    return _TraceContextOnlyTracingInterceptor(
         tracer=runtime.tracer("tracecat.temporal"),
         always_create_workflow_spans=False,
     )
+
+
+class _TraceContextOnlyWorkflowTracingInterceptor(TracingWorkflowInboundInterceptor):
+    """Extract and inject trace context without persisting OTel baggage."""
+
+    def __init__(self, next_interceptor: WorkflowInboundInterceptor) -> None:
+        super().__init__(next_interceptor)
+        self.text_map_propagator = _TRACE_CONTEXT_PROPAGATOR
+
+
+class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
+    """Temporal tracing with a trace-only carrier and sanitized failures."""
+
+    def __init__(
+        self,
+        *,
+        tracer: trace.Tracer,
+        always_create_workflow_spans: bool,
+    ) -> None:
+        super().__init__(
+            tracer=tracer,
+            always_create_workflow_spans=always_create_workflow_spans,
+        )
+        self.text_map_propagator = _TRACE_CONTEXT_PROPAGATOR
+
+    @contextmanager
+    def _start_as_current_span(
+        self,
+        name: str,
+        *,
+        attributes: Attributes,
+        input: _TemporalInputWithHeaders | None = None,
+        kind: SpanKind,
+        context: otel_context.Context | None = None,
+    ) -> Iterator[None]:
+        """Create a Temporal span without exporting exception content."""
+        token = otel_context.attach(context) if context else None
+        try:
+            with self.tracer.start_as_current_span(
+                name,
+                attributes=attributes,
+                kind=kind,
+                context=context,
+                record_exception=False,
+                set_status_on_exception=False,
+            ) as span:
+                if input:
+                    input.headers = self._context_to_headers(input.headers)
+                try:
+                    yield None
+                except Exception as exc:
+                    if (
+                        not isinstance(exc, ApplicationError)
+                        or exc.category != ApplicationErrorCategory.BENIGN
+                    ):
+                        span.set_status(Status(status_code=StatusCode.ERROR))
+                        span.set_attribute("error.type", _TEMPORAL_FAILURE_TYPE)
+                    raise
+        finally:
+            if token and context is otel_context.get_current():
+                otel_context.detach(token)
+
+    def _completed_workflow_span(
+        self, params: _CompletedWorkflowSpanInput
+    ) -> _TraceCarrier | None:
+        """Export workflow failures without messages or stack traces."""
+        if params.parent_missing and not self._always_create_workflow_spans:
+            return None
+
+        span_context = self.text_map_propagator.extract(params.context)
+        links: Sequence[Link] = []
+        if params.link_context:
+            link_span = trace.get_current_span(
+                self.text_map_propagator.extract(params.link_context)
+            )
+            if link_span is not trace.INVALID_SPAN:
+                links = [Link(link_span.get_span_context())]
+
+        span = self.tracer.start_span(
+            params.name,
+            span_context,
+            attributes=params.attributes,
+            links=links,
+            start_time=params.time_ns,
+            kind=params.kind,
+        )
+        span_context = trace.set_span_in_context(span, span_context)
+        if params.exception:
+            span.set_status(Status(status_code=StatusCode.ERROR))
+            span.set_attribute("error.type", _TEMPORAL_FAILURE_TYPE)
+        span.end(end_time=params.time_ns)
+
+        carrier: _TraceCarrier = {}
+        self.text_map_propagator.inject(carrier, span_context)
+        return carrier
+
+    def workflow_interceptor_class(
+        self, input: WorkflowInterceptorClassInput
+    ) -> type[TracingWorkflowInboundInterceptor]:
+        super().workflow_interceptor_class(input)
+        return _TraceContextOnlyWorkflowTracingInterceptor
 
 
 def set_current_span_attributes(attributes: dict[str, str | int | bool | None]) -> None:
