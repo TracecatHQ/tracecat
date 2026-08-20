@@ -30,10 +30,10 @@ class JamfOAuthProvider(ClientCredentialsOAuthProvider):
     # consent URL. The base provider requires both endpoints to be set, so this
     # mirrors the token endpoint and is never used to start a consent flow.
     default_authorization_endpoint: ClassVar[str | None] = (
-        "https://{instance}.jamfcloud.com/api/oauth/token"
+        "https://{instance}.jamfcloud.com/api/v1/oauth/token"
     )
     default_token_endpoint: ClassVar[str | None] = (
-        "https://{instance}.jamfcloud.com/api/oauth/token"
+        "https://{instance}.jamfcloud.com/api/v1/oauth/token"
     )
     authorization_endpoint_help: ClassVar[str | list[str] | None] = [
         "Unused. Jamf Pro only supports the client credentials grant, so this "
@@ -41,7 +41,7 @@ class JamfOAuthProvider(ClientCredentialsOAuthProvider):
     ]
     token_endpoint_help: ClassVar[str | list[str] | None] = [
         "Replace {instance} with your Jamf Cloud subdomain, for example:",
-        "https://acme.jamfcloud.com/api/oauth/token",
+        "https://acme.jamfcloud.com/api/v1/oauth/token",
         "\n",
         "Create the client under Settings > System > API roles and clients. "
         "Requires Jamf Pro 10.49 or later. Note that adding or removing an API "
