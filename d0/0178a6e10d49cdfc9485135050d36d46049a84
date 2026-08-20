@@ -1,0 +1,135 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/threats/list_behavioral_detections.yml
+  s_ac9f128ae8da99::t_ac9cdbfe81f299 1-109
+frontend/src/components/icons.tsx
+  s_ac012e27ad606b::t_0bf2864d83fef5 661-662,868
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/computers/get_computer_recovery_lock_password.yml
+  s_91f39b44fc29ea::t_f03b279e61c0e4 1-33
+tracecat/integrations/providers/jamf_pro/oauth.py
+  s_ac012e27ad606b::t_0bf2864d83fef5 1-47
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/secrets/get_recovery_password.yml
+  s_ac9f128ae8da99::t_7508c8ce8ee27b 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/prestage/list_computer_prestages.yml
+  s_91f39b44fc29ea::t_e424757cdb5745 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/computers/delete_computer.yml
+  s_91f39b44fc29ea::t_f03b279e61c0e4 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/computers/erase_computer.yml
+  s_91f39b44fc29ea::t_f03b279e61c0e4 1-49
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/actions/erase_device.yml
+  s_ac9f128ae8da99::t_7508c8ce8ee27b 1-53
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/commands/send_mdm_command.yml
+  s_ac012e27ad606b::t_6713a0edbd02f8 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/get_device.yml
+  s_ac9f128ae8da99::t_c0499875f47855 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_apps.yml
+  s_ac9f128ae8da99::t_c0499875f47855 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/blueprints/list_blueprints.yml
+  s_ac9f128ae8da99::t_ac9cdbfe81f299 1-59
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/computers/list_computer_inventory.yml
+  s_91f39b44fc29ea::t_f03b279e61c0e4 1-71
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_commands.yml
+  s_ac9f128ae8da99::t_c0499875f47855 1-47
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/enrollment/list_device_enrollment_devices.yml
+  s_91f39b44fc29ea::t_e424757cdb5745 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_devices.yml
+  s_ac9f128ae8da99::t_c0499875f47855 1-129
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/computers/get_computer_inventory_detail.yml
+  s_91f39b44fc29ea::t_f03b279e61c0e4 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/secrets/get_filevault_key.yml
+  s_ac9f128ae8da99::t_7508c8ce8ee27b 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/actions/lock_device.yml
+  s_ac9f128ae8da99::t_7508c8ce8ee27b 1-48
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/groups/list_computer_groups.yml
+  s_91f39b44fc29ea::t_e424757cdb5745 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/secrets/get_activation_lock_bypass_code.yml
+  s_ac9f128ae8da99::t_7508c8ce8ee27b 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/prestage/remove_computer_prestage_scope.yml
+  s_91f39b44fc29ea::t_e424757cdb5745 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/actions/send_device_action.yml
+  s_ac9f128ae8da99::t_7508c8ce8ee27b 1-31
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/prism/query_prism.yml
+  s_ac9f128ae8da99::t_ac9cdbfe81f299 1-67
+tracecat/integrations/providers/__init__.py
+  s_ac012e27ad606b::t_0bf2864d83fef5 13,51
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/threats/list_threat_details.yml
+  s_ac9f128ae8da99::t_ac9cdbfe81f299 1-74
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/update_device.yml
+  s_ac9f128ae8da99::t_c0499875f47855 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/prestage/get_computer_prestage_scope.yml
+  s_91f39b44fc29ea::t_e424757cdb5745 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_library_items.yml
+  s_ac9f128ae8da99::t_c0499875f47855 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/computers/remove_computer_mdm_profile.yml
+  s_91f39b44fc29ea::t_f03b279e61c0e4 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_activity.yml
+  s_ac9f128ae8da99::t_c0499875f47855 1-47
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_parameters.yml
+  s_ac9f128ae8da99::t_c0499875f47855 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/computers/redeploy_management_framework.yml
+  s_91f39b44fc29ea::t_f03b279e61c0e4 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/add_device_note.yml
+  s_ac9f128ae8da99::t_c0499875f47855 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/computers/update_computer_inventory_detail.yml
+  s_91f39b44fc29ea::t_f03b279e61c0e4 1-38
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/audit/list_audit_events.yml
+  s_ac9f128ae8da99::t_ac9cdbfe81f299 1-59
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/get_device_details.yml
+  s_ac9f128ae8da99::t_c0499875f47855 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/commands/list_mdm_commands.yml
+  s_91f39b44fc29ea::t_e424757cdb5745 1-62
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/computers/get_computer_device_lock_pin.yml
+  s_91f39b44fc29ea::t_f03b279e61c0e4 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/groups/get_smart_group_membership.yml
+  s_91f39b44fc29ea::t_e424757cdb5745 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/groups/update_static_group.yml
+  s_91f39b44fc29ea::t_e424757cdb5745 1-62
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/prestage/add_computer_prestage_scope.yml
+  s_91f39b44fc29ea::t_e424757cdb5745 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/computers/get_computer_filevault_key.yml
+  s_91f39b44fc29ea::t_f03b279e61c0e4 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/delete_device.yml
+  s_ac9f128ae8da99::t_c0499875f47855 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/mobile_devices/get_mobile_device_detail.yml
+  s_ede0dc983e2837::t_b523201baa9352 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf_pro/mobile_devices/list_mobile_devices.yml
+  s_ede0dc983e2837::t_de8a4d8f97021f 1-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "d00178a6e10d49cdfc9485135050d36d46049a84",
+  "prompts": {},
+  "sessions": {
+    "s_91f39b44fc29ea": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a020f9-3741-7392-aaa3-078713c8770e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_ac012e27ad606b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a020f9-10e6-7fa0-900f-f0ab8439e364",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_ac9f128ae8da99": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a020f9-2344-77d3-9392-fdf1e7dc2adf",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_ede0dc983e2837": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a8ad00af5f08f6738",
+        "model": "unknown"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
