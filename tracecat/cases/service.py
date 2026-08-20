@@ -97,6 +97,7 @@ from tracecat.cases.schemas import (
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.cases.triggers.publisher import publish_case_event_payload
+from tracecat.cases.versions.schemas import CaseVersionRestoreRead
 from tracecat.cases.versions.service import CaseVersionsService
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
@@ -925,13 +926,20 @@ class CasesService(BaseWorkspaceService):
 
     @require_scope("case:update")
     @audit_log(resource_type="case", action="update")
-    async def update_case(self, case: Case, params: CaseUpdate) -> Case:
+    async def update_case(
+        self,
+        case: Case,
+        params: CaseUpdate,
+        *,
+        force_version_fields: frozenset[CaseVersionField] = frozenset(),
+    ) -> Case:
         """Update a case and optionally its custom fields.
 
         Args:
             case: The case object to update
             params: Optional case update parameters
-            fields_data: Optional new field values
+            force_version_fields: Versioned fields that must append even when the
+                restored content equals the mutable head.
 
         Returns:
             Updated case with fields
@@ -947,7 +955,11 @@ class CasesService(BaseWorkspaceService):
                     case,
                     attribute_names=["summary", "description"],
                 )
-            await self._apply_case_update(case, params)
+            await self._apply_case_update(
+                case,
+                params,
+                force_version_fields=force_version_fields,
+            )
             # Commit once to persist all updates and emitted events atomically
             await self.session.commit()
             await self.session.refresh(case)
@@ -956,7 +968,46 @@ class CasesService(BaseWorkspaceService):
             await self.session.rollback()
             raise
 
-    async def _apply_case_update(self, case: Case, params: CaseUpdate) -> None:
+    @require_scope("case:update")
+    async def restore_version(
+        self,
+        *,
+        case_id: uuid.UUID,
+        version_id: uuid.UUID,
+    ) -> CaseVersionRestoreRead:
+        """Restore one scoped field version through the normal update transaction."""
+        case = await self.get_case(case_id, for_update=True)
+        if case is None:
+            raise TracecatNotFoundError(f"Case '{case_id}' not found")
+
+        version = await self.versions.get_version(
+            case_id=case_id,
+            version_id=version_id,
+        )
+        if version is None:
+            raise TracecatNotFoundError(
+                f"Case version '{version_id}' not found for case '{case_id}'"
+            )
+
+        params = CaseUpdate.model_validate({version.field.value: version.content})
+        await self.update_case(
+            case,
+            params,
+            force_version_fields=frozenset({version.field}),
+        )
+        return CaseVersionRestoreRead(
+            case_id=case_id,
+            restored_from_version_id=version.id,
+            field=version.field,
+        )
+
+    async def _apply_case_update(
+        self,
+        case: Case,
+        params: CaseUpdate,
+        *,
+        force_version_fields: frozenset[CaseVersionField] = frozenset(),
+    ) -> None:
         """Apply a case update without committing the active transaction."""
         run_ctx = ctx_run.get()
         wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
@@ -1063,10 +1114,14 @@ class CasesService(BaseWorkspaceService):
         for key, value in set_fields.items():
             old = getattr(case, key, None)
             setattr(case, key, value)
-            if key in {"summary", "description"} and old != value:
+            version_field = (
+                CaseVersionField(key) if key in {"summary", "description"} else None
+            )
+            version_forced = version_field in force_version_fields
+            if version_field is not None and (old != value or version_forced):
                 await self.versions.append_version(
                     case_id=case.id,
-                    field=CaseVersionField(key),
+                    field=version_field,
                     content=value,
                 )
 
@@ -1077,7 +1132,7 @@ class CasesService(BaseWorkspaceService):
                         AssigneeChangedEvent(old=old, new=value, wf_exec_id=wf_exec_id)
                     )
             elif key == "summary":
-                if old != value:
+                if old != value or version_forced:
                     events.append(
                         UpdatedEvent(
                             field="summary",

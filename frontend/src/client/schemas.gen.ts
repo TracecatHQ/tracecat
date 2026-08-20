@@ -9521,6 +9521,170 @@ export const $CaseUpdate = {
   title: "CaseUpdate",
 } as const
 
+export const $CaseVersionActorRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  type: "object",
+  required: ["id", "email"],
+  title: "CaseVersionActorRead",
+  description: "Minimal user metadata for a case-version author.",
+} as const
+
+export const $CaseVersionCompareRead = {
+  properties: {
+    selected: {
+      $ref: "#/components/schemas/CaseVersionContentRead",
+    },
+    predecessor: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseVersionContentRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["selected"],
+  title: "CaseVersionCompareRead",
+  description:
+    "A selected case version and its immediate same-field predecessor.",
+} as const
+
+export const $CaseVersionContentRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    field: {
+      $ref: "#/components/schemas/CaseVersionField",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["id", "field", "version", "content"],
+  title: "CaseVersionContentRead",
+  description: "Content for one immutable case field version.",
+} as const
+
+export const $CaseVersionField = {
+  type: "string",
+  enum: ["summary", "description"],
+  title: "CaseVersionField",
+  description: "Case text fields that have immutable version history.",
+} as const
+
+export const $CaseVersionReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    field: {
+      $ref: "#/components/schemas/CaseVersionField",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    actor: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseVersionActorRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    is_latest: {
+      type: "boolean",
+      title: "Is Latest",
+      description: "Whether this is the latest immutable version for its field",
+    },
+  },
+  type: "object",
+  required: ["id", "field", "version", "created_at", "is_latest"],
+  title: "CaseVersionReadMinimal",
+  description: "Version metadata returned by the case history endpoint.",
+} as const
+
+export const $CaseVersionRestoreRead = {
+  properties: {
+    restored: {
+      type: "boolean",
+      title: "Restored",
+      default: true,
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+    },
+    restored_from_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Restored From Version Id",
+    },
+    field: {
+      $ref: "#/components/schemas/CaseVersionField",
+    },
+  },
+  type: "object",
+  required: ["case_id", "restored_from_version_id", "field"],
+  title: "CaseVersionRestoreRead",
+  description:
+    "Confirmation that a historical case field version was restored.",
+} as const
+
 export const $CaseViewedEventRead = {
   properties: {
     wf_exec_id: {
@@ -11303,6 +11467,69 @@ export const $CursorPaginatedResponse_CaseTableRowRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[CaseTableRowRead]",
+} as const
+
+export const $CursorPaginatedResponse_CaseVersionReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/CaseVersionReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[CaseVersionReadMinimal]",
 } as const
 
 export const $CursorPaginatedResponse_InboxItemRead_ = {
