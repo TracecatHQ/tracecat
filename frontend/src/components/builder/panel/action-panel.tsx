@@ -376,6 +376,8 @@ function ActionPanelContent({
 
   // Local form state for this action. We always seed it from the latest
   // server-backed baseFormValues; hydration from drafts happens via effects.
+  // Agent timeout bounds are deployment-specific and validated server-side
+  // (422 on save); the form doesn't duplicate them.
   const methods = useForm<ActionFormSchema>({
     resolver: zodResolver(actionFormSchema),
     defaultValues: baseFormValues,
@@ -1570,7 +1572,7 @@ function ActionPanelContent({
                         label="Timeout"
                         description={
                           isAgentBackedAction
-                            ? "Define the maximum active runtime in seconds for the agent. Values outside the deployment's allowed range are clamped. Waiting for approvals does not count."
+                            ? "Define the maximum active runtime in seconds for the agent."
                             : "Define the timeout in seconds for the action."
                         }
                         tooltip={

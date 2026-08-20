@@ -162,8 +162,8 @@ export function TimeoutTooltip({ isAgent = false }: { isAgent?: boolean }) {
             </div>
             <div>
               Defaults to {AGENT_TIMEOUT_SECONDS_DEFAULT}s (30 minutes). Values
-              above the deployment's timeout ceiling (1 hour unless configured
-              otherwise) are clamped down to it.
+              outside the deployment's allowed range are rejected when saving;
+              imported workflows are clamped instead.
             </div>
           </>
         ) : (
