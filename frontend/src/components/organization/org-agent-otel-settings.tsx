@@ -265,8 +265,8 @@ export function OrgAgentOtelSettings() {
     const env =
       mode === "raw" ? formToEnvMap(envTextToForm(rawEnv)) : formToEnvMap(form)
 
-    // Only an explicit clear action replaces saved write-only headers with {}.
-    // Blank or removed draft rows otherwise leave the saved value unchanged.
+    // Headers are write-only: non-blank draft rows replace the entire saved
+    // map, an explicit clear sends {}, and blank rows leave it unchanged.
     let headersField: Record<string, string> | undefined
     if (clearSavedHeaders) {
       headersField = {}
@@ -452,7 +452,7 @@ export function OrgAgentOtelSettings() {
           <p className="text-sm font-medium">Headers</p>
           <p className="text-xs text-muted-foreground">
             Encrypted, write-only collector headers. Saved values are not shown
-            again.
+            again, and saving new headers replaces all previously saved headers.
           </p>
         </div>
         <Separator />
