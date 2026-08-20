@@ -1,0 +1,23 @@
+docs/docs.json
+  s_b25f66adad735a::t_30bd7bbba7e2a5 189-190
+docs/tools/iru.mdx
+  s_b25f66adad735a::t_6a831af9a58fe3 1-1215
+docs/tools/jamf_pro.mdx
+  s_b25f66adad735a::t_b11259d29d1340 1-833
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "5a243918f904192a440031a78e0bc8e442821423",
+  "prompts": {},
+  "sessions": {
+    "s_b25f66adad735a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "168fcfac-9066-4680-9220-3751759964d3",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
