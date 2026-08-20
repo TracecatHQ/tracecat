@@ -45,11 +45,13 @@ from tracecat.logger import logger
 from tracecat.runtime.errors import (
     ErrorEnvelope,
     RetryDisposition,
-    RuntimeErrorCode,
+    RuntimeErrorKind,
 )
 from tracecat.sandbox.exceptions import SandboxExecutionError
 from tracecat.storage.object import StoredObject, action_key, get_object_storage
+from tracecat.storage.utils import is_retryable_storage_transport_error
 from tracecat.temporal.errors import (
+    activity_error_boundary,
     application_error_from_envelope,
     extract_error_envelope,
 )
@@ -75,28 +77,28 @@ def _platform_executor_error_envelope(
     for cause in _exception_chain(error):
         if isinstance(cause, RegistryArtifactCacheLeaseContentionError):
             return ErrorEnvelope.platform(
-                code=RuntimeErrorCode.PLATFORM_CAPACITY_EXHAUSTED,
+                kind=RuntimeErrorKind.EXECUTOR_REGISTRY_LEASE_CONTENTION,
                 message="Tracecat executor capacity is temporarily unavailable",
                 retry_disposition=RetryDisposition.RETRYABLE,
                 cause=cause,
             )
         if isinstance(cause, RegistryArtifactCacheCapacityError):
             return ErrorEnvelope.platform(
-                code=RuntimeErrorCode.PLATFORM_CAPACITY_EXHAUSTED,
+                kind=RuntimeErrorKind.EXECUTOR_REGISTRY_CAPACITY_EXHAUSTED,
                 message="Tracecat executor artifact capacity is exhausted",
                 retry_disposition=RetryDisposition.NON_RETRYABLE,
                 cause=cause,
             )
         if isinstance(cause, RegistryArtifactExtractionError):
             return ErrorEnvelope.platform(
-                code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+                kind=RuntimeErrorKind.EXECUTOR_REGISTRY_EXTRACTION_FAILED,
                 message="Tracecat could not load the action runtime",
                 retry_disposition=RetryDisposition.NON_RETRYABLE,
                 cause=cause,
             )
         if isinstance(cause, SandboxExecutionError):
             return ErrorEnvelope.platform(
-                code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+                kind=RuntimeErrorKind.EXECUTOR_SANDBOX_INFRASTRUCTURE_FAILED,
                 message="Tracecat could not run the action sandbox",
                 retry_disposition=RetryDisposition.RETRYABLE,
                 cause=cause,
@@ -104,10 +106,39 @@ def _platform_executor_error_envelope(
     return None
 
 
+def _executor_backend_initialization_error_envelope(
+    error: Exception,
+) -> ErrorEnvelope:
+    """Classify an executor backend initialization failure."""
+    return ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.EXECUTOR_BACKEND_INITIALIZATION_FAILED,
+        message="Tracecat could not initialize the action executor",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def _result_persistence_error_envelope(error: Exception) -> ErrorEnvelope:
+    """Classify a failure while persisting an action result."""
+    transport_failure = is_retryable_storage_transport_error(error)
+    return ErrorEnvelope.platform(
+        kind=(
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE
+            if transport_failure
+            else RuntimeErrorKind.RUNTIME_UNCLASSIFIED
+        ),
+        message="Tracecat could not persist the action result",
+        # Preserve today's effective fail-fast behavior. Retry policy changes
+        # are intentionally handled separately from attribution.
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
 def _classified_executor_application_error(
     *,
     envelope: ErrorEnvelope,
-    error_type: str,
+    detail_type: str,
     ref: str,
     attempt: int,
     stream_id: StreamID,
@@ -118,7 +149,7 @@ def _classified_executor_application_error(
     err_info = ActionErrorInfo(
         ref=ref,
         message=envelope.message,
-        type=error_type,
+        type=detail_type,
         attempt=attempt,
         stream_id=stream_id,
     )
@@ -126,7 +157,6 @@ def _classified_executor_application_error(
         envelope,
         err_info,
         *details,
-        error_type=error_type,
         next_retry_delay=next_retry_delay,
     )
 
@@ -225,7 +255,10 @@ class ExecutorActivities:
             )
 
         try:
-            backend = get_executor_backend()
+            with activity_error_boundary(
+                _executor_backend_initialization_error_envelope
+            ):
+                backend = get_executor_backend()
 
             async for attempt_manager in AsyncRetrying(
                 retry=retry_if_exception_type(RateLimitExceeded),
@@ -255,11 +288,12 @@ class ExecutorActivities:
                         stream_id=input.stream_id,
                         ref=task.ref,
                     )
-                    stored = await get_object_storage().store(key, result)
+                    with activity_error_boundary(_result_persistence_error_envelope):
+                        stored = await get_object_storage().store(key, result)
                     return stored
         except ScopeDeniedError as e:
             # ScopeDeniedError from dispatch_action (user lacks action permission)
-            kind = e.__class__.__name__
+            cause_type = e.__class__.__name__
             msg = f"Permission denied: missing scope(s) {e.missing_scopes} to execute action '{action_name}'"
             log.warning(
                 "Action scope denied",
@@ -270,47 +304,39 @@ class ExecutorActivities:
             err_info = ActionErrorInfo(
                 ref=task.ref,
                 message=msg,
-                type=kind,
+                type=cause_type,
                 attempt=act_attempt,
                 stream_id=input.stream_id,
             )
             envelope = ErrorEnvelope.user(
-                code=RuntimeErrorCode.USER_ACTION_FAILED,
+                kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
                 message=msg,
                 retry_disposition=RetryDisposition.NON_RETRYABLE,
                 cause=e,
             )
-            raise application_error_from_envelope(
-                envelope,
-                err_info,
-                error_type=kind,
-            ) from None
+            raise application_error_from_envelope(envelope, err_info) from None
         except EntitlementRequired as e:
             # Entitlement errors are user-facing and non-retryable
-            kind = e.__class__.__name__
+            cause_type = e.__class__.__name__
             msg = str(e)
             log.warning("Action entitlement denied", action=action_name, error=msg)
             err_info = ActionErrorInfo(
                 ref=task.ref,
                 message=msg,
-                type=kind,
+                type=cause_type,
                 attempt=act_attempt,
                 stream_id=input.stream_id,
             )
             envelope = ErrorEnvelope.user(
-                code=RuntimeErrorCode.TENANT_ENTITLEMENT_DENIED,
+                kind=RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
                 message=msg,
                 retry_disposition=RetryDisposition.NON_RETRYABLE,
                 cause=e,
             )
-            raise application_error_from_envelope(
-                envelope,
-                err_info,
-                error_type=kind,
-            ) from None
+            raise application_error_from_envelope(envelope, err_info) from None
         except ExecutionError as e:
             # ExecutionError from dispatch_action (single action failure)
-            kind = e.__class__.__name__
+            cause_type = e.__class__.__name__
             if envelope := _platform_executor_error_envelope(e):
                 log.error(
                     "Platform error executing action",
@@ -319,7 +345,7 @@ class ExecutorActivities:
                 )
                 raise _classified_executor_application_error(
                     envelope=envelope,
-                    error_type=kind,
+                    detail_type=cause_type,
                     ref=task.ref,
                     attempt=act_attempt,
                     stream_id=input.stream_id,
@@ -327,21 +353,21 @@ class ExecutorActivities:
             msg = str(e)
             log.info("Execution error", error=msg, info=e.info)
             envelope = ErrorEnvelope.user(
-                code=RuntimeErrorCode.USER_ACTION_FAILED,
+                kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
                 message=msg,
                 retry_disposition=RetryDisposition.RETRYABLE,
                 cause=e,
             )
             raise _classified_executor_application_error(
                 envelope=envelope,
-                error_type=kind,
+                detail_type=cause_type,
                 ref=task.ref,
                 attempt=act_attempt,
                 stream_id=input.stream_id,
             ) from None
         except LoopExecutionError as e:
             # LoopExecutionError from dispatch_action (for_each loop failure)
-            kind = e.__class__.__name__
+            cause_type = e.__class__.__name__
             platform_envelope = next(
                 (
                     envelope
@@ -354,7 +380,7 @@ class ExecutorActivities:
             if platform_envelope is not None:
                 raise _classified_executor_application_error(
                     envelope=platform_envelope,
-                    error_type=kind,
+                    detail_type=cause_type,
                     ref=task.ref,
                     attempt=act_attempt,
                     stream_id=input.stream_id,
@@ -362,14 +388,14 @@ class ExecutorActivities:
             msg = str(e)
             log.info("Loop execution error", error=msg, loop_errors=e.loop_errors)
             envelope = ErrorEnvelope.user(
-                code=RuntimeErrorCode.USER_ACTION_FAILED,
+                kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
                 message=msg,
                 retry_disposition=RetryDisposition.RETRYABLE,
                 cause=e,
             )
             raise _classified_executor_application_error(
                 envelope=envelope,
-                error_type=kind,
+                detail_type=cause_type,
                 ref=task.ref,
                 attempt=act_attempt,
                 stream_id=input.stream_id,
@@ -380,7 +406,7 @@ class ExecutorActivities:
             if envelope := extract_error_envelope(e):
                 raise _classified_executor_application_error(
                     envelope=envelope,
-                    error_type=e.type or e.__class__.__name__,
+                    detail_type=e.type or e.__class__.__name__,
                     ref=task.ref,
                     attempt=act_attempt,
                     stream_id=input.stream_id,
@@ -394,21 +420,21 @@ class ExecutorActivities:
             )
             if UserError.matches(e):
                 envelope = ErrorEnvelope.user(
-                    code=RuntimeErrorCode.USER_ACTION_FAILED,
+                    kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
                     message=e.message or "The action failed",
                     retry_disposition=retry_disposition,
                     cause=e,
                 )
             else:
                 envelope = ErrorEnvelope.platform(
-                    code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+                    kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
                     message="Tracecat could not execute the action",
                     retry_disposition=retry_disposition,
                     cause=e,
                 )
             raise _classified_executor_application_error(
                 envelope=envelope,
-                error_type=e.type or e.__class__.__name__,
+                detail_type=e.type or e.__class__.__name__,
                 ref=task.ref,
                 attempt=act_attempt,
                 stream_id=input.stream_id,
@@ -423,23 +449,27 @@ class ExecutorActivities:
                 )
                 raise _classified_executor_application_error(
                     envelope=envelope,
-                    error_type=e.__class__.__name__,
+                    detail_type=e.__class__.__name__,
                     ref=task.ref,
                     attempt=act_attempt,
                     stream_id=input.stream_id,
                 ) from None
 
-            kind = e.__class__.__name__
-            log.error("Unexpected error executing action", error=e, error_type=kind)
+            cause_type = e.__class__.__name__
+            log.error(
+                "Unexpected error executing action",
+                error=e,
+                error_type=cause_type,
+            )
             envelope = ErrorEnvelope.platform(
-                code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+                kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
                 message="Tracecat could not execute the action",
                 retry_disposition=RetryDisposition.NON_RETRYABLE,
                 cause=e,
             )
             raise _classified_executor_application_error(
                 envelope=envelope,
-                error_type=kind,
+                detail_type=cause_type,
                 ref=task.ref,
                 attempt=act_attempt,
                 stream_id=input.stream_id,

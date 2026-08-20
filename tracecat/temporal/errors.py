@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+import asyncio
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any, Literal
 
@@ -34,6 +36,21 @@ class TemporalErrorDetails(BaseModel):
         alias="schema",
     )
     envelope: ErrorEnvelope
+
+
+@contextmanager
+def activity_error_boundary(
+    classify: Callable[[Exception], ErrorEnvelope],
+) -> Iterator[None]:
+    """Classify an exception at one platform-owned activity call boundary."""
+    try:
+        yield
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        if extract_error_envelope(error) is not None:
+            raise
+        raise wrap_application_error(error, fallback=classify(error)) from None
 
 
 def application_error_from_envelope(

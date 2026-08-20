@@ -72,15 +72,12 @@ def _classified_error_info(
 
 def test_scheduler_adapts_non_action_envelope_to_classified_error_info() -> None:
     envelope = ErrorEnvelope.platform(
-        code=RuntimeErrorCode.PLATFORM_DEPENDENCY_UNAVAILABLE,
+        kind=RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
         message="Tracecat could not retrieve stored workflow data",
         retry_disposition=RetryDisposition.RETRYABLE,
         cause=RuntimeError("storage transport unavailable"),
     )
-    error = application_error_from_envelope(
-        envelope,
-        error_type="StorageMaterializationError",
-    )
+    error = application_error_from_envelope(envelope)
 
     detail = _classified_action_error_info(
         error,
@@ -91,7 +88,7 @@ def test_scheduler_adapts_non_action_envelope_to_classified_error_info() -> None
     assert detail is not None
     assert detail.ref == "fetch_data"
     assert detail.message == envelope.message
-    assert detail.type == "StorageMaterializationError"
+    assert detail.type == envelope.kind.value
     assert detail.envelope == envelope
 
 
@@ -259,12 +256,12 @@ def test_workflow_error_preserves_all_action_envelopes() -> None:
 
 def test_workflow_error_preserves_all_envelopes_from_one_aggregate() -> None:
     user_envelope = ErrorEnvelope.user(
-        code=RuntimeErrorCode.USER_ACTION_FAILED,
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The action failed",
         retry_disposition=RetryDisposition.NON_RETRYABLE,
     )
     platform_envelope = ErrorEnvelope.platform(
-        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
         message="Tracecat could not execute the action",
         retry_disposition=RetryDisposition.RETRYABLE,
     )
@@ -274,7 +271,6 @@ def test_workflow_error_preserves_all_envelopes_from_one_aggregate() -> None:
         user_envelope,
         user_detail,
         platform_detail,
-        error_type="ChildWorkflowAggregateError",
     )
 
     error = _workflow_application_error(
@@ -291,7 +287,7 @@ def test_workflow_error_preserves_all_envelopes_from_one_aggregate() -> None:
 
 def test_child_failure_aggregate_is_terminal_and_keeps_loop_indexes() -> None:
     platform_envelope = ErrorEnvelope.platform(
-        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
         message="Tracecat could not execute the action",
         retry_disposition=RetryDisposition.RETRYABLE,
     )

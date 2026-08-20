@@ -44,7 +44,7 @@ from tracecat.dsl.schemas import (
     RunActionInput,
 )
 from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.exceptions import ExecutionError
+from tracecat.exceptions import EntitlementRequired, ExecutionError, LoopExecutionError
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactCacheLeaseContentionError,
@@ -62,6 +62,13 @@ from tracecat.workflow.management.definitions import (
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 pytestmark = [pytest.mark.temporal]
+
+type ExecutorBoundaryFaultPoint = Literal[
+    "backend_initialization",
+    "result_persistence",
+    "loop_platform",
+    "entitlement",
+]
 
 
 @pytest.fixture(autouse=True)
@@ -509,6 +516,101 @@ async def run_executor_internal_failure_sets_platform_owner(
     )
 
 
+async def run_executor_boundary_failure_sets_owner(
+    env: WorkflowEnvironment,
+    test_worker_factory,
+    fault_point: ExecutorBoundaryFaultPoint,
+) -> ScenarioObservation:
+    """Inject one failure at a real executor activity boundary."""
+    attempts = 0
+    diagnostic = f"{fault_point} diagnostic must not enter history"
+
+    def get_backend() -> object:
+        nonlocal attempts
+        if fault_point == "backend_initialization":
+            attempts += 1
+            raise RuntimeError(diagnostic)
+        return object()
+
+    async def dispatch(*, backend: object, input: object) -> object:
+        nonlocal attempts
+        del backend, input
+        if fault_point == "loop_platform":
+            attempts += 1
+            info = ExecutorActionErrorInfo(
+                type="RegistryArtifactExtractionError",
+                message="masked executor failure",
+                action_name="core.noop",
+                filename="<executor>",
+                function="dispatch",
+                loop_iteration=0,
+            )
+            iteration_error = ExecutionError(info=info)
+            iteration_error.__cause__ = RegistryArtifactExtractionError()
+            raise LoopExecutionError([iteration_error])
+        if fault_point == "entitlement":
+            attempts += 1
+            raise EntitlementRequired("synthetic_feature")
+        return {"ok": True}
+
+    class _Storage:
+        async def store(self, _key: str, _value: object) -> object:
+            nonlocal attempts
+            assert fault_point == "result_persistence"
+            attempts += 1
+            raise _transport_error(diagnostic)
+
+    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
+    run_args = _inline_run_args(max_attempts=3)
+    storage = _Storage()
+
+    with (
+        patch(
+            "tracecat.executor.activities.get_executor_backend",
+            new=get_backend,
+        ),
+        patch(
+            "tracecat.executor.activities.dispatch_action",
+            new=dispatch,
+        ),
+        patch(
+            "tracecat.executor.activities.get_object_storage",
+            return_value=storage,
+        ),
+    ):
+        async with (
+            test_worker_factory(
+                env.client,
+                activities=[
+                    resolve_time_anchor_activity,
+                    resolve_workflow_concurrency_limits_enabled_activity,
+                    WorkflowsManagementService.get_error_handler_workflow_id,
+                ],
+                task_queue=dsl_queue,
+            ),
+            test_worker_factory(
+                env.client,
+                activities=[ExecutorActivities.execute_action_activity],
+                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            ),
+        ):
+            handle = await env.client.start_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=generate_exec_id(run_args.wf_id),
+                task_queue=dsl_queue,
+            )
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await handle.result()
+
+    assert diagnostic not in (await handle.fetch_history()).to_json()
+    return ScenarioObservation(
+        root=handle,
+        failure=exc_info.value,
+        attempts=attempts,
+    )
+
+
 async def run_successful_registry_contention_retry_has_no_terminal_owner(
     env: WorkflowEnvironment,
     test_worker_factory,
@@ -650,6 +752,104 @@ async def run_missing_published_definition_sets_platform_owner(
 
     assert get_definition.await_count == 1
     return ScenarioObservation(root=handle, failure=exc_info.value, attempts=1)
+
+
+async def run_definition_lookup_failure_sets_platform_owner(
+    env: WorkflowEnvironment,
+    test_worker_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> ScenarioObservation:
+    """A definition-store failure is attributed at the lookup boundary."""
+    diagnostic = "definition database diagnostic must not enter history"
+    get_definition = AsyncMock(side_effect=RuntimeError(diagnostic))
+    monkeypatch.setattr(
+        WorkflowDefinitionsService,
+        "get_definition_by_workflow_id",
+        get_definition,
+    )
+    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
+    run_args = _inline_run_args(max_attempts=1).model_copy(
+        update={"dsl": None, "registry_lock": None}
+    )
+
+    async with test_worker_factory(
+        env.client,
+        activities=[get_workflow_definition_activity],
+        task_queue=dsl_queue,
+    ):
+        handle = await env.client.start_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=generate_exec_id(run_args.wf_id),
+            task_queue=dsl_queue,
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await handle.result()
+
+    assert diagnostic not in (await handle.fetch_history()).to_json()
+    return ScenarioObservation(
+        root=handle,
+        failure=exc_info.value,
+        attempts=get_definition.await_count,
+    )
+
+
+async def run_unhandled_subflow_preparation_failure_sets_platform_owner(
+    env: WorkflowEnvironment,
+    test_worker_factory,
+) -> ScenarioObservation:
+    """An unhandled preparation failure attributes the parent execution."""
+    diagnostic = "child preparation diagnostic must not enter history"
+    prepare_subflow = AsyncMock(side_effect=RuntimeError(diagnostic))
+    run_args = DSLRunArgs(
+        role=_role(),
+        wf_id=WorkflowUUID.new_uuid4(),
+        dsl=DSLInput(
+            title="Unhandled platform failure",
+            description="Exercise terminal child preparation attribution",
+            entrypoint=DSLEntrypoint(ref="call_child"),
+            actions=[
+                ActionStatement(
+                    ref="call_child",
+                    action="core.workflow.execute",
+                    args={"workflow_alias": "missing-child"},
+                )
+            ],
+        ),
+        trigger_inputs=InlineObject(data={"source": "inline-trigger"}),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test"},
+            actions={},
+        ),
+    )
+    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
+
+    with patch("tracecat.dsl.action._prepare_subflow", new=prepare_subflow):
+        async with test_worker_factory(
+            env.client,
+            activities=[
+                resolve_time_anchor_activity,
+                resolve_workflow_concurrency_limits_enabled_activity,
+                action_module.DSLActivities.prepare_subflow_activity,
+                WorkflowsManagementService.get_error_handler_workflow_id,
+            ],
+            task_queue=dsl_queue,
+        ):
+            handle = await env.client.start_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=generate_exec_id(run_args.wf_id),
+                task_queue=dsl_queue,
+            )
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await handle.result()
+
+    assert diagnostic not in (await handle.fetch_history()).to_json()
+    return ScenarioObservation(
+        root=handle,
+        failure=exc_info.value,
+        attempts=prepare_subflow.await_count,
+    )
 
 
 async def run_isolated_platform_child_failure_does_not_attribute_parent(

@@ -79,6 +79,7 @@ from tracecat.storage.object import (
 )
 from tracecat.storage.utils import is_retryable_storage_transport_error
 from tracecat.temporal.errors import (
+    activity_error_boundary,
     application_error_from_envelope,
     extract_error_envelope,
 )
@@ -351,6 +352,28 @@ async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskR
     )
 
 
+def _materialization_error_envelope(error: Exception) -> ErrorEnvelope:
+    """Classify one StoredObject materialization failure."""
+    retryable = is_retryable_storage_transport_error(error)
+    logger.warning(
+        "Error materializing context",
+        error=error,
+        retryable=retryable,
+    )
+    return ErrorEnvelope.platform(
+        kind=(
+            RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE
+            if retryable
+            else RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA
+        ),
+        message="Tracecat could not retrieve stored workflow data",
+        retry_disposition=(
+            RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
+        ),
+        cause=error,
+    )
+
+
 async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionContext:
     """Retrieve StoredObjects and replace with raw values in context copy.
 
@@ -397,33 +420,8 @@ async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionCon
         coros.append(retrieve_stored_object(validated))
 
     # Collect results and map back to their refs
-    try:
+    with activity_error_boundary(_materialization_error_envelope):
         materialized_results = await asyncio.gather(*coros)
-    except Exception as e:
-        retryable = is_retryable_storage_transport_error(e)
-        logger.warning(
-            "Error materializing context",
-            error=e,
-            retryable=retryable,
-        )
-        envelope = ErrorEnvelope.platform(
-            code=(
-                RuntimeErrorCode.PLATFORM_DEPENDENCY_UNAVAILABLE
-                if retryable
-                else RuntimeErrorCode.PLATFORM_UNCLASSIFIED
-            ),
-            message="Tracecat could not retrieve stored workflow data",
-            retry_disposition=(
-                RetryDisposition.RETRYABLE
-                if retryable
-                else RetryDisposition.NON_RETRYABLE
-            ),
-            cause=e,
-        )
-        raise application_error_from_envelope(
-            envelope,
-            error_type="StorageMaterializationError",
-        ) from None
 
     # Reconstruct ACTIONS dict with materialized results
     if action_refs:

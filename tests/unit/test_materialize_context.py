@@ -11,7 +11,7 @@ from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import ExecutionContext, TaskResult
 from tracecat.runtime.errors import (
     RetryDisposition,
-    RuntimeErrorCode,
+    RuntimeErrorKind,
     RuntimeErrorOwner,
 )
 from tracecat.storage import blob as blob_module
@@ -87,11 +87,13 @@ async def test_materialize_context_marks_storage_transport_errors_retryable(
         await materialize_context(ctx)
 
     assert exc_info.value.non_retryable is False
-    assert exc_info.value.type == "StorageMaterializationError"
     envelope = extract_error_envelope(exc_info.value)
     assert envelope is not None
     assert envelope.owner is RuntimeErrorOwner.PLATFORM
-    assert envelope.code is RuntimeErrorCode.PLATFORM_DEPENDENCY_UNAVAILABLE
+    assert (
+        envelope.kind is RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE
+    )
+    assert exc_info.value.type == envelope.kind.value
     assert envelope.retry_disposition is RetryDisposition.RETRYABLE
     assert envelope.cause_type == "HTTPClientError"
     assert exc_info.value.__cause__ is None
@@ -114,11 +116,11 @@ async def test_materialize_context_classifies_non_transport_errors_as_platform(
     envelope = extract_error_envelope(exc_info.value)
     assert envelope is not None
     assert envelope.owner is RuntimeErrorOwner.PLATFORM
-    assert envelope.code is RuntimeErrorCode.PLATFORM_UNCLASSIFIED
+    assert envelope.kind is RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA
     assert envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
     assert envelope.cause_type == "ValueError"
     assert exc_info.value.non_retryable is True
-    assert exc_info.value.type == "StorageMaterializationError"
+    assert exc_info.value.type == envelope.kind.value
     assert "checksum" not in exc_info.value.message
     assert exc_info.value.__cause__ is None
 

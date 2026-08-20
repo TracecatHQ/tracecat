@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from inspect import signature
+from unittest.mock import Mock
 
 import pytest
 from temporalio.api.failure.v1 import Failure
@@ -21,6 +23,7 @@ from tracecat.runtime.errors import (
     TracecatRuntimeError,
 )
 from tracecat.temporal.errors import (
+    activity_error_boundary,
     application_error_from_envelope,
     extract_error_envelope,
     extract_error_envelopes,
@@ -346,6 +349,43 @@ def test_wrapping_preserves_existing_classification() -> None:
     assert wrapped.details == original.details
     assert extract_error_envelope(wrapped) == original_envelope
     assert extract_error_envelope(wrapped) != fallback
+
+
+def test_activity_error_boundary_classifies_unowned_failure() -> None:
+    envelope = _platform_envelope()
+
+    with pytest.raises(ApplicationError) as exc_info:
+        with activity_error_boundary(lambda _error: envelope):
+            raise RuntimeError("raw platform diagnostic")
+
+    error = exc_info.value
+    assert extract_error_envelope(error) == envelope
+    assert error.type == envelope.kind.value
+    assert "raw platform diagnostic" not in error.message
+
+
+def test_activity_error_boundary_preserves_existing_classification() -> None:
+    original = application_error_from_envelope(_platform_envelope())
+    classify = Mock()
+
+    with pytest.raises(ApplicationError) as exc_info:
+        with activity_error_boundary(classify):
+            raise original
+
+    assert exc_info.value is original
+    classify.assert_not_called()
+
+
+def test_activity_error_boundary_preserves_cancellation() -> None:
+    cancellation = asyncio.CancelledError()
+    classify = Mock()
+
+    with pytest.raises(asyncio.CancelledError) as exc_info:
+        with activity_error_boundary(classify):
+            raise cancellation
+
+    assert exc_info.value is cancellation
+    classify.assert_not_called()
 
 
 def test_existing_detail_classification_is_authoritative() -> None:

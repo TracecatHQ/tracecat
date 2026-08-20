@@ -20,10 +20,13 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
     ErrorEnvelope,
     RetryDisposition,
-    RuntimeErrorCode,
+    RuntimeErrorKind,
 )
 from tracecat.service import BaseWorkspaceService
-from tracecat.temporal.errors import application_error_from_envelope
+from tracecat.temporal.errors import (
+    activity_error_boundary,
+    application_error_from_envelope,
+)
 from tracecat.workflow.management.schemas import (
     GetWorkflowDefinitionActivityInputs,
     ResolveRegistryLockActivityInputs,
@@ -177,31 +180,39 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
 async def get_workflow_definition_activity(
     input: GetWorkflowDefinitionActivityInputs,
 ) -> WorkflowDefinitionActivityResult:
-    async with WorkflowDefinitionsService.with_session(role=input.role) as service:
-        defn = await service.get_definition_by_workflow_id(
-            input.workflow_id, version=input.version
+    with activity_error_boundary(_workflow_definition_lookup_error_envelope):
+        async with WorkflowDefinitionsService.with_session(role=input.role) as service:
+            defn = await service.get_definition_by_workflow_id(
+                input.workflow_id, version=input.version
+            )
+    if not defn:
+        logger.error(
+            "Workflow definition not found",
+            workflow_id=input.workflow_id,
+            version=input.version,
         )
-        if not defn:
-            logger.error(
-                "Workflow definition not found",
-                workflow_id=input.workflow_id,
-                version=input.version,
-            )
-            envelope = ErrorEnvelope.platform(
-                code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
-                message="Tracecat could not load a published workflow definition",
-                retry_disposition=RetryDisposition.NON_RETRYABLE,
-            )
-            raise application_error_from_envelope(
-                envelope,
-                error_type="WorkflowDefinitionNotFound",
-            ) from None
-        dsl = DSLInput(**defn.content)
+        envelope = ErrorEnvelope.platform(
+            kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
+            message="Tracecat could not load a published workflow definition",
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+        )
+        raise application_error_from_envelope(envelope) from None
+    dsl = DSLInput(**defn.content)
     # Convert from DB dict type to RegistryLock (JSONB deserializes to dict)
     registry_lock = (
         RegistryLock.model_validate(defn.registry_lock) if defn.registry_lock else None
     )
     return WorkflowDefinitionActivityResult(dsl=dsl, registry_lock=registry_lock)
+
+
+def _workflow_definition_lookup_error_envelope(error: Exception) -> ErrorEnvelope:
+    """Classify a platform failure while loading a workflow definition."""
+    return ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.WORKFLOW_DEFINITION_LOOKUP_UNAVAILABLE,
+        message="Tracecat could not query the published workflow definition",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
 
 
 @activity.defn

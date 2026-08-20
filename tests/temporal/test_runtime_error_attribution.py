@@ -16,11 +16,10 @@ from tests.temporal import runtime_error_attribution_harness as harness
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactCacheCapacityError,
     RegistryArtifactCacheLeaseContentionError,
-    RegistryArtifactExtractionError,
 )
 from tracecat.runtime.errors import (
     RetryDisposition,
-    RuntimeErrorCode,
+    RuntimeErrorKind,
     RuntimeErrorOwner,
 )
 from tracecat.sandbox.exceptions import SandboxExecutionError
@@ -45,7 +44,9 @@ class _Topology(StrEnum):
 
 class _FaultPoint(StrEnum):
     MATERIALIZATION = "retrieve_stored_object"
+    EXECUTOR_BACKEND = "get_executor_backend"
     EXECUTOR_DISPATCH = "dispatch_action"
+    RESULT_PERSISTENCE = "object_storage.store"
     DEFINITION_SERVICE = "get_definition_by_workflow_id"
     CHILD_EXECUTION = "child_dispatch"
     SUBFLOW_PREPARATION = "prepare_subflow"
@@ -75,7 +76,7 @@ class _AttributionScenario:
     )
     children: tuple[_ExecutionExpectation, ...] = ()
     envelope_owners: frozenset[RuntimeErrorOwner] = frozenset()
-    code: RuntimeErrorCode | None = None
+    kind: RuntimeErrorKind | None = None
     retry_disposition: RetryDisposition | None = None
     attempts: int | None = None
 
@@ -134,6 +135,19 @@ def _executor_runner(
     return wrapped
 
 
+def _executor_boundary_runner(
+    fault_point: harness.ExecutorBoundaryFaultPoint,
+) -> Callable[[_ScenarioContext], Awaitable[harness.ScenarioObservation]]:
+    async def wrapped(context: _ScenarioContext) -> harness.ScenarioObservation:
+        return await harness.run_executor_boundary_failure_sets_owner(
+            context.env,
+            context.test_worker_factory,
+            fault_point,
+        )
+
+    return wrapped
+
+
 def _engine_runner(
     operation: _TerminalOperation,
 ) -> Callable[[_ScenarioContext], Awaitable[harness.ScenarioObservation]]:
@@ -162,7 +176,7 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         fault="HTTPClientError",
         root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
         envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
-        code=RuntimeErrorCode.PLATFORM_DEPENDENCY_UNAVAILABLE,
+        kind=RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
         retry_disposition=RetryDisposition.RETRYABLE,
         attempts=2,
         runner=_monkeypatch_runner(
@@ -176,7 +190,7 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         fault="ValueError",
         root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
         envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
-        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        kind=RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA,
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         attempts=1,
         runner=_monkeypatch_runner(
@@ -195,13 +209,61 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         ),
     ),
     _AttributionScenario(
+        id="executor.backend_initialization.non_retryable",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.EXECUTOR_BACKEND,
+        fault="RuntimeError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        kind=RuntimeErrorKind.EXECUTOR_BACKEND_INITIALIZATION_FAILED,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        attempts=1,
+        runner=_executor_boundary_runner("backend_initialization"),
+    ),
+    _AttributionScenario(
+        id="executor.result_persistence.non_retryable",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.RESULT_PERSISTENCE,
+        fault="HTTPClientError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        kind=RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        attempts=1,
+        runner=_executor_boundary_runner("result_persistence"),
+    ),
+    _AttributionScenario(
+        id="executor.loop.platform_origin",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.EXECUTOR_DISPATCH,
+        fault="LoopExecutionError(RegistryArtifactExtractionError)",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        kind=RuntimeErrorKind.EXECUTOR_REGISTRY_EXTRACTION_FAILED,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        attempts=1,
+        runner=_executor_boundary_runner("loop_platform"),
+    ),
+    _AttributionScenario(
+        id="executor.entitlement.user",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.EXECUTOR_DISPATCH,
+        fault="EntitlementRequired",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+        envelope_owners=frozenset({RuntimeErrorOwner.USER}),
+        kind=RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        attempts=1,
+        runner=_executor_boundary_runner("entitlement"),
+    ),
+    _AttributionScenario(
         id="executor.registry_lease.exhausted",
         topology=_Topology.SINGLE_ACTION,
         fault_point=_FaultPoint.EXECUTOR_DISPATCH,
         fault="RegistryArtifactCacheLeaseContentionError",
         root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
         envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
-        code=RuntimeErrorCode.PLATFORM_CAPACITY_EXHAUSTED,
+        kind=RuntimeErrorKind.EXECUTOR_REGISTRY_LEASE_CONTENTION,
         retry_disposition=RetryDisposition.RETRYABLE,
         attempts=2,
         runner=_executor_runner(
@@ -220,7 +282,7 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         fault="RegistryArtifactCacheCapacityError",
         root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
         envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
-        code=RuntimeErrorCode.PLATFORM_CAPACITY_EXHAUSTED,
+        kind=RuntimeErrorKind.EXECUTOR_REGISTRY_CAPACITY_EXHAUSTED,
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         attempts=1,
         runner=_executor_runner(
@@ -233,28 +295,13 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         ),
     ),
     _AttributionScenario(
-        id="executor.registry_extraction.non_retryable",
-        topology=_Topology.SINGLE_ACTION,
-        fault_point=_FaultPoint.EXECUTOR_DISPATCH,
-        fault="RegistryArtifactExtractionError",
-        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
-        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
-        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-        attempts=1,
-        runner=_executor_runner(
-            error_factory=RegistryArtifactExtractionError,
-            max_attempts=3,
-        ),
-    ),
-    _AttributionScenario(
         id="executor.sandbox.exhausted",
         topology=_Topology.SINGLE_ACTION,
         fault_point=_FaultPoint.EXECUTOR_DISPATCH,
         fault="SandboxExecutionError",
         root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
         envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
-        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        kind=RuntimeErrorKind.EXECUTOR_SANDBOX_INFRASTRUCTURE_FAILED,
         retry_disposition=RetryDisposition.RETRYABLE,
         attempts=2,
         runner=_executor_runner(
@@ -282,7 +329,7 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         fault="ValueError",
         root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
         envelope_owners=frozenset({RuntimeErrorOwner.USER}),
-        code=RuntimeErrorCode.USER_ACTION_FAILED,
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         retry_disposition=RetryDisposition.RETRYABLE,
         attempts=2,
         runner=_basic_runner(harness.run_user_action_failure_sets_user_owner),
@@ -294,11 +341,25 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         fault="missing definition",
         root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
         envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
-        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         attempts=1,
         runner=_monkeypatch_runner(
             harness.run_missing_published_definition_sets_platform_owner
+        ),
+    ),
+    _AttributionScenario(
+        id="definition.lookup_unavailable",
+        topology=_Topology.DEFINITION_LOOKUP,
+        fault_point=_FaultPoint.DEFINITION_SERVICE,
+        fault="RuntimeError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        kind=RuntimeErrorKind.WORKFLOW_DEFINITION_LOOKUP_UNAVAILABLE,
+        retry_disposition=RetryDisposition.RETRYABLE,
+        attempts=6,
+        runner=_monkeypatch_runner(
+            harness.run_definition_lookup_failure_sets_platform_owner
         ),
     ),
     _AttributionScenario(
@@ -337,10 +398,24 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
         children=(_ExecutionExpectation(_COMPLETED, None),),
         envelope_owners=frozenset({RuntimeErrorOwner.USER}),
-        code=RuntimeErrorCode.USER_ACTION_FAILED,
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         retry_disposition=RetryDisposition.RETRYABLE,
         runner=_monkeypatch_runner(
             harness.run_successful_error_handler_does_not_inherit_terminal_owner
+        ),
+    ),
+    _AttributionScenario(
+        id="subflow_preparation.unhandled_platform_failure",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.SUBFLOW_PREPARATION,
+        fault="RuntimeError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        kind=RuntimeErrorKind.WORKFLOW_SUBFLOW_PREPARATION_FAILED,
+        retry_disposition=RetryDisposition.RETRYABLE,
+        attempts=1,
+        runner=_basic_runner(
+            harness.run_unhandled_subflow_preparation_failure_sets_platform_owner
         ),
     ),
     _AttributionScenario(
@@ -415,14 +490,14 @@ async def _assert_scenario_observation(
         assert {envelope.owner for envelope in envelopes} == set(
             scenario.envelope_owners
         )
-        if scenario.code is not None or scenario.retry_disposition is not None:
+        if scenario.kind is not None or scenario.retry_disposition is not None:
             envelope = extract_error_envelope(observation.failure)
             assert envelope is not None
-            assert envelope.code is scenario.code
+            assert envelope.kind is scenario.kind
             assert envelope.retry_disposition is scenario.retry_disposition
     else:
         assert not scenario.envelope_owners
-        assert scenario.code is None
+        assert scenario.kind is None
         assert scenario.retry_disposition is None
 
     assert observation.attempts == scenario.attempts

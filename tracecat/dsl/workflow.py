@@ -289,7 +289,6 @@ def _child_failures_application_error(
         aggregate.envelope,
         aggregate,
         *children,
-        error_type=aggregate.type,
     )
 
 
