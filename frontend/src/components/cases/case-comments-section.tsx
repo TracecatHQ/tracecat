@@ -1,7 +1,6 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useQuery } from "@tanstack/react-query"
 import {
   AlertCircle,
   ArrowUpIcon,
@@ -104,6 +103,7 @@ import {
   useDeleteCaseComment,
   useUpdateCaseComment,
 } from "@/lib/hooks"
+import { useQuery } from "@/lib/query"
 import { cn, INSET_SURFACE } from "@/lib/utils"
 
 const commentFormSchema = z.object({

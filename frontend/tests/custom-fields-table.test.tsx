@@ -2,10 +2,10 @@
  * @jest-environment jsdom
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
 import type { CaseFieldReadMinimal } from "@/client"
 import { CustomFieldsTable } from "@/components/cases/custom-fields-table"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",

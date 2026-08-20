@@ -32,12 +32,12 @@ import { cn, undoSlugify } from "@/lib/utils"
 import "react18-json-view/src/style.css"
 
 import { TriangleRightIcon } from "@radix-ui/react-icons"
-import { useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
 import { Spinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import { parseExecutionId } from "@/lib/event-history"
+import { useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**

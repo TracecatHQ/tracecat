@@ -1,6 +1,5 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import { ArrowUpRight, Loader2 } from "lucide-react"
 import { workspacesGetWorkspace } from "@/client"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
@@ -12,6 +11,7 @@ import { WorkspaceRuntimeSettings } from "@/components/settings/workspace-runtim
 import { WorkspaceSyncSettings } from "@/components/settings/workspace-sync-settings"
 import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useQuery } from "@/lib/query"
 
 interface WorkspaceSettingsContainerProps {
   workspaceId: string

@@ -1,7 +1,5 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, renderHook, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
-
 import {
   type CaseCommentAgentInvocationStatus,
   type CaseCommentRead,
@@ -21,6 +19,7 @@ import {
   useCaseCommentThreads,
   useCreateCaseComment,
 } from "@/lib/hooks"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => ({
   casesCreateComment: jest.fn(),

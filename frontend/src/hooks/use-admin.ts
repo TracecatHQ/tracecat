@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
 import {
   type AdminCreateOrganizationDomainResponse,
@@ -93,6 +92,7 @@ import {
   retryHandler,
   type TracecatApiError,
 } from "@/lib/errors"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 export interface AdminPlatformCatalogEntry {
   id: string

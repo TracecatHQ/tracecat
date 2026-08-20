@@ -1,4 +1,3 @@
-import type { QueryClient } from "@tanstack/react-query"
 import * as ai from "ai"
 import type {
   AgentSessionEntity,
@@ -12,6 +11,7 @@ import type {
 } from "@/client"
 import { invalidateCaseCommentQueries } from "@/lib/cases/comment-queries"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import type { QueryClient } from "@/lib/query"
 
 export type ApprovalCard = {
   tool_call_id: string

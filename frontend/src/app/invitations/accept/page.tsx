@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertCircle, CheckCircle2, Clock, UserPlus, UserX } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
@@ -23,6 +22,7 @@ import {
 } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 function AcceptInvitationContent() {
   const searchParams = useSearchParams()

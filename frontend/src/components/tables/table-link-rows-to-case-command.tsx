@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery } from "@tanstack/react-query"
 import { LinkIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { CaseReadMinimal } from "@/client"
@@ -19,6 +18,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useDebounce } from "@/hooks"
 import { client as apiClient } from "@/lib/api"
+import { useMutation, useQuery } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 type SearchCasesResponse = {

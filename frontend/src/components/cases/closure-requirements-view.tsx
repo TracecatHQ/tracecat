@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowUpRight, ShieldCheck } from "lucide-react"
 import {
   type CaseDropdownDefinitionRead,
@@ -25,6 +24,7 @@ import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { useCaseDropdownDefinitions, useCaseFields } from "@/lib/hooks"
+import { useMutation, useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /** Row shape for the unified closure requirements table. */
@@ -69,6 +69,7 @@ export function ClosureRequirementsView() {
         requestBody: { required_on_closure: requiredOnClosure },
       })
     },
+    meta: { suppressErrorToast: false },
     onMutate: async ({ fieldId, requiredOnClosure }) => {
       await queryClient.cancelQueries({
         queryKey: ["case-fields", workspaceId],
@@ -115,6 +116,7 @@ export function ClosureRequirementsView() {
         requestBody: { required_on_closure: requiredOnClosure },
       })
     },
+    meta: { suppressErrorToast: false },
     onMutate: async ({ definitionId, requiredOnClosure }) => {
       await queryClient.cancelQueries({
         queryKey: ["case-dropdown-definitions", workspaceId],

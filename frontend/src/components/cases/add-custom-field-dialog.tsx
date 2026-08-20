@@ -1,7 +1,6 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
@@ -43,6 +42,7 @@ import { invalidateCaseFieldQueries } from "@/lib/cases/invalidation"
 import { CASE_FIELD_KIND_CONFIG } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
 import { useCaseFields } from "@/lib/hooks"
+import { useQueryClient } from "@/lib/query"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
