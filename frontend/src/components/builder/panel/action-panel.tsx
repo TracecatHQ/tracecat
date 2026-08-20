@@ -112,7 +112,6 @@ import {
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
 import {
-  AGENT_TIMEOUT_SECONDS_DEFAULT,
   DEFAULT_ACTION_TIMEOUT_SECONDS,
   isAgentAction,
 } from "@/lib/action-timeout"
@@ -1597,11 +1596,11 @@ function ActionPanelContent({
                                     )
                                   }
                                   min={1}
-                                  placeholder={String(
+                                  placeholder={
                                     isAgentBackedAction
-                                      ? AGENT_TIMEOUT_SECONDS_DEFAULT
-                                      : DEFAULT_ACTION_TIMEOUT_SECONDS
-                                  )}
+                                      ? "Deployment default"
+                                      : String(DEFAULT_ACTION_TIMEOUT_SECONDS)
+                                  }
                                   className="text-xs"
                                 />
                               </FormControl>
