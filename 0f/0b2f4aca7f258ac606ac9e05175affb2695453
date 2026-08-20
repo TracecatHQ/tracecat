@@ -1,0 +1,71 @@
+docs/docs.json
+  s_b25f66adad735a::t_fdc5ffc131b0ab 190
+docs/tools/jamf.mdx
+  s_b25f66adad735a::t_2a3f0915e9a459 9,19-20,52,62-63,83,93-94,122,132-133,153,163-164,184,194-195,215,225-226,246,256-257,277,287-288,308,318-319,339,349-350,370,380-381,395,405-406,460,470-471,485,495-496,540,550-551,597,607-608,628,638-639,659,669-670,702,712-713,739,749-750,776,786-787
+frontend/src/components/icons.tsx
+  s_b25f66adad735a::t_beb30833f30e6c 662,868,981
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/commands/list_mdm_commands.yml
+  s_b25f66adad735a::t_0b31f97e2c0220 7,11,14-15,57,60
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/commands/send_mdm_command.yml
+  s_b25f66adad735a::t_4fdb9c82395234 7,11,14-15,44,47
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/delete_computer.yml
+  s_b25f66adad735a::t_b2bae2a756b66a 7,11,14-15,29,32
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/erase_computer.yml
+  s_b25f66adad735a::t_1a8bdc1fdf49ce 7,11,14-15,43,46
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/get_computer_device_lock_pin.yml
+  s_b25f66adad735a::t_82c9bee208fac7 7,11,14-15,29,32
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/get_computer_filevault_key.yml
+  s_b25f66adad735a::t_32a0cb70c8c973 7,11,14-15,29,32
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/get_computer_inventory_detail.yml
+  s_b25f66adad735a::t_932e4ade9d1e60 7,11,14-15,29,32
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/get_computer_recovery_lock_password.yml
+  s_b25f66adad735a::t_1b4dc0a84bd45b 7,11,14-15,29,32
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/list_computer_inventory.yml
+  s_b25f66adad735a::t_45d1db7f1238b8 7,11,14-15,66,69
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/redeploy_management_framework.yml
+  s_b25f66adad735a::t_3163155489c4c3 7,11,14-15,29,32
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/remove_computer_mdm_profile.yml
+  s_b25f66adad735a::t_0b16089a25302d 7,11,14-15,29,32
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/update_computer_inventory_detail.yml
+  s_b25f66adad735a::t_2062a10f4d8d8f 7,11,14-15,32,35
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/enrollment/list_device_enrollment_devices.yml
+  s_b25f66adad735a::t_4812ed16d23199 7,11,14-15,29,32
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/groups/get_smart_group_membership.yml
+  s_b25f66adad735a::t_2ea28928b20dab 7,11,14-15,29,32
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/groups/list_computer_groups.yml
+  s_b25f66adad735a::t_7c5702fe73d54a 7,11,14-15,26,29
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/groups/update_static_group.yml
+  s_b25f66adad735a::t_195357708a71cd 7,11,14-15,56,59
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/mobile_devices/get_mobile_device_detail.yml
+  s_b25f66adad735a::t_5f429acf9297da 7,11,14-15,29,32
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/mobile_devices/list_mobile_devices.yml
+  s_b25f66adad735a::t_876cf345054e47 7,11,14-15,54,57
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/prestage/add_computer_prestage_scope.yml
+  s_b25f66adad735a::t_79e3191f81d518 7,11,14-15,35,38
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/prestage/get_computer_prestage_scope.yml
+  s_b25f66adad735a::t_cbbfa835ab5360 7,11,14-15,29,32
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/prestage/list_computer_prestages.yml
+  s_b25f66adad735a::t_a5f14463b350ba 7,11,14-15,26,29
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/prestage/remove_computer_prestage_scope.yml
+  s_b25f66adad735a::t_9c89091ad131d4 7,11,14-15,35,38
+tracecat/integrations/providers/__init__.py
+  s_b25f66adad735a::t_6a805fd2f7053c 13,51
+tracecat/integrations/providers/jamf/oauth.py
+  s_b25f66adad735a::t_7c104d836f0f6a 8-9,12,15,18,26-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "0f0b2f4aca7f258ac606ac9e05175affb2695453",
+  "prompts": {},
+  "sessions": {
+    "s_b25f66adad735a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "168fcfac-9066-4680-9220-3751759964d3",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
