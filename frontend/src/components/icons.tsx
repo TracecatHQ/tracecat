@@ -659,6 +659,8 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.falconpy": createCatalogIconRenderer("crowdstrike_falcon_mcp"),
     "tools.elastic_security": createCatalogIconRenderer("elastic_mcp"),
     "tools.elasticsearch": createCatalogIconRenderer("elastic_mcp"),
+    "tools.iru": createCatalogIconRenderer("iru_mcp"),
+    "tools.jamf": createCatalogIconRenderer("jamf_mcp"),
     "tools.panther": createCatalogIconRenderer("panther_mcp"),
     "tools.rootly": createCatalogIconRenderer("rootly_mcp"),
     "tools.sentinel_one": createCatalogIconRenderer("sentinelone_mcp"),
@@ -868,6 +870,7 @@ export const providerIcons: Record<
       <ServiceNowIcon {...rest} />
     </div>
   ),
+  jamf: createCatalogIconRenderer("jamf_mcp"),
   slack: ({ className, iconClassName, flairsize: _ignored, ...rest }) => (
     <div className={cn("!rounded-sm", className)}>
       <SlackIcon {...rest} className={cn("size-full", iconClassName)} />
@@ -980,6 +983,8 @@ export const secretIcons: Record<
       <JiraIcon {...rest} />
     </div>
   ),
+  jamf: createCatalogIconRenderer("jamf_mcp"),
+  iru: createCatalogIconRenderer("iru_mcp"),
   datadog: ({ className, ...rest }) => (
     <div className={className}>
       <DatadogIcon {...rest} />

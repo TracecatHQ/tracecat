@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: Erase device
+  description: Irreversibly erase a device. Optionally control platform-specific erase behavior.
+  display_group: Iru (Kandji)
+  doc_url: https://api-docs.iru.com/#149ae2cc-fb7f-42ce-8379-187878685303
+  namespace: tools.iru
+  name: erase_device
+  secrets:
+    - name: iru
+      keys: ["IRU_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Iru (Kandji) API base URL (e.g. https://acme.api.kandji.io).
+      default: null
+    device_id:
+      type: str
+      description: Device UUID.
+    pin:
+      type: str | None
+      description: Six-character macOS erase PIN; ignored for iOS, iPadOS, and tvOS.
+      default: null
+    preserve_data_plan:
+      type: bool | None
+      description: Whether to preserve the cellular data plan during erase.
+      default: null
+    disallow_proximity_setup:
+      type: bool | None
+      description: Whether to disallow proximity setup after erase.
+      default: null
+    return_to_service:
+      type: dict[str, Any] | None
+      description: Return to Service settings for iOS 17 and later, so the device re-enrolls after erase.
+      default: null
+    erase_mode:
+      type: str | None
+      description: Erase mode. Windows only.
+      default: null
+    erase_flags:
+      type: str | None
+      description: Erase flags. Android only.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            PIN: ${{ inputs.pin }}
+            PreserveDataPlan: ${{ inputs.preserve_data_plan }}
+            DisallowProximitySetup: ${{ inputs.disallow_proximity_setup }}
+            ReturnToService: ${{ inputs.return_to_service }}
+            erase_mode: ${{ inputs.erase_mode }}
+            erase_flags: ${{ inputs.erase_flags }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
+    - ref: erase_device
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.iru.base_url }}/api/v1/devices/${{ FN.url_encode(inputs.device_id) }}/action/erase
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.iru.IRU_API_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.erase_device.result }}

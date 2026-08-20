@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get computer PreStage scope
+  description: Get the serial numbers and version lock in a Jamf Pro computer PreStage scope.
+  display_group: Jamf Pro
+  doc_url: https://developer.jamf.com/jamf-pro/reference/get_v2-computer-prestages-id-scope
+  namespace: tools.jamf
+  name: get_computer_prestage_scope
+  secrets:
+    - type: oauth
+      provider_id: jamf
+      grant_type: client_credentials
+      optional: true
+    - name: jamf
+      keys: ["JAMF_API_TOKEN"]
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: Jamf Pro base URL (e.g. https://acme.jamfcloud.com).
+      default: null
+    prestage_id:
+      type: str
+      description: Computer PreStage enrollment ID.
+  steps:
+    - ref: get_computer_prestage_scope
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v2/computer-prestages/${{ FN.url_encode(inputs.prestage_id) }}/scope
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.jamf_oauth.JAMF_SERVICE_TOKEN || SECRETS.jamf.JAMF_API_TOKEN }}
+  returns: ${{ steps.get_computer_prestage_scope.result }}

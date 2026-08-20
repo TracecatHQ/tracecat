@@ -14,12 +14,37 @@ do not break their public inputs or outputs without an explicitly planned migrat
   official documentation, the official OpenAPI specification when one exists, and
   relevant official SDK or MCP schemas. Check authentication, scopes, API versions,
   request and response shapes, pagination, errors, and asynchronous states.
-- Deep-link each action to its official endpoint documentation. If primary sources
-  are incomplete or conflict, surface the gap during planning instead of guessing.
+- Deep-link each action to its official endpoint documentation. A `doc_url` must
+  point at the specific endpoint whenever a per-endpoint URL exists; a section
+  index or documentation root is acceptable only after you have established that
+  no per-endpoint address exists in the vendor's own inventory. If primary
+  sources are incomplete or conflict, surface the gap during planning instead of
+  guessing. See "Documentation links" below.
 - Strongly prefer YAML templates that call Tracecat's core HTTP actions for REST
   APIs. If research finds a maintained official Python SDK, ask the user during
   planning whether to use it. If approved, add generic direct and paginated SDK UDFs
   plus YAML endpoint templates over those wrappers.
+
+### Documentation links
+
+- Dig for the deep link before settling for a root URL. Vendor references are
+  often single-page apps that look unlinkable but are not:
+  - ReadMe, Redoc, Scalar, and Swagger UI derive per-operation URLs or fragments
+    from the OpenAPI `operationId` or from `method + path`.
+  - Postman documenters address every request and folder by UUID fragment; the
+    published page links its own collection JSON, which carries those ids.
+  - A `sitemap.xml`, `llms.txt`, or the OpenAPI document usually enumerates the
+    addressable pages.
+- Confirm every identifier against the vendor's own inventory rather than an
+  HTTP status. Single-page docs return 200 for any path or fragment, so a status
+  check proves nothing, and an invented anchor silently resolves to the page
+  root — looking correct in review and in CI while sending the reader nowhere.
+  Never use a fragment or path you have not seen in the vendor's data; prefer an
+  honest root URL and call out in the pull request which actions fall back to
+  one.
+- Prefer the current version of an endpoint. Check whether the vendor marks the
+  one you picked `deprecated`, and if a non-deprecated successor exists with the
+  same contract, build on that instead.
 
 ### Thin-wrapper contract
 
@@ -43,10 +68,21 @@ do not break their public inputs or outputs without an explicitly planned migrat
 - Return the untouched full `core.http_request` result, including `status_code`,
   `headers`, and `data`. Do not select, rename, filter, or reshape provider output.
   SDK wrappers may only adapt values enough to make the native result serializable.
-- Pagination is the only general output-shaping exception. Follow the Slack and
-  boto3 wrapper patterns: preserve provider order, document whether the result is a
-  page list or flattened item list, and enforce the documented bound without
-  otherwise transforming items.
+- Do not paginate inside an HTTP template. One action is one request. Expose the
+  provider's own paging inputs — `page`, `page-size`, `limit`, `offset`, `cursor`,
+  or whatever it calls them — return the single page the provider returned, and
+  leave the loop to the workflow author, who drives it with a `while`/`until`
+  loop over the cursor or offset. Do not call `core.http_paginate` from a
+  template, and do not hide a fetch-all behind a `max_pages` argument.
+  Auto-pagination hides cost and rate-limit pressure from the person running the
+  workflow, and it hard-codes a stop condition that belongs to them.
+- State the provider's documented maximum in the `description` of the relevant
+  input when one exists, since callers cannot discover it from the schema and
+  exceeding it is usually an error rather than a clamp.
+- The SDK wrappers are the exception, not the precedent. Where a maintained SDK
+  paginates natively — the Slack and boto3 wrappers — preserve provider order,
+  document whether the result is a page list or a flattened item list, and
+  enforce the documented bound without otherwise transforming items.
 - For polling, stop when the documented transient HTTP code or body state is no
   longer present. Do not test exact success equality or membership in a set of
   success values. Return the raw terminal response, including provider-declared
