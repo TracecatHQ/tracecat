@@ -9787,12 +9787,22 @@ export const $CaseVersionCompareRead = {
         },
       ],
     },
+    diff: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseVersionDiffRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: ["selected"],
   title: "CaseVersionCompareRead",
   description:
-    "A selected case version and its immediate same-field predecessor.",
+    "A selected case version, its predecessor, and their textual diff.",
 } as const
 
 export const $CaseVersionContentRead = {
@@ -9818,6 +9828,55 @@ export const $CaseVersionContentRead = {
   required: ["id", "field", "version", "content"],
   title: "CaseVersionContentRead",
   description: "Content for one immutable case field version.",
+} as const
+
+export const $CaseVersionDiffOperation = {
+  type: "string",
+  enum: ["equal", "insert", "delete"],
+  title: "CaseVersionDiffOperation",
+  description: "Operations in an ordered case-version text diff.",
+} as const
+
+export const $CaseVersionDiffRead = {
+  properties: {
+    granularity: {
+      type: "string",
+      const: "word",
+      title: "Granularity",
+      default: "word",
+    },
+    changed: {
+      type: "boolean",
+      title: "Changed",
+    },
+    segments: {
+      items: {
+        $ref: "#/components/schemas/CaseVersionDiffSegmentRead",
+      },
+      type: "array",
+      title: "Segments",
+    },
+  },
+  type: "object",
+  required: ["changed", "segments"],
+  title: "CaseVersionDiffRead",
+  description: "A word-level edit script from predecessor to selected content.",
+} as const
+
+export const $CaseVersionDiffSegmentRead = {
+  properties: {
+    operation: {
+      $ref: "#/components/schemas/CaseVersionDiffOperation",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+  },
+  type: "object",
+  required: ["operation", "text"],
+  title: "CaseVersionDiffSegmentRead",
+  description: "One exact-text segment in an ordered case-version diff.",
 } as const
 
 export const $CaseVersionField = {

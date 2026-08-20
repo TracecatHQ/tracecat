@@ -2624,11 +2624,12 @@ export type CaseVersionActorRead = {
 }
 
 /**
- * A selected case version and its immediate same-field predecessor.
+ * A selected case version, its predecessor, and their textual diff.
  */
 export type CaseVersionCompareRead = {
   selected: CaseVersionContentRead
   predecessor?: CaseVersionContentRead | null
+  diff?: CaseVersionDiffRead | null
 }
 
 /**
@@ -2639,6 +2640,28 @@ export type CaseVersionContentRead = {
   field: CaseVersionField
   version: number
   content: string
+}
+
+/**
+ * Operations in an ordered case-version text diff.
+ */
+export type CaseVersionDiffOperation = "equal" | "insert" | "delete"
+
+/**
+ * A word-level edit script from predecessor to selected content.
+ */
+export type CaseVersionDiffRead = {
+  granularity?: "word"
+  changed: boolean
+  segments: Array<CaseVersionDiffSegmentRead>
+}
+
+/**
+ * One exact-text segment in an ordered case-version diff.
+ */
+export type CaseVersionDiffSegmentRead = {
+  operation: CaseVersionDiffOperation
+  text: string
 }
 
 /**

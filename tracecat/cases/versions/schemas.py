@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import Field
 
-from tracecat.cases.enums import CaseVersionField
+from tracecat.cases.enums import CaseVersionDiffOperation, CaseVersionField
 from tracecat.core.schemas import Schema
 
 
@@ -42,11 +43,27 @@ class CaseVersionContentRead(Schema):
     content: str
 
 
+class CaseVersionDiffSegmentRead(Schema):
+    """One exact-text segment in an ordered case-version diff."""
+
+    operation: CaseVersionDiffOperation
+    text: str
+
+
+class CaseVersionDiffRead(Schema):
+    """A word-level edit script from predecessor to selected content."""
+
+    granularity: Literal["word"] = Field(default="word")
+    changed: bool
+    segments: list[CaseVersionDiffSegmentRead]
+
+
 class CaseVersionCompareRead(Schema):
-    """A selected case version and its immediate same-field predecessor."""
+    """A selected case version, its predecessor, and their textual diff."""
 
     selected: CaseVersionContentRead
     predecessor: CaseVersionContentRead | None = Field(default=None)
+    diff: CaseVersionDiffRead | None = Field(default=None)
 
 
 class CaseVersionRestoreRead(Schema):

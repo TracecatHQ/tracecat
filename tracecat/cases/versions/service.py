@@ -13,6 +13,7 @@ from sqlalchemy.orm import aliased
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.cases.enums import CaseVersionField
+from tracecat.cases.versions.diff import compute_case_version_diff
 from tracecat.cases.versions.schemas import (
     CaseVersionActorRead,
     CaseVersionCompareRead,
@@ -252,11 +253,21 @@ class CaseVersionsService(BaseWorkspaceService):
             return None
         selected_version = cast(CaseVersion, row[0])
         predecessor_version = cast(CaseVersion | None, row[1])
+        selected_read = CaseVersionContentRead.model_validate(selected_version)
+        predecessor_read = (
+            CaseVersionContentRead.model_validate(predecessor_version)
+            if predecessor_version is not None
+            else None
+        )
         return CaseVersionCompareRead(
-            selected=CaseVersionContentRead.model_validate(selected_version),
-            predecessor=(
-                CaseVersionContentRead.model_validate(predecessor_version)
-                if predecessor_version is not None
+            selected=selected_read,
+            predecessor=predecessor_read,
+            diff=(
+                compute_case_version_diff(
+                    predecessor_read.content,
+                    selected_read.content,
+                )
+                if predecessor_read is not None
                 else None
             ),
         )

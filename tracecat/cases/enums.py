@@ -64,6 +64,14 @@ class CaseVersionField(StrEnum):
     DESCRIPTION = "description"
 
 
+class CaseVersionDiffOperation(StrEnum):
+    """Operations in an ordered case-version text diff."""
+
+    EQUAL = "equal"
+    INSERT = "insert"
+    DELETE = "delete"
+
+
 class CaseEventType(StrEnum):
     """Case activity type values."""
 
