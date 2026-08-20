@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import TYPE_CHECKING, Final, Protocol
 
+import boto3
 from opentelemetry import context as otel_context
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -27,6 +28,7 @@ from opentelemetry.sdk.trace.export import (
 )
 from opentelemetry.trace import Link, Span, SpanKind, Status, StatusCode, TraceFlags
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+from opentelemetry.util.re import parse_env_headers
 from opentelemetry.util.types import Attributes
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -67,6 +69,7 @@ _REDACTED_HTTP_PATH: Final = "/[REDACTED]"
 _REDACTED_ATTRIBUTE_VALUE: Final = "[REDACTED]"
 _TRACE_CONTEXT_PROPAGATOR: Final = TraceContextTextMapPropagator()
 _TEMPORAL_FAILURE_TYPE: Final = "temporal.failure"
+_PLATFORM_INSTRUMENTATION_NAME: Final = "tracecat.platform"
 
 type _TraceCarrier = dict[str, list[str] | str]
 
@@ -101,7 +104,7 @@ class _CompletedWorkflowSpanInput(Protocol):
     def parent_missing(self) -> bool: ...
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PlatformTracing:
     """Process-level platform tracing runtime."""
 
@@ -116,8 +119,37 @@ class PlatformTracing:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class PlatformTraceReference:
+    """Safe reference returned to callers for opening one platform trace."""
+
+    trace_id: str
+    trace_url: str | None
+
+
 _runtime: PlatformTracing | None = None
 _runtime_lock = Lock()
+
+
+def _load_platform_exporter_headers() -> dict[str, str] | None:
+    """Load host-only OTLP headers without placing their values in process env."""
+    secret_arn = config.TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN
+    if not secret_arn:
+        return None
+
+    client = boto3.client("secretsmanager")
+    response = client.get_secret_value(SecretId=secret_arn)
+    if secret_string := response.get("SecretString"):
+        raw_headers = secret_string
+    elif secret_binary := response.get("SecretBinary"):
+        raw_headers = secret_binary.decode("utf-8")
+    else:
+        raise ValueError("Platform OTel header secret has no value")
+
+    headers = parse_env_headers(raw_headers, liberal=True)
+    if not headers:
+        raise ValueError("Platform OTel header secret has no valid headers")
+    return dict(headers)
 
 
 def initialize_platform_tracing(
@@ -158,7 +190,11 @@ def initialize_platform_tracing(
                 )
             )
             if exporter is None:
-                provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+                provider.add_span_processor(
+                    BatchSpanProcessor(
+                        OTLPSpanExporter(headers=_load_platform_exporter_headers())
+                    )
+                )
             else:
                 provider.add_span_processor(SimpleSpanProcessor(exporter))
 
@@ -214,7 +250,7 @@ def temporal_tracing_interceptor() -> TracingInterceptor | None:
         return None
     return _TraceContextOnlyTracingInterceptor(
         tracer=runtime.tracer("tracecat.temporal"),
-        always_create_workflow_spans=False,
+        always_create_workflow_spans=True,
     )
 
 
@@ -327,6 +363,51 @@ def set_current_span_attributes(attributes: dict[str, str | int | bool | None]) 
     for key, value in attributes.items():
         if value is not None:
             span.set_attribute(key, value)
+
+
+@contextmanager
+def platform_span(
+    name: str,
+    *,
+    attributes: dict[str, str | int | bool | None] | None = None,
+) -> Iterator[Span | None]:
+    """Create a sanitized child span beneath the active platform trace."""
+    runtime = get_platform_tracing()
+    if runtime is None:
+        yield None
+        return
+
+    with runtime.tracer(_PLATFORM_INSTRUMENTATION_NAME).start_as_current_span(
+        name,
+        record_exception=False,
+        set_status_on_exception=False,
+    ) as span:
+        if attributes:
+            for key, value in attributes.items():
+                if value is not None:
+                    span.set_attribute(key, value)
+        try:
+            yield span
+        except BaseException as exc:
+            span.set_status(Status(status_code=StatusCode.ERROR))
+            span.set_attribute("error.type", type(exc).__name__)
+            raise
+
+
+def current_trace_reference() -> PlatformTraceReference | None:
+    """Return the active trace ID and optional operator-configured viewer URL."""
+    span_context = trace.get_current_span().get_span_context()
+    if not span_context.is_valid:
+        return None
+
+    trace_id = f"{span_context.trace_id:032x}"
+    template = config.TRACECAT__PLATFORM_OTEL_TRACE_VIEW_URL_TEMPLATE
+    trace_url = (
+        template.replace("{trace_id}", trace_id)
+        if template and "{trace_id}" in template
+        else None
+    )
+    return PlatformTraceReference(trace_id=trace_id, trace_url=trace_url)
 
 
 def _sanitize_server_span(span: Span, scope: Scope) -> None:

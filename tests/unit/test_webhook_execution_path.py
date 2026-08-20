@@ -1029,6 +1029,7 @@ class TestWebhookRouterExecutionPath:
         call_kwargs = mock_service.create_workflow_execution.call_args.kwargs
         assert call_kwargs["trigger_type"] == TriggerType.WEBHOOK
         assert call_kwargs["payload"] == payload
+        assert call_kwargs["wf_exec_id"].startswith(f"{workflow_id.short()}/exec_")
 
     @pytest.mark.anyio
     async def test_wait_webhook_returns_download_url_for_external_object(self):

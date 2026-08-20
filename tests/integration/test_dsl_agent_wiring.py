@@ -146,12 +146,17 @@ def create_mock_build_tool_definitions_activity() -> Callable[..., Any]:
     return mock_build_tool_definitions
 
 
-def create_mock_run_agent_activity(*, output: str) -> Callable[..., Any]:
+def create_mock_run_agent_activity(
+    *,
+    output: str,
+    captured_inputs: list[AgentExecutorInput] | None = None,
+) -> Callable[..., Any]:
     @activity.defn(name="run_agent_activity")
     async def mock_run_agent_activity(
         input: AgentExecutorInput,
     ) -> AgentExecutorResult:
-        del input
+        if captured_inputs is not None:
+            captured_inputs.append(input)
         activity.heartbeat("Mock agent running")
         return AgentExecutorResult(success=True, output=output)
 
@@ -193,6 +198,7 @@ class TestDSLAgentWiring:
         test_worker_factory: Callable[..., Worker],
         agent_worker_factory: Callable[..., Worker],
     ) -> None:
+        captured_inputs: list[AgentExecutorInput] = []
         agent_activities = list(get_agent_worker_activities())
         for replacement in (
             create_mock_create_session_activity(),
@@ -202,7 +208,10 @@ class TestDSLAgentWiring:
         ):
             agent_activities = _replace_activity(agent_activities, replacement)
         agent_activities.append(
-            create_mock_run_agent_activity(output="dsl-agent-wired")
+            create_mock_run_agent_activity(
+                output="dsl-agent-wired",
+                captured_inputs=captured_inputs,
+            )
         )
 
         dsl = DSLInput(
@@ -224,6 +233,7 @@ class TestDSLAgentWiring:
         )
         wf_id = WorkflowUUID.new_uuid4()
 
+        wf_exec_id = generate_exec_id(wf_id)
         async with test_worker_factory(
             temporal_client,
             activities=list(get_dsl_worker_activities()),
@@ -240,7 +250,7 @@ class TestDSLAgentWiring:
                         role=test_role,
                         wf_id=wf_id,
                     ),
-                    id=generate_exec_id(wf_id),
+                    id=wf_exec_id,
                     task_queue=config.TEMPORAL__CLUSTER_QUEUE,
                     retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                     execution_timeout=timedelta(seconds=60),
@@ -248,6 +258,14 @@ class TestDSLAgentWiring:
 
         data = await to_data(result)
         assert data["output"] == "dsl-agent-wired"
+        assert len(captured_inputs) == 1
+        executor_input = captured_inputs[0]
+        assert executor_input.curr_run_id is not None
+        assert executor_input.curr_run_id != executor_input.session_id
+        assert executor_input.origin_workflow_id == wf_id
+        assert executor_input.origin_workflow_execution_id == wf_exec_id
+        assert executor_input.origin_action_ref == "agent"
+        assert executor_input.origin_trigger_type == "manual"
 
     @pytest.mark.anyio
     @pytest.mark.integration
