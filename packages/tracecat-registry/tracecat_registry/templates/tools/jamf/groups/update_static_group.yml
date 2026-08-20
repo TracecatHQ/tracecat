@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: Update static computer group
+  description: Replaces the group's entire membership — assignments must contain the full desired set of computer IDs, not just additions.
+  display_group: Jamf Pro
+  doc_url: https://developer.jamf.com/jamf-pro/reference/put_v3-computer-groups-static-groups-id
+  namespace: tools.jamf
+  name: update_static_group
+  secrets:
+    - type: oauth
+      provider_id: jamf
+      grant_type: client_credentials
+      optional: true
+    - name: jamf
+      keys: ["JAMF_API_TOKEN"]
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: Jamf Pro base URL (e.g. https://acme.jamfcloud.com).
+      default: null
+    group_id:
+      type: str
+      description: Static computer group ID.
+    name:
+      type: str
+      description: Group name, from 1 to 255 characters.
+    description:
+      type: str | None
+      description: Group description.
+      default: null
+    site_id:
+      type: str | None
+      description: Jamf Pro site ID.
+      default: null
+    assignments:
+      type: list[int] | None
+      description: Full desired set of computer IDs, replacing the entire current membership.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            name: ${{ inputs.name }}
+            description: ${{ inputs.description }}
+            siteId: ${{ inputs.site_id }}
+            assignments: ${{ inputs.assignments }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
+    - ref: update_static_group
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v3/computer-groups/static-groups/${{ FN.url_encode(inputs.group_id) }}
+        method: PUT
+        headers:
+          Authorization: Bearer ${{ SECRETS.jamf_oauth.JAMF_SERVICE_TOKEN || SECRETS.jamf.JAMF_API_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.update_static_group.result }}

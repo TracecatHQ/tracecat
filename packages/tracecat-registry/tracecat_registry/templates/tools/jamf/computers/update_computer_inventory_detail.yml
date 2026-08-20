@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Update computer inventory detail
+  description: Partially update computer inventory detail; use the userAndLocation section to assign the device to a user.
+  display_group: Jamf Pro
+  doc_url: https://developer.jamf.com/jamf-pro/reference/patch_v1-computers-inventory-detail-id
+  namespace: tools.jamf
+  name: update_computer_inventory_detail
+  secrets:
+    - type: oauth
+      provider_id: jamf
+      grant_type: client_credentials
+      optional: true
+    - name: jamf
+      keys: ["JAMF_API_TOKEN"]
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: Jamf Pro base URL (e.g. https://acme.jamfcloud.com).
+      default: null
+    computer_id:
+      type: str
+      description: Computer ID.
+    payload:
+      type: dict[str, any]
+      description: Partial inventory update; the userAndLocation section assigns the device to a user.
+  steps:
+    - ref: update_computer_inventory_detail
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v1/computers-inventory-detail/${{ FN.url_encode(inputs.computer_id) }}
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.jamf_oauth.JAMF_SERVICE_TOKEN || SECRETS.jamf.JAMF_API_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.update_computer_inventory_detail.result }}

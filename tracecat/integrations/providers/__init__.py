@@ -10,7 +10,7 @@ from tracecat.integrations.providers.google import (
 )
 from tracecat.integrations.providers.google.drive import GoogleDriveACProvider
 from tracecat.integrations.providers.google.gmail import GoogleGmailACProvider
-from tracecat.integrations.providers.jamf_pro.oauth import JamfProOAuthProvider
+from tracecat.integrations.providers.jamf.oauth import JamfOAuthProvider
 from tracecat.integrations.providers.jira.mcp import JiraMCPProvider
 from tracecat.integrations.providers.linear.mcp import LinearMCPProvider
 from tracecat.integrations.providers.microsoft import (
@@ -48,7 +48,7 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     GoogleGmailACProvider,
     GoogleServiceAccountOAuthProvider,
     GoogleSheetsOAuthProvider,
-    JamfProOAuthProvider,
+    JamfOAuthProvider,
     JiraMCPProvider,
     LinearMCPProvider,
     NotionMCPProvider,

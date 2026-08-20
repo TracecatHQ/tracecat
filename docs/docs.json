@@ -187,7 +187,7 @@
               "tools/hybrid_analysis",
               "tools/ipinfo",
               "tools/iru",
-              "tools/jamf_pro",
+              "tools/jamf",
               "tools/jira",
               "tools/kubernetes_sdk",
               "tools/ldap",

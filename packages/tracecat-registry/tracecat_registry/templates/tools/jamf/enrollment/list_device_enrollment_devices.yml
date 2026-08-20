@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: List automated device enrollment devices
+  description: List devices associated with a Jamf Pro Automated Device Enrollment (ADE/ABM/ASM) instance.
+  display_group: Jamf Pro
+  doc_url: https://developer.jamf.com/jamf-pro/reference/get_v1-device-enrollments-id-devices
+  namespace: tools.jamf
+  name: list_device_enrollment_devices
+  secrets:
+    - type: oauth
+      provider_id: jamf
+      grant_type: client_credentials
+      optional: true
+    - name: jamf
+      keys: ["JAMF_API_TOKEN"]
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: Jamf Pro base URL (e.g. https://acme.jamfcloud.com).
+      default: null
+    device_enrollment_id:
+      type: str
+      description: Automated Device Enrollment instance ID.
+  steps:
+    - ref: list_device_enrollment_devices
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v1/device-enrollments/${{ FN.url_encode(inputs.device_enrollment_id) }}/devices
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.jamf_oauth.JAMF_SERVICE_TOKEN || SECRETS.jamf.JAMF_API_TOKEN }}
+  returns: ${{ steps.list_device_enrollment_devices.result }}
