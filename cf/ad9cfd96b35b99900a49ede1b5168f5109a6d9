@@ -1,0 +1,19 @@
+tracecat/integrations/providers/jamf/oauth.py
+  s_b25f66adad735a::t_1886d2e46538c5 33,36,44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "cfad9cfd96b35b99900a49ede1b5168f5109a6d9",
+  "prompts": {},
+  "sessions": {
+    "s_b25f66adad735a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "168fcfac-9066-4680-9220-3751759964d3",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
