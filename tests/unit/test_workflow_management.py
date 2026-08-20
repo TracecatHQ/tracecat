@@ -1342,3 +1342,38 @@ async def test_run_workflow_invalid_inputs_raise_before_dispatch(
             WorkflowUUID.new_uuid4(), inputs={"count": "not-an-int"}, use_draft=True
         )
     assert fake_exec.calls == []
+
+
+@pytest.mark.anyio
+async def test_create_actions_from_dsl_persists_action_environment() -> None:
+    """Action-level ``environment`` must survive DSL -> Action control_flow."""
+    role = _role()
+    session = SimpleNamespace(add=MagicMock(), flush=AsyncMock())
+    service = WorkflowsManagementService(cast(Any, session), role=role)
+    dsl = DSLInput.model_validate(
+        {
+            "title": "env",
+            "description": "",
+            "entrypoint": {"ref": "a", "expects": {}},
+            "actions": [
+                {
+                    "ref": "a",
+                    "action": "core.transform.reshape",
+                    "args": {"value": 1},
+                    "environment": "prod",
+                },
+                {
+                    "ref": "b",
+                    "action": "core.transform.reshape",
+                    "args": {"value": 2},
+                    "depends_on": ["a"],
+                },
+            ],
+        }
+    )
+
+    actions = await service.create_actions_from_dsl(dsl, workflow_id=uuid.uuid4())
+
+    by_ref = {a.ref: a for a in actions}
+    assert by_ref["a"].control_flow["environment"] == "prod"
+    assert by_ref["b"].control_flow["environment"] is None
