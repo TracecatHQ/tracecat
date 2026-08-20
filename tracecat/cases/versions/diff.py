@@ -24,7 +24,6 @@ def compute_case_version_diff(
     matcher = SequenceMatcher(
         a=predecessor_tokens,
         b=selected_tokens,
-        autojunk=False,
     )
     segments: list[CaseVersionDiffSegmentRead] = []
 
