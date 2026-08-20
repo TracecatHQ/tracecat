@@ -60,7 +60,7 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
     ErrorEnvelope,
     RetryDisposition,
-    RuntimeErrorCode,
+    RuntimeErrorKind,
     RuntimeErrorOwner,
 )
 from tracecat.storage.collection import (
@@ -861,13 +861,13 @@ def _subflow_error_envelope(error: Exception) -> ErrorEnvelope:
     )
     if isinstance(error, ApplicationError) and UserError.matches(error):
         return ErrorEnvelope.user(
-            code=RuntimeErrorCode.USER_ACTION_FAILED,
+            kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
             message=error.message or "The child workflow could not be prepared",
             retry_disposition=retry_disposition,
             cause=error,
         )
     return ErrorEnvelope.platform(
-        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        kind=RuntimeErrorKind.WORKFLOW_SUBFLOW_PREPARATION_FAILED,
         message="Tracecat could not prepare the child workflow",
         retry_disposition=retry_disposition,
         cause=error,
@@ -900,7 +900,6 @@ def _classified_subflow_application_error(
         envelope,
         detail,
         *legacy_details,
-        error_type=error_type,
         next_retry_delay=next_retry_delay,
     )
 

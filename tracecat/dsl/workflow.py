@@ -202,7 +202,6 @@ def _workflow_application_error(
         return application_error_from_envelope(
             primary_envelope,
             error_details,
-            error_type=ApplicationError.__name__,
         )
 
     formatted_exceptions = "\n".join(

@@ -27,7 +27,7 @@ from tracecat.dsl.workflow import (
 from tracecat.runtime.errors import (
     ErrorEnvelope,
     RetryDisposition,
-    RuntimeErrorCode,
+    RuntimeErrorKind,
     RuntimeErrorOwner,
 )
 from tracecat.temporal.errors import (
@@ -87,10 +87,11 @@ async def test_prepare_subflow_platform_failure_is_classified_and_history_safe()
     envelope = extract_error_envelope(error)
     assert envelope is not None
     assert envelope.owner is RuntimeErrorOwner.PLATFORM
-    assert envelope.code is RuntimeErrorCode.PLATFORM_UNCLASSIFIED
+    assert envelope.kind is RuntimeErrorKind.WORKFLOW_SUBFLOW_PREPARATION_FAILED
     assert envelope.retry_disposition is RetryDisposition.RETRYABLE
     assert envelope.cause_type == "RuntimeError"
     assert error.non_retryable is False
+    assert error.type == envelope.kind.value
     assert error.__cause__ is None
 
     detail = ActionErrorInfoAdapter.validate_python(error.details[0])
@@ -121,17 +122,17 @@ async def test_prepare_subflow_user_failure_keeps_user_semantics() -> None:
     envelope = extract_error_envelope(error)
     assert envelope is not None
     assert envelope.owner is RuntimeErrorOwner.USER
-    assert envelope.code is RuntimeErrorCode.USER_ACTION_FAILED
+    assert envelope.kind is RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND
     assert envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
     assert envelope.message == user_error.message
     assert error.non_retryable is True
-    assert error.type == UserError.ERROR_TYPE
+    assert error.type == envelope.kind.value
 
 
 @pytest.mark.anyio
 async def test_prepare_subflow_keeps_existing_classification_authoritative() -> None:
     original_envelope = ErrorEnvelope.user(
-        code=RuntimeErrorCode.USER_ACTION_FAILED,
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The action failed",
         retry_disposition=RetryDisposition.RETRYABLE,
     )
@@ -149,6 +150,7 @@ async def test_prepare_subflow_keeps_existing_classification_authoritative() -> 
     error = exc_info.value
     assert extract_error_envelope(error) == original_envelope
     assert error.non_retryable is False
+    assert error.type == original_envelope.kind.value
 
 
 @pytest.mark.anyio
@@ -174,7 +176,7 @@ async def test_prepare_subflow_keeps_existing_non_retryable_semantics() -> None:
     assert envelope.owner is RuntimeErrorOwner.PLATFORM
     assert envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
     assert error.non_retryable is True
-    assert error.type == original_error.type
+    assert error.type == envelope.kind.value
 
 
 @pytest.mark.anyio
@@ -191,12 +193,12 @@ async def test_prepare_subflow_cancellation_keeps_native_semantics() -> None:
 
 def test_workflow_error_preserves_all_action_envelopes() -> None:
     user_envelope = ErrorEnvelope.user(
-        code=RuntimeErrorCode.USER_ACTION_FAILED,
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The action failed",
         retry_disposition=RetryDisposition.NON_RETRYABLE,
     )
     platform_envelope = ErrorEnvelope.platform(
-        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
         message="Tracecat could not execute the action",
         retry_disposition=RetryDisposition.RETRYABLE,
     )
@@ -246,12 +248,12 @@ def test_legacy_workflow_error_shape_is_unchanged() -> None:
 
 def test_terminal_platform_owner_wins_for_alert_attribution() -> None:
     user_envelope = ErrorEnvelope.user(
-        code=RuntimeErrorCode.USER_ACTION_FAILED,
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The action failed",
         retry_disposition=RetryDisposition.NON_RETRYABLE,
     )
     platform_envelope = ErrorEnvelope.platform(
-        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
         message="Tracecat could not execute the action",
         retry_disposition=RetryDisposition.RETRYABLE,
     )
@@ -285,7 +287,7 @@ def test_terminal_platform_owner_wins_for_alert_attribution() -> None:
 
 def test_terminal_owner_upsert_is_replay_gated() -> None:
     envelope = ErrorEnvelope.user(
-        code=RuntimeErrorCode.USER_ACTION_FAILED,
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The action failed",
         retry_disposition=RetryDisposition.NON_RETRYABLE,
     )
