@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: List app users
+  description: >-
+    List app users. Calls GET /app-users/ directly. Links each worker to their external SaaS
+    account. A push_state of DELETE_FAILED or SUSPEND_FAILED means access was not actually
+    revoked, and a match_state of NOT_MATCHED surfaces orphaned accounts. Required scope:
+    app-users.read.
+  display_group: Rippling
+  doc_url: https://developer.rippling.com/documentation/rest-api/reference/list-app-users
+  namespace: tools.rippling
+  name: list_app_users
+  secrets:
+    - name: rippling
+      keys: ["RIPPLING_API_KEY"]
+  expects:
+    params:
+      type: dict[str, Any] | None
+      description: >-
+        API-native query parameters, including cursor for pagination. Support for filter,
+        expand, and order_by varies by endpoint; see the linked Rippling documentation.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Rippling REST API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/app-users/
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
+          Accept: application/json
+          Rippling-Api-Version: '2024-08-01'
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: List supergroup members
+  description: >-
+    List supergroup members. Calls GET /supergroups/{group_id}/members/ directly. Returns
+    effective membership, including members inherited from rules. Required scope:
+    supergroups.read.
+  display_group: Rippling
+  doc_url: https://developer.rippling.com/documentation/rest-api/reference/list-supergroups-group-id-members
+  namespace: tools.rippling
+  name: list_supergroup_members
+  secrets:
+    - name: rippling
+      keys: ["RIPPLING_API_KEY"]
+  expects:
+    group_id:
+      type: str
+      description: Rippling API path value for group_id.
+    params:
+      type: dict[str, Any] | None
+      description: >-
+        API-native query parameters, including cursor for pagination. Support for filter,
+        expand, and order_by varies by endpoint; see the linked Rippling documentation.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Rippling REST API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/supergroups/${{ FN.url_encode(inputs.group_id) }}/members/
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
+          Accept: application/json
+          Rippling-Api-Version: '2024-08-01'
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

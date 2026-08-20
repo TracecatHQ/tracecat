@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Create draft hires
+  description: >-
+    Create draft hires. Calls POST /draft-hires/ directly. Bulk onboarding entry point. The
+    request body takes a draft_hires array. Required scope: draft-hires.read-write.
+  display_group: Rippling
+  doc_url: https://developer.rippling.com/documentation/rest-api/reference/create-draft-hires
+  namespace: tools.rippling
+  name: create_draft_hires
+  secrets:
+    - name: rippling
+      keys: ["RIPPLING_API_KEY"]
+  expects:
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    payload:
+      type: dict[str, Any] | None
+      description: API-native request body passed through without validation.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Rippling REST API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/draft-hires/
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
+          Accept: application/json
+          Rippling-Api-Version: '2024-08-01'
+        params: ${{ inputs.params }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Update supergroup exclusion members
+  description: >-
+    Update supergroup exclusion members. Calls PATCH /supergroups/{group_id}/exclusion-members/
+    directly. Force-revokes group-driven access. Takes a SCIM-style Operations array in the
+    request body. Required scope: supergroups.read-write.
+  display_group: Rippling
+  doc_url: https://developer.rippling.com/documentation/rest-api/reference/update-supergroups-group-id-exclusion-members
+  namespace: tools.rippling
+  name: update_supergroup_exclusion_members
+  secrets:
+    - name: rippling
+      keys: ["RIPPLING_API_KEY"]
+  expects:
+    group_id:
+      type: str
+      description: Rippling API path value for group_id.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    payload:
+      type: dict[str, Any] | None
+      description: API-native request body passed through without validation.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Rippling REST API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/supergroups/${{ FN.url_encode(inputs.group_id) }}/exclusion-members/
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
+          Accept: application/json
+          Rippling-Api-Version: '2024-08-01'
+        params: ${{ inputs.params }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}
