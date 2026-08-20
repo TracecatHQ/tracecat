@@ -27,7 +27,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.runtime.errors import (
     ErrorEnvelope,
     RetryDisposition,
-    RuntimeErrorCode,
+    RuntimeErrorKind,
 )
 from tracecat.temporal.errors import application_error_from_envelope
 
@@ -78,7 +78,7 @@ async def test_scheduler_preserves_classified_action_error() -> None:
 
     scheduler = _build_scheduler(total_tasks=1, executor=executor)
     envelope = ErrorEnvelope.user(
-        code=RuntimeErrorCode.USER_ACTION_FAILED,
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The action failed",
         retry_disposition=RetryDisposition.NON_RETRYABLE,
     )
@@ -89,7 +89,6 @@ async def test_scheduler_preserves_classified_action_error() -> None:
             message="The action failed",
             type="ValueError",
         ),
-        error_type="ValueError",
     )
 
     await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)

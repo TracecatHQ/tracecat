@@ -39,14 +39,14 @@ class TemporalErrorDetails(BaseModel):
 def application_error_from_envelope(
     envelope: ErrorEnvelope,
     *details: Any,
-    error_type: str | None = None,
     next_retry_delay: timedelta | None = None,
 ) -> ApplicationError:
-    """Build an ``ApplicationError`` with retryability derived from its envelope.
+    """Build an ``ApplicationError`` with transport fields derived from its envelope.
 
     Existing details remain in their original order. If they already contain a
     fully validated envelope, they are left unchanged; otherwise a strict
-    non-action detail is appended.
+    non-action detail is appended. Temporal's error type mirrors the stable
+    product kind and is never supplied as a second classification input.
     """
     existing_envelope = _envelope_from_details(details)
     resolved_envelope = existing_envelope or envelope
@@ -70,7 +70,7 @@ def application_error_from_envelope(
     return ApplicationError(
         resolved_envelope.message,
         *transported_details,
-        type=error_type,
+        type=resolved_envelope.kind.value,
         non_retryable=non_retryable,
         next_retry_delay=next_retry_delay,
     )
@@ -81,23 +81,19 @@ def wrap_application_error(
     *,
     fallback: ErrorEnvelope,
     details: Sequence[Any] = (),
-    error_type: str | None = None,
 ) -> ApplicationError:
     """Wrap an exception while preserving any existing classification."""
     envelope = extract_error_envelope(error) or fallback
     if isinstance(error, ApplicationError):
         wrapped_details = tuple(error.details) if not details else tuple(details)
-        resolved_type = error_type or error.type
         next_retry_delay = error.next_retry_delay
     else:
         wrapped_details = tuple(details)
-        resolved_type = error_type or type(error).__name__
         next_retry_delay = None
 
     return application_error_from_envelope(
         envelope,
         *wrapped_details,
-        error_type=resolved_type,
         next_retry_delay=next_retry_delay,
     )
 

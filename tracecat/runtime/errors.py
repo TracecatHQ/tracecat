@@ -1,8 +1,9 @@
 """Stable runtime error attribution and retry contract.
 
-Runtime errors have three independent axes:
+Runtime errors have independent product dimensions:
 
 * ``owner`` assigns operational ownership for observability and alerting.
+* ``kind`` identifies the stable product failure boundary and reason.
 * ``retry_disposition`` describes whether another attempt is allowed.
 * Workflow control flow remains owned by the workflow definition and engine.
 
@@ -21,9 +22,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import Literal, Self
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 ERROR_ENVELOPE_SCHEMA = "tracecat.error.v1"
 
@@ -42,23 +43,28 @@ class RetryDisposition(StrEnum):
     NON_RETRYABLE = "non_retryable"
 
 
-class RuntimeErrorCode(StrEnum):
-    """Stable machine-readable runtime failure codes."""
+class RuntimeErrorKind(StrEnum):
+    """Stable machine-readable product failure identities."""
 
-    USER_ACTION_FAILED = "user.action.failed"
+    ACTION_EXECUTION_FAILED = "action.execution.failed"
     TENANT_QUOTA_EXHAUSTED = "tenant.quota.exhausted"
     TENANT_ENTITLEMENT_DENIED = "tenant.entitlement.denied"
     INTEGRATION_RATE_LIMITED = "integration.rate_limited"
-    PLATFORM_UNCLASSIFIED = "platform.unclassified"
-    PLATFORM_DEPENDENCY_UNAVAILABLE = "platform.dependency.unavailable"
-    PLATFORM_CAPACITY_EXHAUSTED = "platform.capacity.exhausted"
-
-    @property
-    def owner(self) -> RuntimeErrorOwner:
-        """Return the owner implied by this code's namespace."""
-        if self.value.startswith("platform."):
-            return RuntimeErrorOwner.PLATFORM
-        return RuntimeErrorOwner.USER
+    RUNTIME_UNCLASSIFIED = "runtime.unclassified"
+    STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE = (
+        "storage.materialization.transport_unavailable"
+    )
+    STORAGE_MATERIALIZATION_INVALID_DATA = "storage.materialization.invalid_data"
+    STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE = (
+        "storage.persistence.transport_unavailable"
+    )
+    EXECUTOR_REGISTRY_LEASE_CONTENTION = "executor.registry.lease_contention"
+    EXECUTOR_REGISTRY_CAPACITY_EXHAUSTED = "executor.registry.capacity_exhausted"
+    EXECUTOR_REGISTRY_EXTRACTION_FAILED = "executor.registry.extraction_failed"
+    EXECUTOR_SANDBOX_INFRASTRUCTURE_FAILED = "executor.sandbox.infrastructure_failed"
+    WORKFLOW_DEFINITION_NOT_FOUND = "workflow.definition.not_found"
+    WORKFLOW_DEFINITION_LOOKUP_UNAVAILABLE = "workflow.definition.lookup_unavailable"
+    WORKFLOW_SUBFLOW_PREPARATION_FAILED = "workflow.subflow.preparation_failed"
 
 
 class ErrorEnvelope(BaseModel):
@@ -78,36 +84,26 @@ class ErrorEnvelope(BaseModel):
         alias="schema",
     )
     owner: RuntimeErrorOwner
-    code: RuntimeErrorCode
+    kind: RuntimeErrorKind
     message: str
     retry_disposition: RetryDisposition
     cause_type: str | None = None
-
-    @model_validator(mode="after")
-    def validate_code_owner(self) -> Self:
-        """Reject contradictory ownership and code namespaces."""
-        if self.code.owner is not self.owner:
-            raise ValueError(
-                f"Error code {self.code.value!r} does not belong to "
-                f"owner {self.owner.value!r}"
-            )
-        return self
 
     @classmethod
     def user(
         cls,
         *,
-        code: RuntimeErrorCode,
+        kind: RuntimeErrorKind,
         message: str,
         retry_disposition: RetryDisposition,
         cause: BaseException | None = None,
     ) -> ErrorEnvelope:
-        """Construct a user-attributed error from an explicit enum code."""
-        cls._require_code_owner(code, RuntimeErrorOwner.USER)
+        """Construct a user-attributed error from an explicit enum kind."""
+        cls._require_kind(kind)
         cls._require_retry_disposition(retry_disposition)
         return cls(
             owner=RuntimeErrorOwner.USER,
-            code=code,
+            kind=kind,
             message=message,
             retry_disposition=retry_disposition,
             cause_type=type(cause).__name__ if cause is not None else None,
@@ -117,33 +113,26 @@ class ErrorEnvelope(BaseModel):
     def platform(
         cls,
         *,
-        code: RuntimeErrorCode,
+        kind: RuntimeErrorKind,
         message: str,
         retry_disposition: RetryDisposition,
         cause: BaseException | None = None,
     ) -> ErrorEnvelope:
-        """Construct a platform-attributed error from an explicit enum code."""
-        cls._require_code_owner(code, RuntimeErrorOwner.PLATFORM)
+        """Construct a platform-attributed error from an explicit enum kind."""
+        cls._require_kind(kind)
         cls._require_retry_disposition(retry_disposition)
         return cls(
             owner=RuntimeErrorOwner.PLATFORM,
-            code=code,
+            kind=kind,
             message=message,
             retry_disposition=retry_disposition,
             cause_type=type(cause).__name__ if cause is not None else None,
         )
 
     @staticmethod
-    def _require_code_owner(
-        code: RuntimeErrorCode, expected_owner: RuntimeErrorOwner
-    ) -> None:
-        if not isinstance(code, RuntimeErrorCode):
-            raise TypeError("code must be a RuntimeErrorCode enum member")
-        if code.owner is not expected_owner:
-            raise ValueError(
-                f"Error code {code.value!r} does not belong to "
-                f"owner {expected_owner.value!r}"
-            )
+    def _require_kind(kind: RuntimeErrorKind) -> None:
+        if not isinstance(kind, RuntimeErrorKind):
+            raise TypeError("kind must be a RuntimeErrorKind enum member")
 
     @staticmethod
     def _require_retry_disposition(

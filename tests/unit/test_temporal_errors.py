@@ -16,7 +16,7 @@ from tracecat.dsl.types import (
 from tracecat.runtime.errors import (
     ErrorEnvelope,
     RetryDisposition,
-    RuntimeErrorCode,
+    RuntimeErrorKind,
     RuntimeErrorOwner,
     TracecatRuntimeError,
 )
@@ -31,7 +31,7 @@ def _user_envelope(
     retry_disposition: RetryDisposition = RetryDisposition.NON_RETRYABLE,
 ) -> ErrorEnvelope:
     return ErrorEnvelope.user(
-        code=RuntimeErrorCode.USER_ACTION_FAILED,
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The action failed",
         retry_disposition=retry_disposition,
     )
@@ -39,7 +39,7 @@ def _user_envelope(
 
 def _platform_envelope() -> ErrorEnvelope:
     return ErrorEnvelope.platform(
-        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
         message="Tracecat could not execute the workflow",
         retry_disposition=RetryDisposition.RETRYABLE,
     )
@@ -70,14 +70,13 @@ async def test_action_error_payload_carries_discriminated_envelope() -> None:
         type="ValueError",
         envelope=envelope,
     )
-    error = application_error_from_envelope(
-        envelope, error_info, error_type="ValueError"
-    )
+    error = application_error_from_envelope(envelope, error_info)
     failure = Failure()
     await DataConverter.default.encode_failure(error, failure)
     decoded = await DataConverter.default.decode_failure(failure)
 
     assert len(error.details) == 1
+    assert error.type == RuntimeErrorKind.ACTION_EXECUTION_FAILED.value
     assert error.details[0]["envelope"]["schema"] == "tracecat.error.v1"
     assert extract_error_envelope(error) == envelope
     assert extract_error_envelope(decoded) == envelope
@@ -119,6 +118,8 @@ def test_temporal_retryability_is_derived_from_envelope(
 
     assert error.non_retryable is expected_non_retryable
     assert "non_retryable" not in signature(application_error_from_envelope).parameters
+    assert "error_type" not in signature(application_error_from_envelope).parameters
+    assert error.type == envelope.kind.value
 
 
 def test_non_retryable_envelope_rejects_next_retry_delay() -> None:
@@ -133,21 +134,18 @@ def test_non_action_adapter_preserves_legacy_details_in_order() -> None:
     envelope = _platform_envelope()
     legacy_details = ({"existing": "payload"}, ["second payload"])
 
-    error = application_error_from_envelope(
-        envelope, *legacy_details, error_type="PlatformFailure"
-    )
+    error = application_error_from_envelope(envelope, *legacy_details)
 
     assert error.details[:2] == legacy_details
     assert len(error.details) == 3
+    assert error.type == envelope.kind.value
     assert extract_error_envelope(error) == envelope
 
 
 @pytest.mark.anyio
 async def test_envelope_survives_temporal_failure_serialization() -> None:
     envelope = _platform_envelope()
-    error = application_error_from_envelope(
-        envelope, {"existing": "payload"}, error_type="PlatformFailure"
-    )
+    error = application_error_from_envelope(envelope, {"existing": "payload"})
     failure = Failure()
 
     await DataConverter.default.encode_failure(error, failure)
@@ -162,7 +160,7 @@ async def test_envelope_survives_temporal_failure_serialization() -> None:
 @pytest.mark.anyio
 async def test_envelope_survives_wrapped_temporal_failure_serialization() -> None:
     envelope = _user_envelope()
-    original = application_error_from_envelope(envelope, error_type="OriginalError")
+    original = application_error_from_envelope(envelope)
     try:
         raise ApplicationError(
             "Outer wrapper",
@@ -183,7 +181,7 @@ async def test_envelope_survives_wrapped_temporal_failure_serialization() -> Non
 async def test_platform_diagnostics_do_not_enter_temporal_history() -> None:
     sensitive = RuntimeError("postgresql://user:secret@example.invalid/database")
     envelope = ErrorEnvelope.platform(
-        code=RuntimeErrorCode.PLATFORM_DEPENDENCY_UNAVAILABLE,
+        kind=RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
         message="A platform dependency is unavailable",
         retry_disposition=RetryDisposition.RETRYABLE,
         cause=sensitive,
@@ -208,7 +206,7 @@ async def test_platform_diagnostics_do_not_enter_temporal_history() -> None:
         {
             "envelope": {
                 "owner": "user",
-                "code": "user.action.failed",
+                "kind": "action.execution.failed",
                 "message": "Missing discriminator",
                 "retry_disposition": "non_retryable",
                 "cause_type": None,
@@ -222,7 +220,7 @@ async def test_platform_diagnostics_do_not_enter_temporal_history() -> None:
             "schema": "tracecat.temporal_error.v1",
             "envelope": {
                 "owner": "user",
-                "code": "user.action.failed",
+                "kind": "action.execution.failed",
                 "message": "Missing discriminator",
                 "retry_disposition": "non_retryable",
                 "cause_type": None,
@@ -258,13 +256,11 @@ def test_payload_key_does_not_collide_without_valid_discriminator() -> None:
 def test_wrapping_preserves_existing_classification() -> None:
     original_envelope = _user_envelope()
     fallback = _platform_envelope()
-    original = application_error_from_envelope(
-        original_envelope, {"legacy": "payload"}, error_type="OriginalError"
-    )
+    original = application_error_from_envelope(original_envelope, {"legacy": "payload"})
 
     wrapped = wrap_application_error(original, fallback=fallback)
 
-    assert wrapped.type == "OriginalError"
+    assert wrapped.type == original_envelope.kind.value
     assert wrapped.details == original.details
     assert extract_error_envelope(wrapped) == original_envelope
     assert extract_error_envelope(wrapped) != fallback
@@ -281,6 +277,7 @@ def test_existing_detail_classification_is_authoritative() -> None:
 
     assert error.message == original_envelope.message
     assert error.non_retryable is True
+    assert error.type == original_envelope.kind.value
     assert error.details == (detail,)
     assert extract_error_envelope(error) == original_envelope
 
