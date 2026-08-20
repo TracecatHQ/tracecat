@@ -25,7 +25,6 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.schemas import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
-from tracecat.cases.versions.service import CaseVersionsService
 from tracecat.db.models import Case, CaseVersion, User, Workspace
 
 pytestmark = [
@@ -135,8 +134,16 @@ async def test_case_version_lifecycle(
     )
 
 
-async def test_concurrent_case_version_allocation(svc_role: Role) -> None:
-    """Two writers serialize into unique, consecutive field versions."""
+@pytest.mark.parametrize(
+    "use_batch_update",
+    [False, True],
+    ids=["update_case", "batch_update_cases"],
+)
+async def test_concurrent_case_version_allocation(
+    svc_role: Role,
+    use_batch_update: bool,
+) -> None:
+    """Concurrent case write paths allocate unique, consecutive versions."""
     role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
     assert role.workspace_id is not None
     assert role.organization_id is not None
@@ -174,32 +181,39 @@ async def test_concurrent_case_version_allocation(svc_role: Role) -> None:
             )
             await seed_session.commit()
 
-        async def append(content: str) -> int:
+        async def update(content: str) -> None:
             async with session_factory() as concurrent_session:
-                version = await CaseVersionsService(
+                service = CasesService(
                     session=concurrent_session,
                     role=role.model_copy(deep=True),
-                ).append_version(
-                    case_id=case_id,
-                    field=CaseVersionField.SUMMARY,
-                    content=content,
                 )
-                await concurrent_session.commit()
-                return version.version
+                params = CaseUpdate(summary=content)
+                if use_batch_update:
+                    response = await service.batch_update_cases([case_id], params)
+                    assert response.succeeded == 1
+                else:
+                    case = await concurrent_session.scalar(
+                        select(Case).where(Case.id == case_id)
+                    )
+                    assert case is not None
+                    await service.update_case(case, params)
 
-        assert sorted(await asyncio.gather(append("Second"), append("Third"))) == [
-            2,
-            3,
-        ]
+        await asyncio.gather(update("Second"), update("Third"))
 
         async with session_factory() as verification_session:
             versions = (
                 await verification_session.execute(
-                    select(CaseVersion.version)
+                    select(CaseVersion.version, CaseVersion.content)
                     .where(CaseVersion.case_id == case_id)
                     .order_by(CaseVersion.version)
                 )
-            ).scalars()
-            assert versions.all() == [1, 2, 3]
+            ).tuples()
+            version_rows = versions.all()
+            assert [version for version, _ in version_rows] == [1, 2, 3]
+            assert version_rows[0] == (1, "Initial summary")
+            assert {content for _, content in version_rows[1:]} == {
+                "Second",
+                "Third",
+            }
     finally:
         await engine.dispose()

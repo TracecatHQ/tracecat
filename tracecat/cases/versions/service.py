@@ -47,6 +47,37 @@ class CaseVersionsService(BaseWorkspaceService):
         if (await self.session.execute(statement)).scalar_one_or_none() is None:
             raise TracecatNotFoundError(f"Case '{case_id}' not found")
 
+    async def create_initial_versions(
+        self,
+        *,
+        case_id: uuid.UUID,
+        summary: str,
+        description: str,
+    ) -> None:
+        """Insert the initial case text versions without allocation queries."""
+        user_id = await self._resolve_user_id()
+        self.session.add_all(
+            [
+                CaseVersion(
+                    workspace_id=self.workspace_id,
+                    case_id=case_id,
+                    field=CaseVersionField.SUMMARY,
+                    version=1,
+                    content=summary,
+                    user_id=user_id,
+                ),
+                CaseVersion(
+                    workspace_id=self.workspace_id,
+                    case_id=case_id,
+                    field=CaseVersionField.DESCRIPTION,
+                    version=1,
+                    content=description,
+                    user_id=user_id,
+                ),
+            ]
+        )
+        await self.session.flush()
+
     async def append_version(
         self,
         *,
@@ -54,8 +85,7 @@ class CaseVersionsService(BaseWorkspaceService):
         field: CaseVersionField,
         content: str,
     ) -> CaseVersion:
-        """Append and flush the next version without committing."""
-        await self.lock_case(case_id)
+        """Append and flush the next version while the caller holds the case lock."""
         statement = (
             select(CaseVersion.version)
             .where(

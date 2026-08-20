@@ -6,6 +6,7 @@ import os
 import subprocess
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -77,6 +78,7 @@ def test_case_versions_migration_creates_baselines_and_rls(
     organization_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
     case_id = uuid.uuid4()
+    baseline_timestamp = datetime(2025, 1, 2, 3, 4, tzinfo=UTC)
 
     try:
         with engine.begin() as conn:
@@ -112,7 +114,9 @@ def test_case_versions_migration_creates_baselines_and_rls(
                         description,
                         priority,
                         severity,
-                        status
+                        status,
+                        created_at,
+                        updated_at
                     )
                     VALUES (
                         :case_id,
@@ -122,13 +126,16 @@ def test_case_versions_migration_creates_baselines_and_rls(
                         '<p>Existing description</p>',
                         'MEDIUM',
                         'LOW',
-                        'NEW'
+                        'NEW',
+                        :baseline_timestamp,
+                        :baseline_timestamp
                     )
                     """
                 ),
                 {
                     "case_id": case_id,
                     "workspace_id": workspace_id,
+                    "baseline_timestamp": baseline_timestamp,
                 },
             )
 
@@ -154,6 +161,18 @@ def test_case_versions_migration_creates_baselines_and_rls(
                     None,
                 ),
             }
+            version_timestamps = conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT created_at, updated_at
+                    FROM case_version
+                    """
+                )
+            ).one()
+            assert tuple(version_timestamps) == (
+                baseline_timestamp,
+                baseline_timestamp,
+            )
             assert conn.execute(
                 text(
                     """

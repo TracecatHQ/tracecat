@@ -141,8 +141,8 @@ def upgrade() -> None:
                 baseline.content,
                 NULL,
                 case_row.workspace_id,
-                transaction_timestamp(),
-                transaction_timestamp()
+                case_row.updated_at,
+                case_row.updated_at
             FROM "case" AS case_row
             CROSS JOIN LATERAL (
                 VALUES

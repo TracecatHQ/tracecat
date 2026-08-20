@@ -787,15 +787,10 @@ class CasesService(BaseWorkspaceService):
             # Generate the case ID without locking the workspace counter.
             await self.session.flush()
 
-            await self.versions.append_version(
+            await self.versions.create_initial_versions(
                 case_id=case.id,
-                field=CaseVersionField.SUMMARY,
-                content=case.summary,
-            )
-            await self.versions.append_version(
-                case_id=case.id,
-                field=CaseVersionField.DESCRIPTION,
-                content=case.description,
+                summary=case.summary,
+                description=case.description,
             )
 
             # Always create the fields row to ensure defaults are applied
