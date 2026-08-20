@@ -573,7 +573,11 @@ async def list_case_versions(
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
         description="Maximum items per page",
     ),
-    cursor: str | None = Query(None, description="Cursor for pagination"),
+    cursor: str | None = Query(
+        None,
+        max_length=8192,
+        description="Cursor for pagination",
+    ),
     field: CaseVersionField | None = Query(
         None,
         description="Optionally include only summary or description versions",

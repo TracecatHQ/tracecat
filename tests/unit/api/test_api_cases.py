@@ -816,6 +816,25 @@ async def test_list_case_versions_success(
 
 
 @pytest.mark.anyio
+async def test_list_case_versions_rejects_oversized_cursor(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Oversized cursors are rejected before reaching the service."""
+    with patch.object(cases_router, "CasesService") as mock_service_cls:
+        response = client.get(
+            f"/cases/{uuid.uuid4()}/versions",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "cursor": "x" * 8193,
+            },
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_service_cls.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_list_case_versions_missing_case_returns_404(
     client: TestClient,
     test_admin_role: Role,
