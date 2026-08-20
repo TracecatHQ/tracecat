@@ -1,0 +1,107 @@
+docs/tools/iru.mdx
+  s_b25f66adad735a::t_a624205a428efc 11,47,77,131,161,191,221,251,281,345,489,553,599,629,675,705,735,911,999,1045,1123,1137,1159,1203
+docs/tools/jamf.mdx
+  s_b25f66adad735a::t_5ae9096eba89f6 54,56,87,126,157,188,250,341,397,399,542,591,624,711,735,770,795
+packages/tracecat-registry/AGENTS.md
+  s_b25f66adad735a::t_b3b2f79fa689c7 18-22,28-48
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/actions/erase_device.yml
+  s_14b113e54d8334::t_316fa050155cd5 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/actions/lock_device.yml
+  s_14b113e54d8334::t_91fc7d94e66471 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/actions/send_device_action.yml
+  s_14b113e54d8334::t_cae22daa630c57 4,22
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/audit/list_audit_events.yml
+  s_14b113e54d8334::t_06bf6e97234bda 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/blueprints/list_blueprints.yml
+  s_14b113e54d8334::t_424960575b4416 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/add_device_note.yml
+  s_14b113e54d8334::t_5f3ff411a207a6 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/delete_device.yml
+  s_14b113e54d8334::t_2940113bc47970 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/get_device.yml
+  s_14b113e54d8334::t_7e8cdaefd910e7 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/get_device_details.yml
+  s_14b113e54d8334::t_49144584b189d0 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_activity.yml
+  s_14b113e54d8334::t_7bc858cc4db9a0 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_apps.yml
+  s_14b113e54d8334::t_1ecfe18dd9ffd3 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_commands.yml
+  s_14b113e54d8334::t_86d8ebc9e10190 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_library_items.yml
+  s_14b113e54d8334::t_ec9cd3a18b4d9c 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_parameters.yml
+  s_14b113e54d8334::t_41028bc873b7b9 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_devices.yml
+  s_14b113e54d8334::t_8bb91b04538a39 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/update_device.yml
+  s_14b113e54d8334::t_1576f2b057fcde 4,34
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/prism/query_prism.yml
+  s_14b113e54d8334::t_e44b8b41056264 4,29,57-60,62-71
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/secrets/get_activation_lock_bypass_code.yml
+  s_14b113e54d8334::t_459814aac2e64c 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/secrets/get_filevault_key.yml
+  s_14b113e54d8334::t_24165802ce5f1a 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/secrets/get_recovery_password.yml
+  s_14b113e54d8334::t_1bbab18acdede1 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/threats/list_behavioral_detections.yml
+  s_14b113e54d8334::t_41c67580690e4a 4
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/threats/list_threat_details.yml
+  s_14b113e54d8334::t_e9f5b0d15b591c 4
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/commands/list_mdm_commands.yml
+  s_14b113e54d8334::t_6634ab172a5a17 53-60
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/commands/send_mdm_command.yml
+  s_b25f66adad735a::t_11a5d434d76ee7 23-24,26
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/delete_computer.yml
+  s_b25f66adad735a::t_bb51405358b301 4,6,29
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/erase_computer.yml
+  s_b25f66adad735a::t_430036e1c454cd 6,26,33,38
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/get_computer_device_lock_pin.yml
+  s_b25f66adad735a::t_cfabdb678e6e09 6,29
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/get_computer_filevault_key.yml
+  s_b25f66adad735a::t_01fb0f1d424001 6,29
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/get_computer_inventory_detail.yml
+  s_b25f66adad735a::t_ce5328a8c1b4c3 6,29
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/get_computer_recovery_lock_password.yml
+  s_b25f66adad735a::t_79184c7b3f3781 6,29
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/list_computer_inventory.yml
+  s_b25f66adad735a::t_9f6acc2a0e0c02 4,6,62-69,73
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/redeploy_management_framework.yml
+  s_b25f66adad735a::t_e8dc15da8cd8ca 4
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/remove_computer_mdm_profile.yml
+  s_b25f66adad735a::t_69ad6f347b402a 6,29
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/update_computer_inventory_detail.yml
+  s_b25f66adad735a::t_fcee1385d1ab93 6,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/enrollment/list_device_enrollment_devices.yml
+  s_b25f66adad735a::t_12dde77cd5f461 4
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/groups/update_static_group.yml
+  s_b25f66adad735a::t_fa6d3e6e2f56d5 4,37
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/mobile_devices/list_mobile_devices.yml
+  s_b25f66adad735a::t_b55b3121f50717 4,45-52
+tracecat/integrations/providers/jamf/oauth.py
+  s_b25f66adad735a::t_75b580db4f138d 21,29-31,38-41,43,53-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "5f004a2b46e8704df7b522d46805f5851ca6666d",
+  "prompts": {},
+  "sessions": {
+    "s_14b113e54d8334": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99ca11f9-c239-490d-b4e6-a71a7adf7310",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_b25f66adad735a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "168fcfac-9066-4680-9220-3751759964d3",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
