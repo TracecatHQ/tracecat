@@ -18,6 +18,7 @@ import {
   Blend,
   BlocksIcon,
   BoxIcon,
+  BriefcaseBusiness,
   Building2Icon,
   CirclePlay,
   Code,
@@ -706,6 +707,10 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.phishlabs": createColoredLucideRenderer(
       Fish,
       "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+    ),
+    "tools.rippling": createColoredLucideRenderer(
+      BriefcaseBusiness,
+      "bg-purple-500/10 text-purple-600 dark:text-purple-400"
     ),
     "tools.tavily": createColoredLucideRenderer(
       Search,

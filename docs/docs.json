@@ -206,6 +206,7 @@
               "tools/panther",
               "tools/phishlabs",
               "tools/pymongo",
+              "tools/rippling",
               "tools/rootly",
               "tools/runreveal",
               "tools/scanner",

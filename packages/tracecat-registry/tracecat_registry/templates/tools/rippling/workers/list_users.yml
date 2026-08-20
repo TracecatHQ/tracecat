@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: List users
+  description: >-
+    List users. Calls GET /users/ directly. Join to workers on worker.user_id. The user number
+    field is the stable cross-system employee identifier. Required scope: users.read.
+  display_group: Rippling
+  doc_url: https://developer.rippling.com/documentation/rest-api/reference/list-users
+  namespace: tools.rippling
+  name: list_users
+  secrets:
+    - name: rippling
+      keys: ["RIPPLING_API_KEY"]
+  expects:
+    params:
+      type: dict[str, Any] | None
+      description: >-
+        API-native query parameters, including cursor for pagination. Support for filter,
+        expand, and order_by varies by endpoint; see the linked Rippling documentation.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Rippling REST API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/users/
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
+          Accept: application/json
+          Rippling-Api-Version: '2024-08-01'
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}
