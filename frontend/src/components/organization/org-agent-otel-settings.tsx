@@ -110,10 +110,13 @@ export function OrgAgentOtelSettings() {
   const settingsLoadFailed =
     Boolean(agentOtelSettingsError) ||
     (!agentOtelSettingsIsLoading && agentOtelSettings === undefined)
+  // Pending covers the PATCH plus the refetch it awaits, so the seeding
+  // effect can't clobber edits made while a save is in flight.
   const editingDisabled =
     canUpdateSettings !== true ||
     agentOtelSettingsIsLoading ||
-    settingsLoadFailed
+    settingsLoadFailed ||
+    updateAgentOtelSettingsIsPending
   const fieldsDisabled = !enabled || editingDisabled
 
   // Seed form state from server values once they load.
@@ -206,7 +209,7 @@ export function OrgAgentOtelSettings() {
 
   // Serialize validated header rows into the API's name -> value map.
   function headerRowsToMap(): Record<string, string> {
-    const map: Record<string, string> = {}
+    const map: Record<string, string> = Object.create(null)
     for (const row of headerRows) {
       if (row.name.trim() !== "") {
         map[row.name.trim()] = row.value
