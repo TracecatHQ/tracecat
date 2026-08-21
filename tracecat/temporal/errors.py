@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+import asyncio
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any, Literal
 
@@ -34,6 +36,21 @@ class TemporalErrorDetails(BaseModel):
         alias="schema",
     )
     envelope: ErrorEnvelope
+
+
+@contextmanager
+def activity_error_boundary(
+    classify: Callable[[Exception], ErrorEnvelope],
+) -> Iterator[None]:
+    """Classify an exception at one platform-owned activity call boundary."""
+    try:
+        yield
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        if extract_error_envelope(error) is not None:
+            raise
+        raise wrap_application_error(error, fallback=classify(error)) from None
 
 
 def application_error_from_envelope(
@@ -163,7 +180,17 @@ def _serialized_error_details(
 
 def _envelopes_from_detail(detail: Any) -> tuple[ErrorEnvelope, ...]:
     if isinstance(detail, ClassifiedActionErrorInfo):
-        return (detail.envelope,)
+        envelopes = [detail.envelope]
+        for child in detail.children or ():
+            for envelope in _envelopes_from_detail(child):
+                _append_unique_envelope(envelopes, envelope)
+        return tuple(envelopes)
+    if isinstance(detail, ActionErrorInfo):
+        nested_envelopes: list[ErrorEnvelope] = []
+        for child in detail.children or ():
+            for envelope in _envelopes_from_detail(child):
+                _append_unique_envelope(nested_envelopes, envelope)
+        return tuple(nested_envelopes)
     if isinstance(detail, TemporalErrorDetails):
         return (detail.envelope,)
     if not isinstance(detail, Mapping):

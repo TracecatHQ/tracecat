@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from inspect import signature
+from unittest.mock import Mock
 
 import pytest
 from temporalio.api.failure.v1 import Failure
@@ -21,6 +23,7 @@ from tracecat.runtime.errors import (
     TracecatRuntimeError,
 )
 from tracecat.temporal.errors import (
+    activity_error_boundary,
     application_error_from_envelope,
     extract_error_envelope,
     extract_error_envelopes,
@@ -282,6 +285,44 @@ def test_action_error_map_extracts_every_classified_envelope() -> None:
     assert extract_error_envelopes(error) == (user_envelope, platform_envelope)
 
 
+@pytest.mark.anyio
+async def test_aggregate_envelopes_survive_temporal_failure_serialization() -> None:
+    user_envelope = _user_envelope()
+    platform_envelope = _platform_envelope()
+    children: list[ActionErrorInfo] = [
+        ClassifiedActionErrorInfo(
+            ref="fanout[0]",
+            message=user_envelope.message,
+            type="ValueError",
+            envelope=user_envelope,
+        ),
+        ClassifiedActionErrorInfo(
+            ref="fanout[1]",
+            message=platform_envelope.message,
+            type="RuntimeError",
+            envelope=platform_envelope,
+        ),
+    ]
+    aggregate = ClassifiedActionErrorInfo(
+        ref="fanout",
+        message="Two child workflows failed",
+        type="ChildWorkflowAggregateError",
+        envelope=user_envelope,
+        children=children,
+    )
+    error = application_error_from_envelope(
+        user_envelope,
+        aggregate,
+        *children,
+    )
+    failure = Failure()
+
+    await DataConverter.default.encode_failure(error, failure)
+    decoded = await DataConverter.default.decode_failure(failure)
+
+    assert extract_error_envelopes(decoded) == (user_envelope, platform_envelope)
+
+
 def test_arbitrary_nested_envelope_does_not_collide_with_action_error_map() -> None:
     envelope = _user_envelope()
     error = ApplicationError(
@@ -308,6 +349,43 @@ def test_wrapping_preserves_existing_classification() -> None:
     assert wrapped.details == original.details
     assert extract_error_envelope(wrapped) == original_envelope
     assert extract_error_envelope(wrapped) != fallback
+
+
+def test_activity_error_boundary_classifies_unowned_failure() -> None:
+    envelope = _platform_envelope()
+
+    with pytest.raises(ApplicationError) as exc_info:
+        with activity_error_boundary(lambda _error: envelope):
+            raise RuntimeError("raw platform diagnostic")
+
+    error = exc_info.value
+    assert extract_error_envelope(error) == envelope
+    assert error.type == envelope.kind.value
+    assert "raw platform diagnostic" not in error.message
+
+
+def test_activity_error_boundary_preserves_existing_classification() -> None:
+    original = application_error_from_envelope(_platform_envelope())
+    classify = Mock()
+
+    with pytest.raises(ApplicationError) as exc_info:
+        with activity_error_boundary(classify):
+            raise original
+
+    assert exc_info.value is original
+    classify.assert_not_called()
+
+
+def test_activity_error_boundary_preserves_cancellation() -> None:
+    cancellation = asyncio.CancelledError()
+    classify = Mock()
+
+    with pytest.raises(asyncio.CancelledError) as exc_info:
+        with activity_error_boundary(classify):
+            raise cancellation
+
+    assert exc_info.value is cancellation
+    classify.assert_not_called()
 
 
 def test_existing_detail_classification_is_authoritative() -> None:
