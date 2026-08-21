@@ -1,0 +1,28 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/list_runs.yml
+  s_4135133abf34d1::t_460063aa2047a5 34-35
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/list_projects.yml
+  s_4135133abf34d1::t_460063aa2047a5 34-35
+tracecat/expressions/validator/validator.py
+  s_4135133abf34d1::t_460063aa2047a5 6,12-17,36-48,466
+tests/unit/test_expressions.py
+  s_4135133abf34d1::t_460063aa2047a5 490-491,828-830,1296-1309,1368
+  s_4135133abf34d1::t_d338951450e1b6 1317
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/list_workspaces.yml
+  s_4135133abf34d1::t_460063aa2047a5 50-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "a1da230a1afbd9fd1d999d024ab16fdf6dd56644",
+  "prompts": {},
+  "sessions": {
+    "s_4135133abf34d1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02501-3374-7530-948b-3dfa294f531c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
