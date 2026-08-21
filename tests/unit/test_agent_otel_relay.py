@@ -1287,7 +1287,6 @@ async def test_resolve_disabled_telemetry_returns_empty_envs() -> None:
     resolved = resolve_agent_otel_config(
         org_config=AgentOtelConfig(enabled=False),
         org_headers=None,
-        platform_override=None,
     )
     assert resolved.enabled is False
     assert resolved.sandbox_env == {}
@@ -1306,7 +1305,6 @@ def test_sandbox_env_carries_no_endpoint() -> None:
     resolved = resolve_agent_otel_config(
         org_config=config_value,
         org_headers={"Authorization": "Bearer t"},
-        platform_override=None,
     )
 
     sandbox_env = resolved.sandbox_env
