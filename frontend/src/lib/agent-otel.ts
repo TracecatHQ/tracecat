@@ -468,8 +468,14 @@ function envValueIssues(spec: OTelEnvSpec, value: string): string[] {
       issues.push(`${spec.key} supports ${spec.values.join(", ")}.`)
     }
   }
-  if (POSITIVE_INTEGER_KEYS.has(spec.key) && !/^[1-9]\d*$/.test(value)) {
-    issues.push(`${spec.key} must be a positive integer.`)
+  if (POSITIVE_INTEGER_KEYS.has(spec.key)) {
+    if (!/^[1-9]\d*$/.test(value)) {
+      issues.push(`${spec.key} must be a positive integer.`)
+    } else if (!Number.isSafeInteger(Number(value))) {
+      // Number.parseInt would silently round (or overflow to Infinity,
+      // serialized as null) before submission.
+      issues.push(`${spec.key} must be at most ${Number.MAX_SAFE_INTEGER}.`)
+    }
   }
   if (spec.key === FIRST_CLASS_ENDPOINT_KEY) {
     let endpoint: URL

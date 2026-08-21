@@ -238,6 +238,23 @@ describe("validateForm / validateEnvMap", () => {
     }
   )
 
+  it.each([
+    ["OTEL_METRIC_EXPORT_INTERVAL", "9007199254740993"],
+    ["OTEL_LOGS_EXPORT_INTERVAL", `1${"0".repeat(400)}`],
+  ])("rejects an unsafe-integer interval for %s", (key, value) => {
+    expect(validateEnvMap({ [key]: value })).toEqual([
+      `${key} must be at most ${Number.MAX_SAFE_INTEGER}.`,
+    ])
+  })
+
+  it("accepts the largest safe interval", () => {
+    expect(
+      validateEnvMap({
+        OTEL_METRIC_EXPORT_INTERVAL: String(Number.MAX_SAFE_INTEGER),
+      })
+    ).toEqual([])
+  })
+
   it("accepts supported boolean spellings", () => {
     expect(validateEnvMap({ OTEL_LOG_USER_PROMPTS: "1" })).toEqual([])
     expect(validateEnvMap({ OTEL_LOG_USER_PROMPTS: "FALSE" })).toEqual([])
