@@ -18,7 +18,7 @@ definition:
       type: str
       description: GitHub API path value for repo.
     milestone:
-      type: str | None
+      type: int | str | None
       description: If an `integer` is passed, it should refer to a milestone by its `number` field. If the string `*` is passed, issues with any milestone are accepted. If the string `none` is passed, issues without milestones are returned.
       default: null
     state:
