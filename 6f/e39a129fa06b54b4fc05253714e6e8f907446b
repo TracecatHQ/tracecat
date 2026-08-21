@@ -1,0 +1,25 @@
+docs/tools/socket.mdx
+  s_21b1e1578766e4::t_6fcbdfb316c101 73,211,319
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/packages/fetch_packages_by_purl.yml
+  s_21b1e1578766e4::t_15aa156ef312a3 35
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/scans/create_full_scan.yml
+  s_21b1e1578766e4::t_0094e42e66cf16 48
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/scans/create_full_scan_from_archive.yml
+  s_21b1e1578766e4::t_66da5fedd38f71 49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "6fe39a129fa06b54b4fc05253714e6e8f907446b",
+  "prompts": {},
+  "sessions": {
+    "s_21b1e1578766e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "942f84be-7772-4399-90db-3566f92370fb",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
