@@ -19,10 +19,10 @@ definition:
       type: int
       description: GitLab API path value for issue_iid.
     target_project_id:
-      type: str
+      type: int | str
       description: The ID or URL-encoded path of the project of a target project.
     target_issue_iid:
-      type: str
+      type: int | str
       description: The internal ID of a target project's issue.
     link_type:
       type: str | None
