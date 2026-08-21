@@ -12,6 +12,7 @@ from tracecat.agent.folders import router as agent_folder_router
 from tracecat.agent.preset import router as agent_preset_router
 from tracecat.agent.tags import definitions_router as agent_tag_definitions_router
 from tracecat.auth.types import Role
+from tracecat.cases import router as cases_router
 from tracecat.cases.dropdowns import router as case_dropdowns_router
 from tracecat.cases.durations import router as case_durations_router
 from tracecat.cases.rows import router as case_rows_router
@@ -361,6 +362,21 @@ async def test_workspace_collection_scope_guards(endpoint: AsyncEndpoint) -> Non
     ],
 )
 async def test_case_duration_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (cases_router.list_case_versions, "case:read"),
+        (cases_router.compare_case_version, "case:read"),
+        (cases_router.restore_case_version, "case:update"),
+    ],
+)
+async def test_case_version_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)

@@ -2614,6 +2614,87 @@ export type CaseUpdate = {
 }
 
 /**
+ * Minimal user metadata for a case-version author.
+ */
+export type CaseVersionActorRead = {
+  id: string
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+}
+
+/**
+ * A selected case version, its predecessor, and their textual diff.
+ */
+export type CaseVersionCompareRead = {
+  selected: CaseVersionContentRead
+  predecessor?: CaseVersionContentRead | null
+  diff?: CaseVersionDiffRead | null
+}
+
+/**
+ * Content for one immutable case field version.
+ */
+export type CaseVersionContentRead = {
+  id: string
+  field: CaseVersionField
+  version: number
+  content: string
+}
+
+/**
+ * Operations in an ordered case-version text diff.
+ */
+export type CaseVersionDiffOperation = "equal" | "insert" | "delete"
+
+/**
+ * A word-level edit script from predecessor to selected content.
+ */
+export type CaseVersionDiffRead = {
+  granularity?: "word"
+  changed: boolean
+  segments: Array<CaseVersionDiffSegmentRead>
+}
+
+/**
+ * One exact-text segment in an ordered case-version diff.
+ */
+export type CaseVersionDiffSegmentRead = {
+  operation: CaseVersionDiffOperation
+  text: string
+}
+
+/**
+ * Case text fields that have immutable version history.
+ */
+export type CaseVersionField = "summary" | "description"
+
+/**
+ * Version metadata returned by the case history endpoint.
+ */
+export type CaseVersionReadMinimal = {
+  id: string
+  field: CaseVersionField
+  version: number
+  actor?: CaseVersionActorRead | null
+  created_at: string
+  /**
+   * Whether this is the latest immutable version for its field
+   */
+  is_latest: boolean
+}
+
+/**
+ * Confirmation that a historical case field version was restored.
+ */
+export type CaseVersionRestoreRead = {
+  restored?: boolean
+  case_id: string
+  restored_from_version_id: string
+  field: CaseVersionField
+}
+
+/**
  * Event for when a case is viewed.
  */
 export type CaseViewedEventRead = {
@@ -3276,6 +3357,30 @@ export type CursorPaginatedResponse_CaseReadMinimal_ = {
 
 export type CursorPaginatedResponse_CaseTableRowRead_ = {
   items: Array<CaseTableRowRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_CaseVersionReadMinimal_ = {
+  items: Array<CaseVersionReadMinimal>
   /**
    * Cursor for next page
    */
@@ -13099,6 +13204,42 @@ export type CasesBatchDeleteCasesData = {
 
 export type CasesBatchDeleteCasesResponse = CaseBatchResponse
 
+export type CasesListCaseVersionsData = {
+  caseId: string
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  /**
+   * Optionally include only summary or description versions
+   */
+  field?: CaseVersionField | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type CasesListCaseVersionsResponse =
+  CursorPaginatedResponse_CaseVersionReadMinimal_
+
+export type CasesCompareCaseVersionData = {
+  caseId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type CasesCompareCaseVersionResponse = CaseVersionCompareRead
+
+export type CasesRestoreCaseVersionData = {
+  caseId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type CasesRestoreCaseVersionResponse = CaseVersionRestoreRead
+
 export type CasesGetCaseData = {
   caseId: string
   /**
@@ -18969,6 +19110,51 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CaseBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/versions": {
+    get: {
+      req: CasesListCaseVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_CaseVersionReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/versions/{version_id}/compare": {
+    get: {
+      req: CasesCompareCaseVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseVersionCompareRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/versions/{version_id}/restore": {
+    post: {
+      req: CasesRestoreCaseVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseVersionRestoreRead
         /**
          * Validation Error
          */

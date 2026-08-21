@@ -23,7 +23,12 @@ from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import (
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+    CaseVersionField,
+)
 from tracecat.cases.filters import parse_assignee_filter
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
@@ -59,6 +64,11 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
+from tracecat.cases.versions.schemas import (
+    CaseVersionCompareRead,
+    CaseVersionReadMinimal,
+    CaseVersionRestoreRead,
+)
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -71,6 +81,7 @@ from tracecat.logger import logger
 from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
+    PageParams,
 )
 from tracecat.tiers.enums import Entitlement
 
@@ -543,6 +554,103 @@ async def batch_delete_cases(
         raise HTTPException(
             status_code=HTTP_409_CONFLICT,
             detail=exc.detail or str(exc),
+        ) from exc
+
+
+@cases_router.get(
+    "/{case_id}/versions",
+    response_model=CursorPaginatedResponse[CaseVersionReadMinimal],
+)
+@require_scope("case:read")
+async def list_case_versions(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    limit: int = Query(
+        config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+        description="Maximum items per page",
+    ),
+    cursor: str | None = Query(
+        None,
+        max_length=8192,
+        description="Cursor for pagination",
+    ),
+    field: CaseVersionField | None = Query(
+        None,
+        description="Optionally include only summary or description versions",
+    ),
+) -> CursorPaginatedResponse[CaseVersionReadMinimal]:
+    """List immutable case field versions newest-first."""
+    service = CasesService(session, role)
+    if await service.get_case(case_id) is None:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+    try:
+        return await service.versions.list_versions(
+            case_id=case_id,
+            page=PageParams(limit=limit, cursor=cursor),
+            field=field,
+        )
+    except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=exc.detail or str(exc),
+        ) from exc
+
+
+@cases_router.get(
+    "/{case_id}/versions/{version_id}/compare",
+    response_model=CaseVersionCompareRead,
+)
+@require_scope("case:read")
+async def compare_case_version(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    version_id: uuid.UUID,
+) -> CaseVersionCompareRead:
+    """Compare a case field version with its immediate predecessor."""
+    service = CasesService(session, role)
+    comparison = await service.versions.compare_with_predecessor(
+        case_id=case_id,
+        version_id=version_id,
+    )
+    if comparison is None:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=f"Case version '{version_id}' not found",
+        )
+    return comparison
+
+
+@cases_router.post(
+    "/{case_id}/versions/{version_id}/restore",
+    response_model=CaseVersionRestoreRead,
+)
+@require_scope("case:update")
+async def restore_case_version(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    version_id: uuid.UUID,
+) -> CaseVersionRestoreRead:
+    """Restore one historical case field version atomically."""
+    try:
+        return await CasesService(session, role).restore_version(
+            case_id=case_id,
+            version_id=version_id,
+        )
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=str(exc),
         ) from exc
 
 
