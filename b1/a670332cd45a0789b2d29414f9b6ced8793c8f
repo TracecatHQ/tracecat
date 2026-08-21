@@ -1,0 +1,285 @@
+docs/automations/core-actions/request-actions/http.mdx
+  s_21b1e1578766e4::t_53330ec5e262e5 110,269,429
+docs/tools/censys.mdx
+  s_21b1e1578766e4::t_b291f751c83c8b 31,37,51,59,65,67,91,103,105,129,141,143,167,179,181,205-213,225,227,249-254,257-263,275,277,301,307,321,323,347,353,367,369,393-401,413,415,453,459,461,467,469,475,477
+docs/tools/dehashed.mdx
+  s_21b1e1578766e4::t_eeed33090b6b82 55,57-73,95-100,109,111,113-145
+docs/tools/domscan.mdx
+  s_21b1e1578766e4::t_d307f96e29e255 23,25,29,31,61-85,87,109-114,123,125,147-152,161-169,171,193-198,207-223,225,247-252,261-293,295,317-322,331-355,357,381-388,405-410,419,421,443,445,449,451,473,475,479,481,503-508,517-557,559
+docs/tools/first_epss.mdx
+  s_21b1e1578766e4::t_6b3dfc48b055c5 19,31,33,51,63,65-81,105-169,171
+docs/tools/gitguardian.mdx
+  s_21b1e1578766e4::t_fd1941f9990b07 25,37,39,41,63,75,77,99-114,123-187,189,195,197,199-311,333-341,353-425,427-451,473-488,497-689,691,713-728,737-889,891,915,927,929
+docs/tools/greynoise.mdx
+  s_21b1e1578766e4::t_f10d1ace15551c 37,39-47,53-61,63,99,101,137,139,175,177,213-220,251-275,277-285,321-328,358-365
+docs/tools/hackernews.mdx
+  s_21b1e1578766e4::t_8196e3639e8b3f 73,75-115,139-179,181
+docs/tools/hudsonrock.mdx
+  s_21b1e1578766e4::t_0d84866c0d03db 25,55,67,69-93,141,153-201,203-235,259-267,279-295,297-361,385-393,405-437,439-479,509-557,559-567,591-599,611,613-685,709-717,729,731-803,827-835,847-919,921
+docs/tools/hunter.mdx
+  s_21b1e1578766e4::t_1b5a44d5d6f371 23-28,37,39,61-66,75,77,99-106,115-195,197,227-235,237-245,275-315,317-325,347,349,353,355,385-401,403
+docs/tools/leakcheck.mdx
+  s_21b1e1578766e4::t_ae68a2087839fa 81,83-99
+docs/tools/osv.mdx
+  s_21b1e1578766e4::t_8c8fc5961abfab 49,51-91
+docs/tools/pipe0.mdx
+  s_21b1e1578766e4::t_ae9648dea65437 23-34,43-59,61,83-88,97,99
+docs/tools/project_discovery.mdx
+  s_21b1e1578766e4::t_858ac4d3a85b82 23,25-75,87-182,199,201-203,207,209,215,217,219,221,223,225,227,229,231,233,239,241,247,249,251,253,255,257,259-267,279,281,283,285,287,289,291,295,297,303,305,307,309-429,437-1523,1525,1527,1531,1533,1539,1541,1543,1545,1547,1549,1551,1553,1555,1557-1559,1563,1565,1571,1573,1579,1581,1583,1585,1595,1597-1599,1611,1613,1615,1617,1619,1621,1623,1627,1629,1635,1637,1639,1641,1643,1645,1647,1651,1653,1659,1661,1667,1669,1671,1673,1675,1677,1679,1681,1683,1685,1691,1693,1695,1697,1699,1701,1703,1705,1707,1709-1711,1715,1717,1723,1725,1731,1733,1735,1737,1739,1741,1743,1745,1747,1749,1755,1757,1763,1765,1767,1769,1787,1789,1795,1797,1799,1801,1803,1805,1811,1813,1819,1821,1823,1825,1827,1829,1831,1833,1835,1837,1843,1845,1851,1853,1855,1857,1875,1877,1883,1885,1887,1889,1891,1893,1895,1897,1899,1901-1909,1915,1917-1925,1961-1968,1999-2006,2031-2103,2105
+docs/tools/shodan.mdx
+  s_21b1e1578766e4::t_fb1c734e2a58c2 25,37,39,75,77-85,109,139,169,181-189,191,215,227-251,253
+docs/tools/socket.mdx
+  s_21b1e1578766e4::t_47e84d1fc0a2f9 37,49,51-139,173-178,187-203,205-277,319-334,343-383,385-417,489-585,587,653,655-735,785-817,819
+docs/tools/threatfox.mdx
+  s_21b1e1578766e4::t_17a260b21442e3 173,175
+docs/tools/urlscan.mdx
+  s_21b1e1578766e4::t_760ae527292439 121,123,131,136-151
+docs/tools/x.mdx
+  s_21b1e1578766e4::t_becb438cc8679d 37,39-79,115-131,133,155-160,169-273,275
+packages/tracecat-registry/AGENTS.md
+  s_21b1e1578766e4::t_c8d7b390fdcb52 51-120,158-208
+packages/tracecat-registry/tracecat_registry/core/http.py
+  s_21b1e1578766e4::t_a5a3ea4729a381 126,627-635,671-672,752-760,839-840
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_certificate.yml
+  s_21b1e1578766e4::t_85154e11088ef4 16-19,33-34
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_certificate_raw.yml
+  s_21b1e1578766e4::t_cf96362a830ee7 17-20,35-36
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_certificates.yml
+  s_21b1e1578766e4::t_c47838c487face 16-19,34-35
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_host.yml
+  s_21b1e1578766e4::t_a4eb44014d87f0 15-22,36-38
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_host_timeline.yml
+  s_21b1e1578766e4::t_ff34d73d9fce54 16-25,39-42
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_hosts.yml
+  s_21b1e1578766e4::t_ce3f41d6a37cd5 15,18,20-22,37-38
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_web_properties.yml
+  s_21b1e1578766e4::t_88f769e27f81a3 16,19,21-23,38-39
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_web_property.yml
+  s_21b1e1578766e4::t_74037a3079f955 16-23,37-39
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/search/aggregate_search.yml
+  s_21b1e1578766e4::t_a3ffc2db79ddf5 16,22,25,29,31-33,48-49
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/search/search_assets.yml
+  s_21b1e1578766e4::t_a321edc97940e3 18,22,26,28-30,45-46
+packages/tracecat-registry/tracecat_registry/templates/tools/dehashed/catalog/list_data_wells.yml
+  s_21b1e1578766e4::t_376c67f44d3e63 11-21,35-38
+packages/tracecat-registry/tracecat_registry/templates/tools/dehashed/search/search_breaches.yml
+  s_21b1e1578766e4::t_d75162095e5063 14-36,51-57
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/availability/check_domain_availability.yml
+  s_21b1e1578766e4::t_242f7322a275cb 13-27,41-45
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/brand/check_social_handles.yml
+  s_21b1e1578766e4::t_e07f3d3a52f300 13-22,36-39
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/brand/detect_typosquatting.yml
+  s_21b1e1578766e4::t_dc86c70b3ff3aa 13-26,40-44
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/brand/suggest_domains.yml
+  s_21b1e1578766e4::t_efc55b06a07104 13-38,52-59
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/certificates/find_subdomains.yml
+  s_21b1e1578766e4::t_a20dfb7027eb1e 13-34,48-54
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/certificates/get_certificates.yml
+  s_21b1e1578766e4::t_53be6c1aaef813 13-30,44-49
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/dns/check_dns_security.yml
+  s_21b1e1578766e4::t_7cea45a1411c47 13-15,28-29
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/dns/get_dns_records.yml
+  s_21b1e1578766e4::t_46d59a4d23d0b1 13-18,32-34
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/domain/get_domain_overview.yml
+  s_21b1e1578766e4::t_97085b3d26ed09 13-15,28-29
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/meta/get_coverage.yml
+  s_21b1e1578766e4::t_c5833a714b6770 10-13,24-25
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/security/check_domain_health.yml
+  s_21b1e1578766e4::t_98bf44884433b5 13-18,32-34
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/security/get_domain_reputation.yml
+  s_21b1e1578766e4::t_0dd2f3e5eb75b7 13-15,28-29
+packages/tracecat-registry/tracecat_registry/templates/tools/first_epss/scores/get_time_series.yml
+  s_21b1e1578766e4::t_64dfdfa186a450 13-16,30-33
+packages/tracecat-registry/tracecat_registry/templates/tools/first_epss/scores/lookup_cve_scores.yml
+  s_21b1e1578766e4::t_e8db86301b54b3 13-24,38-42
+packages/tracecat-registry/tracecat_registry/templates/tools/first_epss/scores/search_scores.yml
+  s_21b1e1578766e4::t_4bd38147a3dc47 11-45,59-68
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/incidents/get_public_secret_incident.yml
+  s_21b1e1578766e4::t_682a317081ffa0 16,18-20
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/incidents/get_secret_incident.yml
+  s_21b1e1578766e4::t_33df980aebd229 16-19,34-35
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/incidents/list_public_secret_incidents.yml
+  s_21b1e1578766e4::t_26b18b6b018e81 15-102,104-116,132-157
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/incidents/list_secret_incidents.yml
+  s_21b1e1578766e4::t_9686ec82d2f528 14-120,135-162
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/occurrences/list_public_secret_occurrences.yml
+  s_21b1e1578766e4::t_5fdefbb4bb252d 17-72,87-101
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/occurrences/list_secret_occurrences.yml
+  s_21b1e1578766e4::t_09c9f852fb7849 14-100,115-137
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/scan/scan_content.yml
+  s_21b1e1578766e4::t_2504c9fda49fd6 16-19,35-37
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/gnql/gnql_stats.yml
+  s_21b1e1578766e4::t_483e62edfe48a5 17-24,35-37
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/gnql/query_gnql.yml
+  s_21b1e1578766e4::t_4bf7b53dbf7818 17-51,62-68
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/ip/lookup_ip_context.yml
+  s_21b1e1578766e4::t_3721f04438fa5f 17-27,38-39
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/ip/lookup_ips_context.yml
+  s_21b1e1578766e4::t_b709c0c87860e3 17-27,39-40
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/ip/lookup_riot_ip.yml
+  s_21b1e1578766e4::t_60a9dabd08ee69 15-25,39-40
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/ip/quick_ip.yml
+  s_21b1e1578766e4::t_1a44cdae9db5d6 14-24,40
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/ip/quick_ips.yml
+  s_21b1e1578766e4::t_420ef97ab989f9 14-24,41
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/timeline/get_ip_timeline.yml
+  s_21b1e1578766e4::t_20f3294001e6cb 18-22,24-47,58-62
+packages/tracecat-registry/tracecat_registry/templates/tools/hackernews/search/search.yml
+  s_21b1e1578766e4::t_284d6f15c6ddac 11-33,47-53
+packages/tracecat-registry/tracecat_registry/templates/tools/hackernews/search/search_by_date.yml
+  s_21b1e1578766e4::t_fde8de55056661 11-33,47-53
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/domain/assess_third_party_risk.yml
+  s_21b1e1578766e4::t_0ae100f74891dd 16
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/domain/discover_assets.yml
+  s_21b1e1578766e4::t_de2aa683fc02c5 16-31,47-52
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/domain/get_domain_overview.yml
+  s_21b1e1578766e4::t_6c2bfaa1510de5 16-59,75-87
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/domain/search_domain_compromises.yml
+  s_21b1e1578766e4::t_a30ff4ca7ca927 16-63,79-92
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/identity/search_email_compromises.yml
+  s_21b1e1578766e4::t_89c26e3b06093e 16-59,75-87
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/identity/search_ip_compromises.yml
+  s_21b1e1578766e4::t_5eec100b83f603 14-44,60-68
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/identity/search_pc_compromises.yml
+  s_21b1e1578766e4::t_648d21ea26c72d 16-59,75-87
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/identity/search_stealer_compromises.yml
+  s_21b1e1578766e4::t_5c6ad4e4fbbf85 16-59,75-87
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/identity/search_username_compromises.yml
+  s_21b1e1578766e4::t_7d4b7142e80cfa 16-59,75-87
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/enrichment/combined_enrichment.yml
+  s_21b1e1578766e4::t_e695f23d3574eb 13-18,32-35
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/enrichment/company_enrichment.yml
+  s_21b1e1578766e4::t_05179e2ade5e46 13-18,32-35
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/enrichment/find_person.yml
+  s_21b1e1578766e4::t_e78850c1337384 13-23,37-41
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/search/domain_search.yml
+  s_21b1e1578766e4::t_55d17542249829 13-59,73-86
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/search/email_count.yml
+  s_21b1e1578766e4::t_1cbedaa71aeae7 13-23,37-41
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/search/email_finder.yml
+  s_21b1e1578766e4::t_dc410a1b7815fd 13-39,53-61
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/search/email_verifier.yml
+  s_21b1e1578766e4::t_0021494c1111c2 13-15,28-30
+packages/tracecat-registry/tracecat_registry/templates/tools/leakcheck/search_leak.yml
+  s_21b1e1578766e4::t_680dbaa379fc78 17-27,42-45
+packages/tracecat-registry/tracecat_registry/templates/tools/osv/vulnerabilities/query_vulnerabilities.yml
+  s_21b1e1578766e4::t_bc1277e926cc48 11-39,54-61
+packages/tracecat-registry/tracecat_registry/templates/tools/pipe0/enrichment/enrich_records.yml
+  s_21b1e1578766e4::t_80bcb6eed81afa 13-19,21-29,45-50
+packages/tracecat-registry/tracecat_registry/templates/tools/pipe0/search/search_records.yml
+  s_21b1e1578766e4::t_e9be26c4710a3f 13-16,18,34-36
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/create_enumeration.yml
+  s_21b1e1578766e4::t_3f79f9e26db05c 14-89,102,104-122
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/get_associated_domains.yml
+  s_21b1e1578766e4::t_c20c9009379a0d 14-45,58-66
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/get_enumeration.yml
+  s_21b1e1578766e4::t_289aaea677f2d0 14-20,33
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/get_enumeration_contents.yml
+  s_21b1e1578766e4::t_23ab10c2b8b2cc 17-135,145-174
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/list_enumeration_contents.yml
+  s_21b1e1578766e4::t_3a0b803c4021da 14-121,134-161
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/list_enumerations.yml
+  s_21b1e1578766e4::t_a4e233a91d74f1 14-65,78-91
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/rescan_enumeration.yml
+  s_21b1e1578766e4::t_b88e3ff6d94742 14-20,33
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/leaks/get_domain_leak_stats.yml
+  s_21b1e1578766e4::t_6b3481aea1be76 12-18,31
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/leaks/get_email_leak_stats.yml
+  s_21b1e1578766e4::t_5050eafbda25aa 12-18,31
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/leaks/get_leak_info.yml
+  s_21b1e1578766e4::t_5819a9587e9cb0 14-16
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/leaks/list_leaks.yml
+  s_21b1e1578766e4::t_f0c617bb266900 14-85,98-116
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/scans/create_scan.yml
+  s_21b1e1578766e4::t_97453cef7abdcc 14-124,137,139-165
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/scans/get_scan.yml
+  s_21b1e1578766e4::t_a3cd1666c9b1a5 14-20,33
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/scans/list_scans.yml
+  s_21b1e1578766e4::t_5abd8ed0fca2e7 14-45,58-66
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/scans/rescan_scan.yml
+  s_21b1e1578766e4::t_6b8e7621b1deea 14-20,33
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/vulnerabilities/get_vulnerability.yml
+  s_21b1e1578766e4::t_28a4f6a2b5d600 17-23,33-34
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/vulnerabilities/get_vulnerability_timeline.yml
+  s_21b1e1578766e4::t_aff1eb5b81dbfd 18-24,34-35
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/vulnerabilities/list_scan_results.yml
+  s_21b1e1578766e4::t_9caeb87b23aae2 14-93,106-126
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/vulnerabilities/list_vulnerability_changelogs.yml
+  s_21b1e1578766e4::t_486eb203109584 14-41,54-61
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/vulnerabilities/search_vulnerabilities.yml
+  s_21b1e1578766e4::t_892c5137053d39 14-53,66-76
+packages/tracecat-registry/tracecat_registry/templates/tools/shodan/dns/resolve_dns.yml
+  s_21b1e1578766e4::t_12022a20a7da30 14-16,27-29
+packages/tracecat-registry/tracecat_registry/templates/tools/shodan/dns/reverse_dns.yml
+  s_21b1e1578766e4::t_a54e8274dafdde 14-16,27-29
+packages/tracecat-registry/tracecat_registry/templates/tools/shodan/exploits/search_exploits.yml
+  s_21b1e1578766e4::t_8db5810464553f 14-24,35-39
+packages/tracecat-registry/tracecat_registry/templates/tools/shodan/hosts/lookup_host.yml
+  s_21b1e1578766e4::t_ba5d6de5cbe664 17-27,35-38
+packages/tracecat-registry/tracecat_registry/templates/tools/shodan/search/count_hosts.yml
+  s_21b1e1578766e4::t_b9259b7f4dc168 14-20,31-34
+packages/tracecat-registry/tracecat_registry/templates/tools/shodan/search/search_hosts.yml
+  s_21b1e1578766e4::t_7ac23e332f971e 14-32,43-49
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/packages/fetch_packages_by_purl.yml
+  s_21b1e1578766e4::t_4100ebb4a7e2bc 24-94,110-122
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/scans/create_full_scan.yml
+  s_21b1e1578766e4::t_128ff4a19ec7aa 19,23-87,102-115
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/scans/create_full_scan_from_archive.yml
+  s_21b1e1578766e4::t_76521f976245e5 18-20,24-88,103-116
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/scans/list_full_scans.yml
+  s_21b1e1578766e4::t_c318f937572901 17-75,90-103
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/scans/stream_full_scan.yml
+  s_21b1e1578766e4::t_6e8cbaabc7ff3e 24-53,68-73
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/threat_feed/list_threat_feed_items.yml
+  s_21b1e1578766e4::t_fda9d5d7677525 17-77,92-103
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/iocs/get_ioc.yml
+  s_21b1e1578766e4::t_2abb4b7c9b60c3 14-16
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/iocs/list_recent_iocs.yml
+  s_21b1e1578766e4::t_dae8dedee90a7d 18-21
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/iocs/lookup_ioc.yml
+  s_21b1e1578766e4::t_94c244aa73dc14 19-26
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/iocs/query_malware_family.yml
+  s_21b1e1578766e4::t_14e08015f660ea 21-24
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/iocs/query_tag.yml
+  s_21b1e1578766e4::t_60e6c5f408f318 21-24
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/iocs/search_file_hash.yml
+  s_21b1e1578766e4::t_88ea9ac62c43ea 14-16
+packages/tracecat-registry/tracecat_registry/templates/tools/urlhaus/list_recent_payloads.yml
+  s_21b1e1578766e4::t_5a90eadf3a9bbf 18-21
+packages/tracecat-registry/tracecat_registry/templates/tools/urlhaus/lookup_host.yml
+  s_21b1e1578766e4::t_fb20518ad0bff2 14-16
+packages/tracecat-registry/tracecat_registry/templates/tools/urlhaus/lookup_payload.yml
+  s_21b1e1578766e4::t_5f7cc3ad14b88d 14-16
+packages/tracecat-registry/tracecat_registry/templates/tools/urlhaus/lookup_url.yml
+  s_21b1e1578766e4::t_32a64ca9b1bcbd 14-16
+packages/tracecat-registry/tracecat_registry/templates/tools/urlscan/get_result.yml
+  s_21b1e1578766e4::t_7e4d743d44f755 14-16
+packages/tracecat-registry/tracecat_registry/templates/tools/urlscan/get_screenshot.yml
+  s_21b1e1578766e4::t_78fb6a8343533a 14-16
+packages/tracecat-registry/tracecat_registry/templates/tools/urlscan/search_scans.yml
+  s_21b1e1578766e4::t_1923eb9c335dd5 16,18-36,47-51
+packages/tracecat-registry/tracecat_registry/templates/tools/x/posts/get_tweet.yml
+  s_21b1e1578766e4::t_bb24d58f089ca7 16-38,53-59
+packages/tracecat-registry/tracecat_registry/templates/tools/x/posts/search_recent_tweets.yml
+  s_21b1e1578766e4::t_92730e00fd95d6 13-70,85-100
+packages/tracecat-registry/tracecat_registry/templates/tools/x/users/get_user.yml
+  s_21b1e1578766e4::t_8e5b51b1e873da 16-26,41-44
+tests/registry/test_core_http.py
+  s_21b1e1578766e4::t_4238d18f16f376 8,20-23,1623-1782
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b1a670332cd45a0789b2d29414f9b6ced8793c8f",
+  "prompts": {},
+  "sessions": {
+    "s_21b1e1578766e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "942f84be-7772-4399-90db-3566f92370fb",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}

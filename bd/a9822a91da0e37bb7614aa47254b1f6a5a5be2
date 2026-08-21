@@ -1,0 +1,405 @@
+docs/tools/elastic_security.mdx
+  s_21b1e1578766e4::t_7927a2ffad8194 96,98,102,104,108,110,162,164,204,460-476,478,582-590,592,632,724,770,918-925,942-958,960,1000,1052,1054,1060,1062,1068,1070,1072,1076,1078,1084,1086,1092,1094,1100,1102,1104,1108,1110,1112,1114,1116,1118,1124,1126,1148,1150,1152,1154,1172,1174,1180,1182,1188,1190,1192,1196,1198,1204,1206,1228,1230,1232,1234,1244,1246,1250,1252,1258,1260,1266,1268,1270,1274,1276,1278,1282,1284,1290,1292,1314,1316,1318,1320,1330,1332,1344,1346,1352-1708,1742,1788,1834,1926,1970-1977,1986-2082,2084,2098-2113,2122-2129,2200-2240,2242-2282,2368,2414,2458,2460,2464,2466,2470,2472
+docs/tools/emailrep.mdx
+  s_21b1e1578766e4::t_3698e636a83ca5 55
+docs/tools/github.mdx
+  s_21b1e1578766e4::t_46171701c813ba 91-99,101,145,167-172,243,287,337,387,431,595,877-885,887,1059-1066,1075-1107,1109,1313,1315,1317,1355,1357,1483,1485,1569,1571,1683-1707,1709,1743,1745,1751,1753,1755,1757,1759,1761,1763,1767,1769,1771,1775,1777,1783,1785,1787,1789,1791,1793,1795,1797,1799,1801,1803,1807,1809,1815,1817,1819,1831,1833,1837,1839,1841,1845,1847,1849,1853,1855,1861,1863,1865,1877,1879-1889,1901,1903,1909,1911,1913,1915,1917,1919,1921,1923,1925,1927-1929,1933,1935,1937,1941,1943,1949,1951,1953,1955,1957,1959,1961,1963,1965,1967-1969,1973,1975,1977,1981,1983,1989,1991,1993,1995,1997,1999,2001,2003,2005,2007-2009,2013,2015,2017,2021,2023,2029,2031,2033,2045,2047,2051,2053,2071,2073,2079,2081,2083-2099,2111,2113,2117,2119-2121,2125,2127-2129,2141,2143,2149,2151,2153,2155,2157,2159,2161,2163,2165,2167-2169,2173,2175-2177,2181,2183,2185-3139,3143,3145,3151,3153,3155-3195,3219-3226,3235,3237,3243,3245,3247,3249,3251,3253,3255,3257,3259,3261-3263,3267,3269-3271,3275,3277,3279,3283,3285,3291,3293,3295-3335,3359-3374,3383,3385,3391,3393,3395-3531,3555-3595,3597,3599,3603,3605,3611,3613,3615,3639-3646,3655,3657,3663,3665,3667,3669,3671,3673,3675,3677,3679,3681-3683,3687,3689-3691,3695,3697,3699-3715,3719,3721,3763-3771,3773,3821-3829,3831,3879-3895,3897,3947,4039,4061-4066,4075-4083,4085-4101,4123-4128,4137,4139-4163,4185-4198,4207-4239,4241,4263-4268,4277-4301,4303,4347,4397,4447,4491,4541,4591,4641,4691,4741
+docs/tools/gitlab.mdx
+  s_21b1e1578766e4::t_864204b50b17d1 43,45,47-61,65,67-79,85,87,89,91,93,95,97,99,101,103-105,117,119,125,127-151,179-200,209-273,275-299,313-336,365-376,385,387,417-422,443,445-461,507,551,579-584,593,595,601,603,641,793,795-803,845,847,853,855,857,859,861,863,865-881,899,901-917,981,983,987,989,991,1047-1062,1071-1119,1121-1153,1187-1194,1203-1227,1229,1271,1273-1281,1323-1339,1341,1383-1407,1409,1451-1459,1461,1489,1491,1493,1497,1499,1505,1507,1509,1511,1513,1515,1517,1519,1521,1523-1525,1529,1531-1541,1553,1555,1561,1563,1565,1567,1569,1571,1573,1575,1577,1579-1581,1585,1587,1589,1593,1595,1601,1603,1605,1607,1609,1611,1613,1615,1617,1619-1621,1625,1627,1629,1633,1635-2075,2083-2195,2197-2473,2493-2509,2511,2515,2517,2523,2525,2527,2553,2555,2561,2563,2565,2567,2569,2571,2573,2575,2577,2579-2581,2585,2587,2589,2593,2595,2601,2603,2605-2621,2633-2638,2653,2655,2661,2663,2665,2677-2682,2697,2699,2701,2719-2730,2739,2741,2747,2749,2751,2753,2755,2757,2759,2761,2763,2765-2767,2771,2773,2775,2779,2781,2787,2789,2791,2793,2795,2797,2799,2801,2803,2805-2807,2811,2813,2815,2819,2821,2827,2829,2831-2839,2851,2853,2857,2859,2871,2873,2879,2881,2887,2889,2891-2899,2911,2913,2923,2925,2927,2931,2933,2939,2941,2943,2947,2949,2951,2953,2955,2957,2959,2963,2965,2967,2971,2973,2979,2981,2983,2985,2987,2989,2991,2993,2995,2997-2999,3003,3005,3007,3011,3013,3019,3021,3023,3025,3027,3029,3031,3033,3035,3037-3039,3043,3045-3047,3051,3053,3055,3059,3061,3067,3069,3097,3099,3103,3105,3107
+docs/tools/rippling.mdx
+  s_21b1e1578766e4::t_fef67af7a20227 23,25,29,31,63,153,155-163,199,201,231,233-265,295,297-321,351,353-385,439-455,457-473,503-527,529-537,567,569-601,637,639-647,677-685,687,717-741,743,773-789,791,821-837,839,869-877,879-903,933-965,967,999,1037,1065,1067,1071,1073,1101,1103,1107,1109
+docs/tools/sublime.mdx
+  s_21b1e1578766e4::t_4a9ca9121789df 59,61,115,151,305-317,319,347-349,351-355,385,415,509,511,515,517,577,613,643,775-783,785,873,875,879,881,903-908,917-925,927,963-971,973,1045-1053,1055,1121,1123,1159-1175,1177,1207-1239,1241,1277-1285,1287,1323-1347,1349,1415-1431,1433,1487,1515-1522,1531-1547,1549,1571,1573,1579,1581,1587,1589,1591,1593,1595,1597,1599,1601,1603,1605,1611,1613,1619,1621,1623,1625,1627,1629,1631,1633,1635,1637,1643,1645,1651,1653,1655,1657,1667,1669,1675,1677,1683,1685,1687,1689,1691,1693,1695,1697,1707,1709,1715,1717,1719,1721,1723,1725,1727,1729,1731,1733-1735,1739,1741-1743,1747,1749,1755,1757,1759,1761,1763,1765,1767,1769,1771,1773-1775,1779-1781,1783,1787,1789,1795,1797,1799,1801,1803,1805,1807,1809,1811,1813,1815-2135,2139-2175,2205,2235,2301,2331,2421,2485-2516,2525-2533,2535-2631,2653,2655,2659,2661,2697,2733,2763,2829,2859,2895,2925
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/attack_discovery/search_attack_discoveries.yml
+  s_21b1e1578766e4::t_cd37a431b49d03 13-79,112-129
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/assign_detection_alert_users.yml
+  s_21b1e1578766e4::t_917e0b4b4f42a0 13-15,17-20,57-59
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/bulk_action_detection_rules.yml
+  s_21b1e1578766e4::t_3efff6cb7248ab 14-15,18-20,53-54
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/create_detection_rule.yml
+  s_21b1e1578766e4::t_60d898be1182b7 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/export_detection_rules.yml
+  s_21b1e1578766e4::t_b2ed22eb9f8e82 14-15,18-24,57-59
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/import_detection_rules.yml
+  s_21b1e1578766e4::t_3be09357bef21d 20-34,67-71
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/list_detection_rules.yml
+  s_21b1e1578766e4::t_fc096234a79e7e 13-51,84-94
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/patch_detection_rule.yml
+  s_21b1e1578766e4::t_862d9626faa059 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/preview_detection_rule.yml
+  s_21b1e1578766e4::t_1a959f504b0ab5 14-15,18-20,53-54
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/search_detection_alerts.yml
+  s_21b1e1578766e4::t_f762d0460a7bda 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/set_detection_alert_status.yml
+  s_21b1e1578766e4::t_e8c807c6eb9730 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/update_detection_alert_tags.yml
+  s_21b1e1578766e4::t_c19d158500972d 13-18,20,57-59
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/cancel_response_action.yml
+  s_21b1e1578766e4::t_a50699c0f15c0c 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/create_endpoint_script.yml
+  s_21b1e1578766e4::t_5f6295045a8d52 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/generate_endpoint_memory_dump.yml
+  s_21b1e1578766e4::t_20becf80b2124f 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/get_endpoint_file.yml
+  s_21b1e1578766e4::t_cbddb581e3d6ea 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/get_endpoint_processes.yml
+  s_21b1e1578766e4::t_22c8abcd31b7e3 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/isolate_endpoint.yml
+  s_21b1e1578766e4::t_34a203e515ca86 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/list_endpoint_scripts.yml
+  s_21b1e1578766e4::t_179238a62f8681 13-31,64-69
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/list_endpoints.yml
+  s_21b1e1578766e4::t_a829b0eefee2b9 13-34,67-73
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/list_response_actions.yml
+  s_21b1e1578766e4::t_4a9f5b34c16933 13-51,84-94
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/release_endpoint.yml
+  s_21b1e1578766e4::t_07304eebaf9e1e 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/run_endpoint_command.yml
+  s_21b1e1578766e4::t_2c4f578bab04ed 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/run_endpoint_script.yml
+  s_21b1e1578766e4::t_014c9f68bcb542 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/scan_endpoint_path.yml
+  s_21b1e1578766e4::t_06f6944c80618b 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/suspend_endpoint_process.yml
+  s_21b1e1578766e4::t_9d03f37b91e0af 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/terminate_endpoint_process.yml
+  s_21b1e1578766e4::t_6f1b211d7989ea 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/upload_endpoint_file.yml
+  s_21b1e1578766e4::t_a9c76bfff4b06e 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/entity_analytics/search_entities.yml
+  s_21b1e1578766e4::t_9a208363c4948d 13-55,88-99
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/create_exception_list.yml
+  s_21b1e1578766e4::t_f219f7ddaf57c9 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/create_exception_list_item.yml
+  s_21b1e1578766e4::t_13718cfec5638d 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/delete_exception_list_item.yml
+  s_21b1e1578766e4::t_a64466225ec22d 13-23,56-59
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/list_exception_list_items.yml
+  s_21b1e1578766e4::t_ad2295eb00f025 13-42,75-83
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/list_exception_lists.yml
+  s_21b1e1578766e4::t_e1859a0a67c059 13-35,68-74
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/osquery/run_osquery_live_query.yml
+  s_21b1e1578766e4::t_e218ac89ca15ab 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/emailrep/report_email_address.yml
+  s_21b1e1578766e4::t_735f782b5e9e66 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/dispatch_workflow.yml
+  s_21b1e1578766e4::t_5bdbf3af89d82c 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/get_workflow_run.yml
+  s_21b1e1578766e4::t_93f8491907ee05 23-25,41-42
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/list_repository_workflow_runs.yml
+  s_21b1e1578766e4::t_ed5983cbcdf884 20-58,74-84
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/list_repository_workflows.yml
+  s_21b1e1578766e4::t_0bd0262099f009 20-26,42-44
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/list_workflow_run_jobs.yml
+  s_21b1e1578766e4::t_7915397f1f3ca9 23-33,49-52
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/rerun_failed_workflow_jobs.yml
+  s_21b1e1578766e4::t_eea63c69b840f4 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/compare_commits.yml
+  s_21b1e1578766e4::t_e969872887baf4 23-29,45-47
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/create_or_update_repository_content.yml
+  s_21b1e1578766e4::t_5411f55fc3568f 24-25,27-28
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/get_commit.yml
+  s_21b1e1578766e4::t_fe73d8d0ccf207 23-29,45-47
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/get_repository_content.yml
+  s_21b1e1578766e4::t_5754957432a1b6 23-25,41-42
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/list_commits.yml
+  s_21b1e1578766e4::t_f055767d94054c 20-50,66-74
+packages/tracecat-registry/tracecat_registry/templates/tools/github/gists/list_gist_commits.yml
+  s_21b1e1578766e4::t_d271da108c8424 17-23,39-41
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/create_issue.yml
+  s_21b1e1578766e4::t_d73cdc2d53ea9f 21-22,24
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/create_issue_comment.yml
+  s_21b1e1578766e4::t_8c72beb1e481b7 23-25,40-41
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_issue_comments.yml
+  s_21b1e1578766e4::t_f3dd73528cf5a7 23-33,49-52
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_repository_issues.yml
+  s_21b1e1578766e4::t_07da2bd9272680 20-70,86-99
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/update_issue.yml
+  s_21b1e1578766e4::t_b7c24b48036a81 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/organization/get_organization_audit_log.yml
+  s_21b1e1578766e4::t_795340fa52ef80 17-39,55-61
+packages/tracecat-registry/tracecat_registry/templates/tools/github/posture/update_branch_protection.yml
+  s_21b1e1578766e4::t_c575f2b0b851e0 24-25,27-28
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/create_pull_request.yml
+  s_21b1e1578766e4::t_99daf0438f1289 21-22,24
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/create_pull_request_review.yml
+  s_21b1e1578766e4::t_cb74bfb225670a 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/create_pull_request_review_comment.yml
+  s_21b1e1578766e4::t_bb2da504c65eff 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/list_pull_request_files.yml
+  s_21b1e1578766e4::t_7887e043cbf49e 23-29,45-47
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/list_pull_request_review_comments.yml
+  s_21b1e1578766e4::t_ade31c58430b78 23-41,57-62
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/list_pull_requests.yml
+  s_21b1e1578766e4::t_a8d79b99bb098b 20-46,62-69
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/merge_pull_request.yml
+  s_21b1e1578766e4::t_39dc83347c61fe 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/update_pull_request.yml
+  s_21b1e1578766e4::t_afc1f3b738226f 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_code.yml
+  s_21b1e1578766e4::t_cc0754c2f037ff 14-31,47-52
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_commits.yml
+  s_21b1e1578766e4::t_c7258af3bb976b 14-31,47-52
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_issues.yml
+  s_21b1e1578766e4::t_f51c3c118fb67c 14-39,55-62
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_repositories.yml
+  s_21b1e1578766e4::t_9e3bd667daaff6 14-31,47-52
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/get_secret_scanning_alert.yml
+  s_21b1e1578766e4::t_c304f5d3dd28c2 23-25,41-42
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_code_scanning_alert_instances.yml
+  s_21b1e1578766e4::t_fefc9e29c028aa 23-37,53-57
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_org_code_scanning_alerts.yml
+  s_21b1e1578766e4::t_be37c6a5a98539 17-59,75-86
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_org_dependabot_alerts.yml
+  s_21b1e1578766e4::t_f7618da8e77893 17-87,103-121
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_org_secret_scanning_alerts.yml
+  s_21b1e1578766e4::t_0217c872c6e70f 17-95,111-131
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_repo_code_scanning_alerts.yml
+  s_21b1e1578766e4::t_e3382b7e152c62 20-70,86-99
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_repo_dependabot_alerts.yml
+  s_21b1e1578766e4::t_b638911ea79b68 20-82,98-114
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_repo_secret_scanning_alerts.yml
+  s_21b1e1578766e4::t_0a987ad6716143 20-98,114-134
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_secret_scanning_alert_locations.yml
+  s_21b1e1578766e4::t_467d883837386e 23-29,45-47
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/update_code_scanning_alert.yml
+  s_21b1e1578766e4::t_547e09c676df47 24-25,27-28
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/update_code_scanning_default_setup.yml
+  s_21b1e1578766e4::t_56581c4face060 21-22,24-25
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/update_dependabot_alert.yml
+  s_21b1e1578766e4::t_67d888640650ae 24-25,27-28
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/update_secret_scanning_alert.yml
+  s_21b1e1578766e4::t_f4aa672cbcef8f 24-25,27-28
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/create_repository_security_advisory.yml
+  s_21b1e1578766e4::t_7e73cbdf7c691d 21-22,24-25
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/list_global_security_advisories.yml
+  s_21b1e1578766e4::t_4df684e8b22280 14-84,100-118
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/list_organization_security_advisories.yml
+  s_21b1e1578766e4::t_a7e576afb69c61 17-39,55-61
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/list_repo_security_advisories.yml
+  s_21b1e1578766e4::t_80a041c8147cfd 20-42,58-64
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/submit_private_vulnerability_report.yml
+  s_21b1e1578766e4::t_8c817e314eb4ff 21-22,24-25
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/update_repo_security_advisory.yml
+  s_21b1e1578766e4::t_1685dec064882b 24-25,27-28
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/create_pipeline.yml
+  s_21b1e1578766e4::t_f0bd4afa009da7 18-23,25,27,42-45
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/get_job_trace.yml
+  s_21b1e1578766e4::t_4ff3434d6654b8 21-27,42-44
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/list_pipeline_jobs.yml
+  s_21b1e1578766e4::t_f2b881313e97d5 21-35,50-54
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/list_pipelines.yml
+  s_21b1e1578766e4::t_f8f1b63fbc7545 18-80,95-111
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/create_commit.yml
+  s_21b1e1578766e4::t_92529b780e8020 18-54,56-58,73-84
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/get_project.yml
+  s_21b1e1578766e4::t_0cec82af057daa 18-28,43-46
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/get_repository_file.yml
+  s_21b1e1578766e4::t_a09f3ef94eb7af 21-23,37-38
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/list_commits.yml
+  s_21b1e1578766e4::t_1476901b9f6fc0 18-68,83-96
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/list_project_wiki_pages.yml
+  s_21b1e1578766e4::t_a5f5dd7d4956e4 18-20,35-36
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/list_repository_tree.yml
+  s_21b1e1578766e4::t_9e1e14f4847d91 18-48,63-71
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/search_project.yml
+  s_21b1e1578766e4::t_50ae7e20464c0c 18-70,85-99
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/semantic_code_search.yml
+  s_21b1e1578766e4::t_44b79fdb010fd7 18-31,46-50
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/create_issue.yml
+  s_21b1e1578766e4::t_94f051f215e6a6 18-87,90-93,110-128
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/create_issue_link.yml
+  s_21b1e1578766e4::t_7c9788df4a7ea4 21-29,32-35,52-55
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/create_issue_note.yml
+  s_21b1e1578766e4::t_9b5611b8d23890 21-34,37-40,57-61
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/list_issue_notes.yml
+  s_21b1e1578766e4::t_185de8637ca4ae 21-39,54-59
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/list_project_labels.yml
+  s_21b1e1578766e4::t_ce667e0425be15 18-40,55-61
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/update_issue.yml
+  s_21b1e1578766e4::t_fc142a06ad1f74 21-87,90-93,110-127
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/create_merge_request.yml
+  s_21b1e1578766e4::t_41dd0ac9668a6e 19-20,22-23
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/create_merge_request_note.yml
+  s_21b1e1578766e4::t_1de6d55184b723 22-23,25-26
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/get_merge_request.yml
+  s_21b1e1578766e4::t_982e61f145f849 21-31,46-49
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_request_commits.yml
+  s_21b1e1578766e4::t_93411ca58d2a64 21-27,42-44
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_request_diffs.yml
+  s_21b1e1578766e4::t_6953236c95611e 21-31,46-49
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_request_notes.yml
+  s_21b1e1578766e4::t_79aa447cff34d2 21-35,50-54
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_request_pipelines.yml
+  s_21b1e1578766e4::t_b518ffdd99d50f 21-27,42-44
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_requests.yml
+  s_21b1e1578766e4::t_5d601339794120 18-172,187-226
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/merge_merge_request.yml
+  s_21b1e1578766e4::t_53c81614376b76 22-23,25-26
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/posture/list_project_approval_rules.yml
+  s_21b1e1578766e4::t_87d4d9c0750330 18-24,39-41
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/posture/list_project_members_with_inherited_access.yml
+  s_21b1e1578766e4::t_0e24334f6f3d27 18-40,55-61
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/posture/list_protected_branches.yml
+  s_21b1e1578766e4::t_7bc4a94f57c530 18-28,43-46
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/create_project_vulnerability_export_and_wait.yml
+  s_21b1e1578766e4::t_247c0171f283c5 19-20,22-23
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/list_project_audit_events.yml
+  s_21b1e1578766e4::t_d203aa4ed92825 18-32,47-51
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/list_project_dependencies.yml
+  s_21b1e1578766e4::t_843e4ec6478152 18-28,43-46
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/list_project_vulnerability_findings.yml
+  s_21b1e1578766e4::t_3da0d3ebb1c3a6 18-40,55-61
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/update_project_security_settings.yml
+  s_21b1e1578766e4::t_cfb743e97b2903 18-20,34-35
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/create_software_deployment.yml
+  s_21b1e1578766e4::t_54eae6dd4a0283 16-17,19-20
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/list_app_users.yml
+  s_21b1e1578766e4::t_6384b3f92431f1 17-50,52-53,69-74
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/list_software_deployments.yml
+  s_21b1e1578766e4::t_87def5c974b7c8 15-48,50-51,67-72
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/list_supergroup_members.yml
+  s_21b1e1578766e4::t_abd971da2d0a67 19-29,31-35,51-53
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/list_supergroups.yml
+  s_21b1e1578766e4::t_b209432bf5de28 15-23,25-29,45-47
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/update_supergroup_exclusion_members.yml
+  s_21b1e1578766e4::t_a4aebba8b084e1 19-25,40-41
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/update_supergroup_inclusion_members.yml
+  s_21b1e1578766e4::t_8159dbc465f28a 19-25,40-41
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/devices/list_devices.yml
+  s_21b1e1578766e4::t_5c9300006fd371 16-52,54-55,71-76
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/leave/list_leave_balances.yml
+  s_21b1e1578766e4::t_c21c69fa709f3a 16-48,50-51,67-72
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/leave/list_leave_requests.yml
+  s_21b1e1578766e4::t_353397c3c15fa0 16-50,52-53,69-74
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/leave/update_leave_request.yml
+  s_21b1e1578766e4::t_ca06d56d201781 19-20,22-23
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/meta/get_sso_me.yml
+  s_21b1e1578766e4::t_7a98f060aecb1f 17-30,46-48
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/onboarding/create_draft_hires.yml
+  s_21b1e1578766e4::t_fd16fafec86271 15-22,37-38
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/org/list_departments.yml
+  s_21b1e1578766e4::t_1b4225a3e2a784 15-40,42-43,59-63
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/org/list_teams.yml
+  s_21b1e1578766e4::t_0e591d5371dbc4 15-40,42-43,59-63
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/org/list_work_locations.yml
+  s_21b1e1578766e4::t_4aa51ebd8f6d26 16-32,34-35,51-54
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/reports/trigger_report_run.yml
+  s_21b1e1578766e4::t_4e766bc7f8f0e8 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/workers/get_worker.yml
+  s_21b1e1578766e4::t_52a12483909e6d 19-27,43-44
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/workers/list_users.yml
+  s_21b1e1578766e4::t_139d95faad7171 15-31,33-34,50-53
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/workers/list_worker_changes.yml
+  s_21b1e1578766e4::t_b9ce9fba52b094 15-50,52-53,69-74
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/workers/list_workers.yml
+  s_21b1e1578766e4::t_fa487a79ce5b15 15-50,52-53,69-74
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/email_bombs/create_email_bomb.yml
+  s_21b1e1578766e4::t_66d090a7443779 13-21,34-37
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/email_bombs/dismiss_email_bomb.yml
+  s_21b1e1578766e4::t_c78c1ae2074309 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/email_bombs/list_email_bombs.yml
+  s_21b1e1578766e4::t_30854e837e3d14 13-27,39-43
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/eml_analyze.yml
+  s_21b1e1578766e4::t_b271806b1d8596 11-12,14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/hunt_jobs/get_hunt_job_results.yml
+  s_21b1e1578766e4::t_56586fee339d29 16-22,34-36
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/hunt_jobs/start_hunt_job.yml
+  s_21b1e1578766e4::t_acad0699329f55 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/add_list_entry.yml
+  s_21b1e1578766e4::t_7eeffc53c1dc4a 16-18,31-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/create_list.yml
+  s_21b1e1578766e4::t_878aa2f099c8f3 13-18,31-33
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/delete_list_entry.yml
+  s_21b1e1578766e4::t_fb9a2951d7d9c5 16-18,29-30
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/get_list_entry.yml
+  s_21b1e1578766e4::t_4ac48bd6f75941 16-18,29-30
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/get_lists.yml
+  s_21b1e1578766e4::t_ae9f5ef199e618 13-22,34-37
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/patch_list.yml
+  s_21b1e1578766e4::t_1172f139af4d8c 16-18,31-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/set_list_entries.yml
+  s_21b1e1578766e4::t_04c5e6544582e1 16-18,31-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/mailboxes/list_mailboxes.yml
+  s_21b1e1578766e4::t_01e58e93bc9268 13-47,59-68
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/dismiss_message_canonical_group.yml
+  s_21b1e1578766e4::t_f71d75def771a3 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/dismiss_multiple_message_groups.yml
+  s_21b1e1578766e4::t_a82b508eeb1bc4 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/get_message_group.yml
+  s_21b1e1578766e4::t_e9ddff71a73ed0 16-18,30-31
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/get_message_group_siem_summary.yml
+  s_21b1e1578766e4::t_99e9299bbded3a 13-31,43-48
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/graymail_multiple_message_groups.yml
+  s_21b1e1578766e4::t_a46b53f67f6be3 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/list_message_groups.yml
+  s_21b1e1578766e4::t_a2eefa52fc30de 13-123,135-163
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/quarantine_message_canonical_group.yml
+  s_21b1e1578766e4::t_fe6681930e03bd 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/quarantine_multiple_message_groups.yml
+  s_21b1e1578766e4::t_8208961f01b58b 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/restore_message_canonical_group.yml
+  s_21b1e1578766e4::t_2142247e0e0ee8 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/restore_multiple_message_groups.yml
+  s_21b1e1578766e4::t_d040bfd3c1d504 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/review_message_groups.yml
+  s_21b1e1578766e4::t_36b684d3eaeff5 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/search_message_groups.yml
+  s_21b1e1578766e4::t_439012bbed144b 13-83,95-113
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/share_with_sublime_public.yml
+  s_21b1e1578766e4::t_211741252d5068 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/trash_message_canonical_group.yml
+  s_21b1e1578766e4::t_1947e3f2b0153d 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/trash_multiple_message_groups.yml
+  s_21b1e1578766e4::t_3badf7957ded3f 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/action_message.yml
+  s_21b1e1578766e4::t_801ca658dcf95a 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/analyze_message_by_id.yml
+  s_21b1e1578766e4::t_ee14104239922d 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/create_message.yml
+  s_21b1e1578766e4::t_b1fbf00ca56afa 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message.yml
+  s_21b1e1578766e4::t_1a61e286c6ce42 16-22,34-36
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_attachment_image_raw.yml
+  s_21b1e1578766e4::t_7ed5dfd45ec90b 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_canonical_group_action_state.yml
+  s_21b1e1578766e4::t_32774c045323d2 16-26,38-41
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_data_model.yml
+  s_21b1e1578766e4::t_8ddb0d919fc182 16-22,34-36
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_image.yml
+  s_21b1e1578766e4::t_56de371c9c4296 16-22,34-36
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_image_link.yml
+  s_21b1e1578766e4::t_a6e1847abbfd28 16-30,42-46
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/set_message_access_justification.yml
+  s_21b1e1578766e4::t_fabef3ef63485a 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/create_rule.yml
+  s_21b1e1578766e4::t_5312e73e064a82 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/get_rule_history.yml
+  s_21b1e1578766e4::t_41a7eedd16e42a 16-26,38-41
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/list_rule_history.yml
+  s_21b1e1578766e4::t_b5e570dc9d1821 13-37,49-56
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/list_rules.yml
+  s_21b1e1578766e4::t_daf05d5c5bb78e 13-27,39-43
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/update_rule.yml
+  s_21b1e1578766e4::t_b89706dd7be85b 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/validate_rule.yml
+  s_21b1e1578766e4::t_2bd7f6e66aee32 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/user_reports/list_user_reports.yml
+  s_21b1e1578766e4::t_ff7e1a76a04a39 13-23,35-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "bda9822a91da0e37bb7614aa47254b1f6a5a5be2",
+  "prompts": {},
+  "sessions": {
+    "s_21b1e1578766e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "942f84be-7772-4399-90db-3566f92370fb",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
