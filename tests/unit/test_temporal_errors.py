@@ -23,6 +23,7 @@ from tracecat.runtime.errors import (
 from tracecat.temporal.errors import (
     application_error_from_envelope,
     extract_error_envelope,
+    extract_error_envelopes,
     wrap_application_error,
 )
 
@@ -251,6 +252,49 @@ def test_payload_key_does_not_collide_without_valid_discriminator() -> None:
     )
 
     assert extract_error_envelope(error) is None
+
+
+def test_action_error_map_extracts_every_classified_envelope() -> None:
+    user_envelope = _user_envelope()
+    platform_envelope = _platform_envelope()
+    details = {
+        "user_action": ActionErrorInfoAdapter.dump_python(
+            ClassifiedActionErrorInfo(
+                ref="user_action",
+                message=user_envelope.message,
+                type="ValueError",
+                envelope=user_envelope,
+            ),
+            mode="json",
+        ),
+        "platform_action": ActionErrorInfoAdapter.dump_python(
+            ClassifiedActionErrorInfo(
+                ref="platform_action",
+                message=platform_envelope.message,
+                type="RuntimeError",
+                envelope=platform_envelope,
+            ),
+            mode="json",
+        ),
+    }
+    error = ApplicationError("Workflow failed", details)
+
+    assert extract_error_envelopes(error) == (user_envelope, platform_envelope)
+
+
+def test_arbitrary_nested_envelope_does_not_collide_with_action_error_map() -> None:
+    envelope = _user_envelope()
+    error = ApplicationError(
+        "User payload",
+        {
+            "arbitrary": {
+                "payload": "not an action error",
+                "envelope": envelope.model_dump(mode="json"),
+            }
+        },
+    )
+
+    assert extract_error_envelopes(error) == ()
 
 
 def test_wrapping_preserves_existing_classification() -> None:

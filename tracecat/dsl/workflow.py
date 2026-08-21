@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Coroutine
+from collections.abc import Awaitable, Coroutine, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -96,7 +96,11 @@ with workflow.unsafe.imports_passed_through():
         StreamID,
         TaskResult,
     )
-    from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
+    from tracecat.dsl.types import (
+        ActionErrorInfo,
+        ActionErrorInfoAdapter,
+        TaskExceptionInfo,
+    )
     from tracecat.dsl.validation import format_input_schema_validation_error
     from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.ee.interactions.decorators import maybe_interactive
@@ -114,6 +118,7 @@ with workflow.unsafe.imports_passed_through():
         exec_id_to_parts,
     )
     from tracecat.registry.lock.types import RegistryLock
+    from tracecat.runtime.errors import RuntimeErrorOwner
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -124,6 +129,11 @@ with workflow.unsafe.imports_passed_through():
         action_key,
         return_key,
         trigger_key,
+    )
+    from tracecat.temporal.errors import (
+        application_error_from_envelope,
+        extract_error_envelope,
+        extract_error_envelopes,
     )
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
@@ -168,6 +178,43 @@ with workflow.unsafe.imports_passed_through():
 
 _CHILD_RUN_ARG_PREP_YIELD_EVERY = 8
 ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH = "dsl-action-heartbeat-timeout-retry-v1"
+ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH = "dsl-error-owner-search-attribute-v1"
+
+
+def _workflow_application_error(
+    task_exceptions: Mapping[str, TaskExceptionInfo],
+) -> ApplicationError:
+    """Build the terminal workflow error without changing legacy payloads."""
+    n_exceptions = len(task_exceptions)
+    primary_envelope = next(
+        (
+            envelope
+            for info in task_exceptions.values()
+            if (envelope := extract_error_envelope(info.exception)) is not None
+        ),
+        None,
+    )
+    if primary_envelope is not None:
+        error_details = {
+            ref: ActionErrorInfoAdapter.dump_python(info.details, mode="json")
+            for ref, info in task_exceptions.items()
+        }
+        return application_error_from_envelope(
+            primary_envelope,
+            error_details,
+        )
+
+    formatted_exceptions = "\n".join(
+        f"{'=' * 10} ({i + 1}/{n_exceptions}) {details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
+        for i, (ref, info) in enumerate(task_exceptions.items())
+        if (details := info.details)
+    )
+    return ApplicationError(
+        f"Workflow failed with {n_exceptions} error(s)\n\n{formatted_exceptions}",
+        {ref: info.details for ref, info in task_exceptions.items()},
+        non_retryable=True,
+        type=ApplicationError.__name__,
+    )
 
 
 def _inherit_search_attributes_with_alias(
@@ -415,6 +462,7 @@ class DSLWorkflow:
         try:
             return await self._run_workflow(args)
         except ApplicationError as e:
+            self._upsert_terminal_error_owner(e)
             # Application error
             self.logger.warning(
                 "Error running workflow, running error handler",
@@ -669,21 +717,8 @@ class DSLWorkflow:
             ) from e
 
         if task_exceptions:
-            n_exc = len(task_exceptions)
-            formatted_exc = "\n".join(
-                f"{'=' * 10} ({i + 1}/{n_exc}) {details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
-                for i, (ref, info) in enumerate(task_exceptions.items())
-                if (details := info.details)
-            )
             # NOTE: This error is shown in the final activity in the workflow history
-            raise ApplicationError(
-                f"Workflow failed with {n_exc} error(s)\n\n{formatted_exc}",
-                # We should add the details of the exceptions to the error message because this will get captured
-                # in the error handler workflow
-                {ref: info.details for ref, info in task_exceptions.items()},
-                non_retryable=True,
-                type=ApplicationError.__name__,
-            )
+            raise _workflow_application_error(task_exceptions)
 
         try:
             self.logger.info("DSL workflow completed")
@@ -824,6 +859,26 @@ class DSLWorkflow:
         if outer_message:
             return current, outer_message
         return current, current.__class__.__name__
+
+    @staticmethod
+    def _upsert_terminal_error_owner(error: ApplicationError) -> None:
+        """Stamp attribution only when a classified error reaches this boundary."""
+        envelopes = extract_error_envelopes(error)
+        if not envelopes:
+            return
+        if not workflow.patched(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH):
+            return
+
+        owner = (
+            RuntimeErrorOwner.PLATFORM
+            if any(
+                envelope.owner is RuntimeErrorOwner.PLATFORM for envelope in envelopes
+            )
+            else RuntimeErrorOwner.USER
+        )
+        workflow.upsert_search_attributes(
+            [TemporalSearchAttr.ERROR_OWNER.key.value_set(owner.value)]
+        )
 
     @staticmethod
     def _has_user_error_cause(error: BaseException) -> bool:
