@@ -669,32 +669,6 @@ export function validateAgentOtelHeaderEntries(
   return []
 }
 
-/**
- * Validate the headers editor text. Returns a list of human-readable error
- * messages (no line tagging since headers are JSON, not line-oriented).
- */
-export function validateHeadersJson(text: string): string[] {
-  if (text.trim() === "") {
-    return []
-  }
-  try {
-    const parsed: unknown = JSON.parse(text)
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return ["Headers must be a JSON object."]
-    }
-    for (const [key, value] of Object.entries(parsed)) {
-      if (!key.trim() || typeof value !== "string" || value.trim() === "") {
-        return ["Headers must map non-empty names to non-empty string values."]
-      }
-    }
-    return []
-  } catch (error) {
-    return [
-      error instanceof Error ? error.message : "Headers must be valid JSON.",
-    ]
-  }
-}
-
 function lineDiagnostic(
   view: EditorView,
   lineNumber: number,
@@ -706,48 +680,24 @@ function lineDiagnostic(
   return { from, to, severity: "error", message }
 }
 
-function envCodeMirrorLinter(view: EditorView): Diagnostic[] {
-  const text = view.state.doc.toString()
-  return validateEnvText(text).map(({ lineNumber, message }) =>
-    lineDiagnostic(view, lineNumber, message)
-  )
-}
-
-function headersCodeMirrorLinter(view: EditorView): Diagnostic[] {
-  const content = view.state.doc.toString()
-  const issues = validateHeadersJson(content)
-  if (issues.length === 0) return []
-  // JSON-level error: highlight the whole document. JSON.parse error messages
-  // can include "position N" which we use to pinpoint when present.
-  const message = issues[0]
-  const positionMatch = message.match(/position (\d+)/)
-  if (positionMatch) {
-    const pos = Number.parseInt(positionMatch[1], 10)
-    const from = Math.min(pos, content.length)
-    const to = Math.min(from + 1, content.length)
-    return [{ from, to, severity: "error", message }]
+function envCodeMirrorLinter(options: EnvValidationOptions) {
+  return (view: EditorView): Diagnostic[] => {
+    const text = view.state.doc.toString()
+    return validateEnvText(text, options).map(({ lineNumber, message }) =>
+      lineDiagnostic(view, lineNumber, message)
+    )
   }
-  return [
-    {
-      from: 0,
-      to: Math.max(1, content.length),
-      severity: "error",
-      message,
-    },
-  ]
 }
 
-/** CodeMirror extensions for the agent OTel env editor. */
-export const envLintExtensions: Extension[] = [
-  lintGutter(),
-  linter(envCodeMirrorLinter),
-]
-
-/** CodeMirror extensions for the agent OTel headers editor. */
-export const headerLintExtensions: Extension[] = [
-  lintGutter(),
-  linter(headersCodeMirrorLinter),
-]
+/**
+ * CodeMirror extensions for the agent OTel env editor. Takes the same options
+ * as {@link validateEnvText} so gutter diagnostics match the form's rules.
+ */
+export function envLintExtensions(
+  options: EnvValidationOptions = {}
+): Extension[] {
+  return [lintGutter(), linter(envCodeMirrorLinter(options))]
+}
 
 /**
  * Parse the env editor text into a `KEY -> value` map. Skips blank lines and
@@ -769,29 +719,6 @@ export function parseEnvText(text: string): Record<string, string> {
     if (key && value) {
       out[key] = value
     }
-  }
-  return out
-}
-
-/**
- * Parse the headers editor text into a `name -> value` map. Returns an empty
- * object for blank input. Throws if the JSON is invalid or not a flat
- * string-valued object.
- */
-export function parseHeadersJson(text: string): Record<string, string> {
-  if (text.trim() === "") {
-    return {}
-  }
-  const parsed: unknown = JSON.parse(text)
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Headers must be a JSON object.")
-  }
-  const out: Record<string, string> = Object.create(null)
-  for (const [key, value] of Object.entries(parsed)) {
-    if (typeof value !== "string") {
-      throw new Error(`Header ${key} must be a string.`)
-    }
-    out[key] = value
   }
   return out
 }

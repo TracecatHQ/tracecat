@@ -49,7 +49,10 @@ export function useOrgAgentOtelSettings() {
           })
           break
         default:
-          console.error("Failed to update agent OTel settings", error)
+          console.error("Failed to update agent OTel settings", {
+            status: error.status,
+            detail: error.body?.detail,
+          })
           toast({
             title: "Failed to update agent telemetry",
             description: `An error occurred while updating agent OTel settings: ${error.body.detail}`,
@@ -58,8 +61,16 @@ export function useOrgAgentOtelSettings() {
     },
   })
 
+  /** Latest cached settings; current after `updateAgentOtelSettings` resolves. */
+  function getLatestAgentOtelSettings(): AgentOtelSettingsRead | undefined {
+    return queryClient.getQueryData<AgentOtelSettingsRead>([
+      "org-agent-otel-settings",
+    ])
+  }
+
   return {
     agentOtelSettings,
+    getLatestAgentOtelSettings,
     agentOtelSettingsIsLoading,
     agentOtelSettingsError,
     updateAgentOtelSettings,

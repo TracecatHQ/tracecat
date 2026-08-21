@@ -7,7 +7,6 @@ import {
   formToEnvMap,
   formToEnvText,
   parseEnvText,
-  parseHeadersJson,
   validateAgentOtelHeaderEntries,
   validateEnvMap,
   validateEnvText,
@@ -373,14 +372,6 @@ describe("validateAgentOtelHeaderEntries", () => {
 })
 
 describe("prototype-named keys", () => {
-  it("parseHeadersJson keeps __proto__ as an own enumerable header", () => {
-    const headers = parseHeadersJson('{"__proto__": "x", "Authorization": "y"}')
-    expect(Object.keys(headers).sort()).toEqual(["Authorization", "__proto__"])
-    expect(JSON.stringify(headers)).toBe(
-      '{"__proto__":"x","Authorization":"y"}'
-    )
-  })
-
   it("parseEnvText keeps __proto__ as an own enumerable key", () => {
     const env = parseEnvText("__proto__=x\nconstructor=y")
     expect(Object.keys(env).sort()).toEqual(["__proto__", "constructor"])

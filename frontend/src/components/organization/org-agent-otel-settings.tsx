@@ -1,7 +1,8 @@
 "use client"
 
 import { Code2, SlidersHorizontal, Trash2 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import type { AgentOtelSettingsRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { AlertNotification } from "@/components/notifications"
@@ -96,8 +97,8 @@ export function OrgAgentOtelSettings() {
     agentOtelSettingsError,
     updateAgentOtelSettings,
     updateAgentOtelSettingsIsPending,
+    getLatestAgentOtelSettings,
   } = useOrgAgentOtelSettings()
-
   const [enabled, setEnabled] = useState(false)
   const [form, setForm] = useState<AgentOtelForm>(EMPTY_FORM)
   // The env config has a single source of truth: `form`. Raw mode edits its own
@@ -119,20 +120,30 @@ export function OrgAgentOtelSettings() {
     updateAgentOtelSettingsIsPending
   const fieldsDisabled = !enabled || editingDisabled
 
-  // Seed form state from server values once they load.
-  useEffect(() => {
-    if (!agentOtelSettings) {
-      return
-    }
-    setEnabled(agentOtelSettings.agent_otel_config?.enabled ?? false)
-    setForm(
-      envMapToForm(agentOtelConfigToEnvMap(agentOtelSettings.agent_otel_config))
-    )
+  function seedFromServer(settings: AgentOtelSettingsRead | undefined) {
+    setEnabled(settings?.agent_otel_config?.enabled ?? false)
+    setForm(envMapToForm(agentOtelConfigToEnvMap(settings?.agent_otel_config)))
     setMode("form")
     setRawEnv("")
     setHeaderRows([])
     setClearSavedHeaders(false)
+  }
+
+  // Seed once on first load. Later refetches (refocus, another admin's save)
+  // must not clobber unsaved edits; save and reset rehydrate explicitly.
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (!agentOtelSettings || seeded.current) {
+      return
+    }
+    seeded.current = true
+    seedFromServer(agentOtelSettings)
   }, [agentOtelSettings])
+
+  const envExtensions = useMemo(
+    () => envLintExtensions({ requireOtlpEndpoint: enabled }),
+    [enabled]
+  )
 
   function updateForm(patch: Partial<AgentOtelForm>) {
     setForm((prev) => ({ ...prev, ...patch }))
@@ -195,16 +206,7 @@ export function OrgAgentOtelSettings() {
   }
 
   function handleReset() {
-    setEnabled(agentOtelSettings?.agent_otel_config?.enabled ?? false)
-    setForm(
-      envMapToForm(
-        agentOtelConfigToEnvMap(agentOtelSettings?.agent_otel_config)
-      )
-    )
-    setMode("form")
-    setRawEnv("")
-    setHeaderRows([])
-    setClearSavedHeaders(false)
+    seedFromServer(agentOtelSettings)
   }
 
   // Serialize validated header rows into the API's name -> value map.
@@ -283,8 +285,8 @@ export function OrgAgentOtelSettings() {
         agent_otel_headers: headersField,
       },
     })
-    setHeaderRows([])
-    setClearSavedHeaders(false)
+    // The mutation awaits the refetch, so the cache holds the saved state.
+    seedFromServer(getLatestAgentOtelSettings())
   }
 
   const saveDisabled =
@@ -437,7 +439,7 @@ export function OrgAgentOtelSettings() {
               language="text"
               wrapLongLines
               readOnly={fieldsDisabled}
-              extensions={envLintExtensions}
+              extensions={envExtensions}
               className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[240px]"
             />
           </div>
