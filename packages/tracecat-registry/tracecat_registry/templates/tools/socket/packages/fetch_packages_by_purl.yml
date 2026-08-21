@@ -1,0 +1,125 @@
+type: action
+definition:
+  title: Fetch packages by PURL
+  description: >-
+    Fetch packages by PURL. Calls POST /v0/orgs/{org_slug}/purl directly.
+  display_group: Socket
+  doc_url: https://docs.socket.dev/reference/batchpackagefetchbyorg
+  namespace: tools.socket
+  name: fetch_packages_by_purl
+  secrets:
+    - name: socket
+      keys: ["SOCKET_API_TOKEN"]
+  expects:
+    org_slug:
+      type: str
+      description: Socket organization slug.
+    components:
+      type: list[dict[str, Any]]
+      description: API-native package components containing PURLs.
+    accept:
+      type: str
+      description: Response media type to request.
+      default: application/x-ndjson
+    labels:
+      type: list[str] | None
+      description: >-
+        Repository label slugs to apply policies. Only one label is supported currently; the
+        parameter is an array to allow future support for multiple labels.
+      default: null
+    alerts:
+      type: bool | None
+      description: Include alert metadata.
+      default: null
+    actions:
+      type: list[str] | None
+      description: >-
+        Include only alerts with comma separated actions defined by security policy. Supported
+        values are error, monitor, warn and ignore.
+      default: null
+    compact:
+      type: bool | None
+      description: >-
+        Compact metadata. When enabled, excludes metadata fields like author, scores, size,
+        dependencies, and manifest files. Always includes: id, type, name, version, release,
+        namespace, subpath, alerts, and alertPriorities.
+      default: null
+    fixable:
+      type: bool | None
+      description: Include only fixable alerts.
+      default: null
+    licenseattrib:
+      type: bool | None
+      description: >-
+        Include license attribution data, including license text and author information. Maps
+        attribution/license text to a list of data objects to which that attribution info
+        applies.
+      default: null
+    licensedetails:
+      type: bool | None
+      description: >-
+        Include detailed license information, including location and match strength, for each
+        license datum.
+      default: null
+    purlErrors:
+      type: bool | None
+      description: Return errors found with handling PURLs as error objects in the stream.
+      default: null
+    poll:
+      type: bool | None
+      description: >-
+        When true, wait up to timeoutSec for pending analysis to complete before returning. When
+        false (default), return the current known state immediately, including synthesized
+        pendingScan and notFound alerts when alerts=true unless purlErrors=true keeps legacy
+        not-found errors.
+      default: null
+    cachedResultsOnly:
+      type: bool | None
+      description: >-
+        Legacy fallback for older clients. Only used when poll is omitted: cachedResultsOnly=true
+        behaves like poll=false, while cachedResultsOnly=false preserves the older blocking
+        behavior.
+      default: null
+    summary:
+      type: bool | None
+      description: >-
+        Include a summary object at the end of the stream with counts of malformed, resolved, and
+        not found PURLs.
+      default: null
+    timeoutSec:
+      type: int | None
+      description: >-
+        Maximum time in seconds to wait for package resolution and, when poll=true, pending
+        analysis. Inputs that have not completed processing when the timeout is reached return
+        pendingScan alerts when alerts=true, or errors when purlErrors=true.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Socket API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.socket.base_url || "https://api.socket.dev" }}/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/purl
+        method: POST
+        headers:
+          Accept: ${{ inputs.accept }}
+          Content-Type: application/json
+          Authorization: Bearer ${{ SECRETS.socket.SOCKET_API_TOKEN }}
+        params:
+          labels: ${{ inputs.labels }}
+          alerts: ${{ inputs.alerts }}
+          actions: ${{ inputs.actions }}
+          compact: ${{ inputs.compact }}
+          fixable: ${{ inputs.fixable }}
+          licenseattrib: ${{ inputs.licenseattrib }}
+          licensedetails: ${{ inputs.licensedetails }}
+          purlErrors: ${{ inputs.purlErrors }}
+          poll: ${{ inputs.poll }}
+          cachedResultsOnly: ${{ inputs.cachedResultsOnly }}
+          summary: ${{ inputs.summary }}
+          timeoutSec: ${{ inputs.timeoutSec }}
+        payload:
+          components: ${{ inputs.components }}
+  returns: ${{ steps.request.result }}

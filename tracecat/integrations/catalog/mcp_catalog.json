@@ -215,13 +215,6 @@
       "icon": "https://cdn.simpleicons.org/paloaltonetworks"
     },
     {
-      "slug": "sixtyfour-mcp",
-      "name": "Sixtyfour",
-      "description": "Enrich people and companies on demand with Sixtyfour",
-      "category": "Network",
-      "icon": "https://www.google.com/s2/favicons?domain=www.sixtyfour.ai&sz=128"
-    },
-    {
       "slug": "linear-mcp",
       "name": "Linear",
       "description": "Create, search, and update Linear issues and projects",

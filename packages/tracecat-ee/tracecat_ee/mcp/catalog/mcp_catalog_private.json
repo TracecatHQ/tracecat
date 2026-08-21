@@ -1561,36 +1561,6 @@
       }
     },
     {
-      "slug": "sixtyfour-mcp",
-      "docs": "https://docs.sixtyfour.ai/developer-tools/mcp-setup",
-      "connection_spec": {
-        "server_type": "http",
-        "auth_type": "CUSTOM",
-        "server_uri": "https://mcp.sixtyfour.ai/mcp",
-        "credentials": [
-          {
-            "key": "api_key",
-            "label": "Sixtyfour API Key",
-            "description": "Sixtyfour API key. For the Filter Search MCP server it is passed as a query-string parameter on the endpoint URL (https://mcp.sixtyfour.ai/mcp?api_key=YOUR_API_KEY). It is the same key used as the x-api-key header for the Sixtyfour REST API. Generate it from the Sixtyfour dashboard.",
-            "required": true,
-            "secret": true,
-            "target": "http_header"
-          }
-        ],
-        "_research": {
-          "confidence": "high",
-          "docker_only": false,
-          "notes": "Our catalog assumed STDIO, but Sixtyfour's official MCP offering is HTTP (streamable HTTP), per their official docs at docs.sixtyfour.ai/developer-tools/mcp-setup. There is NO STDIO/npx/uvx/pip/docker package distribution.\n\nSixtyfour actually publishes TWO remote MCP servers:\n1. Documentation MCP - https://docs.sixtyfour.ai/mcp - NO auth required (answers questions about the API/docs).\n2. Filter Search MCP - https://mcp.sixtyfour.ai/mcp?api_key=YOUR_API_KEY - requires an API key, used for company filter searches that chain into enrichment (enrich_company / enrich_lead). This is the functional server matching the catalog description 'enrich people and companies', so it is the one specified here as server_uri.\n\nAuth note: The API key is passed as a QUERY-STRING parameter (?api_key=...) on the endpoint URL, not as a header. This is unusual; if our connector model only supports headers, the key may need to be appended to the URL instead. It is the same API key used as the x-api-key header on the Sixtyfour REST API (https://docs.sixtyfour.ai). No OAuth flow is involved.\n\nOfficial Claude Code install commands from the docs:\n  claude mcp add --transport http sixtyfour-docs \"https://docs.sixtyfour.ai/mcp\"\n  claude mcp add --transport http sixtyfour-filter-search \"https://mcp.sixtyfour.ai/mcp?api_key=YOUR_API_KEY\"\n\nConfidence high: values taken directly from Sixtyfour's first-party documentation page that I read.",
-          "sources": [
-            "https://docs.sixtyfour.ai/developer-tools/mcp-setup.md",
-            "https://docs.sixtyfour.ai/llms.txt",
-            "https://www.sixtyfour.ai/blog/build-smarter-gtm-pipelines-with-sixtyfour-s-mcp-integration",
-            "https://docs.sixtyfour.ai/introduction"
-          ]
-        }
-      }
-    },
-    {
       "slug": "linear-mcp",
       "docs": "https://linear.app/docs/mcp",
       "provider_id": "linear_mcp",

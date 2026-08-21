@@ -1,0 +1,52 @@
+type: action
+definition:
+  title: Search assets
+  description: Search assets. Calls POST /v3/global/search/query directly.
+  display_group: Censys
+  doc_url: https://docs.censys.com/reference/v3-globaldata-search-query
+  namespace: tools.censys
+  name: search_assets
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_TOKEN"]
+  expects:
+    query:
+      type: str
+      description: CenQL query string to search upon.
+    fields:
+      type: list[str] | None
+      description: Specify fields to only return in the response. If you provide fields and omit host.services.port, host.services.transport_protocol, and host.services.protocol, then matched_services will not be returned in the response.
+      default: null
+    page_size:
+      type: int | None
+      description: Number of results to return per page. The default and maximum is 100.
+      default: null
+    page_token:
+      type: str | None
+      description: Page token for the requested page of search results.
+      default: null
+    organization_id:
+      type: str | None
+      description: The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Censys Platform API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.censys.base_url || "https://api.platform.censys.io" }}/v3/global/search/query
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
+          Content-Type: application/json
+        params:
+          organization_id: ${{ inputs.organization_id }}
+        payload:
+          query: ${{ inputs.query }}
+          fields: ${{ inputs.fields }}
+          page_size: ${{ inputs.page_size }}
+          page_token: ${{ inputs.page_token }}
+  returns: ${{ steps.request.result }}

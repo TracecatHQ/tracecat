@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: Get item
+  description: Get an item. Calls GET /v0/item/{item_id}.json directly.
+  display_group: Hacker News
+  doc_url: https://github.com/HackerNews/API
+  namespace: tools.hackernews
+  name: get_item
+  secrets: []
+  expects:
+    item_id:
+      type: int
+      description: Hacker News item ID.
+    base_url:
+      type: str | None
+      description: Base URL of the Hacker News Firebase API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hackernews.base_url || "https://hacker-news.firebaseio.com" }}/v0/item/${{ FN.url_encode(inputs.item_id) }}.json
+        method: GET
+        headers:
+          Accept: application/json
+  returns: ${{ steps.request.result }}
