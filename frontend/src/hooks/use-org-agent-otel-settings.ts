@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type AgentOtelSettingsRead,
   type SettingsUpdateAgentOtelSettingsData,
@@ -9,6 +8,7 @@ import {
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import type { TracecatApiError } from "@/lib/errors"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 /** Load and update organization-scoped Agent OTel settings. */
 export function useOrgAgentOtelSettings() {
@@ -29,8 +29,12 @@ export function useOrgAgentOtelSettings() {
   } = useMutation({
     mutationFn: async (params: SettingsUpdateAgentOtelSettingsData) =>
       await settingsUpdateAgentOtelSettings(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["org-agent-otel-settings"] })
+    onSuccess: async () => {
+      // Await the refetch so isPending spans it; the settings form stays
+      // disabled until the seeding effect has re-run with fresh data.
+      await queryClient.invalidateQueries({
+        queryKey: ["org-agent-otel-settings"],
+      })
       toast({
         title: "Updated agent telemetry",
         description: "Agent OTel settings updated successfully.",

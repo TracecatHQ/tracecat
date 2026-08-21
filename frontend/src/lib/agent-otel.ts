@@ -180,7 +180,7 @@ export interface AgentOtelForm {
  * exporter value is `otlp`.
  */
 export function envMapToForm(env: Record<string, string>): AgentOtelForm {
-  const advanced: Record<string, string> = {}
+  const advanced: Record<string, string> = Object.create(null)
   const signals: AgentOtelSignals = {
     traces: false,
     metrics: false,
@@ -584,7 +584,8 @@ export function validateEnvText(
   { requireOtlpEndpoint = true }: EnvValidationOptions = {}
 ): EnvIssue[] {
   const issues: EnvIssue[] = []
-  const seen: Record<string, { lineNumber: number; value: string }> = {}
+  const seen: Record<string, { lineNumber: number; value: string }> =
+    Object.create(null)
   const lines = text.split("\n")
 
   lines.forEach((rawLine, idx) => {
@@ -753,7 +754,7 @@ export const headerLintExtensions: Extension[] = [
  * `#` comments. The backend re-validates, so this is naive on purpose.
  */
 export function parseEnvText(text: string): Record<string, string> {
-  const out: Record<string, string> = {}
+  const out: Record<string, string> = Object.create(null)
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim()
     if (!line || line.startsWith("#")) {
@@ -785,7 +786,7 @@ export function parseHeadersJson(text: string): Record<string, string> {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Headers must be a JSON object.")
   }
-  const out: Record<string, string> = {}
+  const out: Record<string, string> = Object.create(null)
   for (const [key, value] of Object.entries(parsed)) {
     if (typeof value !== "string") {
       throw new Error(`Header ${key} must be a string.`)
