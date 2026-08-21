@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
-from pydantic import TypeAdapter
+from pydantic import ConfigDict, TypeAdapter
 
 from tracecat.expressions.common import ExprContext
+from tracecat.runtime.errors import ErrorEnvelope
 
 
 class ActionEdge(TypedDict):
@@ -68,4 +69,15 @@ class ActionErrorInfo:
         return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
 
 
-ActionErrorInfoAdapter = TypeAdapter(ActionErrorInfo)
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ClassifiedActionErrorInfo(ActionErrorInfo):
+    """Action error carrying the optional runtime classification extension."""
+
+    envelope: ErrorEnvelope
+
+
+type ActionErrorInfoVariant = ClassifiedActionErrorInfo | ActionErrorInfo
+ActionErrorInfoAdapter: TypeAdapter[ActionErrorInfoVariant] = TypeAdapter(
+    ActionErrorInfoVariant,
+    config=ConfigDict(extra="forbid"),
+)

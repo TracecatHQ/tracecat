@@ -478,7 +478,7 @@ class DSLScheduler:
                     # it's of shape ActionErrorInfo()
                     try:
                         # This is normal action error
-                        details = ActionErrorInfo(**details)
+                        details = ActionErrorInfoAdapter.validate_python(details)
                     except Exception as e:
                         self.logger.info(
                             "Failed to parse regular application error details",
@@ -509,7 +509,7 @@ class DSLScheduler:
                     # try get the first element
                     try:
                         val = list(details.values())[0]
-                        details = ActionErrorInfo(**val)
+                        details = ActionErrorInfoAdapter.validate_python(val)
                     except Exception as e:
                         self.logger.info(
                             "Failed to parse child wf application error details",
