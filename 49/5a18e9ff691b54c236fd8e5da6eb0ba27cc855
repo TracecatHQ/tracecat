@@ -1,0 +1,41 @@
+docs/tools/github.mdx
+  s_4135133abf34d1::t_97359531b06bc5 3275
+docs/tools/gitlab.mdx
+  s_4135133abf34d1::t_ec4cfbb4ead130 363,369
+docs/tools/terraform.mdx
+  s_4135133abf34d1::t_2fb85938ea8b03 181,189,219,227,279,287
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_repository_issues.yml
+  s_21b1e1578766e4::t_81678bd02dba2c 21
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/create_issue_link.yml
+  s_21b1e1578766e4::t_466100fc67e9fb 22,25
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/list_projects.yml
+  s_21b1e1578766e4::t_9c8a0dc2414571 16,20,34-35
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/list_runs.yml
+  s_21b1e1578766e4::t_50acaba36452f1 16,20,34-35
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/list_workspaces.yml
+  s_21b1e1578766e4::t_3b76b6b14ff1bd 20,24,50-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "495a18e9ff691b54c236fd8e5da6eb0ba27cc855",
+  "prompts": {},
+  "sessions": {
+    "s_21b1e1578766e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "942f84be-7772-4399-90db-3566f92370fb",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_4135133abf34d1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02501-3374-7530-948b-3dfa294f531c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
