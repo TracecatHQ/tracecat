@@ -82,6 +82,20 @@ REAL_CATALOG_CONNECTIONS = [
         id="databricks-documented-path-variant",
     ),
     pytest.param(
+        "datadog-mcp",
+        "us1",
+        MCPAuthType.OAUTH2,
+        "https://mcp.datadoghq.com/v1/mcp?toolsets=core",
+        id="datadog-us1-toolsets-query",
+    ),
+    pytest.param(
+        "datadog-mcp",
+        "eu",
+        MCPAuthType.OAUTH2,
+        "https://mcp.datadoghq.eu/v1/mcp?toolsets=core,apm",
+        id="datadog-eu-toolsets-query",
+    ),
+    pytest.param(
         "freshservice-mcp",
         "remote-oauth",
         MCPAuthType.OAUTH2,
@@ -146,6 +160,16 @@ def test_fixed_vendor_uri_rejects_other_auth() -> None:
             server_type="http",
             auth_type=MCPAuthType.CUSTOM,
             server_uri="https://mcp.slack.com/mcp",
+        )
+
+
+def test_datadog_rejects_legacy_endpoint() -> None:
+    with pytest.raises(CatalogConnectionError, match="server URI must be"):
+        resolve_catalog_connection(
+            _entry("datadog-mcp"),
+            server_type="http",
+            auth_type=MCPAuthType.OAUTH2,
+            server_uri="https://mcp.datadoghq.eu/api/unstable/mcp-server/mcp",
         )
 
 

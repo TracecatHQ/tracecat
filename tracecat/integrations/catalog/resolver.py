@@ -8,9 +8,11 @@ from transport/auth/URI heuristics.
 The server URI policy is credential-driven. A recipe that declares a
 ``target: "server_uri"`` credential (or ships no URI at all) delegates the
 URI to the user; a recipe with a bare literal URI is a fixed vendor endpoint
-and must match exactly. The exact match is a security boundary: a trusted
-catalog row must not be bound to an arbitrary host that would then receive
-its tokens over the MCP transport.
+and must match its scheme, host, and path. A query string is permitted on a
+fixed endpoint when the recipe itself has none, for providers that document
+endpoint options such as MCP toolset selection. The host/path match remains a
+security boundary: a trusted catalog row must not be bound to an arbitrary
+host that would then receive its tokens over the MCP transport.
 """
 
 from __future__ import annotations
@@ -164,5 +166,16 @@ def _server_uri_mismatch(spec: MCPHTTPConnectionSpec, *, server_uri: str) -> str
             return "server URI must not embed credentials"
         return None
     if server_uri != spec.server_uri:
+        expected = urlparse(spec.server_uri)
+        actual = urlparse(server_uri)
+        # Catalog recipes without a query may accept provider-documented MCP
+        # options (for example, ``?toolsets=core``). Keep every URL component
+        # that controls the remote destination pinned to the catalog value.
+        if (
+            not expected.query
+            and not actual.fragment
+            and actual._replace(query="", fragment="").geturl() == spec.server_uri
+        ):
+            return None
         return f"server URI must be {spec.server_uri}"
     return None

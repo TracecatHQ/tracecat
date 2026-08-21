@@ -101,7 +101,8 @@ def _http_spec(raw_spec: RawHttpConnectionSpec) -> MCPConnectionSpec | None:
     if not raw_spec.server_uri and not has_server_uri_credential:
         return None
     requires_config = bool(
-        any(credential.required for credential in credentials)
+        raw_spec.requires_config
+        or any(credential.required for credential in credentials)
         or has_server_uri_credential
         or (raw_spec.server_uri and _PLACEHOLDER_RE.search(raw_spec.server_uri))
     )

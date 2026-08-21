@@ -84,6 +84,7 @@ class RawHttpConnectionSpec(BaseModel):
 
     server_type: Literal["http"]
     auth_type: MCPAuthType | None = None
+    requires_config: bool = False
     server_uri: str | None = None
     credentials: list[RawCredential] | None = None
     scopes: list[str] | None = None

@@ -401,26 +401,48 @@
     },
     {
       "slug": "datadog-mcp",
-      "docs": "https://docs.datadoghq.com/bits_ai/mcp_server/",
-      "connection_spec": {
-        "server_type": "http",
-        "auth_type": "OAUTH2",
-        "server_uri": "https://mcp.datadoghq.com/api/unstable/mcp-server/mcp",
-        "scopes": [],
-        "oauth_authorization_endpoint": null,
-        "oauth_token_endpoint": null,
-        "credentials": [],
-        "_research": {
-          "confidence": "high",
-          "docker_only": false,
-          "notes": "Official Datadog MCP Server (Bits AI). Verified first-party from docs.datadoghq.com. Transport: Streamable HTTP (remote). Endpoint path is /api/unstable/mcp-server/mcp; hostname is site-specific. US1 host is mcp.datadoghq.com (full URL: https://mcp.datadoghq.com/api/unstable/mcp-server/mcp). Other sites replace the host: EU=mcp.datadoghq.eu, US3=mcp.us3.datadoghq.com, US5=mcp.us5.datadoghq.com, AP1/AP2 analogous; same path. app.ddog-gov.com (GovCloud) is NOT supported. Primary auth is OAuth 2.0 with a browser-based sign-in/redirect (\"You are prompted to login through OAuth\"). The docs do not state whether DCR or discovery metadata is used; as a modern remote MCP server it almost certainly advertises authorization/token endpoints via OAuth discovery (.well-known), so oauth_authorization_endpoint/token_endpoint are left null and OAuth endpoints are discovered from the MCP metadata chain. No specific OAuth scopes are documented. ALTERNATIVE auth (not chosen here, since intended transport is HTTP+OAuth) for headless/server environments: pass two HTTP headers DD_API_KEY and DD_APPLICATION_KEY (Datadog recommends a scoped service-account API key + application key). If the catalog instead wants the API-key path, switch auth_type to CUSTOM with two required secret credentials keyed DD_API_KEY and DD_APPLICATION_KEY plus an optional non-secret site/host field for region selection. A toolsets query param controls available tools (?toolsets=all, default core, or comma-separated e.g. apm,llmobs,monitors,logs). No npx/uvx/pip package — it is a hosted remote server, so packages[] is empty.",
-          "sources": [
-            "https://docs.datadoghq.com/bits_ai/mcp_server/",
-            "https://docs.datadoghq.com/bits_ai/mcp_server/setup/",
-            "https://www.datadoghq.com/blog/datadog-remote-mcp-server/",
-            "https://www.datadoghq.com/knowledge-center/mcp-server/"
-          ]
+      "docs": "https://docs.datadoghq.com/mcp_server/setup/",
+      "default_connection_option": "us1",
+      "connection_options": [
+        {
+          "id": "us1",
+          "label": "US1",
+          "description": "Connect to the Datadog US1 MCP endpoint.",
+          "connection_spec": {
+            "server_type": "http",
+            "auth_type": "OAUTH2",
+            "requires_config": true,
+            "server_uri": "https://mcp.datadoghq.com/v1/mcp",
+            "scopes": [],
+            "oauth_authorization_endpoint": null,
+            "oauth_token_endpoint": null,
+            "credentials": []
+          }
+        },
+        {
+          "id": "eu",
+          "label": "Europe (EU)",
+          "description": "Connect to the Datadog Europe MCP endpoint.",
+          "connection_spec": {
+            "server_type": "http",
+            "auth_type": "OAUTH2",
+            "requires_config": true,
+            "server_uri": "https://mcp.datadoghq.eu/v1/mcp",
+            "scopes": [],
+            "oauth_authorization_endpoint": null,
+            "oauth_token_endpoint": null,
+            "credentials": []
+          }
         }
+      ],
+      "_research": {
+        "confidence": "high",
+        "docker_only": false,
+        "notes": "Official Datadog MCP Server. Datadog's current setup documentation uses site-specific Streamable HTTP endpoints at /v1/mcp, replacing the legacy /api/unstable/mcp-server/mcp path. This catalog offers US1 (mcp.datadoghq.com) and Europe (mcp.datadoghq.eu); choose the endpoint for the workspace's Datadog site. OAuth 2.0 endpoints are discovered from MCP metadata, so they are not pinned here. Datadog supports optional tool selection with query parameters such as ?toolsets=core,apm. For environments where OAuth is unavailable, Datadog also supports DD_API_KEY and DD_APPLICATION_KEY headers, but this catalog recipe uses the recommended OAuth flow.",
+        "sources": [
+          "https://docs.datadoghq.com/mcp_server/setup/",
+          "https://docs.datadoghq.com/mcp_server/"
+        ]
       }
     },
     {

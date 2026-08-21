@@ -3262,6 +3262,8 @@ class IntegrationService(BaseWorkspaceService):
     @staticmethod
     def _catalog_requires_user_config(spec: MCPConnectionSpec) -> bool:
         """Whether direct Connect lacks enough endpoint data to create a row."""
+        if spec.requires_config:
+            return True
         server_uri = spec.server_uri if spec.server_type == "http" else None
         if server_uri and _CATALOG_PLACEHOLDER_RE.search(server_uri):
             return True
