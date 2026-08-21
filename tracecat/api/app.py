@@ -183,25 +183,41 @@ async def lifespan(app: FastAPI):
     get_user_auth_secret()
     assert_soft_delete_listener_registered()
 
-    # Temporal
-    # Run in background to avoid blocking startup
-    asyncio.create_task(add_temporal_search_attributes())
-    logger.debug("Spawned lifespan task to add temporal search attributes")
-
-    # Storage
-    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
-    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
-    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS)
-    if is_feature_enabled(FeatureFlag.AGENT_FS_PERSISTENCE):
-        await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT)
-
-    # Workflow bucket with lifecycle expiration
-    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW)
-    if config.TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS > 0:
-        await configure_bucket_lifecycle(
-            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW,
-            expiration_days=config.TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS,
+    # Lite mode is a development-only profile that runs the control plane with no
+    # Temporal, blob storage, or Redis deployed. It skips the startup work that
+    # needs them; request-time behaviour is deliberately left alone.
+    lite_mode = config.TRACECAT__LITE_MODE
+    if lite_mode:
+        logger.info(
+            "Lite mode enabled: skipping data-plane startup",
+            skipped=[
+                "temporal_search_attributes",
+                "blob_bucket_provisioning",
+                "case_trigger_consumer",
+                "case_duration_sync_consumer",
+            ],
+            note="Features needing Temporal, Redis or blob storage will error",
         )
+    else:
+        # Temporal
+        # Run in background to avoid blocking startup
+        asyncio.create_task(add_temporal_search_attributes())
+        logger.debug("Spawned lifespan task to add temporal search attributes")
+
+        # Storage
+        await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
+        await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
+        await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS)
+        if is_feature_enabled(FeatureFlag.AGENT_FS_PERSISTENCE):
+            await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT)
+
+        # Workflow bucket with lifecycle expiration
+        await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW)
+        if config.TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS > 0:
+            await configure_bucket_lifecycle(
+                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW,
+                expiration_days=config.TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS,
+            )
 
     await ensure_default_organization()
 
@@ -222,19 +238,22 @@ async def lifespan(app: FastAPI):
     )
     logger.debug("Spawned background task for platform catalog load")
 
+    # Both consumers read Redis streams, which lite mode does not deploy.
     case_trigger_task = None
-    if config.TRACECAT__CASE_TRIGGERS_ENABLED:
+    if config.TRACECAT__CASE_TRIGGERS_ENABLED and not lite_mode:
         case_trigger_task = asyncio.create_task(
             start_case_trigger_consumer(),
             name="case_trigger_consumer",
         )
         logger.debug("Spawned background task for case trigger consumer")
 
-    case_duration_sync_task = asyncio.create_task(
-        start_case_duration_sync_consumer(),
-        name="case_duration_sync_consumer",
-    )
-    logger.debug("Spawned background task for case duration sync consumer")
+    case_duration_sync_task = None
+    if not lite_mode:
+        case_duration_sync_task = asyncio.create_task(
+            start_case_duration_sync_consumer(),
+            name="case_duration_sync_consumer",
+        )
+        logger.debug("Spawned background task for case duration sync consumer")
 
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
@@ -306,13 +325,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Case trigger consumer stopped with error", error=e)
 
-    case_duration_sync_task.cancel()
-    try:
-        await case_duration_sync_task
-    except asyncio.CancelledError:
-        logger.debug("Case duration sync consumer task cancelled")
-    except Exception as e:
-        logger.warning("Case duration sync consumer stopped with error", error=e)
+    if case_duration_sync_task is not None:
+        case_duration_sync_task.cancel()
+        try:
+            await case_duration_sync_task
+        except asyncio.CancelledError:
+            logger.debug("Case duration sync consumer task cancelled")
+        except Exception as e:
+            logger.warning("Case duration sync consumer stopped with error", error=e)
 
     await close_storage_client_cache()
 

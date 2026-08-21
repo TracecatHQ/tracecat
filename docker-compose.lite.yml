@@ -1,0 +1,164 @@
+# Lite mode: control plane only.
+#
+# Postgres + API + UI + Caddy, with no Temporal, MinIO, Redis, or worker/executor
+# containers. Intended for fast iteration on control-plane features (auth,
+# workspaces, secrets, settings, tables, RBAC, workflow CRUD and the graph editor,
+# cases). Workflows cannot execute in this stack.
+#
+# This is a standalone compose file, not an overlay on docker-compose.dev.yml.
+# `depends_on` merges by union across `-f` files, so an overlay cannot remove the
+# api -> temporal/minio/redis edges; and Compose auto-enables a profiled service
+# when an active service depends on it, so native `profiles:` cannot either.
+#
+# Usage: just cluster -p lite up -d
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports:
+      - ${PUBLIC_APP_PORT}:${PUBLIC_APP_PORT}
+    environment:
+      - BASE_DOMAIN=${BASE_DOMAIN}
+      - ADDRESS=${ADDRESS}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+    # The /s3/* and /mcp* routes point at containers this stack does not run.
+    # Caddy resolves reverse_proxy upstreams at request time, so those paths
+    # return 502 while everything else serves normally.
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    restart: unless-stopped
+    ports:
+      - ${API_PORT:-8000}:8000
+    environment:
+      # Lite mode
+      TRACECAT__LITE_MODE: ${TRACECAT__LITE_MODE:-true}
+      # App
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__ALLOW_ORIGINS: ${TRACECAT__ALLOW_ORIGINS}
+      TRACECAT__API_ROOT_PATH: ${TRACECAT__API_ROOT_PATH}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID: ${TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID:-}
+      TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN: ${TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN:-}
+      TRACECAT__AUTH_ALLOWED_DOMAINS: ${TRACECAT__AUTH_ALLOWED_DOMAINS}
+      TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH}
+      TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
+      TRACECAT__AUTH_SUPERADMIN_EMAIL: ${TRACECAT__AUTH_SUPERADMIN_EMAIL}
+      TRACECAT__DEV_COOKIE_NAME: ${TRACECAT__DEV_COOKIE_NAME:-}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
+      TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
+      OIDC_ISSUER: ${OIDC_ISSUER}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      OIDC_SCOPES: ${OIDC_SCOPES}
+      USER_AUTH_SECRET: ${USER_AUTH_SECRET}
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
+      # SAML SSO
+      SAML_IDP_METADATA_URL: ${SAML_IDP_METADATA_URL}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED:-false}
+      # Temporal is not deployed here. The client retries connects with
+      # exponential backoff, so the stock 10 attempts would stall a request for
+      # ~6 minutes; one attempt turns that into a prompt error instead.
+      TEMPORAL__CONNECT_RETRIES: ${TEMPORAL__CONNECT_RETRIES:-1}
+      # No TEMPORAL__CLUSTER_*, REDIS_URL, MINIO_ROOT_*, or
+      # TRACECAT__BLOB_STORAGE_* vars: nothing in the control plane dials them.
+    volumes:
+      - ./tracecat:/app/tracecat
+      - ./packages:/app/packages
+      - ./alembic:/app/alembic
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  ui:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
+        NODE_ENV: ${NODE_ENV}
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/.next:/app/.next
+      - ./frontend/node_modules:/app/node_modules
+    restart: unless-stopped
+    ports:
+      - ${UI_PORT:-3000}:3000
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      NEXT_PUBLIC_AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
+      NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
+      NODE_ENV: ${NODE_ENV}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+    attach: false
+    depends_on:
+      - api
+
+  postgres_db:
+    image: postgres:16
+    restart: unless-stopped
+    ports:
+      - ${PG_PORT:-5432}:5432
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
+    volumes:
+      - core-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  migrations:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    restart: "no"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+    volumes:
+      - ./tracecat:/app/tracecat
+      - ./packages:/app/packages
+      - ./alembic:/app/alembic
+    command: ["python3", "-m", "alembic", "upgrade", "head"]
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+
+volumes:
+  # Same volume name as the dev stack, so a cluster slot's data carries over
+  # between `-p dev` and `-p lite` (Compose scopes volumes by COMPOSE_PROJECT_NAME).
+  core-db:
