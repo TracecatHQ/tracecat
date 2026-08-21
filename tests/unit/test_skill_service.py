@@ -8,6 +8,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 import pytest
 from asyncpg import UniqueViolationError
@@ -29,6 +30,7 @@ from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
+    SkillDraftMoveFileOp,
     SkillDraftPatch,
     SkillDraftRead,
     SkillDraftUpsertTextFileOp,
@@ -39,7 +41,12 @@ from tracecat.agent.skill.schemas import (
     SkillVersionPublish,
     SkillVersionReadMinimal,
 )
-from tracecat.agent.skill.service import SKILL_SLUG_UNIQUE_CONSTRAINT, SkillService
+from tracecat.agent.skill.service import (
+    SKILL_SLUG_UNIQUE_CONSTRAINT,
+    PreparedDraftAttachUploadedBlobOp,
+    SkillBlobPublicationClaim,
+    SkillService,
+)
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     Skill,
@@ -111,7 +118,7 @@ async def configure_minio_for_skills(
     monkeypatch.setattr(
         config,
         "TRACECAT__BLOB_STORAGE_ENDPOINT",
-        "http://localhost:9000",
+        f"http://localhost:{os.environ.get('MINIO_PORT', '9000')}",
         raising=False,
     )
     monkeypatch.setattr(
@@ -151,23 +158,23 @@ async def _legacy_archive_skill(session: AsyncSession, skill_id: uuid.UUID) -> d
 
 @pytest.mark.anyio
 class TestSkillService:
-    async def test_insert_blob_row_reuses_existing_blob_identity(
+    async def test_claim_blob_publication_reuses_existing_identity(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Concurrent blob inserts should reuse the canonical row on conflict."""
+        """Only the first claim should own publication for a blob identity."""
 
         content = b"shared blob content"
         sha256 = hashlib.sha256(content).hexdigest()
         storage_key = skill_service._storage_key_for(sha256)
 
-        original = await skill_service._insert_blob_row(
+        original = await skill_service._claim_blob_publication(
             sha256=sha256,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
             size_bytes=len(content),
         )
-        reused = await skill_service._insert_blob_row(
+        reused = await skill_service._claim_blob_publication(
             sha256=sha256,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
@@ -186,7 +193,9 @@ class TestSkillService:
             .all()
         )
 
-        assert reused.id == original.id
+        assert original.is_owner is True
+        assert reused.is_owner is False
+        assert reused.blob.id == original.blob.id
         assert len(blob_rows) == 1
 
     async def test_create_skill_seeds_default_draft(
@@ -212,6 +221,93 @@ class TestSkillService:
         assert draft.name == "triage-skill"
         assert draft.description == "Handle security triage"
         assert [file.path for file in draft.files] == ["SKILL.md"]
+
+    async def test_prepare_draft_download_returns_presigned_plan_for_all_files(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Every draft file should receive a rewritten presigned download URL."""
+
+        contents = {
+            "SKILL.md": b"---\nname: download-skill\n---\n\n# Download\n",
+            "scripts/helper.py": b"def main():\n    return 'ok'\n",
+        }
+        created = await skill_service.upload_skill(
+            SkillUpload(
+                name="download-skill",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(contents["SKILL.md"]).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                    SkillUploadFile(
+                        path="scripts/helper.py",
+                        content_base64=base64.b64encode(
+                            contents["scripts/helper.py"]
+                        ).decode(),
+                        content_type="text/x-python; charset=utf-8",
+                    ),
+                ],
+            )
+        )
+        monkeypatch.setattr(
+            config,
+            "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT",
+            "http://downloads.example",
+        )
+
+        prepared = await skill_service.prepare_draft_download(skill_id=created.id)
+
+        assert prepared is not None
+        assert prepared.workspace_id == skill_service.workspace_id
+        assert prepared.skill_id == created.id
+        assert prepared.skill_name == "download-skill"
+        assert prepared.draft_revision == created.draft_revision
+        files_by_path = {file.path: file for file in prepared.files}
+        assert set(files_by_path) == {"SKILL.md", "scripts/helper.py"}
+        assert {path: file.sha256 for path, file in files_by_path.items()} == {
+            path: hashlib.sha256(content).hexdigest()
+            for path, content in contents.items()
+        }
+        assert files_by_path["SKILL.md"].size_bytes == len(contents["SKILL.md"])
+        assert (
+            files_by_path["scripts/helper.py"].content_type
+            == "text/x-python; charset=utf-8"
+        )
+        assert all(
+            urlparse(file.download_url).hostname == "downloads.example"
+            for file in prepared.files
+        )
+
+    async def test_prepare_draft_download_returns_none_for_missing_skill(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Missing skills should not produce a draft download plan."""
+
+        assert await skill_service.prepare_draft_download(skill_id=uuid.uuid4()) is None
+
+    async def test_oversized_existing_manifest_is_visible_but_not_downloadable(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="bounded-read"))
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES", 1)
+
+        draft = await skill_service.get_draft(created.id)
+
+        assert draft is not None
+        assert draft.is_publishable is False
+        assert [error.code for error in draft.validation_errors] == [
+            "skill_manifest_size_limit_exceeded"
+        ]
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.prepare_draft_download(skill_id=created.id)
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "skill_manifest_size_limit_exceeded"
 
     async def test_create_skill_suffixes_live_duplicate_slug(
         self,
@@ -274,6 +370,7 @@ class TestSkillService:
     async def test_create_skill_retries_slug_unique_violation(
         self,
         skill_service: SkillService,
+        svc_workspace: Workspace,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Slug unique races roll back, reallocate, and retry the insert."""
@@ -309,6 +406,7 @@ class TestSkillService:
         assert flush_calls >= 3
         assert rollback_calls == 1
         assert allocated_slugs == []
+        await skill_service.session.refresh(svc_workspace)
 
     async def test_create_skill_reuses_slug_after_soft_delete(
         self,
@@ -1151,18 +1249,25 @@ class TestSkillService:
         finally:
             await concurrent_engine.dispose()
 
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param(b"uploaded content", id="nonempty"),
+            pytest.param(b"", id="empty"),
+        ],
+    )
     async def test_attach_uploaded_blob_promotes_from_staged_key(
         self,
         skill_service: SkillService,
         monkeypatch: pytest.MonkeyPatch,
+        content: bytes,
     ) -> None:
-        """Uppercase upload digests normalize before staged-key promotion."""
+        """Staged uploads support empty files and normalized uppercase digests."""
 
         created = await skill_service.create_skill(SkillCreate(name="staged-upload"))
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
 
-        content = b"uploaded content"
         sha256 = hashlib.sha256(content).hexdigest()
         upload_sha256 = sha256.upper()
         upload = await skill_service.create_draft_upload(
@@ -1176,7 +1281,7 @@ class TestSkillService:
 
         canonical_key = skill_service._storage_key_for(sha256)
         assert upload.key != canonical_key
-        assert "/uploads/" in upload.key
+        assert upload.key.startswith(f"skill-uploads/{skill_service.workspace_id}/")
         assert upload.key.endswith(sha256)
 
         uploaded: dict[str, str] = {}
@@ -1245,6 +1350,448 @@ class TestSkillService:
         assert uploaded["key"] == canonical_key
         assert blob_row.key == canonical_key
         assert blob_row.sha256 == sha256
+
+    async def test_attach_rejects_canonical_copy_poisoned_after_verification(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A staged re-PUT racing the canonical copy must not become a blob.
+
+        The staged PUT URL can still be valid while completion runs, so the
+        canonical copy is re-verified; bytes that differ from the verified
+        staged read are rejected and the canonical object is deleted.
+        """
+
+        content = b"verified staged bytes\n"
+        poisoned = b"poisoned canonical bytes\n"
+        sha256 = hashlib.sha256(content).hexdigest()
+
+        created = await skill_service.create_skill(SkillCreate(name="poison-race"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=sha256,
+                size_bytes=len(content),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        canonical_key = skill_service._storage_key_for(sha256)
+        deleted: list[str] = []
+
+        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+            del key, bucket
+            return True
+
+        class FakeStream:
+            def __init__(self, payload: bytes) -> None:
+                self._payload = payload
+
+            async def read(self) -> bytes:
+                return self._payload
+
+            async def iter_chunks(self, *, chunk_size: int):
+                del chunk_size
+                yield self._payload
+
+        @asynccontextmanager
+        async def fake_open_download_stream(*, key: str, bucket: str):
+            del bucket
+            payload = poisoned if key == canonical_key else content
+            yield FakeStream(payload), len(payload)
+
+        async def fake_copy_file(
+            *,
+            source_key: str,
+            destination_key: str,
+            bucket: str,
+            content_type: str | None = None,
+        ) -> None:
+            del source_key, destination_key, bucket, content_type
+
+        async def fake_delete_file(*, key: str, bucket: str) -> None:
+            del bucket
+            deleted.append(key)
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.open_download_stream",
+            fake_open_download_stream,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.copy_file", fake_copy_file
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+        )
+
+        with pytest.raises(TracecatValidationError) as excinfo:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            )
+
+        assert excinfo.value.detail is not None
+        assert excinfo.value.detail["code"] == "upload_integrity_error"
+        assert deleted == [canonical_key]
+        blob_row = (
+            await skill_service.session.execute(
+                select(SkillBlob).where(
+                    SkillBlob.workspace_id == skill_service.workspace_id,
+                    SkillBlob.sha256 == sha256,
+                )
+            )
+        ).scalar_one_or_none()
+        assert blob_row is None
+
+    async def test_concurrent_blob_claims_reuse_the_committed_owner(
+        self,
+        svc_role: Role,
+    ) -> None:
+        """Same-digest contenders should reuse the row claimed by the winner."""
+
+        role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+        concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
+
+        try:
+            async with session_factory() as seed_session:
+                seed_session.add(
+                    Workspace(
+                        id=role.workspace_id,
+                        name="test-workspace",
+                        organization_id=role.organization_id,
+                    )
+                )
+                await seed_session.commit()
+
+            content = b"shared staged upload\n"
+            sha256 = hashlib.sha256(content).hexdigest()
+            storage_key = f"skills/{role.workspace_id}/{sha256}"
+            async with (
+                session_factory() as owner_session,
+                session_factory() as contender_session,
+            ):
+                owner_service = SkillService(
+                    session=owner_session,
+                    role=role.model_copy(deep=True),
+                )
+                contender_service = SkillService(
+                    session=contender_session,
+                    role=role.model_copy(deep=True),
+                )
+                owner_claim = await owner_service._claim_blob_publication(
+                    sha256=sha256,
+                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                    key=storage_key,
+                    size_bytes=len(content),
+                )
+
+                contender_started = asyncio.Event()
+
+                async def claim_as_contender() -> SkillBlobPublicationClaim:
+                    contender_started.set()
+                    claim = await contender_service._claim_blob_publication(
+                        sha256=sha256,
+                        bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                        key=storage_key,
+                        size_bytes=len(content),
+                    )
+                    await contender_session.commit()
+                    return claim
+
+                contender_task = asyncio.create_task(claim_as_contender())
+                await contender_started.wait()
+                await asyncio.sleep(0)
+                assert contender_task.done() is False
+
+                await owner_session.commit()
+                contender_claim = await asyncio.wait_for(contender_task, timeout=5)
+
+            assert owner_claim.is_owner is True
+            assert contender_claim.is_owner is False
+            assert contender_claim.blob.id == owner_claim.blob.id
+        finally:
+            await concurrent_engine.dispose()
+
+    async def test_patch_materializes_blob_claims_in_digest_order(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Caller path order must not become PostgreSQL claim-lock order."""
+
+        skill_id = uuid.uuid4()
+        now = datetime.now(UTC)
+
+        def upload_for(digest: str) -> SkillUploadModel:
+            upload = SkillUploadModel(
+                workspace_id=skill_service.workspace_id,
+                skill_id=skill_id,
+                sha256=digest,
+                size_bytes=1,
+                content_type="application/octet-stream",
+                bucket="skills",
+                key=f"skill-uploads/{skill_service.workspace_id}/{digest}",
+                expires_at=now + timedelta(minutes=5),
+                created_by=None,
+            )
+            upload.id = uuid.uuid4()
+            return upload
+
+        upload_a = upload_for("a" * 64)
+        upload_b = upload_for("b" * 64)
+        blob_a = SkillBlob(
+            id=uuid.uuid4(),
+            workspace_id=skill_service.workspace_id,
+            sha256=upload_a.sha256,
+            bucket="skills",
+            key=f"skills/{skill_service.workspace_id}/{upload_a.sha256}",
+            size_bytes=1,
+        )
+        blob_b = SkillBlob(
+            id=uuid.uuid4(),
+            workspace_id=skill_service.workspace_id,
+            sha256=upload_b.sha256,
+            bucket="skills",
+            key=f"skills/{skill_service.workspace_id}/{upload_b.sha256}",
+            size_bytes=1,
+        )
+        calls: list[str] = []
+
+        async def materialize(upload: SkillUploadModel) -> SkillBlob:
+            calls.append(upload.sha256)
+            return blob_a if upload.sha256 == upload_a.sha256 else blob_b
+
+        monkeypatch.setattr(skill_service, "_materialize_uploaded_blob", materialize)
+
+        materialized = await skill_service._materialize_patch_operation_blobs(
+            [
+                PreparedDraftAttachUploadedBlobOp(path="b.txt", upload=upload_b),
+                PreparedDraftAttachUploadedBlobOp(path="a.txt", upload=upload_a),
+            ]
+        )
+
+        assert calls == [upload_a.sha256, upload_b.sha256]
+        assert materialized[0] is blob_b
+        assert materialized[1] is blob_a
+
+    async def test_prepare_draft_uploads_commits_one_checksum_bound_batch(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="prepare-batch"))
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 2)
+        captured: list[tuple[str, str, str, str, int]] = []
+
+        async def generate_presigned_upload_url(
+            *,
+            key: str,
+            bucket: str,
+            content_type: str,
+            checksum_sha256: str,
+            expiry: int,
+        ) -> str:
+            captured.append(
+                (
+                    key,
+                    bucket,
+                    content_type,
+                    checksum_sha256,
+                    expiry,
+                )
+            )
+            return f"https://uploads.example/{len(captured)}"
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.generate_presigned_upload_url",
+            generate_presigned_upload_url,
+        )
+        params = [
+            SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="application/octet-stream",
+            )
+            for content in (b"first", b"")
+        ]
+
+        prepared = await skill_service.prepare_draft_uploads(
+            skill_id=created.id,
+            params=params,
+            url_expiry_seconds=60,
+        )
+
+        assert prepared.created is False
+        assert prepared.skill_id == created.id
+        assert [item[4] for item in captured] == [60, 60]
+        assert [item[3] for item in captured] == [
+            base64.b64encode(hashlib.sha256(content).digest()).decode("ascii")
+            for content in (b"first", b"")
+        ]
+        assert [upload.headers["Content-Length"] for upload in prepared.uploads] == [
+            "5",
+            "0",
+        ]
+        assert [
+            upload.headers["x-amz-checksum-sha256"] for upload in prepared.uploads
+        ] == [item[3] for item in captured]
+        upload_rows = (
+            await skill_service.session.execute(
+                select(SkillUploadModel).where(
+                    SkillUploadModel.id.in_(
+                        [upload.upload_id for upload in prepared.uploads]
+                    )
+                )
+            )
+        ).scalars()
+        assert len(upload_rows.all()) == 2
+
+    async def test_prepare_new_skill_uploads_rolls_back_presigning_failure(
+        self,
+        skill_service: SkillService,
+        svc_workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        call_count = 0
+
+        async def generate_presigned_upload_url(**_kwargs: Any) -> str:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise RuntimeError("signing failed")
+            return "https://uploads.example/first"
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.generate_presigned_upload_url",
+            generate_presigned_upload_url,
+        )
+        params = [
+            SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="application/octet-stream",
+            )
+            for content in (b"first", b"second")
+        ]
+
+        with pytest.raises(RuntimeError, match="signing failed"):
+            await skill_service.prepare_new_skill_draft_uploads(
+                skill_params=SkillCreate(name="atomic-prepare"),
+                params=params,
+                url_expiry_seconds=60,
+            )
+
+        skill = await skill_service.session.scalar(
+            select(Skill).where(
+                Skill.workspace_id == skill_service.workspace_id,
+                Skill.name == "atomic-prepare",
+            )
+        )
+        uploads = (
+            await skill_service.session.execute(
+                select(SkillUploadModel).where(
+                    SkillUploadModel.workspace_id == skill_service.workspace_id
+                )
+            )
+        ).scalars()
+        assert skill is None
+        assert uploads.all() == []
+        await skill_service.session.refresh(svc_workspace)
+
+    async def test_prepare_draft_uploads_rejects_aggregate_limit_before_writes(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="bounded-prepare"))
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES", 1)
+        params = [
+            SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="application/octet-stream",
+            )
+            for content in (b"a", b"b")
+        ]
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.prepare_draft_uploads(
+                skill_id=created.id,
+                params=params,
+            )
+
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "skill_total_size_limit_exceeded"
+        upload_rows = (
+            await skill_service.session.execute(
+                select(SkillUploadModel).where(
+                    SkillUploadModel.workspace_id == skill_service.workspace_id
+                )
+            )
+        ).scalars()
+        assert upload_rows.all() == []
+
+    async def test_prepare_draft_uploads_rejects_transfer_file_limit_before_writes(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="bounded-transfer"))
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 1)
+
+        async def unexpected_generate_presigned_upload_url(**_kwargs: Any) -> str:
+            raise AssertionError("Presigning must not start")
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.generate_presigned_upload_url",
+            unexpected_generate_presigned_upload_url,
+        )
+        params = [
+            SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="application/octet-stream",
+            )
+            for content in (b"a", b"b")
+        ]
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.prepare_draft_uploads(
+                skill_id=created.id,
+                params=params,
+            )
+
+        assert exc_info.value.detail == {
+            "code": "skill_transfer_file_count_limit_exceeded",
+            "file_count": 2,
+            "max_file_count": 1,
+        }
+        upload_rows = (
+            await skill_service.session.execute(
+                select(SkillUploadModel).where(
+                    SkillUploadModel.skill_id == created.id,
+                )
+            )
+        ).scalars()
+        assert upload_rows.all() == []
 
     @pytest.mark.parametrize(
         ("content_type", "reason"),
@@ -1661,7 +2208,7 @@ class TestSkillService:
             unexpected_file_exists,
         )
 
-        with pytest.raises(TracecatValidationError, match="escape the skill root"):
+        with pytest.raises(TracecatValidationError, match="Cannot move missing"):
             await skill_service.patch_draft(
                 skill_id=created.id,
                 params=SkillDraftPatch(
@@ -1671,7 +2218,10 @@ class TestSkillService:
                             path="references/uploaded.txt",
                             upload_id=upload.upload_id,
                         ),
-                        SkillDraftDeleteFileOp(path="../escape.txt"),
+                        SkillDraftMoveFileOp(
+                            from_path="references/missing.txt",
+                            to_path="references/moved.txt",
+                        ),
                     ],
                 ),
             )
@@ -1691,6 +2241,90 @@ class TestSkillService:
             )
             is None
         )
+
+    async def test_patch_rejects_final_size_limit_before_upload_materialization(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="bounded-patch"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        content = b"bounded payload"
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="application/octet-stream",
+            ),
+        )
+        monkeypatch.setattr(
+            config,
+            "TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES",
+            sum(file.size_bytes for file in draft.files) + len(content) - 1,
+        )
+
+        async def unexpected_file_exists(*, key: str, bucket: str) -> bool:
+            del key, bucket
+            raise AssertionError("Upload materialization must not start")
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists",
+            unexpected_file_exists,
+        )
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/payload.bin",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            )
+
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "skill_total_size_limit_exceeded"
+
+    async def test_patch_rejects_transfer_file_limit_before_upload_lookup(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="bounded-complete"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 1)
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/first.bin",
+                            upload_id=uuid.uuid4(),
+                        ),
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/second.bin",
+                            upload_id=uuid.uuid4(),
+                        ),
+                    ],
+                ),
+            )
+
+        assert exc_info.value.detail == {
+            "code": "skill_transfer_file_count_limit_exceeded",
+            "file_count": 2,
+            "max_file_count": 1,
+        }
 
     async def test_publish_requires_root_skill_md(
         self,

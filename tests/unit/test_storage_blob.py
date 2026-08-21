@@ -1,6 +1,7 @@
 """Tests for the storage module."""
 
 import asyncio
+import base64
 import hashlib
 import threading
 from contextlib import asynccontextmanager
@@ -8,6 +9,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from urllib.parse import urlparse
 
+import httpx
 import pytest
 from botocore.exceptions import ClientError
 
@@ -501,7 +503,11 @@ class TestS3Operations:
         mock_client.generate_presigned_url.return_value = expected_url
 
         result = await generate_presigned_upload_url(
-            "test/file.txt", "test-bucket", 3600, "text/plain"
+            "test/file.txt",
+            "test-bucket",
+            3600,
+            "text/plain",
+            checksum_sha256="base64-checksum",
         )
 
         assert result == expected_url
@@ -511,9 +517,51 @@ class TestS3Operations:
                 "Bucket": "test-bucket",
                 "Key": "test/file.txt",
                 "ContentType": "text/plain",
+                "ChecksumSHA256": "base64-checksum",
             },
             ExpiresIn=3600,
         )
+
+    @pytest.mark.anyio
+    async def test_presigned_upload_checksum_rejects_changed_bytes(
+        self,
+        minio_bucket: str,
+    ) -> None:
+        payload = b"bound"
+        checksum_sha256 = base64.b64encode(hashlib.sha256(payload).digest()).decode(
+            "ascii"
+        )
+        key = "skill-uploads/test/payload"
+        try:
+            upload_url = await generate_presigned_upload_url(
+                key=key,
+                bucket=minio_bucket,
+                expiry=60,
+                content_type="application/octet-stream",
+                checksum_sha256=checksum_sha256,
+            )
+            headers = {
+                "Content-Type": "application/octet-stream",
+                "x-amz-checksum-sha256": checksum_sha256,
+            }
+
+            async with httpx.AsyncClient(timeout=10) as client:
+                changed_response = await client.put(
+                    upload_url,
+                    content=b"other",
+                    headers=headers,
+                )
+                exact_response = await client.put(
+                    upload_url,
+                    content=payload,
+                    headers=headers,
+                )
+
+            assert changed_response.status_code == 400
+            assert exact_response.status_code == 200
+            assert await download_file(key=key, bucket=minio_bucket) == payload
+        finally:
+            await blob_module.close_storage_client_cache()
 
     @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")

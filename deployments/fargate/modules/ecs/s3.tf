@@ -320,6 +320,46 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "skills" {
   }
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "skills" {
+  bucket = aws_s3_bucket.skills.id
+
+  depends_on = [aws_s3_bucket_versioning.skills]
+
+  rule {
+    id     = "expire_staged_skill_uploads"
+    status = "Enabled"
+
+    filter {
+      prefix = "skill-uploads/"
+    }
+
+    expiration {
+      days = 1
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+
+  rule {
+    id     = "remove_staged_skill_upload_delete_markers"
+    status = "Enabled"
+
+    filter {
+      prefix = "skill-uploads/"
+    }
+
+    expiration {
+      expired_object_delete_marker = true
+    }
+  }
+}
+
 resource "aws_s3_bucket_policy" "skills" {
   bucket = aws_s3_bucket.skills.id
 
