@@ -16,9 +16,15 @@ definition:
     id:
       type: str
       description: Rippling API path value for id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    expand:
+      type: str | None
+      description: >-
+        Fields in a response can represent objects themselves. Instead of making an additional API
+        call, you can expand field(s) in a response using the `expand` query parameter. Use commas
+        to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API
+        supports two levels of expansion and up to ten expanded fields per request. Expandable
+        fields: `user`, `manager`, `legal_entity`, `employment_type`, `compensation`, `department`,
+        `teams`, `level`, `job_function`, `custom_fields`, `business_partners`.
       default: null
     base_url:
       type: str | None
@@ -34,5 +40,6 @@ definition:
           Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
           Accept: application/json
           Rippling-Api-Version: '2024-08-01'
-        params: ${{ inputs.params }}
+        params:
+          expand: ${{ inputs.expand }}
   returns: ${{ steps.request.result }}

@@ -15,9 +15,29 @@ definition:
     project_id:
       type: str
       description: GitLab API path value for project_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    with_counts:
+      type: bool | None
+      description: Whether or not to include issue and merge request counts. Defaults to `false`.
+      default: null
+    include_ancestor_groups:
+      type: bool | None
+      description: Include ancestor groups. Defaults to `true`.
+      default: null
+    search:
+      type: str | None
+      description: Keyword to filter labels by.
+      default: null
+    archived:
+      type: bool | None
+      description: If `true`, returns only archived labels. If unset, returns all labels.
+      default: null
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of items to list per page (default: `20`, max: `100`)."
       default: null
     base_url:
       type: str
@@ -32,5 +52,11 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          with_counts: ${{ inputs.with_counts }}
+          include_ancestor_groups: ${{ inputs.include_ancestor_groups }}
+          search: ${{ inputs.search }}
+          archived: ${{ inputs.archived }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
   returns: ${{ steps.request.result }}

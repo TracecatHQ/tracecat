@@ -15,9 +15,13 @@ definition:
     project_id:
       type: str
       description: GitLab API path value for project_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of items to list per page (default: `20`, max: `100`)."
       default: null
     base_url:
       type: str
@@ -32,5 +36,7 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
   returns: ${{ steps.request.result }}

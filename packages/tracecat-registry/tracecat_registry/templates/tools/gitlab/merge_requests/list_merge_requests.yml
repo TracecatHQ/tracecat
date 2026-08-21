@@ -15,9 +15,161 @@ definition:
     project_id:
       type: str
       description: GitLab API path value for project_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    iids:
+      type: list[str] | None
+      description: Returns merge requests matching the provided IIDs.
+      default: null
+    approved_by_ids:
+      type: list[str] | None
+      description: Returns merge requests approved by all the users with the given `id`, up to 5 users. `None` returns merge requests with no approvals. `Any` returns merge requests with an approval.
+      default: null
+    approved_by_usernames:
+      type: list[str] | None
+      description: Returns merge requests approved by all the users with the given `username`, up to 5 users. `None` returns merge requests with no approvals. `Any` returns merge requests with an approval.
+      default: null
+    approver_ids:
+      type: list[str] | None
+      description: Returns merge requests which have all users with the specified `id` as eligible approvers according to the approval rules. `None` returns merge requests with no eligible approvers. `Any` returns merge requests with at least one eligible approver. Premium and Ultimate only.
+      default: null
+    assignee_id:
+      type: str | None
+      description: Returns merge requests assigned to the given user `id`. `None` returns unassigned merge requests. `Any` returns merge requests with an assignee. Mutually exclusive with `assignee_username`.
+      default: null
+    assignee_username:
+      type: list[str] | None
+      description: Returns merge requests assigned to the given usernames. Mutually exclusive with `assignee_id`.
+      default: null
+    author_id:
+      type: int | None
+      description: Returns merge requests created by the given user `id`. Mutually exclusive with `author_username`.
+      default: null
+    author_username:
+      type: str | None
+      description: Returns merge requests created by the given `username`. Mutually exclusive with `author_id`.
+      default: null
+    created_after:
+      type: datetime | None
+      description: Returns merge requests created on or after the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+      default: null
+    created_before:
+      type: datetime | None
+      description: Returns merge requests created on or before the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+      default: null
+    deployed_after:
+      type: datetime | None
+      description: Returns merge requests deployed after the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+      default: null
+    deployed_before:
+      type: datetime | None
+      description: Returns merge requests deployed before the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+      default: null
+    merged_after:
+      type: datetime | None
+      description: Returns merge requests merged on or after the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+      default: null
+    merged_before:
+      type: datetime | None
+      description: Returns merge requests merged on or before the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+      default: null
+    environment:
+      type: str | None
+      description: Returns merge requests deployed to the given environment.
+      default: null
+    search_in:
+      type: str | None
+      description: Change the scope of the `search` attribute. `title`, `description`, or a string joining them with comma. Default is `title,description`.
+      default: null
+    labels:
+      type: str | None
+      description: Returns merge requests matching a comma-separated list of labels. `None` lists all merge requests with no labels. `Any` lists all merge requests with at least one label. Predefined names are case-insensitive.
+      default: null
+    merge_user_id:
+      type: int | None
+      description: Returns merge requests merged by the user with the given user `id`. Mutually exclusive with `merge_user_username`. Introduced in GitLab 17.0.
+      default: null
+    merge_user_username:
+      type: str | None
+      description: Returns merge requests merged by the user with the given `username`. Mutually exclusive with `merge_user_id`. Introduced in GitLab 17.0.
+      default: null
+    milestone:
+      type: str | None
+      description: Returns merge requests for a specific milestone. `None` returns merge requests with no milestone. `Any` returns merge requests that have an assigned milestone.
+      default: null
+    my_reaction_emoji:
+      type: str | None
+      description: Returns merge requests reacted by the authenticated user by the given `emoji`. `None` returns issues not given a reaction. `Any` returns issues given at least one reaction.
+      default: null
+    order_by:
+      type: str | None
+      description: Returns merge requests ordered by `created_at`, `updated_at`, `merged_at` (introduced in GitLab 17.2), `label_priority`, `priority`, `milestone_due`, `popularity`, or `title` fields. Default is `created_at`.
+      default: null
+    reviewer_id:
+      type: str | None
+      description: Returns merge requests which have the user as a reviewer with the given user `id`. `None` returns merge requests with no reviewers. `Any` returns merge requests with any reviewer. Mutually exclusive with `reviewer_username`.
+      default: null
+    reviewer_username:
+      type: str | None
+      description: Returns merge requests which have the user as a reviewer with the given `username`. `None` returns merge requests with no reviewers. `Any` returns merge requests with any reviewer. Mutually exclusive with `reviewer_id`.
+      default: null
+    scope:
+      type: str | None
+      description: "Returns merge requests for the given scope: `created_by_me`, `assigned_to_me`, `reviews_for_me`, or `all`. `reviews_for_me` returns merge requests where the current user is assigned as a reviewer. Defaults to `all`."
+      default: null
+    search:
+      type: str | None
+      description: Search merge requests against their `title` and `description`. Combine with `in` attribute.
+      default: null
+    sort:
+      type: str | None
+      description: Returns merge requests sorted in `asc` or `desc` order. Default is `desc`.
+      default: null
+    source_branch:
+      type: str | None
+      description: Returns merge requests with the given source branch.
+      default: null
+    state:
+      type: str | None
+      description: Returns all merge requests (`all`) or just those that are `opened`, `closed`, `locked`, or `merged`. Defaults to `all`.
+      default: null
+    target_branch:
+      type: str | None
+      description: Returns merge requests with the given target branch.
+      default: null
+    updated_after:
+      type: datetime | None
+      description: Returns merge requests updated on or after the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+      default: null
+    updated_before:
+      type: datetime | None
+      description: Returns merge requests updated on or before the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+      default: null
+    view:
+      type: str | None
+      description: If `simple`, returns the `iid`, URL, title, description, and basic state of merge request.
+      default: null
+    draft:
+      type: bool | None
+      description: Filter merge requests by their `draft` status. `true` returns only draft merge requests, `false` returns non-draft merge requests. Mutually exclusive with `wip`.
+      default: null
+    wip:
+      type: str | None
+      description: Deprecated in GitLab 19.0. Use `draft` instead. Filter merge requests by their `wip` status. `yes` returns only draft merge requests, `no` returns non-draft merge requests.
+      default: null
+    with_labels_details:
+      type: bool | None
+      description: "If `true`, response returns more details for each label in labels field: `:name`, `:color`, `:description`, `:description_html`, `:text_color`. Default is `false`."
+      default: null
+    with_merge_status_recheck:
+      type: bool | None
+      description: If `true`, this projection requests (but does not guarantee) an asynchronous recalculation of the `merge_status` field. Enable the `restrict_merge_status_recheck` feature flag to ignore this attribute when requested by users without the Developer, Maintainer, or Owner role.
+      default: null
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of items to list per page (default: `20`, max: `100`)."
       default: null
     base_url:
       type: str
@@ -32,5 +184,44 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          "iids[]": ${{ inputs.iids }}
+          "approved_by_ids[]": ${{ inputs.approved_by_ids }}
+          "approved_by_usernames[]": ${{ inputs.approved_by_usernames }}
+          "approver_ids[]": ${{ inputs.approver_ids }}
+          assignee_id: ${{ inputs.assignee_id }}
+          "assignee_username[]": ${{ inputs.assignee_username }}
+          author_id: ${{ inputs.author_id }}
+          author_username: ${{ inputs.author_username }}
+          created_after: ${{ inputs.created_after }}
+          created_before: ${{ inputs.created_before }}
+          deployed_after: ${{ inputs.deployed_after }}
+          deployed_before: ${{ inputs.deployed_before }}
+          merged_after: ${{ inputs.merged_after }}
+          merged_before: ${{ inputs.merged_before }}
+          environment: ${{ inputs.environment }}
+          in: ${{ inputs.search_in }}
+          labels: ${{ inputs.labels }}
+          merge_user_id: ${{ inputs.merge_user_id }}
+          merge_user_username: ${{ inputs.merge_user_username }}
+          milestone: ${{ inputs.milestone }}
+          my_reaction_emoji: ${{ inputs.my_reaction_emoji }}
+          order_by: ${{ inputs.order_by }}
+          reviewer_id: ${{ inputs.reviewer_id }}
+          reviewer_username: ${{ inputs.reviewer_username }}
+          scope: ${{ inputs.scope }}
+          search: ${{ inputs.search }}
+          sort: ${{ inputs.sort }}
+          source_branch: ${{ inputs.source_branch }}
+          state: ${{ inputs.state }}
+          target_branch: ${{ inputs.target_branch }}
+          updated_after: ${{ inputs.updated_after }}
+          updated_before: ${{ inputs.updated_before }}
+          view: ${{ inputs.view }}
+          draft: ${{ inputs.draft }}
+          wip: ${{ inputs.wip }}
+          with_labels_details: ${{ inputs.with_labels_details }}
+          with_merge_status_recheck: ${{ inputs.with_merge_status_recheck }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
   returns: ${{ steps.request.result }}

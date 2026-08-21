@@ -18,9 +18,17 @@ definition:
     merge_request_iid:
       type: int
       description: GitLab API path value for merge_request_iid.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    page:
+      type: int | None
+      description: The page of results to return. Defaults to 1.
+      default: null
+    per_page:
+      type: int | None
+      description: The number of results per page. Defaults to 20.
+      default: null
+    unidiff:
+      type: bool | None
+      description: Present diffs in the unified diff format. Default is false.
       default: null
     base_url:
       type: str
@@ -35,5 +43,8 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+          unidiff: ${{ inputs.unidiff }}
   returns: ${{ steps.request.result }}

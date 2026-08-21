@@ -20,25 +20,15 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="draft_hires" type="array[object]" required>
+
+List of draft hires. Each draft hire requires `personal_info`, `employment_info`, and `work_location_info`, and optionally accepts `custom_fields`, `headcount_info`, and `documents`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
 
 Default: `null`.
 
@@ -68,17 +58,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: software_id (required), active_group_type, group_id, ma_device_group_id.
 
 Default: `null`.
 
@@ -114,14 +96,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get report run
 
 Action ID: `tools.rippling.get_report_run`
@@ -152,14 +126,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get SSO me
 
 Action ID: `tools.rippling.get_sso_me`
@@ -184,9 +150,17 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters.
+`cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `company`.
 
 Default: `null`.
 
@@ -222,9 +196,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="expand" type="string | null">
 
-API-native query parameters.
+Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `user`, `manager`, `legal_entity`, `employment_type`, `compensation`, `department`, `teams`, `level`, `job_function`, `custom_fields`, `business_partners`.
 
 Default: `null`.
 
@@ -254,9 +228,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+`cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `worker`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+The `filter` query parameter is used to filter the data returned from the API - similar to a `where` clause. The following operators are supported: eq, ne, gt, gte, lt, lte, and, or, in. Example: status eq 'ACTIVE'. Filterable fields: `worker_id`, `spoke_user_identifier`, `app_handle`, `created_at`, `updated_at`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+`limit` controls how many results are returned in a single page. Default page size is 50. Most endpoints allow a maximum of 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`.
 
 Default: `null`.
 
@@ -286,9 +292,33 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+`cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `parent`, `department_hierarchy`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+`limit` controls how many results are returned in a single page. Default page size is 50. Most endpoints allow a maximum of 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`.
 
 Default: `null`.
 
@@ -318,9 +348,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+`cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `worker`, `pending_actions`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+The `filter` query parameter is used to filter the data returned from the API - similar to a `where` clause. The following operators are supported: eq, ne, gt, gte, lt, lte, and, or, in. Example: status eq 'ACTIVE'. Filterable fields: `worker_id`, `serial_number`, `lifecycle_state`, `enrollment_status`. Allowed values for `lifecycle_state`: INIT, ACTIVE, ACTIVATING, LOCKED, LOCKING, INACTIVE, PENDING_MDM, CLEANING, READY, DECOMMISSIONING, DECOMMISSIONED, FULL_WIPING, FULL_WIPED, E_CYCLED, MDM_LOCKED, LOST, LOST_PLAYING_SOUND. Allowed values for `enrollment_status`: ENROLLED, WAITING_FOR_CONNECTION, ERROR, UNENROLLED.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+`limit` controls how many results are returned in a single page. Default page size is 50. Most endpoints allow a maximum of 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`.
 
 Default: `null`.
 
@@ -350,14 +412,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
-
-Default: `null`.
-
-</ParamField>
-
 ## List leave balances
 
 Action ID: `tools.rippling.list_leave_balances`
@@ -382,9 +436,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+`cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `worker`, `leave_type`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+The `filter` query parameter is used to filter the data returned from the API - similar to a `where` clause. The following operators are supported: eq, ne, gt, gte, lt, lte, and, or, in. Example: status eq 'ACTIVE'. Filterable fields: `worker_id`, `leave_type_id`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+`limit` controls how many results are returned in a single page. Default page size is 50. Most endpoints allow a maximum of 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`.
 
 Default: `null`.
 
@@ -414,9 +500,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+`cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `worker`, `requester`, `leave_type`, `reviewer`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+The `filter` query parameter is used to filter the data returned from the API - similar to a `where` clause. The following operators are supported: eq, ne, gt, gte, lt, lte, and, or, in. Example: status eq 'ACTIVE'. Filterable fields: `worker_id`, `requester_id`, `reviewer_id`, `status`, `leave_policy_id`, `leave_type_id`, `start_date`, `end_date`. Allowed values for `status`: PENDING, APPROVED, REJECTED, CANCELED.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+`limit` controls how many results are returned in a single page. Default page size is 50. Most endpoints allow a maximum of 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`.
 
 Default: `null`.
 
@@ -446,9 +564,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+`cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `software`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+The `filter` query parameter is used to filter the data returned from the API - similar to a `where` clause. The following operators are supported: eq, ne, gt, gte, lt, lte, and, or, in. Example: status eq 'ACTIVE'. Filterable fields: `software_id`, `active_group_type`. Allowed values for `active_group_type`: Role, Device.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+`limit` controls how many results are returned in a single page. Default page size is 50. Most endpoints allow a maximum of 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`.
 
 Default: `null`.
 
@@ -484,9 +634,17 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="expand" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `worker`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`.
 
 Default: `null`.
 
@@ -516,9 +674,17 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="filter" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+The `filter` query parameter is used to filter the data returned from the API - similar to a `where` clause. The following operators are supported: eq, ne, gt, gte, lt, lte, and, or, in. Example: status eq 'ACTIVE'. Filterable fields: `app_owner_id`, `group_type`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`.
 
 Default: `null`.
 
@@ -548,9 +714,33 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+`cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `parent`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+`limit` controls how many results are returned in a single page. Default page size is 50. Most endpoints allow a maximum of 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`.
 
 Default: `null`.
 
@@ -580,9 +770,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+`cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+`limit` controls how many results are returned in a single page. Default page size is 50. Most endpoints allow a maximum of 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`.
 
 Default: `null`.
 
@@ -612,9 +818,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+`cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+`limit` controls how many results are returned in a single page. Default page size is 50. Most endpoints allow a maximum of 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`.
 
 Default: `null`.
 
@@ -644,9 +866,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+`cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `worker`, `changed_by`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+The `filter` query parameter is used to filter the data returned from the API - similar to a `where` clause. The following operators are supported: eq, ne, gt, gte, lt, lte, and, or, in. Example: status eq 'ACTIVE'. Filterable fields: `worker_id`, `applied_on`, `effective_on`, `changed_by_id`, `reason_code`, `field_key`, `event_type`. Allowed values for `event_type`: HIRE, CHANGE, SCHEDULED_CHANGE, OFFBOARD, SCHEDULED_OFFBOARD, IMPORT, UNDO, EFFECTIVE_DATE_AMENDMENT.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+`limit` controls how many results are returned in a single page. Default page size is 50. Most endpoints allow a maximum of 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`, `applied_on`, `effective_on`.
 
 Default: `null`.
 
@@ -676,9 +930,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters, including cursor for pagination. Support for filter, expand, and order_by varies by endpoint; see the linked Rippling documentation.
+`cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `user`, `manager`, `legal_entity`, `employment_type`, `compensation`, `department`, `teams`, `level`, `job_function`, `custom_fields`, `business_partners`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+The `filter` query parameter is used to filter the data returned from the API - similar to a `where` clause. The following operators are supported: eq, ne, gt, gte, lt, lte, and, or, in. Example: status eq 'ACTIVE'. Filterable fields: `status`, `work_email`, `user_id`, `created_at`, `updated_at`. Allowed values for `status`: INIT, HIRED, ACCEPTED, ACTIVE, TERMINATED.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+`limit` controls how many results are returned in a single page. Default page size is 50. Most endpoints allow a maximum of 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The `order_by` parameter is used to select field(s) to sort by and to define whether results are sorted in ascending or descending order. Supported sort directions are `asc` for ascending order and `desc` for descending order. Unless indicated, the default sort direction is ascending order. Use commas to specify multiple fields to sort. Sortable fields: `id`, `created_at`, `updated_at`.
 
 Default: `null`.
 
@@ -708,17 +994,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: report_id (required), filters, format_currency_fields, format_date_fields, include_object_ids, include_total_rows, output_type, view_as.
 
 Default: `null`.
 
@@ -754,17 +1032,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: end_date (required), start_date (required), status (required), worker_id (required), comments, end_date_custom_hours, end_time, leave_event_id, leave_policy_id, leave_type_id, reason_for_leave, requester_id, reviewed_at, reviewer_id, start_date_custom_hours, start_time.
 
 Default: `null`.
 
@@ -792,25 +1062,15 @@ Rippling API path value for group_id.
 
 </ParamField>
 
+<ParamField path="operations" type="array[object]" required>
+
+The list of operations to apply. Each operation takes `op` (add or remove) and `value`, the members to add or remove, each carrying an `id` (a member id).
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
 
 Default: `null`.
 
@@ -838,25 +1098,15 @@ Rippling API path value for group_id.
 
 </ParamField>
 
+<ParamField path="operations" type="array[object]" required>
+
+The list of operations to apply. Each operation takes `op` (add or remove) and `value`, the members to add or remove, each carrying an `id` (a member id).
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
 
 Default: `null`.
 

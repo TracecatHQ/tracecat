@@ -18,11 +18,21 @@ definition:
     issue_iid:
       type: int
       description: GitLab API path value for issue_iid.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    target_project_id:
+      type: str
+      description: The ID or URL-encoded path of the project of a target project.
+    target_issue_iid:
+      type: str
+      description: The internal ID of a target project's issue.
+    link_type:
+      type: str | None
+      description: The type of the relation (`relates_to`, `blocks`, `is_blocked_by`), defaults to `relates_to`.
       default: null
     payload:
+      # Generic: GitLab accepts these attributes in the query string (its own curl
+      # examples do) or a JSON body, but a null body field violates NOT NULL on
+      # `confidential` and Grape reads a null array as "unassign". Named inputs above
+      # go on the query string; this stays for callers sending a body.
       type: dict[str, Any] | None
       description: API-native request body passed through without validation.
       default: null
@@ -39,6 +49,9 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          target_project_id: ${{ inputs.target_project_id }}
+          target_issue_iid: ${{ inputs.target_issue_iid }}
+          link_type: ${{ inputs.link_type }}
         payload: ${{ inputs.payload }}
   returns: ${{ steps.request.result }}

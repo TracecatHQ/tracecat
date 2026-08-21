@@ -10,9 +10,16 @@ definition:
     - name: sublime
       keys: ["SUBLIME_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    entry_type:
+      type: str
+      description: List type to filter by. One of 'string', 'user_group', 'provider_org_unit'.
+    id:
+      type: str | None
+      description: Optional ID (exact match) to filter by
+      default: null
+    name:
+      type: str | None
+      description: Optional name (exact match) to filter by
       default: null
     base_url:
       type: str | None
@@ -24,7 +31,10 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/lists
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          entry_type: ${{ inputs.entry_type }}
+          id: ${{ inputs.id }}
+          name: ${{ inputs.name }}
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
   returns: ${{ steps.request.result.data }}

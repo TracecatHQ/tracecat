@@ -13,9 +13,9 @@ definition:
     id:
       type: str
       description: List ID.
-    payload:
-      type: dict[str, Any]
-      description: API-native JSON request body.
+    entries:
+      type: list[str]
+      description: List entries
     base_url:
       type: str | None
       description: Base URL of the Sublime API.
@@ -28,5 +28,6 @@ definition:
         method: PUT
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
-        payload: ${{ inputs.payload }}
+        payload:
+          entries: ${{ inputs.entries }}
   returns: ${{ steps.request.result.data }}

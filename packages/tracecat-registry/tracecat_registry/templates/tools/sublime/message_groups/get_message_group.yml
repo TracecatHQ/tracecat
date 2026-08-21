@@ -13,9 +13,9 @@ definition:
     id:
       type: str
       description: Message group canonical ID.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    sort_previews_message_id__is:
+      type: list[str] | None
+      description: Sort previews with these message IDs at the top
       default: null
     base_url:
       type: str | None
@@ -27,7 +27,8 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/message-groups/${{ FN.url_encode(inputs.id) }}
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          sort_previews_message_id__is: ${{ inputs.sort_previews_message_id__is }}
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
   returns: ${{ steps.request.result.data }}

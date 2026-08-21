@@ -15,13 +15,16 @@ definition:
     project_id:
       type: str
       description: GitLab API path value for project_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    ref:
+      type: str
+      description: The branch or tag to run the pipeline on. For merge request pipelines use the merge requests endpoint.
+    variables:
+      type: list[dict[str, Any]] | None
+      description: "An array of hashes containing the variables available in the pipeline, matching the structure `[{ 'key': 'UPLOAD_TO_S3', 'variable_type': 'file', 'value': 'true' }, {'key': 'TEST', 'value': 'test variable'}]`. If `variable_type` is excluded, it defaults to `env_var`."
       default: null
-    payload:
+    inputs:
       type: dict[str, Any] | None
-      description: API-native request body passed through without validation.
+      description: A hash containing the inputs, as key-value pairs, to use when creating the pipeline.
       default: null
     base_url:
       type: str
@@ -36,6 +39,8 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
-        payload: ${{ inputs.payload }}
+        payload:
+          ref: ${{ inputs.ref }}
+          variables: ${{ inputs.variables }}
+          inputs: ${{ inputs.inputs }}
   returns: ${{ steps.request.result }}

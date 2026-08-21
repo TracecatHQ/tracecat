@@ -15,13 +15,12 @@ definition:
     project_id:
       type: str
       description: GitLab API path value for project_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
-      default: null
     payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
       type: dict[str, Any] | None
-      description: API-native request body passed through without validation.
+      description: >-
+        API-native request body. Documented fields: source_branch (required), target_branch (required), title (required), allow_collaboration, allow_maintainer_to_push, approvals_before_merge, assignee_id, assignee_ids, description, labels, merge_after, milestone, milestone_id, remove_source_branch, reviewer_ids, squash, target_project_id.
       default: null
     base_url:
       type: str
@@ -36,6 +35,5 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
         payload: ${{ inputs.payload }}
   returns: ${{ steps.request.result }}

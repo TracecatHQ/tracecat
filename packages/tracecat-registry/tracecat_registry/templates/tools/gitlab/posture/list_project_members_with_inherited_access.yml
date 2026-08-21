@@ -15,9 +15,29 @@ definition:
     project_id:
       type: str
       description: GitLab API path value for project_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    query:
+      type: str | None
+      description: Filters results based on a given name, email, or username. Use partial values to widen the scope of the query.
+      default: null
+    user_ids:
+      type: str | None
+      description: Filter the results on the given user IDs, as a comma-separated list.
+      default: null
+    show_seat_info:
+      type: bool | None
+      description: Show seat information for users.
+      default: null
+    state:
+      type: str | None
+      description: Filter results by member state, one of `awaiting` or `active`. Premium and Ultimate only.
+      default: null
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of items to list per page (default: `20`, max: `100`)."
       default: null
     base_url:
       type: str
@@ -32,5 +52,11 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          query: ${{ inputs.query }}
+          user_ids: ${{ inputs.user_ids }}
+          show_seat_info: ${{ inputs.show_seat_info }}
+          state: ${{ inputs.state }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
   returns: ${{ steps.request.result }}

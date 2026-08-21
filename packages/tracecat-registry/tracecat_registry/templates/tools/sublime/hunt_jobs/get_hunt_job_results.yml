@@ -13,9 +13,13 @@ definition:
     id:
       type: str
       description: Hunt job ID.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    limit:
+      type: int | None
+      description: The maximum number of results to return.
+      default: null
+    offset:
+      type: int | None
+      description: The (zero-based) offset of the first hunt job results to return.
       default: null
     base_url:
       type: str | None
@@ -27,7 +31,9 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/hunt-jobs/${{ FN.url_encode(inputs.id) }}/results
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
   returns: ${{ steps.request.result.data }}

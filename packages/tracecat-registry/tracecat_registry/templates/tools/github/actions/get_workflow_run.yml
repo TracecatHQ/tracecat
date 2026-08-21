@@ -20,9 +20,9 @@ definition:
     run_id:
       type: int
       description: GitHub API path value for run_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    exclude_pull_requests:
+      type: bool | None
+      description: If `true` pull requests are omitted from the response (empty array).
       default: null
     base_url:
       type: str
@@ -38,5 +38,6 @@ definition:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
-      params: ${{ inputs.params }}
+      params:
+        exclude_pull_requests: ${{ inputs.exclude_pull_requests }}
   returns: ${{ steps.request.result }}

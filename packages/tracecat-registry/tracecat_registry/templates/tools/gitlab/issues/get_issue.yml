@@ -18,10 +18,6 @@ definition:
     issue_iid:
       type: int
       description: GitLab API path value for issue_iid.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
-      default: null
     base_url:
       type: str
       description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
@@ -35,5 +31,4 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
   returns: ${{ steps.request.result }}

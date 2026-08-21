@@ -12,14 +12,14 @@ definition:
     - name: rippling
       keys: ["RIPPLING_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
-      default: null
-    payload:
-      type: dict[str, Any] | None
-      description: API-native request body passed through without validation.
-      default: null
+    draft_hires:
+      # Documented object shape; the `expects` grammar has no nested-object type,
+      # so the vendor's sub-keys are named in the description instead.
+      type: list[dict[str, Any]]
+      description: >-
+        List of draft hires. Each draft hire requires `personal_info`, `employment_info`, and
+        `work_location_info`, and optionally accepts `custom_fields`, `headcount_info`, and
+        `documents`.
     base_url:
       type: str | None
       description: Base URL of the Rippling REST API.
@@ -34,6 +34,6 @@ definition:
           Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
           Accept: application/json
           Rippling-Api-Version: '2024-08-01'
-        params: ${{ inputs.params }}
-        payload: ${{ inputs.payload }}
+        payload:
+          draft_hires: ${{ inputs.draft_hires }}
   returns: ${{ steps.request.result }}

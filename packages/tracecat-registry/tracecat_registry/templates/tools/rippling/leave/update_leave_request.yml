@@ -15,13 +15,12 @@ definition:
     id:
       type: str
       description: Rippling API path value for id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
-      default: null
     payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
       type: dict[str, Any] | None
-      description: API-native request body passed through without validation.
+      description: >-
+        API-native request body. Documented fields: end_date (required), start_date (required), status (required), worker_id (required), comments, end_date_custom_hours, end_time, leave_event_id, leave_policy_id, leave_type_id, reason_for_leave, requester_id, reviewed_at, reviewer_id, start_date_custom_hours, start_time.
       default: null
     base_url:
       type: str | None
@@ -37,6 +36,5 @@ definition:
           Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
           Accept: application/json
           Rippling-Api-Version: '2024-08-01'
-        params: ${{ inputs.params }}
         payload: ${{ inputs.payload }}
   returns: ${{ steps.request.result }}

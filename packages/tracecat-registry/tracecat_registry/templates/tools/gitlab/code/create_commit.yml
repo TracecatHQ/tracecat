@@ -15,13 +15,47 @@ definition:
     project_id:
       type: str
       description: GitLab API path value for project_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    branch:
+      type: str
+      description: Name of the branch to commit into. To create a new branch, also provide either `start_branch` or `start_sha`, and optionally `start_project`.
+    commit_message:
+      type: str
+      description: Commit message.
+    actions:
+      type: list[dict[str, Any]] | None
+      description: An array of action hashes to commit as a batch. Each action hash takes `action` (one of `create`, `delete`, `move`, `update`, or `chmod`), `file_path`, and optionally `content`, `encoding`, `execute_filemode`, `last_commit_id`, and `previous_path`.
       default: null
-    payload:
-      type: dict[str, Any] | None
-      description: API-native request body passed through without validation.
+    allow_empty:
+      type: bool | None
+      description: When `true`, creates an empty commit. Default is `false`.
+      default: null
+    author_email:
+      type: str | None
+      description: Specify the commit author's email address.
+      default: null
+    author_name:
+      type: str | None
+      description: Specify the commit author's name.
+      default: null
+    force:
+      type: bool | None
+      description: If `true`, overwrites `branch` with a new commit based on `start_branch` or `start_sha`, replacing the branch's existing commit history. Default is `false`.
+      default: null
+    start_branch:
+      type: str | None
+      description: Name of the branch to use as the parent for the new commit. If not provided and `start_sha` is also not provided, defaults to the value of `branch`. Mutually exclusive with `start_sha`.
+      default: null
+    start_project:
+      type: str | None
+      description: The project ID or URL-encoded path of the project to use as the source for `start_branch` or `start_sha`. Defaults to the value of `id`.
+      default: null
+    start_sha:
+      type: str | None
+      description: SHA of the commit to use as the parent for the new commit. Must be a full 40-character SHA. Mutually exclusive with `start_branch`.
+      default: null
+    stats:
+      type: bool | None
+      description: Include commit stats. Default is `true`.
       default: null
     base_url:
       type: str
@@ -36,6 +70,16 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
-        payload: ${{ inputs.payload }}
+        payload:
+          branch: ${{ inputs.branch }}
+          commit_message: ${{ inputs.commit_message }}
+          actions: ${{ inputs.actions }}
+          allow_empty: ${{ inputs.allow_empty }}
+          author_email: ${{ inputs.author_email }}
+          author_name: ${{ inputs.author_name }}
+          force: ${{ inputs.force }}
+          start_branch: ${{ inputs.start_branch }}
+          start_project: ${{ inputs.start_project }}
+          start_sha: ${{ inputs.start_sha }}
+          stats: ${{ inputs.stats }}
   returns: ${{ steps.request.result }}

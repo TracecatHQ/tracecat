@@ -10,9 +10,28 @@ definition:
     - name: elastic_security
       keys: ["ELASTIC_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: Optional native Kibana query parameters.
+    hostStatuses:
+      type: list[str]
+      description: A set of host statuses to filter the results by (for example, `healthy`, `updating`). Allowed values are `healthy`, `offline`, `updating`, `inactive`, `unenrolled`.
+    page:
+      type: int | None
+      description: The page number to return.
+      default: null
+    pageSize:
+      type: int | None
+      description: The number of endpoints to return per page.
+      default: null
+    kuery:
+      type: str | None
+      description: A KQL string to filter the endpoint metadata results.
+      default: null
+    sortField:
+      type: str | None
+      description: The field used to sort the results. Allowed values are `enrolled_at`, `metadata.host.hostname`, `host_status`, `metadata.Endpoint.policy.applied.name`, `metadata.Endpoint.policy.applied.status`, `metadata.host.os.name`, `metadata.host.ip`, `metadata.agent.version`, `last_checkin`.
+      default: null
+    sortDirection:
+      type: str | None
+      description: The sort order, either `asc` or `desc`.
       default: null
     base_url:
       type: str | None
@@ -45,7 +64,13 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          hostStatuses: ${{ inputs.hostStatuses }}
+          page: ${{ inputs.page }}
+          pageSize: ${{ inputs.pageSize }}
+          kuery: ${{ inputs.kuery }}
+          sortField: ${{ inputs.sortField }}
+          sortDirection: ${{ inputs.sortDirection }}
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}

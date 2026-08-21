@@ -16,14 +16,13 @@ definition:
     group_id:
       type: str
       description: Rippling API path value for group_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
-      default: null
-    payload:
-      type: dict[str, Any] | None
-      description: API-native request body passed through without validation.
-      default: null
+    operations:
+      # Documented object shape; the `expects` grammar has no nested-object type,
+      # so the vendor's sub-keys are named in the description instead.
+      type: list[dict[str, Any]]
+      description: >-
+        The list of operations to apply. Each operation takes `op` (add or remove) and `value`, the
+        members to add or remove, each carrying an `id` (a member id).
     base_url:
       type: str | None
       description: Base URL of the Rippling REST API.
@@ -38,6 +37,6 @@ definition:
           Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
           Accept: application/json
           Rippling-Api-Version: '2024-08-01'
-        params: ${{ inputs.params }}
-        payload: ${{ inputs.payload }}
+        payload:
+          Operations: ${{ inputs.operations }}
   returns: ${{ steps.request.result }}

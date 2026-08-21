@@ -40,22 +40,6 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
-
-Default: `null`.
-
-</ParamField>
-
 ## Create commit
 
 Action ID: `tools.gitlab.create_commit`
@@ -72,9 +56,53 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="branch" type="string" required>
+
+Name of the branch to commit into. To create a new branch, also provide either `start_branch` or `start_sha`, and optionally `start_project`.
+
+</ParamField>
+
+<ParamField path="commit_message" type="string" required>
+
+Commit message.
+
+</ParamField>
+
 <ParamField path="project_id" type="string" required>
 
 GitLab API path value for project_id.
+
+</ParamField>
+
+<ParamField path="actions" type="array[object] | null">
+
+An array of action hashes to commit as a batch. Each action hash takes `action` (one of `create`, `delete`, `move`, `update`, or `chmod`), `file_path`, and optionally `content`, `encoding`, `execute_filemode`, `last_commit_id`, and `previous_path`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="allow_empty" type="boolean | null">
+
+When `true`, creates an empty commit. Default is `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="author_email" type="string | null">
+
+Specify the commit author's email address.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="author_name" type="string | null">
+
+Specify the commit author's name.
+
+Default: `null`.
 
 </ParamField>
 
@@ -86,17 +114,41 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="force" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+If `true`, overwrites `branch` with a new commit based on `start_branch` or `start_sha`, replacing the branch's existing commit history. Default is `false`.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="start_branch" type="string | null">
 
-API-native request body passed through without validation.
+Name of the branch to use as the parent for the new commit. If not provided and `start_sha` is also not provided, defaults to the value of `branch`. Mutually exclusive with `start_sha`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_project" type="string | null">
+
+The project ID or URL-encoded path of the project to use as the source for `start_branch` or `start_sha`. Defaults to the value of `id`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_sha" type="string | null">
+
+SHA of the commit to use as the parent for the new commit. Must be a full 40-character SHA. Mutually exclusive with `start_branch`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="stats" type="boolean | null">
+
+Include commit stats. Default is `true`.
 
 Default: `null`.
 
@@ -124,6 +176,28 @@ GitLab API path value for project_id.
 
 </ParamField>
 
+<ParamField path="title" type="string" required>
+
+The title of an issue.
+
+</ParamField>
+
+<ParamField path="assignee_id" type="integer | null">
+
+The ID of the user to assign the issue to. Only appears on GitLab Free.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assignee_ids" type="string | null">
+
+The IDs of the users to assign the issue to, as a comma-separated list. Premium and Ultimate only.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
@@ -132,9 +206,97 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="confidential" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+Set an issue to be confidential. Default is `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="created_at" type="string | null">
+
+When the issue was created. Date time string, ISO 8601 formatted, for example `2016-03-11T03:45:40Z`. Requires administrator or project/group owner rights.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="description" type="string | null">
+
+The description of an issue. Limited to 1,048,576 characters.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="discussion_to_resolve" type="string | null">
+
+The ID of a discussion to resolve. This fills out the issue with a default description and marks the discussion as resolved. Use in combination with `merge_request_to_resolve_discussions_of`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="due_date" type="string | null">
+
+The due date. Date time string in the format `YYYY-MM-DD`, for example `2016-03-11`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="epic_id" type="integer | null">
+
+ID of the epic to add the issue to. Valid values are greater than or equal to 0. Premium and Ultimate only.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="iid" type="integer | null">
+
+The internal ID of the project's issue (requires administrator or project owner rights).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="issue_type" type="string | null">
+
+The type of issue. One of `issue`, `incident`, `test_case` or `task`. Default is `issue`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="labels" type="string | null">
+
+Comma-separated label names to assign to the new issue. If a label does not already exist, this creates a new project label and assigns it to the issue.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="merge_request_to_resolve_discussions_of" type="integer | null">
+
+The IID of a merge request in which to resolve all issues. This fills out the issue with a default description and marks all discussions as resolved. When passing a description or title, these values take precedence over the default values.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="milestone" type="string | null">
+
+The title of a project or ancestor-group milestone to assign the issue to. Matched exactly (case-sensitive). Mutually exclusive with `milestone_id`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="milestone_id" type="integer | null">
+
+The global ID of a milestone to assign issue. Mutually exclusive with `milestone`.
 
 Default: `null`.
 
@@ -143,6 +305,30 @@ Default: `null`.
 <ParamField path="payload" type="object | null">
 
 API-native request body passed through without validation.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+The severity of the issue. Applies only to incidents. One of `unknown`, `low`, `medium`, `high`, or `critical`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_date" type="string | null">
+
+The start date. Date time string in the format `YYYY-MM-DD`, for example `2016-03-11`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="weight" type="integer | null">
+
+The weight of the issue. Valid values are greater than or equal to 0. Premium and Ultimate only.
 
 Default: `null`.
 
@@ -176,6 +362,18 @@ GitLab API path value for project_id.
 
 </ParamField>
 
+<ParamField path="target_issue_iid" type="string" required>
+
+The internal ID of a target project's issue.
+
+</ParamField>
+
+<ParamField path="target_project_id" type="string" required>
+
+The ID or URL-encoded path of the project of a target project.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
@@ -184,9 +382,9 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="link_type" type="string | null">
 
-API-native query parameters, including pagination and filters.
+The type of the relation (`relates_to`, `blocks`, `is_blocked_by`), defaults to `relates_to`.
 
 Default: `null`.
 
@@ -216,6 +414,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="body" type="string" required>
+
+The content of a note. Limited to 1,000,000 characters.
+
+</ParamField>
+
 <ParamField path="issue_iid" type="integer" required>
 
 GitLab API path value for issue_iid.
@@ -236,9 +440,25 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="confidential" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+Deprecated: Renamed to `internal`. The confidential flag of a note. Default is false.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="created_at" type="string | null">
+
+Date time string, ISO 8601 formatted. It must be after 1970-01-01. Example: `2016-03-11T03:45:40Z` (requires administrator or project/group owner rights).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="internal" type="boolean | null">
+
+The internal flag of a note. Overrides `confidential` when both parameters are submitted. Default is false.
 
 Default: `null`.
 
@@ -282,17 +502,9 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: source_branch (required), target_branch (required), title (required), allow_collaboration, allow_maintainer_to_push, approvals_before_merge, assignee_id, assignee_ids, description, labels, merge_after, milestone, milestone_id, remove_source_branch, reviewer_ids, squash, target_project_id.
 
 Default: `null`.
 
@@ -334,17 +546,9 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: body (required), created_at, internal, merge_request_diff_head_sha.
 
 Default: `null`.
 
@@ -372,6 +576,12 @@ GitLab API path value for project_id.
 
 </ParamField>
 
+<ParamField path="ref" type="string" required>
+
+The branch or tag to run the pipeline on. For merge request pipelines use the merge requests endpoint.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
@@ -380,17 +590,17 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="inputs" type="object | null">
 
-API-native query parameters, including pagination and filters.
+A hash containing the inputs, as key-value pairs, to use when creating the pipeline.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="variables" type="array[object] | null">
 
-API-native request body passed through without validation.
+An array of hashes containing the variables available in the pipeline, matching the structure `[&#123; 'key': 'UPLOAD_TO_S3', 'variable_type': 'file', 'value': 'true' &#125;, &#123;'key': 'TEST', 'value': 'test variable'&#125;]`. If `variable_type` is excluded, it defaults to `env_var`.
 
 Default: `null`.
 
@@ -426,17 +636,9 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native vulnerability export request body.
+API-native request body. Documented fields: export_format, report_data, send_email.
 
 Default: `null`.
 
@@ -486,22 +688,6 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
-
-Default: `null`.
-
-</ParamField>
-
 ## Download vulnerability export
 
 Action ID: `tools.gitlab.download_vulnerability_export`
@@ -529,14 +715,6 @@ GitLab API path value for export_id.
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
 
 Default: `"https://gitlab.com/api/v4"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
 
 </ParamField>
 
@@ -576,14 +754,6 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get job trace
 
 Action ID: `tools.gitlab.get_job_trace`
@@ -620,9 +790,17 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="byte_limit" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+Maximum number of bytes to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="byte_offset" type="integer | null">
+
+Byte offset to start reading from.
 
 Default: `null`.
 
@@ -664,9 +842,25 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="include_diverged_commits_count" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+If `true`, response includes the commits behind the target branch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_rebase_in_progress" type="boolean | null">
+
+If `true`, response includes whether a rebase operation is in progress.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="render_html" type="boolean | null">
+
+If `true`, response includes rendered HTML for title and description.
 
 Default: `null`.
 
@@ -702,9 +896,25 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="license" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+Include project license data.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="statistics" type="boolean | null">
+
+Include project statistics. Available only to users with the Reporter, Developer, Maintainer, or Owner role.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="with_custom_attributes" type="boolean | null">
+
+Include custom attributes in response. Administrator access.
 
 Default: `null`.
 
@@ -740,14 +950,6 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get repository file
 
 Action ID: `tools.gitlab.get_repository_file`
@@ -776,19 +978,17 @@ GitLab API path value for project_id.
 
 </ParamField>
 
+<ParamField path="ref" type="string" required>
+
+Name of branch, tag, or commit. Use `HEAD` to automatically use the default branch.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
 
 Default: `"https://gitlab.com/api/v4"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
 
 </ParamField>
 
@@ -822,14 +1022,6 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## List commits
 
 Action ID: `tools.gitlab.list_commits`
@@ -852,6 +1044,22 @@ GitLab API path value for project_id.
 
 </ParamField>
 
+<ParamField path="all" type="boolean | null">
+
+Retrieve every commit from the repository. If `true`, the `ref_name` parameter is ignored.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="author" type="string | null">
+
+Search commits by commit author.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
@@ -860,9 +1068,89 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="first_parent" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+If `true`, follows only the first parent commit upon seeing a merge commit.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="follow" type="boolean | null">
+
+If `true`, follows file renames when filtering commits by `path`, and returns commits for the file even if it was renamed. If `false`, returns only commits where the file existed at its current path. Used only when `path` specifies a single file. Defaults to `true`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order" type="string | null">
+
+List commits in order. Possible values: `default`, `topo`. Defaults to `default`, the commits are shown in reverse chronological order.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="path" type="string | null">
+
+The file path.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ref_name" type="string | null">
+
+The name of a repository branch, tag, or revision range, or if not given the default branch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="since" type="string | null">
+
+Only commits after or on this date are returned in ISO 8601 format `YYYY-MM-DDTHH:MM:SSZ`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="trailers" type="boolean | null">
+
+If `true`, parses and includes Git trailers for every commit.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="until" type="string | null">
+
+Only commits before or on this date are returned in ISO 8601 format `YYYY-MM-DDTHH:MM:SSZ`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="with_stats" type="boolean | null">
+
+If `true`, retrieve stats about each commit.
 
 Default: `null`.
 
@@ -896,6 +1184,14 @@ GitLab API path value for project_id.
 
 </ParamField>
 
+<ParamField path="activity_filter" type="string | null">
+
+Filter notes by activity type. Valid values: `all_notes`, `only_comments`, `only_activity`. Default is `all_notes`.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
@@ -904,9 +1200,33 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="order_by" type="string | null">
 
-API-native query parameters, including pagination and filters.
+Return issue notes ordered by `created_at` or `updated_at` fields. Default is `created_at`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Return issue notes sorted in `asc` or `desc` order. Default is `desc`.
 
 Default: `null`.
 
@@ -948,9 +1268,17 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
 
 Default: `null`.
 
@@ -992,9 +1320,25 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+The page of results to return. Defaults to 1.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page. Defaults to 20.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="unidiff" type="boolean | null">
+
+Present diffs in the unified diff format. Default is false.
 
 Default: `null`.
 
@@ -1036,9 +1380,33 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="order_by" type="string | null">
 
-API-native query parameters, including pagination and filters.
+Return merge request notes ordered by `created_at` or `updated_at` fields. Default is `created_at`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Return merge request notes sorted in `asc` or `desc` order. Default is `desc`
 
 Default: `null`.
 
@@ -1080,9 +1448,17 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
 
 Default: `null`.
 
@@ -1110,6 +1486,62 @@ GitLab API path value for project_id.
 
 </ParamField>
 
+<ParamField path="approved_by_ids" type="array[string] | null">
+
+Returns merge requests approved by all the users with the given `id`, up to 5 users. `None` returns merge requests with no approvals. `Any` returns merge requests with an approval.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="approved_by_usernames" type="array[string] | null">
+
+Returns merge requests approved by all the users with the given `username`, up to 5 users. `None` returns merge requests with no approvals. `Any` returns merge requests with an approval.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="approver_ids" type="array[string] | null">
+
+Returns merge requests which have all users with the specified `id` as eligible approvers according to the approval rules. `None` returns merge requests with no eligible approvers. `Any` returns merge requests with at least one eligible approver. Premium and Ultimate only.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assignee_id" type="string | null">
+
+Returns merge requests assigned to the given user `id`. `None` returns unassigned merge requests. `Any` returns merge requests with an assignee. Mutually exclusive with `assignee_username`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assignee_username" type="array[string] | null">
+
+Returns merge requests assigned to the given usernames. Mutually exclusive with `assignee_id`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="author_id" type="integer | null">
+
+Returns merge requests created by the given user `id`. Mutually exclusive with `author_username`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="author_username" type="string | null">
+
+Returns merge requests created by the given `username`. Mutually exclusive with `author_id`.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
@@ -1118,9 +1550,257 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="created_after" type="string | null">
 
-API-native query parameters, including pagination and filters.
+Returns merge requests created on or after the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="created_before" type="string | null">
+
+Returns merge requests created on or before the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="deployed_after" type="string | null">
+
+Returns merge requests deployed after the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="deployed_before" type="string | null">
+
+Returns merge requests deployed before the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="draft" type="boolean | null">
+
+Filter merge requests by their `draft` status. `true` returns only draft merge requests, `false` returns non-draft merge requests. Mutually exclusive with `wip`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="environment" type="string | null">
+
+Returns merge requests deployed to the given environment.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="iids" type="array[string] | null">
+
+Returns merge requests matching the provided IIDs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="labels" type="string | null">
+
+Returns merge requests matching a comma-separated list of labels. `None` lists all merge requests with no labels. `Any` lists all merge requests with at least one label. Predefined names are case-insensitive.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="merge_user_id" type="integer | null">
+
+Returns merge requests merged by the user with the given user `id`. Mutually exclusive with `merge_user_username`. Introduced in GitLab 17.0.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="merge_user_username" type="string | null">
+
+Returns merge requests merged by the user with the given `username`. Mutually exclusive with `merge_user_id`. Introduced in GitLab 17.0.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="merged_after" type="string | null">
+
+Returns merge requests merged on or after the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="merged_before" type="string | null">
+
+Returns merge requests merged on or before the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="milestone" type="string | null">
+
+Returns merge requests for a specific milestone. `None` returns merge requests with no milestone. `Any` returns merge requests that have an assigned milestone.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="my_reaction_emoji" type="string | null">
+
+Returns merge requests reacted by the authenticated user by the given `emoji`. `None` returns issues not given a reaction. `Any` returns issues given at least one reaction.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+Returns merge requests ordered by `created_at`, `updated_at`, `merged_at` (introduced in GitLab 17.2), `label_priority`, `priority`, `milestone_due`, `popularity`, or `title` fields. Default is `created_at`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="reviewer_id" type="string | null">
+
+Returns merge requests which have the user as a reviewer with the given user `id`. `None` returns merge requests with no reviewers. `Any` returns merge requests with any reviewer. Mutually exclusive with `reviewer_username`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="reviewer_username" type="string | null">
+
+Returns merge requests which have the user as a reviewer with the given `username`. `None` returns merge requests with no reviewers. `Any` returns merge requests with any reviewer. Mutually exclusive with `reviewer_id`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scope" type="string | null">
+
+Returns merge requests for the given scope: `created_by_me`, `assigned_to_me`, `reviews_for_me`, or `all`. `reviews_for_me` returns merge requests where the current user is assigned as a reviewer. Defaults to `all`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+Search merge requests against their `title` and `description`. Combine with `in` attribute.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search_in" type="string | null">
+
+Change the scope of the `search` attribute. `title`, `description`, or a string joining them with comma. Default is `title,description`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Returns merge requests sorted in `asc` or `desc` order. Default is `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="source_branch" type="string | null">
+
+Returns merge requests with the given source branch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+Returns all merge requests (`all`) or just those that are `opened`, `closed`, `locked`, or `merged`. Defaults to `all`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="target_branch" type="string | null">
+
+Returns merge requests with the given target branch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="updated_after" type="string | null">
+
+Returns merge requests updated on or after the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="updated_before" type="string | null">
+
+Returns merge requests updated on or before the given date and time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="view" type="string | null">
+
+If `simple`, returns the `iid`, URL, title, description, and basic state of merge request.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="wip" type="string | null">
+
+Deprecated in GitLab 19.0. Use `draft` instead. Filter merge requests by their `wip` status. `yes` returns only draft merge requests, `no` returns non-draft merge requests.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="with_labels_details" type="boolean | null">
+
+If `true`, response returns more details for each label in labels field: `:name`, `:color`, `:description`, `:description_html`, `:text_color`. Default is `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="with_merge_status_recheck" type="boolean | null">
+
+If `true`, this projection requests (but does not guarantee) an asynchronous recalculation of the `merge_status` field. Enable the `restrict_merge_status_recheck` feature flag to ignore this attribute when requested by users without the Developer, Maintainer, or Owner role.
 
 Default: `null`.
 
@@ -1162,9 +1842,33 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="include_retried" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+Include retried jobs in the response. Defaults to `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scope" type="string | null">
+
+Scope of jobs to show, as one of the job status values: `created`, `waiting_for_resource`, `preparing`, `waiting_for_callback`, `pending`, `running`, `success`, `failed`, `canceling`, `canceled`, `skipped`, `manual`, or `scheduled`. All jobs are returned if `scope` is not provided.
 
 Default: `null`.
 
@@ -1200,9 +1904,129 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="created_after" type="string | null">
 
-API-native query parameters, including pagination and filters.
+Return pipelines created after the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="created_before" type="string | null">
+
+Return pipelines created before the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="name" type="string | null">
+
+Return pipelines with the specified name.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The field to order pipelines by: `id`, `status`, `ref`, `updated_at`, or `user_id` (default: `id`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ref" type="string | null">
+
+Return pipelines for the specified branch or tag.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scope" type="string | null">
+
+Return pipelines in the specified scope: `running`, `pending`, `finished`, `branches`, or `tags`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sha" type="string | null">
+
+Return pipelines for the specified commit SHA.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The sort order: `asc` or `desc` (default: `desc`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="source" type="string | null">
+
+Return pipelines with the specified source.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Return pipelines with the specified status: `created`, `waiting_for_resource`, `preparing`, `waiting_for_callback`, `pending`, `running`, `success`, `failed`, `canceling`, `canceled`, `skipped`, `manual`, or `scheduled`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="updated_after" type="string | null">
+
+Return pipelines updated after the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="updated_before" type="string | null">
+
+Return pipelines updated before the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="username" type="string | null">
+
+Return pipelines triggered by the specified username.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="yaml_errors" type="boolean | null">
+
+Return pipelines with invalid configurations.
 
 Default: `null`.
 
@@ -1238,9 +2062,17 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
 
 Default: `null`.
 
@@ -1276,9 +2108,33 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="created_after" type="string | null">
 
-API-native query parameters, including pagination and filters.
+Return project audit events created on or after the given time. Format: ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="created_before" type="string | null">
+
+Return project audit events created on or before the given time. Format: ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
 
 Default: `null`.
 
@@ -1314,9 +2170,25 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="package_manager" type="string | null">
 
-API-native query parameters, including pagination and filters.
+Returns dependencies belonging to specified package manager. Valid values: `bundler`, `composer`, `conan`, `go`, `gradle`, `maven`, `npm`, `nuget`, `pip`, `pipenv`, `pnpm`, `yarn`, `sbt`, or `setuptools`. Accepts a comma-separated list.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
 
 Default: `null`.
 
@@ -1344,6 +2216,14 @@ GitLab API path value for project_id.
 
 </ParamField>
 
+<ParamField path="archived" type="boolean | null">
+
+If `true`, returns only archived labels. If unset, returns all labels.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
@@ -1352,9 +2232,41 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="include_ancestor_groups" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+Include ancestor groups. Defaults to `true`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+Keyword to filter labels by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="with_counts" type="boolean | null">
+
+Whether or not to include issue and merge request counts. Defaults to `false`.
 
 Default: `null`.
 
@@ -1390,9 +2302,49 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="query" type="string | null">
+
+Filters results based on a given name, email, or username. Use partial values to widen the scope of the query.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="show_seat_info" type="boolean | null">
+
+Show seat information for users.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+Filter results by member state, one of `awaiting` or `active`. Premium and Ultimate only.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="user_ids" type="string | null">
+
+Filter the results on the given user IDs, as a comma-separated list.
 
 Default: `null`.
 
@@ -1428,9 +2380,49 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="pipeline_id" type="string | null">
+
+Returns vulnerability findings belonging to specified pipeline.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="report_type" type="string | null">
+
+Returns vulnerability findings belonging to specified report type. Valid values: `sast`, `dast`, `dependency_scanning`, or `container_scanning`. Defaults to all. Accepts a comma-separated list.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scope" type="string | null">
+
+Returns vulnerability findings for the given scope: `all` or `dismissed`. Defaults to `dismissed`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+Returns vulnerability findings belonging to specified severity level: `info`, `unknown`, `low`, `medium`, `high`, or `critical`. Defaults to all. Accepts a comma-separated list.
 
 Default: `null`.
 
@@ -1466,9 +2458,9 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="with_content" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+Include pages' content.
 
 Default: `null`.
 
@@ -1504,9 +2496,25 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+Name or part of the name of protected branches to search for.
 
 Default: `null`.
 
@@ -1542,9 +2550,65 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page_token" type="string | null">
+
+Tree record ID at which to fetch the next page. Used only with keyset pagination.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="pagination" type="string | null">
+
+If `keyset`, use the keyset-based pagination method.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="path" type="string | null">
+
+Path inside the repository. Used to get content of subdirectories.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of results to show per page. If not specified, defaults to `20`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="recursive" type="boolean | null">
+
+If `true`, get a recursive tree. Default is `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ref" type="string | null">
+
+Name of a repository branch or tag. If not specified, uses the default branch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="with_last_commit" type="boolean | null">
+
+If `true`, include the last commit for each tree entry. Cannot be combined with `recursive`. Default is `false`.
 
 Default: `null`.
 
@@ -1586,17 +2650,9 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: auto_merge, merge_commit_message, merge_when_pipeline_succeeds, sha, should_remove_source_branch, squash, squash_commit_message.
 
 Default: `null`.
 
@@ -1638,22 +2694,6 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
-
-Default: `null`.
-
-</ParamField>
-
 ## Search project
 
 Action ID: `tools.gitlab.search_project`
@@ -1676,6 +2716,18 @@ GitLab API path value for project_id.
 
 </ParamField>
 
+<ParamField path="scope" type="string" required>
+
+The scope to search in. Values include `issues`, `work_items`, `merge_requests`, `milestones`, and `users`. Additional scopes are `wiki_blobs`, `commits`, `blobs`, and `notes`.
+
+</ParamField>
+
+<ParamField path="search" type="string" required>
+
+The search term.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
@@ -1684,9 +2736,97 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="confidential" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+Filter by confidentiality. Supports `issues` and `work_items` scopes; other scopes are ignored.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="fields" type="string | null">
+
+Array of fields you wish to search, allowed values are `title` only. Supports only `issues` and `merge_requests` scopes. Premium and Ultimate only.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="num_context_lines" type="integer | null">
+
+Number of context lines to include around each match in the results. Available for advanced and exact code search only.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+Allowed values are `created_at` only. If not set, results are sorted by `created_at` in descending order for basic search, or by the most relevant documents for advanced search.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number (default: `1`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page (default: `20`, max: `100`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ref" type="string | null">
+
+The name of a repository branch or tag to search on. The project's default branch is used by default. Applicable only for scopes `blobs`, `commits`, and `wiki_blobs`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="regex" type="boolean | null">
+
+Uses regular expressions to search for code. Available for exact code search. If not set, regular expressions are used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search_type" type="string | null">
+
+The search type to use. Values include `basic`, `advanced`, and `zoekt`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Allowed values are `asc` or `desc` only. If not set, results are sorted by `created_at` in descending order for basic search, or by the most relevant documents for advanced search.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+Filter by state. Supports `issues`, `work_items`, and `merge_requests` scopes; other scopes are ignored.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+Filter work items by type. Only applies to `work_items` scope. Available types: `issue`, `task`, `epic`, `incident`, `test_case`, `requirement`, `objective`, `key_result`, `ticket`.
 
 Default: `null`.
 
@@ -1714,6 +2854,12 @@ GitLab API path value for project_id.
 
 </ParamField>
 
+<ParamField path="q" type="string" required>
+
+Natural language search query.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
@@ -1722,9 +2868,25 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="directory_path" type="string | null">
 
-API-native query parameters, including pagination and filters.
+Directory path to scope the search to.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="knn" type="integer | null">
+
+Number of nearest neighbors to consider during the vector search (1-100). Default is `64`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of results to return (1-100). Default is `20`.
 
 Default: `null`.
 
@@ -1758,6 +2920,22 @@ GitLab API path value for project_id.
 
 </ParamField>
 
+<ParamField path="add_labels" type="string | null">
+
+Comma-separated label names to add to an issue. If a label does not already exist, this creates a new project label and assigns it to the issue.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assignee_ids" type="string | null">
+
+The ID of the users to assign the issue to, as a comma-separated list. Set to `0` to unassign all assignees.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
@@ -1766,9 +2944,73 @@ Default: `"https://gitlab.com/api/v4"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="confidential" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+Updates an issue to be confidential.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="description" type="string | null">
+
+The description of an issue. Limited to 1,048,576 characters.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="discussion_locked" type="boolean | null">
+
+Flag indicating if the issue's discussion is locked. If the discussion is locked only project members can add or edit comments.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="due_date" type="string | null">
+
+The due date. Date time string in the format `YYYY-MM-DD`, for example `2016-03-11`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="epic_id" type="integer | null">
+
+ID of the epic to add the issue to. Valid values are greater than or equal to 0. Premium and Ultimate only.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="issue_type" type="string | null">
+
+Updates the type of issue. One of `issue`, `incident`, or `test_case`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="labels" type="string | null">
+
+Comma-separated label names for an issue. If a label does not already exist, this creates a new project label and assigns it to the issue.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="milestone" type="string | null">
+
+The title of a project or ancestor-group milestone to assign the issue to. Matched exactly (case-sensitive). Mutually exclusive with `milestone_id`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="milestone_id" type="integer | null">
+
+The global ID of a milestone to assign the issue to. Set to `0` to unassign a milestone. Mutually exclusive with `milestone`.
 
 Default: `null`.
 
@@ -1777,6 +3019,54 @@ Default: `null`.
 <ParamField path="payload" type="object | null">
 
 API-native request body passed through without validation.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="remove_labels" type="string | null">
+
+Comma-separated label names to remove from an issue.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+The severity of the issue. Only applies to incidents. One of `unknown`, `low`, `medium`, `high`, or `critical`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_date" type="string | null">
+
+The start date. Date time string in the format `YYYY-MM-DD`, for example `2016-03-11`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state_event" type="string | null">
+
+The state event of an issue. To close the issue, use `close`, and to reopen it, use `reopen`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="title" type="string | null">
+
+The title of an issue.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="updated_at" type="string | null">
+
+When the issue was updated. Date time string, ISO 8601 formatted, for example `2016-03-11T03:45:40Z` (requires administrator or project owner rights).
 
 Default: `null`.
 
@@ -1804,26 +3094,16 @@ GitLab API path value for project_id.
 
 </ParamField>
 
+<ParamField path="secret_push_protection_enabled" type="boolean" required>
+
+Enables secret push protection for the project.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
 
 Default: `"https://gitlab.com/api/v4"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
-
-Default: `null`.
 
 </ParamField>

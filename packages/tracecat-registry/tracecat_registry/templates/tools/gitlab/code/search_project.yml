@@ -15,9 +15,59 @@ definition:
     project_id:
       type: str
       description: GitLab API path value for project_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    scope:
+      type: str
+      description: The scope to search in. Values include `issues`, `work_items`, `merge_requests`, `milestones`, and `users`. Additional scopes are `wiki_blobs`, `commits`, `blobs`, and `notes`.
+    search:
+      type: str
+      description: The search term.
+    search_type:
+      type: str | None
+      description: The search type to use. Values include `basic`, `advanced`, and `zoekt`.
+      default: null
+    confidential:
+      type: bool | None
+      description: Filter by confidentiality. Supports `issues` and `work_items` scopes; other scopes are ignored.
+      default: null
+    regex:
+      type: bool | None
+      description: Uses regular expressions to search for code. Available for exact code search. If not set, regular expressions are used.
+      default: null
+    fields:
+      type: str | None
+      description: Array of fields you wish to search, allowed values are `title` only. Supports only `issues` and `merge_requests` scopes. Premium and Ultimate only.
+      default: null
+    num_context_lines:
+      type: int | None
+      description: Number of context lines to include around each match in the results. Available for advanced and exact code search only.
+      default: null
+    ref:
+      type: str | None
+      description: The name of a repository branch or tag to search on. The project's default branch is used by default. Applicable only for scopes `blobs`, `commits`, and `wiki_blobs`.
+      default: null
+    state:
+      type: str | None
+      description: Filter by state. Supports `issues`, `work_items`, and `merge_requests` scopes; other scopes are ignored.
+      default: null
+    type:
+      type: str | None
+      description: "Filter work items by type. Only applies to `work_items` scope. Available types: `issue`, `task`, `epic`, `incident`, `test_case`, `requirement`, `objective`, `key_result`, `ticket`."
+      default: null
+    order_by:
+      type: str | None
+      description: Allowed values are `created_at` only. If not set, results are sorted by `created_at` in descending order for basic search, or by the most relevant documents for advanced search.
+      default: null
+    sort:
+      type: str | None
+      description: Allowed values are `asc` or `desc` only. If not set, results are sorted by `created_at` in descending order for basic search, or by the most relevant documents for advanced search.
+      default: null
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of items to list per page (default: `20`, max: `100`)."
       default: null
     base_url:
       type: str
@@ -32,5 +82,19 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          scope: ${{ inputs.scope }}
+          search: ${{ inputs.search }}
+          search_type: ${{ inputs.search_type }}
+          confidential: ${{ inputs.confidential }}
+          regex: ${{ inputs.regex }}
+          fields: ${{ inputs.fields }}
+          num_context_lines: ${{ inputs.num_context_lines }}
+          ref: ${{ inputs.ref }}
+          state: ${{ inputs.state }}
+          type: ${{ inputs.type }}
+          order_by: ${{ inputs.order_by }}
+          sort: ${{ inputs.sort }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
   returns: ${{ steps.request.result }}
