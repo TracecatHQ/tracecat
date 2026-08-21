@@ -1543,7 +1543,7 @@ const ISO_8601_DURATION_REGEX =
 
 const BASIC_CRON_REGEX = /^(\S+\s+){4,5}\S+$/
 
-const durationNumber = z.coerce.number().int().safe().nonnegative().catch(0)
+const durationNumber = z.coerce.number().int().nonnegative().catch(0)
 
 const rawDurationSchema = z.object({
   years: durationNumber,
@@ -1560,13 +1560,7 @@ const scheduleInputsSchema = z
     mode: z.enum(["interval", "cron"]).default("interval"),
     duration: rawDurationSchema,
     cronExpression: z.string().optional(),
-    timeout: z
-      .number()
-      .min(0, { message: "Timeout must be at least 0 seconds" })
-      .max(1209600, {
-        message: "Timeout cannot exceed 14 days (1209600 seconds)",
-      })
-      .optional(),
+    timeout: z.number().optional(),
     offset: z.string().optional(),
     startAt: z.string().optional(),
     endAt: z.string().optional(),

@@ -29,6 +29,7 @@ function mockSettingsHook(
     agentOtelSettingsIsLoading: false,
     agentOtelSettingsError: null,
     updateAgentOtelSettings,
+    getLatestAgentOtelSettings: jest.fn(() => undefined),
     updateAgentOtelSettingsIsPending: false,
     updateAgentOtelSettingsError: null,
     ...overrides,
