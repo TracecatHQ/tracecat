@@ -47,6 +47,6 @@ definition:
           Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
           Content-Type: application/vnd.api+json
         params:
-          page[size]: ${{ inputs.page[size] }}
-          page[number]: ${{ inputs.page[number] }}
+          page[size]: ${{ inputs.'page[size]' }}
+          page[number]: ${{ inputs.'page[number]' }}
   returns: ${{ steps.list_workspaces.result.data }}

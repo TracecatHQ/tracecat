@@ -3,12 +3,18 @@ from collections.abc import Iterator, Mapping
 from types import TracebackType
 from typing import Any, Literal, Self, TypeVar, override
 
+import jsonpath_ng.jsonpath as jsonpath_nodes
 from lark import Token, Tree
 from pydantic import BaseModel, Field
 
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.dsl.schemas import TaskResult
-from tracecat.expressions.common import MAX_VARS_PATH_DEPTH, ExprContext, ExprType
+from tracecat.expressions.common import (
+    MAX_VARS_PATH_DEPTH,
+    ExprContext,
+    ExprType,
+    parse_jsonpath,
+)
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.expressions.validator.base import BaseExprValidator
 from tracecat.integrations.enums import OAuthGrantType
@@ -25,6 +31,19 @@ from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
 T = TypeVar("T")
+
+
+def _first_jsonpath_field(selector: str) -> str | None:
+    """Return the first field selected from a partial JSONPath."""
+    path = parse_jsonpath("$" + selector)
+    while isinstance(path, jsonpath_nodes.Child):
+        if isinstance(path.left, jsonpath_nodes.Root):
+            path = path.right
+            break
+        path = path.left
+    if isinstance(path, jsonpath_nodes.Fields) and len(path.fields) == 1:
+        return path.fields[0]
+    return None
 
 
 class ExprValidationContext(BaseModel):
@@ -444,8 +463,7 @@ class TemplateActionExprValidator(
         if not isinstance(token, Token):
             raise ValueError("Expected a string token")
 
-        jsonpath = token.lstrip(".")
-        input_field = jsonpath.split(".")[0]  # Get first segment
+        input_field = _first_jsonpath_field(str(token))
 
         if input_field not in self._context.expects:
             self.add(

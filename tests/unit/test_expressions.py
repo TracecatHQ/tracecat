@@ -487,6 +487,8 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("   ACTIONS.action_test", {"bar": 1, "baz": 2}),
         ("VARS.api_config.base_url", "https://example.com"),
         ("VARS.api_config.timeout", 30),
+        # Template action input expressions
+        ("inputs.'page[size]'", 50),
         # Secret expressions
         ("SECRETS.secret_test.KEY", "SECRET"),
         ("   SECRETS.secret_test.KEY    ", "SECRET"),
@@ -822,6 +824,9 @@ def test_expression_parser(expr, expected):
         ExprContext.LOCAL_VARS: {
             "x": 5,
             "y": "100",
+        },
+        ExprContext.TEMPLATE_ACTION_INPUTS: {
+            "page[size]": 50,
         },
     }
     # visitor = ExprEvaluatorVisitor(context=context)
@@ -1288,6 +1293,20 @@ def test_parse_trigger_json(context, expr, expected):
             "${{ inputs.my_input.nested }}",
             [{"type": ExprType.TEMPLATE_ACTION_INPUT, "status": "success"}],
         ),
+        (
+            "${{ inputs.'page[size]' }}",
+            [{"type": ExprType.TEMPLATE_ACTION_INPUT, "status": "success"}],
+        ),
+        (
+            "${{ inputs.page[size] }}",
+            [
+                {
+                    "type": ExprType.TEMPLATE_ACTION_INPUT,
+                    "status": "error",
+                    "contains_msg": "Invalid input reference 'page'",
+                }
+            ],
+        ),
         # Test invalid template action input references
         (
             "${{ inputs.invalid_input }}",
@@ -1295,7 +1314,7 @@ def test_parse_trigger_json(context, expr, expected):
                 {
                     "type": ExprType.TEMPLATE_ACTION_INPUT,
                     "status": "error",
-                    "contains_msg": "Invalid input reference 'invalid_input'. Valid inputs are: ['my_input', 'other_input']",
+                    "contains_msg": "Invalid input reference 'invalid_input'. Valid inputs are: ['my_input', 'other_input', 'page[size]']",
                 }
             ],
         ),
@@ -1346,6 +1365,7 @@ async def test_template_action_validator(expr, expected):
         expects={
             "my_input": ExpectedField(type="str"),
             "other_input": ExpectedField(type="int"),
+            "page[size]": ExpectedField(type="int"),
         },
         step_refs={"step1", "step2"},
     )
