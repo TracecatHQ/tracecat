@@ -22,7 +22,7 @@ definition:
       description: Response media type to request.
       default: application/x-ndjson
     labels:
-      type: list[str] | None
+      type: str | None
       description: >-
         Repository label slugs to apply policies. Only one label is supported currently; the
         parameter is an array to allow future support for multiple labels.

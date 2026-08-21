@@ -1596,9 +1596,17 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="iids" type="array[string] | null">
+<ParamField path="iids" type="array[integer] | null">
 
 Returns merge requests matching the provided IIDs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="in" type="string | null">
+
+Change the scope of the `search` attribute. `title`, `description`, or a string joining them with comma. Default is `title,description`.
 
 Default: `null`.
 
@@ -1711,14 +1719,6 @@ Default: `null`.
 <ParamField path="search" type="string | null">
 
 Search merge requests against their `title` and `description`. Combine with `in` attribute.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="search_in" type="string | null">
-
-Change the scope of the `search` attribute. `title`, `description`, or a string joining them with comma. Default is `title,description`.
 
 Default: `null`.
 

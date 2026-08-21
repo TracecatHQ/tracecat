@@ -16,7 +16,7 @@ definition:
     group_id:
       type: str
       description: Rippling API path value for group_id.
-    operations:
+    Operations:
       # Documented object shape; the `expects` grammar has no nested-object type,
       # so the vendor's sub-keys are named in the description instead.
       type: list[dict[str, Any]]
@@ -38,5 +38,5 @@ definition:
           Accept: application/json
           Rippling-Api-Version: '2024-08-01'
         payload:
-          Operations: ${{ inputs.operations }}
+          Operations: ${{ inputs.Operations }}
   returns: ${{ steps.request.result }}

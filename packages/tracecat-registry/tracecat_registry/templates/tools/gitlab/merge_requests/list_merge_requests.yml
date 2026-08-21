@@ -16,7 +16,7 @@ definition:
       type: str
       description: GitLab API path value for project_id.
     iids:
-      type: list[str] | None
+      type: list[int] | None
       description: Returns merge requests matching the provided IIDs.
       default: null
     approved_by_ids:
@@ -75,7 +75,7 @@ definition:
       type: str | None
       description: Returns merge requests deployed to the given environment.
       default: null
-    search_in:
+    in:
       type: str | None
       description: Change the scope of the `search` attribute. `title`, `description`, or a string joining them with comma. Default is `title,description`.
       default: null
@@ -200,7 +200,7 @@ definition:
           merged_after: ${{ inputs.merged_after }}
           merged_before: ${{ inputs.merged_before }}
           environment: ${{ inputs.environment }}
-          in: ${{ inputs.search_in }}
+          in: ${{ inputs.in }}
           labels: ${{ inputs.labels }}
           merge_user_id: ${{ inputs.merge_user_id }}
           merge_user_username: ${{ inputs.merge_user_username }}

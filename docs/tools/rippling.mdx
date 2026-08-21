@@ -1056,15 +1056,15 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="group_id" type="string" required>
+<ParamField path="Operations" type="array[object]" required>
 
-Rippling API path value for group_id.
+The list of operations to apply. Each operation takes `op` (add or remove) and `value`, the members to add or remove, each carrying an `id` (a member id).
 
 </ParamField>
 
-<ParamField path="operations" type="array[object]" required>
+<ParamField path="group_id" type="string" required>
 
-The list of operations to apply. Each operation takes `op` (add or remove) and `value`, the members to add or remove, each carrying an `id` (a member id).
+Rippling API path value for group_id.
 
 </ParamField>
 
@@ -1092,15 +1092,15 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="group_id" type="string" required>
+<ParamField path="Operations" type="array[object]" required>
 
-Rippling API path value for group_id.
+The list of operations to apply. Each operation takes `op` (add or remove) and `value`, the members to add or remove, each carrying an `id` (a member id).
 
 </ParamField>
 
-<ParamField path="operations" type="array[object]" required>
+<ParamField path="group_id" type="string" required>
 
-The list of operations to apply. Each operation takes `op` (add or remove) and `value`, the members to add or remove, each carrying an `id` (a member id).
+Rippling API path value for group_id.
 
 </ParamField>
 
