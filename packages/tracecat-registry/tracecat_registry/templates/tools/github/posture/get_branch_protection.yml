@@ -20,10 +20,6 @@ definition:
     branch:
       type: str
       description: GitHub API path value for branch.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
-      default: null
     base_url:
       type: str
       description: GitHub.com REST API base URL.
@@ -38,5 +34,4 @@ definition:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
-      params: ${{ inputs.params }}
   returns: ${{ steps.request.result }}

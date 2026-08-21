@@ -13,9 +13,13 @@ definition:
     id:
       type: str
       description: Sublime message ID.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    recompute_mdm_from_raw:
+      type: bool | None
+      description: When true, recompute the MDM from the raw EML. For internal use only!
+      default: null
+    remove_large_text_fields:
+      type: bool | None
+      description: When true, any text field over 1MB will be cleared before returning
       default: null
     base_url:
       type: str | None
@@ -27,7 +31,9 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/messages/${{ FN.url_encode(inputs.id) }}/message_data_model
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          recompute_mdm_from_raw: ${{ inputs.recompute_mdm_from_raw }}
+          remove_large_text_fields: ${{ inputs.remove_large_text_fields }}
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
   returns: ${{ steps.request.result.data }}

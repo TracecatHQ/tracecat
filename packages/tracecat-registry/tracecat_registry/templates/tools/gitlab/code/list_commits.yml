@@ -15,9 +15,57 @@ definition:
     project_id:
       type: str
       description: GitLab API path value for project_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    all:
+      type: bool | None
+      description: Retrieve every commit from the repository. If `true`, the `ref_name` parameter is ignored.
+      default: null
+    author:
+      type: str | None
+      description: Search commits by commit author.
+      default: null
+    first_parent:
+      type: bool | None
+      description: If `true`, follows only the first parent commit upon seeing a merge commit.
+      default: null
+    follow:
+      type: bool | None
+      description: If `true`, follows file renames when filtering commits by `path`, and returns commits for the file even if it was renamed. If `false`, returns only commits where the file existed at its current path. Used only when `path` specifies a single file. Defaults to `true`.
+      default: null
+    order:
+      type: str | None
+      description: "List commits in order. Possible values: `default`, `topo`. Defaults to `default`, the commits are shown in reverse chronological order."
+      default: null
+    path:
+      type: str | None
+      description: The file path.
+      default: null
+    ref_name:
+      type: str | None
+      description: The name of a repository branch, tag, or revision range, or if not given the default branch.
+      default: null
+    since:
+      type: str | None
+      description: Only commits after or on this date are returned in ISO 8601 format `YYYY-MM-DDTHH:MM:SSZ`.
+      default: null
+    trailers:
+      type: bool | None
+      description: If `true`, parses and includes Git trailers for every commit.
+      default: null
+    until:
+      type: str | None
+      description: Only commits before or on this date are returned in ISO 8601 format `YYYY-MM-DDTHH:MM:SSZ`.
+      default: null
+    with_stats:
+      type: bool | None
+      description: If `true`, retrieve stats about each commit.
+      default: null
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of items to list per page (default: `20`, max: `100`)."
       default: null
     base_url:
       type: str
@@ -32,5 +80,18 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          all: ${{ inputs.all }}
+          author: ${{ inputs.author }}
+          first_parent: ${{ inputs.first_parent }}
+          follow: ${{ inputs.follow }}
+          order: ${{ inputs.order }}
+          path: ${{ inputs.path }}
+          ref_name: ${{ inputs.ref_name }}
+          since: ${{ inputs.since }}
+          trailers: ${{ inputs.trailers }}
+          until: ${{ inputs.until }}
+          with_stats: ${{ inputs.with_stats }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
   returns: ${{ steps.request.result }}

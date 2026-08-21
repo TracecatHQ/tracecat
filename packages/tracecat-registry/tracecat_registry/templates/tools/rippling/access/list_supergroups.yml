@@ -12,11 +12,21 @@ definition:
     - name: rippling
       keys: ["RIPPLING_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
+    filter:
+      type: str | None
       description: >-
-        API-native query parameters, including cursor for pagination. Support for filter,
-        expand, and order_by varies by endpoint; see the linked Rippling documentation.
+        The `filter` query parameter is used to filter the data returned from the API - similar to a
+        `where` clause. The following operators are supported: eq, ne, gt, gte, lt, lte, and, or,
+        in. Example: status eq 'ACTIVE'. Filterable fields: `app_owner_id`, `group_type`.
+      default: null
+    order_by:
+      type: str | None
+      description: >-
+        The `order_by` parameter is used to select field(s) to sort by and to define whether results
+        are sorted in ascending or descending order. Supported sort directions are `asc` for
+        ascending order and `desc` for descending order. Unless indicated, the default sort
+        direction is ascending order. Use commas to specify multiple fields to sort. Sortable
+        fields: `id`, `created_at`, `updated_at`.
       default: null
     base_url:
       type: str | None
@@ -32,5 +42,7 @@ definition:
           Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
           Accept: application/json
           Rippling-Api-Version: '2024-08-01'
-        params: ${{ inputs.params }}
+        params:
+          filter: ${{ inputs.filter }}
+          order_by: ${{ inputs.order_by }}
   returns: ${{ steps.request.result }}

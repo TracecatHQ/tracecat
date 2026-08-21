@@ -12,11 +12,35 @@ definition:
     - name: rippling
       keys: ["RIPPLING_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
+    expand:
+      type: str | None
       description: >-
-        API-native query parameters, including cursor for pagination. Support for filter,
-        expand, and order_by varies by endpoint; see the linked Rippling documentation.
+        Fields in a response can represent objects themselves. Instead of making an additional API
+        call, you can expand field(s) in a response using the `expand` query parameter. Use commas
+        to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API
+        supports two levels of expansion and up to ten expanded fields per request. Expandable
+        fields: `parent`, `department_hierarchy`.
+      default: null
+    order_by:
+      type: str | None
+      description: >-
+        The `order_by` parameter is used to select field(s) to sort by and to define whether results
+        are sorted in ascending or descending order. Supported sort directions are `asc` for
+        ascending order and `desc` for descending order. Unless indicated, the default sort
+        direction is ascending order. Use commas to specify multiple fields to sort. Sortable
+        fields: `id`, `created_at`, `updated_at`.
+      default: null
+    limit:
+      type: int | None
+      description: >-
+        `limit` controls how many results are returned in a single page. Default page size is 50.
+        Most endpoints allow a maximum of 100.
+      default: null
+    cursor:
+      type: str | None
+      description: >-
+        `cursor` is used to fetch the next page of results. Start with a request without cursor,
+        read the `next_link` value from the response, and continue until `next_link` is `null`.
       default: null
     base_url:
       type: str | None
@@ -32,5 +56,9 @@ definition:
           Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
           Accept: application/json
           Rippling-Api-Version: '2024-08-01'
-        params: ${{ inputs.params }}
+        params:
+          expand: ${{ inputs.expand }}
+          order_by: ${{ inputs.order_by }}
+          limit: ${{ inputs.limit }}
+          cursor: ${{ inputs.cursor }}
   returns: ${{ steps.request.result }}

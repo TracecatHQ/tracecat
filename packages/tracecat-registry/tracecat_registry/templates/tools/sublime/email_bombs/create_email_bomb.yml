@@ -10,9 +10,15 @@ definition:
     - name: sublime
       keys: ["SUBLIME_API_KEY"]
   expects:
-    payload:
-      type: dict[str, Any]
-      description: API-native JSON request body.
+    mailbox_id:
+      type: str
+      description: ID of the mailbox to declare the email bomb for
+    start_time:
+      type: datetime
+      description: Start of the email bomb time range
+    end_time:
+      type: datetime
+      description: End of the email bomb time range (must not be in the future)
     base_url:
       type: str | None
       description: Base URL of the Sublime API.
@@ -25,5 +31,8 @@ definition:
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
-        payload: ${{ inputs.payload }}
+        payload:
+          mailbox_id: ${{ inputs.mailbox_id }}
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
   returns: ${{ steps.request.result.data }}

@@ -46,22 +46,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
-
-Default: `null`.
-
-</ParamField>
-
 ## Compare commits
 
 Action ID: `tools.github.compare_commits`
@@ -104,9 +88,17 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
 
 Default: `null`.
 
@@ -148,17 +140,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body passed through without validation. Body fields documented for POST /repos/&#123;owner&#125;/&#123;repo&#125;/issues: title (required), body, assignee, milestone, labels, assignees, issue_field_values, type.
 
 Default: `null`.
 
@@ -179,6 +163,12 @@ Required secrets:
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
+
+<ParamField path="body" type="string" required>
+
+The contents of the comment.
+
+</ParamField>
 
 <ParamField path="issue_number" type="integer" required>
 
@@ -203,22 +193,6 @@ GitHub API path value for repo.
 GitHub.com REST API base URL.
 
 Default: `"https://api.github.com"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
-
-Default: `null`.
 
 </ParamField>
 
@@ -264,17 +238,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: content (required), message (required), author, branch, committer, sha.
 
 Default: `null`.
 
@@ -316,17 +282,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body passed through without validation. Body fields documented for POST /repos/&#123;owner&#125;/&#123;repo&#125;/pulls: title, head (required), head_repo, base (required), body, maintainer_can_modify, draft, issue.
 
 Default: `null`.
 
@@ -374,17 +332,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body passed through without validation. Body fields documented for POST /repos/&#123;owner&#125;/&#123;repo&#125;/pulls/&#123;pull_number&#125;/reviews: commit_id, body, event, comments.
 
 Default: `null`.
 
@@ -432,17 +382,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body passed through without validation. Body fields documented for POST /repos/&#123;owner&#125;/&#123;repo&#125;/pulls/&#123;pull_number&#125;/comments: body (required), commit_id (required), path (required), position, side, line, start_line, start_side, in_reply_to, subject_type.
 
 Default: `null`.
 
@@ -484,17 +426,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: description (required), summary (required), vulnerabilities (required), credits, cve_id, cvss_vector_string, cwe_ids, severity, start_private_fork.
 
 Default: `null`.
 
@@ -542,22 +476,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
-
-Default: `null`.
-
-</ParamField>
-
 ## Disable private vulnerability reporting
 
 Action ID: `tools.github.disable_private_vulnerability_reporting`
@@ -594,22 +512,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
-
-Default: `null`.
-
-</ParamField>
-
 ## Disable vulnerability alerts
 
 Action ID: `tools.github.disable_vulnerability_alerts`
@@ -643,22 +545,6 @@ GitHub API path value for repo.
 GitHub.com REST API base URL.
 
 Default: `"https://api.github.com"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
-
-Default: `null`.
 
 </ParamField>
 
@@ -704,17 +590,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body passed through without validation. Body fields documented for POST /repos/&#123;owner&#125;/&#123;repo&#125;/actions/workflows/&#123;workflow_id&#125;/dispatches: ref (required), inputs, return_run_details.
 
 Default: `null`.
 
@@ -762,14 +640,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Enable private vulnerability reporting
 
 Action ID: `tools.github.enable_private_vulnerability_reporting`
@@ -806,22 +676,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
-
-Default: `null`.
-
-</ParamField>
-
 ## Enable vulnerability alerts
 
 Action ID: `tools.github.enable_vulnerability_alerts`
@@ -855,22 +709,6 @@ GitHub API path value for repo.
 GitHub.com REST API base URL.
 
 Default: `"https://api.github.com"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
-
-Default: `null`.
 
 </ParamField>
 
@@ -916,14 +754,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get code scanning alert
 
 Action ID: `tools.github.get_code_scanning_alert`
@@ -966,14 +796,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get code scanning default setup
 
 Action ID: `tools.github.get_code_scanning_default_setup`
@@ -1007,14 +829,6 @@ GitHub API path value for repo.
 GitHub.com REST API base URL.
 
 Default: `"https://api.github.com"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
 
 </ParamField>
 
@@ -1060,9 +874,17 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
 
 Default: `null`.
 
@@ -1110,14 +932,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get gist
 
 Action ID: `tools.github.get_gist`
@@ -1148,14 +962,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get global security advisory
 
 Action ID: `tools.github.get_global_security_advisory`
@@ -1183,14 +989,6 @@ GitHub API path value for ghsa_id.
 GitHub.com REST API base URL.
 
 Default: `"https://api.github.com"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
 
 </ParamField>
 
@@ -1236,14 +1034,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get organization audit log
 
 Action ID: `tools.github.get_organization_audit_log`
@@ -1266,6 +1056,14 @@ GitHub API path value for org.
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+A cursor, as given in the Link header. If specified, the query only searches for events after this cursor.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -1274,9 +1072,41 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="before" type="string | null">
 
-API-native query parameters, including pagination and filters.
+A cursor, as given in the Link header. If specified, the query only searches for events before this cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include" type="string | null">
+
+The event types to include: web - returns web (non-Git) events. git - returns Git events. all - returns both web and Git events. The default is web.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order" type="string | null">
+
+The order of audit log events. To list newest events first, specify desc. To list oldest events first, specify asc. The default is desc.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="phrase" type="string | null">
+
+A search phrase.
 
 Default: `null`.
 
@@ -1315,14 +1145,6 @@ GitHub API path value for repo.
 GitHub.com REST API base URL.
 
 Default: `"https://api.github.com"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
 
 </ParamField>
 
@@ -1368,14 +1190,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get pull request merge state
 
 Action ID: `tools.github.get_pull_request_merge_state`
@@ -1418,14 +1232,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get repository
 
 Action ID: `tools.github.get_repository`
@@ -1459,14 +1265,6 @@ GitHub API path value for repo.
 GitHub.com REST API base URL.
 
 Default: `"https://api.github.com"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
 
 </ParamField>
 
@@ -1512,14 +1310,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get repository content
 
 Action ID: `tools.github.get_repository_content`
@@ -1562,9 +1352,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="ref" type="string | null">
 
-API-native query parameters, including pagination and filters.
+The name of the commit/branch/tag. Default: the repository’s default branch.
 
 Default: `null`.
 
@@ -1603,14 +1393,6 @@ GitHub API path value for repo.
 GitHub.com REST API base URL.
 
 Default: `"https://api.github.com"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
 
 </ParamField>
 
@@ -1656,14 +1438,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get secret scanning alert
 
 Action ID: `tools.github.get_secret_scanning_alert`
@@ -1706,9 +1480,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="hide_secret" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+A boolean value representing whether or not to hide literal secrets in the results. Default: `false`.
 
 Default: `null`.
 
@@ -1747,14 +1521,6 @@ GitHub API path value for repo.
 GitHub.com REST API base URL.
 
 Default: `"https://api.github.com"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
 
 </ParamField>
 
@@ -1800,9 +1566,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="exclude_pull_requests" type="boolean | null">
 
-API-native query parameters, including pagination and filters.
+If `true` pull requests are omitted from the response (empty array).
 
 Default: `null`.
 
@@ -1914,9 +1680,33 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+The page number of the results to fetch. Default: `1`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100). Default: `30`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="pr" type="integer | null">
+
+The number of the pull request for the results you want to list.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ref" type="string | null">
+
+The Git reference for the results you want to list. The `ref` for a branch can be formatted either as `refs/heads/&lt;branch name>` or simply `&lt;branch name>`. To reference a pull request use `refs/pull/&lt;number>/merge`.
 
 Default: `null`.
 
@@ -1950,6 +1740,14 @@ GitHub API path value for repo.
 
 </ParamField>
 
+<ParamField path="author" type="string | null">
+
+GitHub username or email address to use to filter by commit author.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -1958,9 +1756,57 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="committer" type="string | null">
 
-API-native query parameters, including pagination and filters.
+GitHub username or email address to use to filter by commit committer.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="path" type="string | null">
+
+Only commits containing this file path will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sha" type="string | null">
+
+SHA or branch to start listing commits from. Default: the repository’s default branch (usually main).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="since" type="string | null">
+
+Only show results that were last updated after the given time. This is a timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ. Due to limitations of Git, timestamps must be between 1970-01-01 and 2099-12-31 (inclusive) or unexpected results may be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="until" type="string | null">
+
+Only commits before this date will be returned. This is a timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ. Due to limitations of Git, timestamps must be between 1970-01-01 and 2099-12-31 (inclusive) or unexpected results may be returned.
 
 Default: `null`.
 
@@ -1996,9 +1842,17 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
 
 Default: `null`.
 
@@ -2020,6 +1874,22 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="affects" type="string | null">
+
+If specified, only return advisories that affect any of `package` or `package@version`. A maximum of 1000 packages can be specified. If the query parameter causes the URL to exceed the maximum URL length supported by your client, you must specify fewer packages. Example: `affects=package1,package2@1.0.0,package3@2.0.0` or `affects[]=package1&amp;affects[]=package2@1.0.0`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="after" type="string | null">
+
+A cursor, as given in the Link header. If specified, the query only searches for results after this cursor.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2028,9 +1898,129 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="before" type="string | null">
 
-API-native query parameters, including pagination and filters.
+A cursor, as given in the Link header. If specified, the query only searches for results before this cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cve_id" type="string | null">
+
+If specified, only advisories with this CVE (Common Vulnerabilities and Exposures) identifier will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cwes" type="string | null">
+
+If specified, only advisories with these Common Weakness Enumerations (CWEs) will be returned. Example: `cwes=79,284,22` or `cwes[]=79&amp;cwes[]=284&amp;cwes[]=22`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="direction" type="string | null">
+
+The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ecosystem" type="string | null">
+
+If specified, only advisories for these ecosystems will be returned. Can be one of: `rubygems`, `npm`, `pip`, `maven`, `nuget`, `composer`, `go`, `rust`, `erlang`, `actions`, `pub`, `other`, `swift`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="epss_percentage" type="string | null">
+
+If specified, only return advisories that have an EPSS percentage score that matches the provided value. The EPSS percentage represents the likelihood of a CVE being exploited.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="epss_percentile" type="string | null">
+
+If specified, only return advisories that have an EPSS percentile score that matches the provided value. The EPSS percentile represents the relative rank of the CVE's likelihood of being exploited compared to other CVEs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ghsa_id" type="string | null">
+
+If specified, only advisories with this GHSA (GitHub Security Advisory) identifier will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_withdrawn" type="boolean | null">
+
+Whether to only return advisories that have been withdrawn.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="modified" type="string | null">
+
+If specified, only show advisories that were updated or published on a date or date range.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100). Default: `30`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="published" type="string | null">
+
+If specified, only return advisories that were published on a date or date range.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+If specified, only advisories with these severities will be returned. Can be one of: `unknown`, `low`, `medium`, `high`, `critical`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The property to sort the results by. Default: `published`. Can be one of: `updated`, `published`, `epss_percentage`, `epss_percentile`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+If specified, only advisories of this type will be returned. By default, a request with no other parameters defined will only return reviewed advisories that are not malware. Default: `reviewed`. Can be one of: `reviewed`, `malware`, `unreviewed`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="updated" type="string | null">
+
+If specified, only return advisories that were updated on a date or date range.
 
 Default: `null`.
 
@@ -2078,9 +2068,25 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="since" type="string | null">
+
+Only show results that were last updated after the given time. This is a timestamp in [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) format: `YYYY-MM-DDTHH:MM:SSZ`.
 
 Default: `null`.
 
@@ -2108,6 +2114,22 @@ GitHub API path value for org.
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+A cursor, as given in the Link header. If specified, the query only searches for results after this cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assignees" type="string | null">
+
+Filter alerts by assignees. Provide a comma-separated list of user handles (e.g., `octocat` or `octocat,hubot`). Use `*` to list alerts with at least one assignee or `none` to list alerts with no assignees.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2116,9 +2138,73 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="before" type="string | null">
 
-API-native query parameters, including pagination and filters.
+A cursor, as given in the Link header. If specified, the query only searches for results before this cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="direction" type="string | null">
+
+The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch. Default: `1`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100). Default: `30`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+If specified, only code scanning alerts with this severity will be returned. Can be one of: `critical`, `high`, `medium`, `low`, `warning`, `note`, `error`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The property by which to sort the results. Default: `created`. Can be one of: `created`, `updated`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+If specified, only code scanning alerts with this state will be returned. Can be one of: `open`, `closed`, `dismissed`, `fixed`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tool_guid" type="string | null">
+
+The GUID of a code scanning tool. Only results by this tool will be listed. Note that some code scanning tools may not include a GUID in their analysis data. You can specify the tool by using either `tool_guid` or `tool_name`, but not both.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tool_name" type="string | null">
+
+The name of a code scanning tool. Only results by this tool will be listed. You can specify the tool by using either `tool_name` or `tool_guid`, but not both.
 
 Default: `null`.
 
@@ -2146,6 +2232,38 @@ GitHub API path value for org.
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+A cursor, as given in the Link header. If specified, the query only searches for results after this cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="artifact_registry" type="string | null">
+
+A comma-separated list of Artifact Registry name strings. If specified, only alerts for repositories with storage records matching these registries will be returned. Can be: `jfrog-artifactory`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="artifact_registry_url" type="string | null">
+
+A comma-separated list of artifact registry URLs. If specified, only alerts for repositories with storage records matching these URLs will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assignee" type="string | null">
+
+Filter alerts by assignees. Provide a comma-separated list of user handles (e.g., `octocat` or `octocat,hubot`) to return alerts assigned to any of the specified users. Use `*` to list alerts with at least one assignee or `none` to list alerts with no assignees.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2154,9 +2272,113 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="before" type="string | null">
 
-API-native query parameters, including pagination and filters.
+A cursor, as given in the Link header. If specified, the query only searches for results before this cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="classification" type="string | null">
+
+A comma-separated list of vulnerability classifications. If specified, only alerts for vulnerabilities with these classifications will be returned. Can be: `malware`, `general`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="direction" type="string | null">
+
+The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ecosystem" type="string | null">
+
+A comma-separated list of ecosystems. If specified, only alerts for these ecosystems will be returned. Can be: `composer`, `go`, `maven`, `npm`, `nuget`, `pip`, `pub`, `rubygems`, `rust`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="epss_percentage" type="string | null">
+
+CVE Exploit Prediction Scoring System (EPSS) percentage. Can be specified as: - An exact number (`n`) - Comparators such as `>n`, `&lt;n`, `>=n`, `&lt;=n` - A range like `n..n`, where `n` is a number from 0.0 to 1.0 Filters the list of alerts based on EPSS percentages. If specified, only alerts with the provided EPSS percentages will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="has" type="array[string] | null">
+
+Filters the list of alerts based on whether the alert has the given value. If specified, only alerts meeting this criterion will be returned. Multiple `has` filters can be passed to filter for alerts that have all of the values.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="package" type="string | null">
+
+A comma-separated list of package names. If specified, only alerts for these packages will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100). Default: `30`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="relationship" type="string | null">
+
+A comma-separated list of relationships of the vulnerable dependency to your project. If specified, only alerts with these relationships will be returned. We are rolling out support for dependency relationship across ecosystems. This value will be "unknown" for all dependencies in unsupported ecosystems.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="runtime_risk" type="string | null">
+
+A comma-separated list of runtime risk strings. If specified, only alerts for repositories with deployment records matching these risks will be returned. Can be: `critical-resource`, `internet-exposed`, `sensitive-data`, `lateral-movement`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scope" type="string | null">
+
+The scope of the vulnerable dependency. If specified, only alerts with this scope will be returned. Can be one of: `development`, `runtime`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+A comma-separated list of severities. If specified, only alerts with these severities will be returned. Can be: `low`, `medium`, `high`, `critical`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The property by which to sort the results. `created` means when the alert was created. `updated` means when the alert's state last changed. `epss_percentage` sorts alerts by the Exploit Prediction Scoring System (EPSS) percentage. Default: `created`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+A comma-separated list of states. If specified, only alerts with these states will be returned. Can be: `auto_dismissed`, `dismissed`, `fixed`, `open`
 
 Default: `null`.
 
@@ -2184,6 +2406,22 @@ GitHub API path value for org.
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+A cursor, as given in the Link header. If specified, the query only searches for events after this cursor. To receive an initial cursor on your first request, include an empty "after" query string.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assignee" type="string | null">
+
+Filters alerts by assignee. Use `*` to get all assigned alerts, `none` to get all unassigned alerts, or a GitHub username to get alerts assigned to a specific user.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2192,9 +2430,145 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="before" type="string | null">
 
-API-native query parameters, including pagination and filters.
+A cursor, as given in the Link header. If specified, the query only searches for events before this cursor. To receive an initial cursor on your first request, include an empty "before" query string.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="direction" type="string | null">
+
+The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclude_providers" type="string | null">
+
+A comma-separated list of provider slugs to exclude from the results. Provider slugs use lowercase with underscores (e.g., `github_secret_scanning`, `clojars`). You can find the provider slug in the `provider_slug` field of each alert. Cannot be combined with the `providers` parameter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclude_secret_types" type="string | null">
+
+A comma-separated list of secret types to exclude from the results. All default secret patterns are returned except those matching the specified types. Cannot be combined with the `secret_type` parameter. See "Supported secret scanning patterns" for a complete list of secret types.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="hide_secret" type="boolean | null">
+
+A boolean value representing whether or not to hide literal secrets in the results. Default: `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="included_metadata" type="string | null">
+
+A comma-separated list of metadata fields to filter alerts by. Only alerts that have all of the specified metadata fields attached will be returned. Possible values are: `owner-email`, `owner-id`, `owner-name`, `secret-id`, `secret-name`, `secret-issued-date`, `secret-expiration-date`, `organization-name`, `organization-id`, `last-used-date`, and `has-organization-access`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_bypassed" type="boolean | null">
+
+A boolean value (`true` or `false`) indicating whether to filter alerts by their push protection bypass status. When set to `true`, only alerts that were created because a push protection rule was bypassed will be returned. When set to `false`, only alerts that were not caused by a push protection bypass will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_multi_repo" type="boolean | null">
+
+A boolean value representing whether or not to filter alerts by the multi-repo tag being present. Default: `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_publicly_leaked" type="boolean | null">
+
+A boolean value representing whether or not to filter alerts by the publicly-leaked tag being present. Default: `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="owner_email_hash" type="string | null">
+
+Filters alerts to only those whose attached `owner_email` metadata field matches the provided value. The value must be the lowercase hex-encoded SHA-256 hash of the email address to match (for example, the SHA-256 of `user@example.com`). Only alerts that have an `owner_email` metadata value whose SHA-256 hash equals this parameter are returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch. Default: `1`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100). Default: `30`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="providers" type="string | null">
+
+A comma-separated list of provider slugs to filter by. Provider slugs use lowercase with underscores (e.g., `github_secret_scanning`, `clojars`). You can find the provider slug in the `provider_slug` field of each alert. Cannot be combined with the `exclude_providers` parameter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="resolution" type="string | null">
+
+A comma-separated list of resolutions. Only secret scanning alerts with one of these resolutions are listed. Valid resolutions are `false_positive`, `wont_fix`, `revoked`, `pattern_edited`, `pattern_deleted` or `used_in_tests`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="secret_type" type="string | null">
+
+A comma-separated list of secret types to return. All default secret patterns are returned. To return generic patterns, pass the token name(s) in the parameter. See "Supported secret scanning patterns" for a complete list of secret types.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The property to sort the results by. `created` means when the alert was created. `updated` means when the alert was updated or resolved. Default: `created`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+Set to `open` or `resolved` to only list secret scanning alerts in a specific state.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="validity" type="string | null">
+
+A comma-separated list of validities that, when present, will return alerts that match the validities in this list. Valid options are `active`, `inactive`, and `unknown`.
 
 Default: `null`.
 
@@ -2222,6 +2596,14 @@ GitHub API path value for org.
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+A cursor, as given in the Link header. If specified, the query only searches for results after this cursor.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2230,9 +2612,41 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="before" type="string | null">
 
-API-native query parameters, including pagination and filters.
+A cursor, as given in the Link header. If specified, the query only searches for results before this cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="direction" type="string | null">
+
+The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of advisories to return per page. Default: `30`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The property to sort the results by. Default: `created`. Can be one of: `created`, `updated`, `published`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+Filter by the state of the repository advisories. Only advisories of this state will be returned. Can be one of: `triage`, `draft`, `published`, `closed`.
 
 Default: `null`.
 
@@ -2280,9 +2694,17 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
 
 Default: `null`.
 
@@ -2330,9 +2752,41 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="direction" type="string | null">
 
-API-native query parameters, including pagination and filters.
+The direction to sort results. Ignored without `sort` parameter. Can be one of: `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="since" type="string | null">
+
+Only show results that were last updated after the given time. This is a timestamp in [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) format: `YYYY-MM-DDTHH:MM:SSZ`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The property to sort the results by. Can be one of: `created`, `updated`.
 
 Default: `null`.
 
@@ -2366,6 +2820,14 @@ GitHub API path value for repo.
 
 </ParamField>
 
+<ParamField path="base" type="string | null">
+
+Filter pulls by base branch name. Example: `gh-pages`.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2374,9 +2836,49 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="direction" type="string | null">
 
-API-native query parameters, including pagination and filters.
+The direction of the sort. Default: `desc` when sort is `created` or sort is not specified, otherwise `asc`. Can be one of: `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="head" type="string | null">
+
+Filter pulls by head user or head organization and branch name in the format of `user:ref-name` or `organization:ref-name`. For example: `github:new-script-format` or `octocat:test-branch`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+What to sort results by. `popularity` will sort by the number of comments. `long-running` will sort by date created and will limit the results to pull requests that have been open for more than a month and have had activity within the past month. Can be one of: `created`, `updated`, `popularity`, `long-running`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+Either `open`, `closed`, or `all` to filter by state. Can be one of: `open`, `closed`, `all`.
 
 Default: `null`.
 
@@ -2410,6 +2912,22 @@ GitHub API path value for repo.
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+A cursor, as given in the Link header. If specified, the query only searches for results after this cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assignees" type="string | null">
+
+Filter alerts by assignees. Provide a comma-separated list of user handles (e.g., `octocat` or `octocat,hubot`). Use `*` to list alerts with at least one assignee or `none` to list alerts with no assignees.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2418,9 +2936,89 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="before" type="string | null">
 
-API-native query parameters, including pagination and filters.
+A cursor, as given in the Link header. If specified, the query only searches for results before this cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="direction" type="string | null">
+
+The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch. Default: `1`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100). Default: `30`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="pr" type="integer | null">
+
+The number of the pull request for the results you want to list.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ref" type="string | null">
+
+The Git reference for the results you want to list. The `ref` for a branch can be formatted either as `refs/heads/&lt;branch name>` or simply `&lt;branch name>`. To reference a pull request use `refs/pull/&lt;number>/merge`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+If specified, only code scanning alerts with this severity will be returned. Can be one of: `critical`, `high`, `medium`, `low`, `warning`, `note`, `error`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The property by which to sort the results. Default: `created`. Can be one of: `created`, `updated`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+If specified, only code scanning alerts with this state will be returned. Can be one of: `open`, `closed`, `dismissed`, `fixed`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tool_guid" type="string | null">
+
+The GUID of a code scanning tool. Only results by this tool will be listed. Note that some code scanning tools may not include a GUID in their analysis data. You can specify the tool by using either `tool_guid` or `tool_name`, but not both.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tool_name" type="string | null">
+
+The name of a code scanning tool. Only results by this tool will be listed. You can specify the tool by using either `tool_name` or `tool_guid`, but not both.
 
 Default: `null`.
 
@@ -2454,6 +3052,22 @@ GitHub API path value for repo.
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+A cursor, as given in the Link header. If specified, the query only searches for results after this cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assignee" type="string | null">
+
+Filter alerts by assignees. Provide a comma-separated list of user handles (e.g., `octocat` or `octocat,hubot`) to return alerts assigned to any of the specified users. Use `*` to list alerts with at least one assignee or `none` to list alerts with no assignees.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2462,9 +3076,113 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="before" type="string | null">
 
-API-native query parameters, including pagination and filters.
+A cursor, as given in the Link header. If specified, the query only searches for results before this cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="classification" type="string | null">
+
+A comma-separated list of vulnerability classifications. If specified, only alerts for vulnerabilities with these classifications will be returned. Can be: `malware`, `general`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="direction" type="string | null">
+
+The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ecosystem" type="string | null">
+
+A comma-separated list of ecosystems. If specified, only alerts for these ecosystems will be returned. Can be: `composer`, `go`, `maven`, `npm`, `nuget`, `pip`, `pub`, `rubygems`, `rust`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="epss_percentage" type="string | null">
+
+CVE Exploit Prediction Scoring System (EPSS) percentage. Can be specified as: - An exact number (`n`) - Comparators such as `>n`, `&lt;n`, `>=n`, `&lt;=n` - A range like `n..n`, where `n` is a number from 0.0 to 1.0 Filters the list of alerts based on EPSS percentages. If specified, only alerts with the provided EPSS percentages will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="has" type="array[string] | null">
+
+Filters the list of alerts based on whether the alert has the given value. If specified, only alerts meeting this criterion will be returned. Multiple `has` filters can be passed to filter for alerts that have all of the values. Currently, only `patch` is supported.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="manifest" type="string | null">
+
+A comma-separated list of full manifest paths. If specified, only alerts for these manifests will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="package" type="string | null">
+
+A comma-separated list of package names. If specified, only alerts for these packages will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100). Default: `30`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="relationship" type="string | null">
+
+A comma-separated list of relationships of the vulnerable dependency to your project. If specified, only alerts with these relationships will be returned. We are rolling out support for dependency relationship across ecosystems. This value will be "unknown" for all dependencies in unsupported ecosystems.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scope" type="string | null">
+
+The scope of the vulnerable dependency. If specified, only alerts with this scope will be returned. Can be one of: `development`, `runtime`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+A comma-separated list of severities. If specified, only alerts with these severities will be returned. Can be: `low`, `medium`, `high`, `critical`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The property by which to sort the results. `created` means when the alert was created. `updated` means when the alert's state last changed. `epss_percentage` sorts alerts by the Exploit Prediction Scoring System (EPSS) percentage. Default: `created`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+A comma-separated list of states. If specified, only alerts with these states will be returned. Can be: `auto_dismissed`, `dismissed`, `fixed`, `open`
 
 Default: `null`.
 
@@ -2498,6 +3216,14 @@ GitHub API path value for repo.
 
 </ParamField>
 
+<ParamField path="assignee" type="string | null">
+
+Can be the name of a user. Pass in `none` for issues with no assigned user, and `*` for issues assigned to any user.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2506,9 +3232,97 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="creator" type="string | null">
 
-API-native query parameters, including pagination and filters.
+The user that created the issue.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="direction" type="string | null">
+
+The direction to sort the results by. Can be one of: `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="issue_field_values" type="string | null">
+
+A comma-separated list of issue field filters in `field_slug:value` format. Only issues matching all specified field values are returned. Requires issue fields to be enabled for the repository. Issue fields are not available for user-owned repositories, and field availability for organization-owned public repositories depends on the organization's visibility settings. For example, `priority:Urgent,severity:High` filters issues where the `priority` field is `Urgent` AND the `severity` field is `High`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="labels" type="string | null">
+
+A list of comma separated label names. Example: `bug,ui,@high`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="mentioned" type="string | null">
+
+A user that's mentioned in the issue.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="milestone" type="string | null">
+
+If an `integer` is passed, it should refer to a milestone by its `number` field. If the string `*` is passed, issues with any milestone are accepted. If the string `none` is passed, issues without milestones are returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="since" type="string | null">
+
+Only show results that were last updated after the given time. This is a timestamp in [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) format: `YYYY-MM-DDTHH:MM:SSZ`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+What to sort results by. Can be one of: `created`, `updated`, `comments`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+Indicates the state of the issues to return. Can be one of: `open`, `closed`, `all`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+Can be the name of an issue type. If the string `*` is passed, issues with any type are accepted. If the string `none` is passed, issues without type are returned.
 
 Default: `null`.
 
@@ -2542,6 +3356,22 @@ GitHub API path value for repo.
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+A cursor, as given in the Link header. If specified, the query only searches for events after this cursor. To receive an initial cursor on your first request, include an empty "after" query string.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assignee" type="string | null">
+
+Filters alerts by assignee. Use `*` to get all assigned alerts, `none` to get all unassigned alerts, or a GitHub username to get alerts assigned to a specific user.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2550,9 +3380,145 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="before" type="string | null">
 
-API-native query parameters, including pagination and filters.
+A cursor, as given in the Link header. If specified, the query only searches for events before this cursor. To receive an initial cursor on your first request, include an empty "before" query string.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="direction" type="string | null">
+
+The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclude_providers" type="string | null">
+
+A comma-separated list of provider slugs to exclude from the results. Provider slugs use lowercase with underscores (e.g., `github_secret_scanning`, `clojars`). You can find the provider slug in the `provider_slug` field of each alert. Cannot be combined with the `providers` parameter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclude_secret_types" type="string | null">
+
+A comma-separated list of secret types to exclude from the results. All default secret patterns are returned except those matching the specified types. Cannot be combined with the `secret_type` parameter. See "Supported secret scanning patterns" for a complete list of secret types.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="hide_secret" type="boolean | null">
+
+A boolean value representing whether or not to hide literal secrets in the results. Default: `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="included_metadata" type="string | null">
+
+A comma-separated list of metadata fields to filter alerts by. Only alerts that have all of the specified metadata fields attached will be returned. Possible values are: `owner-email`, `owner-id`, `owner-name`, `secret-id`, `secret-name`, `secret-issued-date`, `secret-expiration-date`, `organization-name`, `organization-id`, `last-used-date`, and `has-organization-access`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_bypassed" type="boolean | null">
+
+A boolean value (`true` or `false`) indicating whether to filter alerts by their push protection bypass status. When set to `true`, only alerts that were created because a push protection rule was bypassed will be returned. When set to `false`, only alerts that were not caused by a push protection bypass will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_multi_repo" type="boolean | null">
+
+A boolean value representing whether or not to filter alerts by the multi-repo tag being present. Default: `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_publicly_leaked" type="boolean | null">
+
+A boolean value representing whether or not to filter alerts by the publicly-leaked tag being present. Default: `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="owner_email_hash" type="string | null">
+
+Filters alerts to only those whose attached `owner_email` metadata field matches the provided value. The value must be the lowercase hex-encoded SHA-256 hash of the email address to match (for example, the SHA-256 of `user@example.com`). Only alerts that have an `owner_email` metadata value whose SHA-256 hash equals this parameter are returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch. Default: `1`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100). Default: `30`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="providers" type="string | null">
+
+A comma-separated list of provider slugs to filter by. Provider slugs use lowercase with underscores (e.g., `github_secret_scanning`, `clojars`). You can find the provider slug in the `provider_slug` field of each alert. Cannot be combined with the `exclude_providers` parameter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="resolution" type="string | null">
+
+A comma-separated list of resolutions. Only secret scanning alerts with one of these resolutions are listed. Valid resolutions are `false_positive`, `wont_fix`, `revoked`, `pattern_edited`, `pattern_deleted` or `used_in_tests`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="secret_type" type="string | null">
+
+A comma-separated list of secret types to return. All default secret patterns are returned. To return generic patterns, pass the token name(s) in the parameter. See "Supported secret scanning patterns" for a complete list of secret types.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The property to sort the results by. `created` means when the alert was created. `updated` means when the alert was updated or resolved. Default: `created`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+Set to `open` or `resolved` to only list secret scanning alerts in a specific state.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="validity" type="string | null">
+
+A comma-separated list of validities that, when present, will return alerts that match the validities in this list. Valid options are `active`, `inactive`, and `unknown`.
 
 Default: `null`.
 
@@ -2586,6 +3552,14 @@ GitHub API path value for repo.
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+A cursor, as given in the Link header. If specified, the query only searches for results after this cursor.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2594,9 +3568,41 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="before" type="string | null">
 
-API-native query parameters, including pagination and filters.
+A cursor, as given in the Link header. If specified, the query only searches for results before this cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="direction" type="string | null">
+
+The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of advisories to return per page. Default: `30`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The property to sort the results by. Default: `created`. Can be one of: `created`, `updated`, `published`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="state" type="string | null">
+
+Filter by state of the repository advisories. Only advisories of this state will be returned. Can be one of: `triage`, `draft`, `published`, `closed`.
 
 Default: `null`.
 
@@ -2630,6 +3636,14 @@ GitHub API path value for repo.
 
 </ParamField>
 
+<ParamField path="actor" type="string | null">
+
+Returns someone's workflow runs. Use the login for the user who created the `push` associated with the check suite or workflow run.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2638,9 +3652,73 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="branch" type="string | null">
 
-API-native query parameters, including pagination and filters.
+Returns workflow runs associated with a branch. Use the name of the branch of the `push`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="check_suite_id" type="integer | null">
+
+Returns workflow runs with the `check_suite_id` that you specify.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="created" type="string | null">
+
+Returns workflow runs created within the given date-time range. For more information on the syntax, see "[Understanding the search syntax](https://docs.github.com/search-github/getting-started-with-searching-on-github/understanding-the-search-syntax#query-for-dates)."
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="event" type="string | null">
+
+Returns workflow run triggered by the event you specify. For example, `push`, `pull_request` or `issue`. For more information, see "[Events that trigger workflows](https://docs.github.com/actions/automating-your-workflow-with-github-actions/events-that-trigger-workflows)."
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclude_pull_requests" type="boolean | null">
+
+If `true` pull requests are omitted from the response (empty array).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="head_sha" type="string | null">
+
+Only returns workflow runs that are associated with the specified `head_sha`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Returns workflow runs with the check run `status` or `conclusion` that you specify. For example, a conclusion can be `success` or a status can be `in_progress`. Only GitHub Actions can set a status of `waiting`, `pending`, or `requested`. Can be one of: `completed`, `action_required`, `cancelled`, `failure`, `neutral`, `skipped`, `stale`, `success`, `timed_out`, `in_progress`, `queued`, `requested`, `waiting`, `pending`.
 
 Default: `null`.
 
@@ -2682,9 +3760,17 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
 
 Default: `null`.
 
@@ -2732,9 +3818,17 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="page" type="integer | null">
 
-API-native query parameters, including pagination and filters.
+The page number of the results to fetch. Default: `1`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100). Default: `30`.
 
 Default: `null`.
 
@@ -2782,9 +3876,25 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="filter" type="string | null">
 
-API-native query parameters, including pagination and filters.
+Filters jobs by their `completed_at` timestamp. `latest` returns jobs from the most recent execution of the workflow run. `all` returns all jobs for a workflow run, including from old executions of the workflow run. Can be one of: `latest`, `all`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
 
 Default: `null`.
 
@@ -2832,17 +3942,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body passed through without validation. Body fields documented for PUT /repos/&#123;owner&#125;/&#123;repo&#125;/pulls/&#123;pull_number&#125;/merge: commit_title, commit_message, sha, merge_method.
 
 Default: `null`.
 
@@ -2890,22 +3992,6 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="payload" type="object | null">
-
-API-native request body passed through without validation.
-
-Default: `null`.
-
-</ParamField>
-
 ## Rerun failed workflow jobs
 
 Action ID: `tools.github.rerun_failed_workflow_jobs`
@@ -2948,17 +4034,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body passed through without validation. Body fields documented for POST /repos/&#123;owner&#125;/&#123;repo&#125;/actions/runs/&#123;run_id&#125;/rerun-failed-jobs: enable_debug_logging.
 
 Default: `null`.
 
@@ -2980,6 +4058,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="q" type="string" required>
+
+The query contains one or more search keywords and qualifiers. Qualifiers allow you to limit your search to specific areas of GitHub. The REST API supports the same qualifiers as the web interface for GitHub. See Searching code for a detailed list of qualifiers.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -2988,9 +4072,33 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="order" type="string | null">
 
-API-native query parameters, including pagination and filters.
+This field is closing down. Determines whether the first search result returned is the highest number of matches (desc) or lowest number of matches (asc). This parameter is ignored unless you provide sort.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+This field is closing down. Sorts the results of your query. Can only be indexed, which indicates how recently a file has been indexed by the GitHub search infrastructure. Default: best match
 
 Default: `null`.
 
@@ -3012,6 +4120,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="q" type="string" required>
+
+The query contains one or more search keywords and qualifiers. Qualifiers allow you to limit your search to specific areas of GitHub. The REST API supports the same qualifiers as the web interface for GitHub. See Searching commits for a detailed list of qualifiers.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -3020,9 +4134,33 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="order" type="string | null">
 
-API-native query parameters, including pagination and filters.
+Determines whether the first search result returned is the highest number of matches (desc) or lowest number of matches (asc). This parameter is ignored unless you provide sort.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Sorts the results of your query by author-date or committer-date. Default: best match
 
 Default: `null`.
 
@@ -3044,6 +4182,20 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="q" type="string" required>
+
+The query contains one or more search keywords and qualifiers. Qualifiers allow you to limit your search to specific areas of GitHub. The REST API supports the same qualifiers as the web interface for GitHub. See Searching issues and pull requests for a detailed list of qualifiers.
+
+</ParamField>
+
+<ParamField path="advanced_search" type="string | null">
+
+Set to true to use advanced search.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -3052,9 +4204,41 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="order" type="string | null">
 
-API-native query parameters, including pagination and filters.
+Determines whether the first search result returned is the highest number of matches (desc) or lowest number of matches (asc). This parameter is ignored unless you provide sort.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search_type" type="string | null">
+
+The type of search to perform on issues. When not specified, the default is lexical search. semantic performs a pure semantic (vector) search using embedding-based understanding. hybrid combines semantic search with lexical search for best results. Semantic and hybrid search require authentication and are rate limited to 10 requests per minute. Only applies to issue searches (/search/issues).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Sorts the results of your query by the number of comments, reactions, reactions-+1, reactions--1, reactions-smile, reactions-thinking_face, reactions-heart, reactions-tada, or interactions. You can also sort results by how recently the items were created or updated, Default: best match
 
 Default: `null`.
 
@@ -3076,6 +4260,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="q" type="string" required>
+
+The query contains one or more search keywords and qualifiers. Qualifiers allow you to limit your search to specific areas of GitHub. The REST API supports the same qualifiers as the web interface for GitHub. See Searching for repositories for a detailed list of qualifiers.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 GitHub.com REST API base URL.
@@ -3084,9 +4274,33 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="order" type="string | null">
 
-API-native query parameters, including pagination and filters.
+Determines whether the first search result returned is the highest number of matches (desc) or lowest number of matches (asc). This parameter is ignored unless you provide sort.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results per page (max 100).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Sorts the results of your query by number of stars, forks, or help-wanted-issues or how recently the items were updated. Default: best match
 
 Default: `null`.
 
@@ -3128,17 +4342,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: description (required), summary (required), cvss_vector_string, cwe_ids, severity, start_private_fork, vulnerabilities.
 
 Default: `null`.
 
@@ -3186,17 +4392,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: allow_deletions, allow_force_pushes, allow_fork_syncing, block_creations, enforce_admins, lock_branch, required_conversation_resolution, required_linear_history, required_pull_request_reviews, required_status_checks, restrictions.
 
 Default: `null`.
 
@@ -3244,17 +4442,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: assignees, create_request, dismissed_comment, dismissed_reason, state.
 
 Default: `null`.
 
@@ -3296,17 +4486,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: languages, query_suite, runner_label, runner_type, state, threat_model.
 
 Default: `null`.
 
@@ -3354,17 +4536,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: agent_assignment, assignees, dismissed_comment, dismissed_reason, state.
 
 Default: `null`.
 
@@ -3412,17 +4586,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body passed through without validation. Body fields documented for PATCH /repos/&#123;owner&#125;/&#123;repo&#125;/issues/&#123;issue_number&#125;: title, body, assignee, state, state_reason, duplicate_issue_id, milestone, labels, assignees, issue_field_values, type.
 
 Default: `null`.
 
@@ -3470,17 +4636,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body passed through without validation. Body fields documented for PATCH /repos/&#123;owner&#125;/&#123;repo&#125;/pulls/&#123;pull_number&#125;: title, body, state, base, maintainer_can_modify.
 
 Default: `null`.
 
@@ -3528,17 +4686,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: collaborating_teams, collaborating_users, credits, cve_id, cvss_vector_string, cwe_ids, description, severity, state, summary, vulnerabilities.
 
 Default: `null`.
 
@@ -3586,17 +4736,9 @@ Default: `"https://api.github.com"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-API-native query parameters, including pagination and filters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
-API-native request body passed through without validation.
+API-native request body. Documented fields: assignee, resolution, resolution_comment, state, validity.
 
 Default: `null`.
 

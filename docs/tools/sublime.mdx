@@ -56,9 +56,9 @@ List ID.
 
 </ParamField>
 
-<ParamField path="payload" type="object" required>
+<ParamField path="string" type="string" required>
 
-API-native JSON request body.
+String list entry
 
 </ParamField>
 
@@ -112,7 +112,7 @@ Reference: [https://docs.sublime.security/reference/analysis-api-introduction](h
 
 <ParamField path="payload" type="object" required>
 
-API-native analyze request containing raw_message and optional rules or queries.
+API-native request body. Documented fields: raw_message (required), queries, rules, run_active_detection_rules, run_all_detection_rules, run_all_insights.
 
 </ParamField>
 
@@ -148,7 +148,7 @@ Sublime message ID.
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: queries, rules, run_active_detection_rules, run_all_detection_rules, run_all_insights.
 
 </ParamField>
 
@@ -302,9 +302,21 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="payload" type="object" required>
+<ParamField path="end_time" type="string" required>
 
-API-native JSON request body.
+End of the email bomb time range (must not be in the future)
+
+</ParamField>
+
+<ParamField path="mailbox_id" type="string" required>
+
+ID of the mailbox to declare the email bomb for
+
+</ParamField>
+
+<ParamField path="start_time" type="string" required>
+
+Start of the email bomb time range
 
 </ParamField>
 
@@ -332,9 +344,15 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="payload" type="object" required>
+<ParamField path="description" type="string" required>
 
-API-native JSON request body.
+Description of list
+
+</ParamField>
+
+<ParamField path="name" type="string" required>
+
+Unique name used to reference the list in MQL
 
 </ParamField>
 
@@ -364,7 +382,7 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: raw_message (required), canonical_id, external_created_at, external_message_id, external_thread_id, folder, labels, mailbox_email_address, message_type, route_type.
 
 </ParamField>
 
@@ -394,7 +412,7 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: name (required), source (required), action_ids, active, attack_types, authors, auto_review_auto_share, auto_review_classification, description, detection_methods, false_positives, internal_type, label, maturity, references, run_triage_on_excluded_messages, severity, tactics_and_techniques, tags, triage_abuse_reports, triage_classification_changes, triage_dlp_rule_matched, triage_flagged_messages, type, user_provided_tags.
 
 </ParamField>
 
@@ -488,17 +506,15 @@ List ID.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
+<ParamField path="string" type="string" required>
 
-Base URL of the Sublime API.
-
-Default: `null`.
+String list entry
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="base_url" type="string | null">
 
-API-native query parameters.
+Base URL of the Sublime API.
 
 Default: `null`.
 
@@ -558,7 +574,7 @@ Email bomb ID.
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: review_comment.
 
 </ParamField>
 
@@ -594,7 +610,7 @@ Message group canonical ID.
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: classification, report_label, review_comment.
 
 </ParamField>
 
@@ -624,7 +640,7 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: message_group_ids (required), classification, report_label, review_comment.
 
 </ParamField>
 
@@ -756,9 +772,17 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="limit" type="integer | null">
 
-API-native query parameters.
+The maximum number of results to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+The (zero-based) offset of the first hunt job results to return.
 
 Default: `null`.
 
@@ -846,17 +870,15 @@ List ID.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
+<ParamField path="string" type="string" required>
 
-Base URL of the Sublime API.
-
-Default: `null`.
+String list entry
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="base_url" type="string | null">
 
-API-native query parameters.
+Base URL of the Sublime API.
 
 Default: `null`.
 
@@ -878,6 +900,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="entry_type" type="string" required>
+
+List type to filter by. One of 'string', 'user_group', 'provider_org_unit'.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Sublime API.
@@ -886,9 +914,17 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="id" type="string | null">
 
-API-native query parameters.
+Optional ID (exact match) to filter by
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="name" type="string | null">
+
+Optional name (exact match) to filter by
 
 Default: `null`.
 
@@ -924,9 +960,17 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="recompute_mdm_from_raw" type="boolean | null">
 
-API-native query parameters.
+When true, recompute the MDM from the raw EML. For internal use only!
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="remove_large_text_fields" type="boolean | null">
+
+When true, any text field over 1MB will be cleared before returning
 
 Default: `null`.
 
@@ -998,9 +1042,17 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="recompute_mdm_from_raw" type="boolean | null">
 
-API-native query parameters.
+When true, recompute the MDM from the raw EML. For internal use only!
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="remove_large_text_fields" type="boolean | null">
+
+When true, any text field over 1MB will be cleared before returning
 
 Default: `null`.
 
@@ -1066,9 +1118,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="sort_previews_message_id__is" type="array[string] | null">
 
-API-native query parameters.
+Sort previews with these message IDs at the top
 
 Default: `null`.
 
@@ -1104,9 +1156,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="created_at__gte" type="string | null">
 
-API-native query parameters.
+Only return action states created after this time
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of action states to return. If the value exceeds the maximum, then the maximum value will be used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+The (zero-based) offset of the action states to return
 
 Default: `null`.
 
@@ -1136,9 +1204,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters.
+Opaque pagination cursor returned in the previous response's cursor field.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of message groups to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timestamp__gte" type="string | null">
+
+Inclusive lower bound on the sort timestamp (newest_created_at for type=flagged, first_reported_as_phish_at for type=reported).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timestamp__lt" type="string | null">
+
+Exclusive upper bound on the sort timestamp (newest_created_at for type=flagged, first_reported_as_phish_at for type=reported).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+Which timestamp the endpoint sorts/filters on: 'flagged' uses newest_created_at, 'reported' uses first_reported_as_phish_at. Possible values: flagged, reported.
 
 Default: `null`.
 
@@ -1174,9 +1274,17 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="recompute_mdm_from_raw" type="boolean | null">
 
-API-native query parameters.
+When true, recompute the MDM from the raw EML. For internal use only!
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="remove_large_text_fields" type="boolean | null">
+
+When true, any text field over 1MB will be cleared before returning
 
 Default: `null`.
 
@@ -1212,9 +1320,33 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="link_duration_seconds" type="integer | null">
 
-API-native query parameters.
+Period link should be valid for. Default is 15 minutes, max 7 days.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="platform_link" type="boolean | null">
+
+When true, link will always be presigned against Sublime. When false, the link may be to S3 directly.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="recompute_mdm_from_raw" type="boolean | null">
+
+When true, recompute the MDM from the raw EML. For internal use only!
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="remove_large_text_fields" type="boolean | null">
+
+When true, any text field over 1MB will be cleared before returning
 
 Default: `null`.
 
@@ -1280,9 +1412,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="classification_created_at_gte" type="string | null">
 
-API-native query parameters.
+Filter by classifications made after this datetime. Results are limited to the most recent 180 days.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="classification_created_at_lte" type="string | null">
+
+Filter by classifications made before this datetime. Results are limited to the most recent 180 days.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="use_rule_last_updated_as_created_at" type="boolean | null">
+
+Filter by classifications made since the rule has been updated. Results are limited to the most recent 180 days.
 
 Default: `null`.
 
@@ -1336,7 +1484,7 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: message_group_ids (required), classification, report_label, review_comment.
 
 </ParamField>
 
@@ -1364,6 +1512,14 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="active" type="boolean | null">
+
+Filter by active status. true = only active, false = only inactive, null = all
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Sublime API.
@@ -1372,9 +1528,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="dismissed" type="boolean | null">
 
-API-native query parameters.
+Filter by dismissed status. true = only dismissed, false = only not dismissed, null = all
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of email bombs to return
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+The (zero-based) offset of the email bombs to return
 
 Default: `null`.
 
@@ -1396,6 +1568,14 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="active" type="boolean | null">
+
+Filter for effectively active mailboxes (marked active with a live subscription)
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Sublime API.
@@ -1404,9 +1584,65 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="email_addresses" type="string | null">
 
-API-native query parameters.
+Email addresses of the mailboxes to return (comma-delimited)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of entries to return. If the value exceeds the maximum, then the maximum value will be used
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="mailbox_types" type="string | null">
+
+Comma-delimited list of mailbox types to filter by
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="marked_active" type="boolean | null">
+
+Filter for mailboxes marked active
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="message_source_id" type="string | null">
+
+ID of the message source the mailboxes belong to
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+The (zero-based) offset of the first mailbox to return
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+Search across mailbox names and email addresses
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sub_error_types" type="string | null">
+
+Comma-delimited list of subscription error types to filter by
 
 Default: `null`.
 
@@ -1428,6 +1664,38 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="attachment_name__is" type="array[string] | null">
+
+Filters result to only message groups with the provided attachment name
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="attachment_sha256__is" type="array[string] | null">
+
+Filters result to only message groups with the provided attachment SHA256
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="attack_score_verdict__is" type="array[string] | null">
+
+Filters result to only message groups with the provided attack score verdict. Possible values: unknown, likely_benign, suspicious, malicious, graymail, spam.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="attack_surface_reduction__filter" type="boolean | null">
+
+Filters result to only message groups that have flagged (ONLY) rules with the 'Attack surface reduction' tag
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Sublime API.
@@ -1436,9 +1704,193 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="canonical_id__is" type="array[string] | null">
 
-API-native query parameters.
+Filters result to only message groups with the provided canonical ID
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="created_at__gte" type="string | null">
+
+Inclusive start datetime filter, in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z'). Only message groups that contain a message processed at or after this time will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="created_at__lt" type="string | null">
+
+Exclusive end datetime filter, in UTC using the ISO 8601 format (e.g., '2021-05-04T15:09:26Z'). Only message groups that contain a message processed before this time will be returned. Paired with created_at__gte this selects groups that were active at any point in the window, including groups that are still receiving messages after it. Note that this bounds a group's oldest message while created_at__gte bounds its newest, so the two cannot be served by a single index and the request may time out on high volume organizations or wide date ranges. If you only need groups whose newest message falls inside the window, prefer last_created_at__lt, which bounds the same field as created_at__gte.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="first_message_reported_at__gte" type="string | null">
+
+Filters result to only message groups with a message first reported at or after the provided time. Datetime must be in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z').
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="flagged" type="boolean | null">
+
+Filters result to only message groups with at least one flagged message
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="flagged_rule_id__is" type="array[string] | null">
+
+Filters result to only message groups with the provided flagged rule ID
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="flagged_rule_severity__is" type="array[string] | null">
+
+Filters result to only message groups with the provided flagged rule severity. Possible values: informational, low, medium, high, critical.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="historically_flagged_rule_id__is" type="array[string] | null">
+
+Filters result to only message groups with the provided historically flagged rule ID
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="historically_flagged_rule_severity__is" type="array[string] | null">
+
+Filters result to only message groups with the provided historically flagged rule severity. Possible values: informational, low, medium, high, critical.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="last_created_at__gte" type="string | null">
+
+Inclusive start datetime filter, in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z'). Only message groups whose newest message was processed at or after this time will be returned. Equivalent to created_at__gte.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="last_created_at__lt" type="string | null">
+
+Exclusive end datetime filter, in UTC using the ISO 8601 format (e.g., '2021-05-04T15:09:26Z'). Only message groups whose newest message was processed before this time will be returned. Unlike created_at__lt, groups that are still receiving messages after this time are excluded. Prefer this over created_at__lt for historical lookbacks, since it bounds the same field as created_at__gte and both can then be served by a single index. High volume organizations may still need to request narrow time windows to avoid a timeout.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of message groups to return. If the value exceeds the maximum, then the maximum value will be used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="mailbox_email__is" type="array[string] | null">
+
+Filters result to only message groups with the provided mailbox email
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+The (zero-based) offset of the message groups to return
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="recipient_email__is" type="array[string] | null">
+
+Filters result to only message groups with the provided recipient email
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="reported_as_phish_by__is" type="array[string] | null">
+
+Filters result to only message groups with the provided reporter
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="reviewed" type="boolean | null">
+
+Filters result to only message groups which have or have not been reviewed
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sender_display_name__is" type="array[string] | null">
+
+Filters result to only message groups with the provided sender display name
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sender_domain__is" type="array[string] | null">
+
+Filters result to only message groups with the provided sender domain
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sender_email__is" type="array[string] | null">
+
+Filters result to only message groups with the provided sender email
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="spam__is" type="array[string] | null">
+
+Filters result to only message groups with the provided spam status. Possible values: spam, not_spam, mixed.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="subject__is" type="array[string] | null">
+
+Filters result to only message groups with the provided subject
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="user_reported" type="boolean | null">
+
+Filters result to only message groups with at least one reported message
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="vendor_id__is" type="array[string] | null">
+
+Filters result to only message groups with the provided vendor
 
 Default: `null`.
 
@@ -1460,6 +1912,26 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="classification_created_at_gte" type="string" required>
+
+Filter by classifications made after this datetime. Results are limited to the most recent 180 days.
+
+</ParamField>
+
+<ParamField path="classification_created_at_lte" type="string" required>
+
+Filter by classifications made before this datetime. Results are limited to the most recent 180 days.
+
+</ParamField>
+
+<ParamField path="active" type="boolean | null">
+
+Restrict to rules that are active
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Sublime API.
@@ -1468,9 +1940,33 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="count" type="integer | null">
 
-API-native query parameters.
+Number of results to return
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="in_feed" type="boolean | null">
+
+Restrict to rules that are in a feed
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+Offset from the first result
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="array[string] | null">
+
+Restrict to rules that have one of the given types. One of 'detection', 'triage', 'dlp'.
 
 Default: `null`.
 
@@ -1500,9 +1996,33 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="in_feed" type="boolean | null">
 
-API-native query parameters.
+Restrict to rules that are explicitly in or not in a feed
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of entries to return. Maximum value is 500.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+The (zero-based) offset of the first rule to return
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+Search for matching case-insensitive substring across rule name, description, and MQL source
 
 Default: `null`.
 
@@ -1532,9 +2052,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="limit" type="integer | null">
 
-API-native query parameters.
+The maximum number of message groups to return. If the value exceeds the maximum, then the maximum value will be used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="reported_at_gte" type="string | null">
+
+Inclusive start datetime filter for time of report, in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z'). Only reports at or after this time will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="reported_at_lt" type="string | null">
+
+Exclusive end datetime filter for time of report, in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z'). Only reports before this time will be returned.
 
 Default: `null`.
 
@@ -1556,15 +2092,15 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="id" type="string" required>
+<ParamField path="description" type="string" required>
 
-List ID.
+Description of list
 
 </ParamField>
 
-<ParamField path="payload" type="object" required>
+<ParamField path="id" type="string" required>
 
-API-native JSON request body.
+List ID.
 
 </ParamField>
 
@@ -1600,7 +2136,7 @@ Sublime message ID.
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: action, custom_action_ids, share_with_sublime.
 
 </ParamField>
 
@@ -1636,7 +2172,7 @@ Message group canonical ID.
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: classification, report_label, review_comment.
 
 </ParamField>
 
@@ -1666,7 +2202,7 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: message_group_ids (required), classification, report_label, review_comment.
 
 </ParamField>
 
@@ -1696,7 +2232,7 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: raw (required), file_type.
 
 </ParamField>
 
@@ -1762,7 +2298,7 @@ Message group canonical ID.
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: classification, report_label, review_comment.
 
 </ParamField>
 
@@ -1792,7 +2328,7 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: message_group_ids (required), classification, report_label, review_comment.
 
 </ParamField>
 
@@ -1882,7 +2418,7 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: classification (required), message_group_ids (required), action, custom_action_ids, generate_asa_lesson, review_comment, share_with_sublime.
 
 </ParamField>
 
@@ -1946,6 +2482,38 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="any" type="string | null">
+
+Searches every field (performs a case insensitive, OR search in all fields). Not compatible with other search fields.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="attachment_md5" type="string | null">
+
+Search for messages containing an attachment MD5 match
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="attachment_sha1" type="string | null">
+
+Search for messages containing an attachment SHA1 match
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="attachment_sha256" type="string | null">
+
+Search for messages containing an attachment SHA256 match
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Sublime API.
@@ -1954,9 +2522,113 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="created_at_gte" type="string | null">
 
-API-native query parameters.
+Inclusive start datetime filter for search, in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z'). Only message groups with a message processed at or after this time will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="created_at_lt" type="string | null">
+
+Exclusive end datetime filter for search, in UTC using the ISO 8601 format (e.g., '2021-05-04T15:09:26Z'). Only message groups with a message processed before this time will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="file_name" type="string | null">
+
+Search in attachment filenames (case insensitive wildcard match)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="first_reported_as_phish_at_gte" type="string | null">
+
+Inclusive start datetime filter for search, in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z'). Only message groups reported at or after this time will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="first_reported_as_phish_at_lt" type="string | null">
+
+Exclusive end datetime filter for search, in UTC using the ISO 8601 format (e.g., '2021-05-04T15:09:26Z'). Only message groups reported before this time will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of message groups to return. If the value exceeds the maximum, then the maximum value will be used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="mailbox" type="string | null">
+
+Search for a mailbox by email address (case insensitive, wildcard match)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="message_id" type="string | null">
+
+Search in the Message-ID header (case insensitive exact match; wildcards are not supported)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+The (zero-based) offset of the message groups to return
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sender" type="string | null">
+
+Search in the From field (case insensitive wildcard match)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="states" type="array[string] | null">
+
+Search for messages in any of the given states
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="subject" type="string | null">
+
+Search in the message subject (case insensitive wildcard match)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="to" type="string | null">
+
+Search in the To, CC, and Bcc fields (case insensitive wildcard match). If possible, use 'mailbox' and 'type' instead for better performance
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="array[string] | null">
+
+Search for messages by type. Multiple values are OR'd together.
 
 Default: `null`.
 
@@ -1978,15 +2650,15 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="id" type="string" required>
+<ParamField path="entries" type="array[string]" required>
 
-List ID.
+List entries
 
 </ParamField>
 
-<ParamField path="payload" type="object" required>
+<ParamField path="id" type="string" required>
 
-API-native JSON request body.
+List ID.
 
 </ParamField>
 
@@ -2022,7 +2694,7 @@ Sublime message ID.
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: justification.
 
 </ParamField>
 
@@ -2058,7 +2730,7 @@ Message group canonical ID.
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: destination, report_label, review_comment.
 
 </ParamField>
 
@@ -2088,7 +2760,7 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: range_end_time (required), range_start_time (required), source (required), name, private, triage_email_bomb, triage_flagged, triage_reported.
 
 </ParamField>
 
@@ -2154,7 +2826,7 @@ Message group canonical ID.
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: classification, report_label, review_comment.
 
 </ParamField>
 
@@ -2184,7 +2856,7 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: message_group_ids (required), classification, report_label, review_comment.
 
 </ParamField>
 
@@ -2220,7 +2892,7 @@ Sublime rule ID.
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: name (required), source (required), action_ids, attack_types, authors, auto_review_auto_share, auto_review_classification, description, detection_methods, false_positives, internal_type, label, maturity, references, run_triage_on_excluded_messages, severity, tactics_and_techniques, tags, triage_abuse_reports, triage_classification_changes, triage_dlp_rule_matched, triage_flagged_messages, user_provided_tags.
 
 </ParamField>
 
@@ -2250,7 +2922,7 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: name (required), source (required), action_ids, active, attack_types, authors, auto_review_auto_share, auto_review_classification, description, detection_methods, false_positives, internal_type, label, maturity, references, run_triage_on_excluded_messages, severity, tactics_and_techniques, tags, triage_abuse_reports, triage_classification_changes, triage_dlp_rule_matched, triage_flagged_messages, type, user_provided_tags.
 
 </ParamField>
 

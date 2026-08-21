@@ -10,9 +10,77 @@ definition:
     - name: sublime
       keys: ["SUBLIME_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    any:
+      type: str | None
+      description: Searches every field (performs a case insensitive, OR search in all fields). Not compatible with other search fields.
+      default: null
+    attachment_md5:
+      type: str | None
+      description: Search for messages containing an attachment MD5 match
+      default: null
+    attachment_sha1:
+      type: str | None
+      description: Search for messages containing an attachment SHA1 match
+      default: null
+    attachment_sha256:
+      type: str | None
+      description: Search for messages containing an attachment SHA256 match
+      default: null
+    created_at_gte:
+      type: str | None
+      description: Inclusive start datetime filter for search, in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z'). Only message groups with a message processed at or after this time will be returned.
+      default: null
+    created_at_lt:
+      type: str | None
+      description: Exclusive end datetime filter for search, in UTC using the ISO 8601 format (e.g., '2021-05-04T15:09:26Z'). Only message groups with a message processed before this time will be returned.
+      default: null
+    file_name:
+      type: str | None
+      description: Search in attachment filenames (case insensitive wildcard match)
+      default: null
+    first_reported_as_phish_at_gte:
+      type: str | None
+      description: Inclusive start datetime filter for search, in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z'). Only message groups reported at or after this time will be returned.
+      default: null
+    first_reported_as_phish_at_lt:
+      type: str | None
+      description: Exclusive end datetime filter for search, in UTC using the ISO 8601 format (e.g., '2021-05-04T15:09:26Z'). Only message groups reported before this time will be returned.
+      default: null
+    limit:
+      type: int | None
+      description: The maximum number of message groups to return. If the value exceeds the maximum, then the maximum value will be used.
+      default: null
+    mailbox:
+      type: str | None
+      description: Search for a mailbox by email address (case insensitive, wildcard match)
+      default: null
+    message_id:
+      type: str | None
+      description: Search in the Message-ID header (case insensitive exact match; wildcards are not supported)
+      default: null
+    offset:
+      type: int | None
+      description: The (zero-based) offset of the message groups to return
+      default: null
+    sender:
+      type: str | None
+      description: Search in the From field (case insensitive wildcard match)
+      default: null
+    states:
+      type: list[str] | None
+      description: Search for messages in any of the given states
+      default: null
+    subject:
+      type: str | None
+      description: Search in the message subject (case insensitive wildcard match)
+      default: null
+    to:
+      type: str | None
+      description: Search in the To, CC, and Bcc fields (case insensitive wildcard match). If possible, use 'mailbox' and 'type' instead for better performance
+      default: null
+    type:
+      type: list[str] | None
+      description: Search for messages by type. Multiple values are OR'd together.
       default: null
     base_url:
       type: str | None
@@ -24,7 +92,25 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/message-groups/search
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          any: ${{ inputs.any }}
+          attachment_md5: ${{ inputs.attachment_md5 }}
+          attachment_sha1: ${{ inputs.attachment_sha1 }}
+          attachment_sha256: ${{ inputs.attachment_sha256 }}
+          created_at[gte]: ${{ inputs.created_at_gte }}
+          created_at[lt]: ${{ inputs.created_at_lt }}
+          file_name: ${{ inputs.file_name }}
+          first_reported_as_phish_at[gte]: ${{ inputs.first_reported_as_phish_at_gte }}
+          first_reported_as_phish_at[lt]: ${{ inputs.first_reported_as_phish_at_lt }}
+          limit: ${{ inputs.limit }}
+          mailbox: ${{ inputs.mailbox }}
+          message_id: ${{ inputs.message_id }}
+          offset: ${{ inputs.offset }}
+          sender: ${{ inputs.sender }}
+          states: ${{ inputs.states }}
+          subject: ${{ inputs.subject }}
+          to: ${{ inputs.to }}
+          type: ${{ inputs.type }}
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
   returns: ${{ steps.request.result.data }}

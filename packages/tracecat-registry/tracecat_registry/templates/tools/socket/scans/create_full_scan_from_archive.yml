@@ -46,7 +46,7 @@ definition:
       description: The pull request number to associate the full-scan with.
       default: null
     committers:
-      type: str | None
+      type: list[str] | None
       description: >-
         The committers to associate with the full-scan. Set query more than once to set multiple.
       default: null

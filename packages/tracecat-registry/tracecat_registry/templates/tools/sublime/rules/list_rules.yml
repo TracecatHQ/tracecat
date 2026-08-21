@@ -10,9 +10,21 @@ definition:
     - name: sublime
       keys: ["SUBLIME_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    in_feed:
+      type: bool | None
+      description: Restrict to rules that are explicitly in or not in a feed
+      default: null
+    limit:
+      type: int | None
+      description: The maximum number of entries to return. Maximum value is 500.
+      default: null
+    offset:
+      type: int | None
+      description: The (zero-based) offset of the first rule to return
+      default: null
+    search:
+      type: str | None
+      description: Search for matching case-insensitive substring across rule name, description, and MQL source
       default: null
     base_url:
       type: str | None
@@ -24,7 +36,11 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/rules
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          in_feed: ${{ inputs.in_feed }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          search: ${{ inputs.search }}
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
   returns: ${{ steps.request.result.data }}

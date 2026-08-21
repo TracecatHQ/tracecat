@@ -15,9 +15,17 @@ definition:
     project_id:
       type: str
       description: GitLab API path value for project_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    license:
+      type: bool | None
+      description: Include project license data.
+      default: null
+    statistics:
+      type: bool | None
+      description: Include project statistics. Available only to users with the Reporter, Developer, Maintainer, or Owner role.
+      default: null
+    with_custom_attributes:
+      type: bool | None
+      description: Include custom attributes in response. Administrator access.
       default: null
     base_url:
       type: str
@@ -32,5 +40,8 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          license: ${{ inputs.license }}
+          statistics: ${{ inputs.statistics }}
+          with_custom_attributes: ${{ inputs.with_custom_attributes }}
   returns: ${{ steps.request.result }}

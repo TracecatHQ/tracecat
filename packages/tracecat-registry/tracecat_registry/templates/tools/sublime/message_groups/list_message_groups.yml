@@ -10,9 +10,117 @@ definition:
     - name: sublime
       keys: ["SUBLIME_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    attachment_name__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided attachment name
+      default: null
+    attachment_sha256__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided attachment SHA256
+      default: null
+    attack_score_verdict__is:
+      type: list[str] | None
+      description: "Filters result to only message groups with the provided attack score verdict. Possible values: unknown, likely_benign, suspicious, malicious, graymail, spam."
+      default: null
+    attack_surface_reduction__filter:
+      type: bool | None
+      description: Filters result to only message groups that have flagged (ONLY) rules with the 'Attack surface reduction' tag
+      default: null
+    canonical_id__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided canonical ID
+      default: null
+    created_at__gte:
+      type: str | None
+      description: Inclusive start datetime filter, in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z'). Only message groups that contain a message processed at or after this time will be returned.
+      default: null
+    created_at__lt:
+      type: str | None
+      description: Exclusive end datetime filter, in UTC using the ISO 8601 format (e.g., '2021-05-04T15:09:26Z'). Only message groups that contain a message processed before this time will be returned. Paired with created_at__gte this selects groups that were active at any point in the window, including groups that are still receiving messages after it. Note that this bounds a group's oldest message while created_at__gte bounds its newest, so the two cannot be served by a single index and the request may time out on high volume organizations or wide date ranges. If you only need groups whose newest message falls inside the window, prefer last_created_at__lt, which bounds the same field as created_at__gte.
+      default: null
+    first_message_reported_at__gte:
+      type: str | None
+      description: Filters result to only message groups with a message first reported at or after the provided time. Datetime must be in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z').
+      default: null
+    flagged:
+      type: bool | None
+      description: Filters result to only message groups with at least one flagged message
+      default: null
+    flagged_rule_id__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided flagged rule ID
+      default: null
+    flagged_rule_severity__is:
+      type: list[str] | None
+      description: "Filters result to only message groups with the provided flagged rule severity. Possible values: informational, low, medium, high, critical."
+      default: null
+    historically_flagged_rule_id__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided historically flagged rule ID
+      default: null
+    historically_flagged_rule_severity__is:
+      type: list[str] | None
+      description: "Filters result to only message groups with the provided historically flagged rule severity. Possible values: informational, low, medium, high, critical."
+      default: null
+    last_created_at__gte:
+      type: str | None
+      description: Inclusive start datetime filter, in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z'). Only message groups whose newest message was processed at or after this time will be returned. Equivalent to created_at__gte.
+      default: null
+    last_created_at__lt:
+      type: str | None
+      description: Exclusive end datetime filter, in UTC using the ISO 8601 format (e.g., '2021-05-04T15:09:26Z'). Only message groups whose newest message was processed before this time will be returned. Unlike created_at__lt, groups that are still receiving messages after this time are excluded. Prefer this over created_at__lt for historical lookbacks, since it bounds the same field as created_at__gte and both can then be served by a single index. High volume organizations may still need to request narrow time windows to avoid a timeout.
+      default: null
+    limit:
+      type: int | None
+      description: The maximum number of message groups to return. If the value exceeds the maximum, then the maximum value will be used.
+      default: null
+    mailbox_email__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided mailbox email
+      default: null
+    offset:
+      type: int | None
+      description: The (zero-based) offset of the message groups to return
+      default: null
+    recipient_email__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided recipient email
+      default: null
+    reported_as_phish_by__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided reporter
+      default: null
+    reviewed:
+      type: bool | None
+      description: Filters result to only message groups which have or have not been reviewed
+      default: null
+    sender_display_name__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided sender display name
+      default: null
+    sender_domain__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided sender domain
+      default: null
+    sender_email__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided sender email
+      default: null
+    spam__is:
+      type: list[str] | None
+      description: "Filters result to only message groups with the provided spam status. Possible values: spam, not_spam, mixed."
+      default: null
+    subject__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided subject
+      default: null
+    user_reported:
+      type: bool | None
+      description: Filters result to only message groups with at least one reported message
+      default: null
+    vendor_id__is:
+      type: list[str] | None
+      description: Filters result to only message groups with the provided vendor
       default: null
     base_url:
       type: str | None
@@ -24,7 +132,35 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/message-groups
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          attachment_name__is: ${{ inputs.attachment_name__is }}
+          attachment_sha256__is: ${{ inputs.attachment_sha256__is }}
+          attack_score_verdict__is: ${{ inputs.attack_score_verdict__is }}
+          attack_surface_reduction__filter: ${{ inputs.attack_surface_reduction__filter }}
+          canonical_id__is: ${{ inputs.canonical_id__is }}
+          created_at__gte: ${{ inputs.created_at__gte }}
+          created_at__lt: ${{ inputs.created_at__lt }}
+          first_message_reported_at__gte: ${{ inputs.first_message_reported_at__gte }}
+          flagged: ${{ inputs.flagged }}
+          flagged_rule_id__is: ${{ inputs.flagged_rule_id__is }}
+          flagged_rule_severity__is: ${{ inputs.flagged_rule_severity__is }}
+          historically_flagged_rule_id__is: ${{ inputs.historically_flagged_rule_id__is }}
+          historically_flagged_rule_severity__is: ${{ inputs.historically_flagged_rule_severity__is }}
+          last_created_at__gte: ${{ inputs.last_created_at__gte }}
+          last_created_at__lt: ${{ inputs.last_created_at__lt }}
+          limit: ${{ inputs.limit }}
+          mailbox_email__is: ${{ inputs.mailbox_email__is }}
+          offset: ${{ inputs.offset }}
+          recipient_email__is: ${{ inputs.recipient_email__is }}
+          reported_as_phish_by__is: ${{ inputs.reported_as_phish_by__is }}
+          reviewed: ${{ inputs.reviewed }}
+          sender_display_name__is: ${{ inputs.sender_display_name__is }}
+          sender_domain__is: ${{ inputs.sender_domain__is }}
+          sender_email__is: ${{ inputs.sender_email__is }}
+          spam__is: ${{ inputs.spam__is }}
+          subject__is: ${{ inputs.subject__is }}
+          user_reported: ${{ inputs.user_reported }}
+          vendor_id__is: ${{ inputs.vendor_id__is }}
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
   returns: ${{ steps.request.result.data }}

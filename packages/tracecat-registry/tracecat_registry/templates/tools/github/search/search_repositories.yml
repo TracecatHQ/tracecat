@@ -11,9 +11,24 @@ definition:
     provider_id: github
     grant_type: authorization_code
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    q:
+      type: str
+      description: The query contains one or more search keywords and qualifiers. Qualifiers allow you to limit your search to specific areas of GitHub. The REST API supports the same qualifiers as the web interface for GitHub. See Searching for repositories for a detailed list of qualifiers.
+    sort:
+      type: str | None
+      description: "Sorts the results of your query by number of stars, forks, or help-wanted-issues or how recently the items were updated. Default: best match"
+      default: null
+    order:
+      type: str | None
+      description: Determines whether the first search result returned is the highest number of matches (desc) or lowest number of matches (asc). This parameter is ignored unless you provide sort.
+      default: null
+    per_page:
+      type: int | None
+      description: The number of results per page (max 100).
+      default: null
+    page:
+      type: int | None
+      description: The page number of the results to fetch.
       default: null
     base_url:
       type: str
@@ -29,5 +44,10 @@ definition:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
-      params: ${{ inputs.params }}
+      params:
+        q: ${{ inputs.q }}
+        sort: ${{ inputs.sort }}
+        order: ${{ inputs.order }}
+        per_page: ${{ inputs.per_page }}
+        page: ${{ inputs.page }}
   returns: ${{ steps.request.result }}

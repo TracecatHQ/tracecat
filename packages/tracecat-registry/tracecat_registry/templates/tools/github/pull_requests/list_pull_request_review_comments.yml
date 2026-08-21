@@ -20,9 +20,25 @@ definition:
     pull_number:
       type: int
       description: GitHub API path value for pull_number.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    sort:
+      type: str | None
+      description: 'The property to sort the results by. Can be one of: `created`, `updated`.'
+      default: null
+    direction:
+      type: str | None
+      description: 'The direction to sort results. Ignored without `sort` parameter. Can be one of: `asc`, `desc`.'
+      default: null
+    since:
+      type: str | None
+      description: 'Only show results that were last updated after the given time. This is a timestamp in [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) format: `YYYY-MM-DDTHH:MM:SSZ`.'
+      default: null
+    per_page:
+      type: int | None
+      description: The number of results per page (max 100).
+      default: null
+    page:
+      type: int | None
+      description: The page number of the results to fetch.
       default: null
     base_url:
       type: str
@@ -38,5 +54,10 @@ definition:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
-      params: ${{ inputs.params }}
+      params:
+        sort: ${{ inputs.sort }}
+        direction: ${{ inputs.direction }}
+        since: ${{ inputs.since }}
+        per_page: ${{ inputs.per_page }}
+        page: ${{ inputs.page }}
   returns: ${{ steps.request.result }}

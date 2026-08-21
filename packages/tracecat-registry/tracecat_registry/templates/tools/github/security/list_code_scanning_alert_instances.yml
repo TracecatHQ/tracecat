@@ -20,9 +20,21 @@ definition:
     alert_number:
       type: int
       description: GitHub API path value for alert_number.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    page:
+      type: int | None
+      description: "The page number of the results to fetch. Default: `1`."
+      default: null
+    per_page:
+      type: int | None
+      description: "The number of results per page (max 100). Default: `30`."
+      default: null
+    ref:
+      type: str | None
+      description: The Git reference for the results you want to list. The `ref` for a branch can be formatted either as `refs/heads/<branch name>` or simply `<branch name>`. To reference a pull request use `refs/pull/<number>/merge`.
+      default: null
+    pr:
+      type: int | None
+      description: The number of the pull request for the results you want to list.
       default: null
     base_url:
       type: str
@@ -38,5 +50,9 @@ definition:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
-      params: ${{ inputs.params }}
+      params:
+        page: ${{ inputs.page }}
+        per_page: ${{ inputs.per_page }}
+        ref: ${{ inputs.ref }}
+        pr: ${{ inputs.pr }}
   returns: ${{ steps.request.result }}
