@@ -46,6 +46,24 @@ export type VersionHistoryMenuProps = {
   renderVersionDiff: (versionId: string) => ReactNode
   /** Human-readable kind of document used in copy, e.g. `agent` or `skill`. */
   entityLabel: string
+  /**
+   * Optional host-owned menu controls rendered above the version list.
+   * Interactive controls must use menu-aware primitives such as
+   * `DropdownMenuItem` so they participate in the menu's keyboard focus model.
+   */
+  listControls?: ReactNode
+  /**
+   * Renders comparison copy for the selected entry. Defaults to comparing the
+   * entry with the document's current draft.
+   */
+  renderComparisonDescription?: (version: VersionHistoryEntry) => ReactNode
+  /**
+   * Renders restore-confirmation copy for the selected entry. Defaults to the
+   * existing warning that unsaved changes will be replaced.
+   */
+  renderRestoreConfirmationDescription?: (
+    version: VersionHistoryEntry
+  ) => ReactNode
   /** Versions to list in the dropdown, newest first. */
   versions: VersionHistoryEntry[]
   /** True while the version list is being fetched. */
@@ -69,6 +87,8 @@ export type VersionHistoryMenuProps = {
    * stays open and dismissible.
    */
   restoreDisabled?: boolean
+  /** Disables restore when the selected entry matches a host-owned condition. */
+  isRestoreDisabled?: (version: VersionHistoryEntry) => boolean
   /** Horizontal alignment of the dropdown relative to the trigger. */
   align?: "start" | "end"
 }
@@ -84,12 +104,16 @@ export function VersionHistoryMenu({
   document: documentDescriptor,
   renderVersionDiff,
   entityLabel,
+  listControls,
+  renderComparisonDescription,
+  renderRestoreConfirmationDescription,
   versions,
   isLoading,
   loadError,
   onRestore,
   disabled,
   restoreDisabled,
+  isRestoreDisabled,
   align = "end",
 }: VersionHistoryMenuProps) {
   const [selectedVersion, setSelectedVersion] =
@@ -175,6 +199,29 @@ export function VersionHistoryMenu({
     setSelectedVersion(null)
   }
 
+  function renderDialogDescription(): ReactNode {
+    if (!selectedVersion) {
+      return "Restoring replaces unsaved changes."
+    }
+
+    const comparison = renderComparisonDescription
+      ? renderComparisonDescription(selectedVersion)
+      : `Compare ${selectedVersion.label} with the current draft of ${documentDescriptor.name}.`
+    const confirmation = renderRestoreConfirmationDescription
+      ? renderRestoreConfirmationDescription(selectedVersion)
+      : "Restoring replaces unsaved changes."
+
+    return (
+      <>
+        {comparison} {confirmation}
+      </>
+    )
+  }
+
+  const selectedRestoreDisabled = selectedVersion
+    ? Boolean(isRestoreDisabled?.(selectedVersion))
+    : false
+
   return (
     <>
       <DropdownMenu>
@@ -203,6 +250,12 @@ export function VersionHistoryMenu({
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator className="mx-0 my-0" />
+            {listControls !== undefined && listControls !== null ? (
+              <>
+                {listControls}
+                <DropdownMenuSeparator className="mx-0 my-0" />
+              </>
+            ) : null}
             {renderVersionList()}
           </div>
         </DropdownMenuContent>
@@ -220,9 +273,7 @@ export function VersionHistoryMenu({
           <AlertDialogHeader>
             <AlertDialogTitle>Restore version</AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedVersion
-                ? `Compare ${selectedVersion.label} with the current draft of ${documentDescriptor.name}. Restoring replaces unsaved changes.`
-                : "Restoring replaces unsaved changes."}
+              {renderDialogDescription()}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {selectedVersion ? (
@@ -239,7 +290,9 @@ export function VersionHistoryMenu({
                 event.preventDefault()
                 void handleConfirmRestore()
               }}
-              disabled={restorePending || restoreDisabled}
+              disabled={
+                restorePending || restoreDisabled || selectedRestoreDisabled
+              }
             >
               {restorePending ? (
                 <>
