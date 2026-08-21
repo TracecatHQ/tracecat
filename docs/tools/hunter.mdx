@@ -20,6 +20,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="email" type="string" required>
+
+The email address name for which you to find associated information.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Hunter API.
@@ -28,9 +34,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="clearbit_format" type="string | null">
 
-API-native query parameters.
+As more customers switch to Clearbit, we've updated the Enrichment API to support the same Clearbit schema. Any value you provide will now be formatted to match Clearbit's schema for consistency.
 
 Default: `null`.
 
@@ -52,6 +58,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="domain" type="string" required>
+
+The domain name for which you to find associated information.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Hunter API.
@@ -60,9 +72,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="clearbit_format" type="string | null">
 
-API-native query parameters.
+As more customers switch to Clearbit, we've updated the Enrichment API to support the same Clearbit schema. Any value you provide will now be formatted to match Clearbit's schema for consistency.
 
 Default: `null`.
 
@@ -84,6 +96,14 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="aggregations" type="boolean | null">
+
+Set to `true` or `false` to include a breakdown of the domain's email addresses in `meta.aggregations`: the number of personal email addresses per department, the number of decision makers, and the split between personal and generic addresses. The counts reflect the filters applied to the search. Omitted by default.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Hunter API.
@@ -92,9 +112,89 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="company" type="string | null">
 
-API-native query parameters.
+The company name from which you want to find the email addresses. For example, "stripe". Note that you'll get better results by supplying the domain name as we won't have to find it. If you send a request with both the domain and the company name, we'll use the domain name. It doesn't need to be in lowercase. Required unless domain is provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="decision_maker" type="boolean | null">
+
+Set to `true` or `false` to get only the email addresses of the company's decision makers (or, with `false`, only the non-decision-makers). Decision makers are the people most likely to hold buying authority, inferred from their seniority and department.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="department" type="string | null">
+
+Get only email addresses for people working in the selected department(s). The possible values are `executive`, `it`, `finance`, `management`, `sales`, `legal`, `support`, `hr`, `marketing`, `communication`, `education`, `design`, `health`, `operations`, `product`, `research`, `consulting`, `administrative` or `procurement`. Several departments can be selected (comma-delimited).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="domain" type="string | null">
+
+Domain name from which you want to find the email addresses. For example, "stripe.com". Required unless company is provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="job_titles" type="string | null">
+
+Get only email addresses for people that have the selected job title(s). Several job titles can be selected (comma-delimited).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Specifies the max number of email addresses to return. The default is 10.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+Specifies the number of email addresses to skip. The default is 0.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="required_field" type="string | null">
+
+Get only email addresses for people that have the selected field(s). The possible values are `full_name`, `position` and `phone_number`. Several fields can be selected (comma-delimited).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="seniority" type="string | null">
+
+Get only email addresses for people with the selected seniority level. The possible values are `junior`, `senior` or `executive`. Several seniority levels can be selected (delimited by a comma).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+Get only `personal` or `generic` email addresses.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verification_status" type="string | null">
+
+Get only email addresses that have the selected verification status(es). The possible values are `valid`, `accept_all` and `unknown`. Several statuses can be selected (comma-delimited).
 
 Default: `null`.
 
@@ -124,9 +224,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="company" type="string | null">
 
-API-native query parameters.
+The company name for which you want to know how many email addresses we have. For example, "stripe". Note that you'll get better results by supplying the domain name as we won't have to find it. If you send a request with both the domain and the company name, we'll use the domain name. It doesn't need to be in lowercase. It must be composed of at least 3 characters. Required unless domain is provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="domain" type="string | null">
+
+The domain name for which you want to know how many email addresses we have. Required unless company is provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+Get the count of only `personal` or `generic` email addresses.
 
 Default: `null`.
 
@@ -156,9 +272,57 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="company" type="string | null">
 
-API-native query parameters.
+The company name from which you want to find the email addresses. For example, "stripe". Note that providing the domain name gives better results as it removes the conversion from the company name. If you send a request with both the domain and the company name, the domain name will be used. The company name doesn't need to be in lowercase. Required unless domain or linkedin_handle is provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="domain" type="string | null">
+
+The domain name of the company. Required unless company or linkedin_handle is provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="first_name" type="string | null">
+
+The person's first name. It doesn't need to be in lowercase. Required unless full_name or linkedin_handle is provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="full_name" type="string | null">
+
+The person's full name. Note that you'll get better results by supplying the person's first and last name if you can. It doesn't need to be in lowercase. Required unless first_name and last_name, or linkedin_handle is provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="last_name" type="string | null">
+
+The person's last name. It doesn't need to be in lowercase. Required unless full_name or linkedin_handle is provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="linkedin_handle" type="string | null">
+
+The handle of the LinkedIn profile for which you to find the email address. Required unless domain or company is provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="max_duration" type="integer | null">
+
+The maximum duration of the request in seconds. Setting a longer duration allows us to refine the results and provide more accurate data. It must range between 3 and 20. The default is 10.
 
 Default: `null`.
 
@@ -180,17 +344,15 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
+<ParamField path="email" type="string" required>
 
-Base URL of the Hunter API.
-
-Default: `null`.
+The email address you want to verify.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="base_url" type="string | null">
 
-API-native query parameters.
+Base URL of the Hunter API.
 
 Default: `null`.
 
@@ -220,9 +382,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="clearbit_format" type="string | null">
 
-API-native query parameters.
+As more customers switch to Clearbit, we've updated the Enrichment API to support the same Clearbit schema. Any value you provide will now be formatted to match Clearbit's schema for consistency.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="email" type="string | null">
+
+The email address name for which you to find associated information. Required unless linkedin_handle is provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="linkedin_handle" type="string | null">
+
+The handle of the LinkedIn profile for which you to find associated information. Required unless email is provided.
 
 Default: `null`.
 

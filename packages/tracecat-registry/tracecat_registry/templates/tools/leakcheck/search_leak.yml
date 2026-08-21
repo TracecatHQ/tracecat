@@ -14,9 +14,17 @@ definition:
     query:
       type: str
       description: Search value used as the API path value.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    type:
+      type: str | None
+      description: Search type. When omitted, the type is detected automatically (works for email, username, phone number and hash).
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of rows to return. Defaults to 100 and cannot exceed 1000.
+      default: null
+    offset:
+      type: int | None
+      description: Number of rows to skip, for pagination. Defaults to 0 and cannot exceed 2500.
       default: null
     base_url:
       type: str | None
@@ -31,5 +39,8 @@ definition:
         headers:
           Accept: application/json
           X-API-Key: ${{ SECRETS.leakcheck.LEAKCHECK_API_KEY }}
-        params: ${{ inputs.params }}
+        params:
+          type: ${{ inputs.type }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
   returns: ${{ steps.request.result }}

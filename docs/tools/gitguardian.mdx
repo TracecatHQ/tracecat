@@ -22,7 +22,7 @@ Required secrets:
 
 <ParamField path="incident_id" type="integer" required>
 
-Public secret incident ID.
+The id of the incident to retrieve.
 
 </ParamField>
 
@@ -34,11 +34,11 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="privacy_mode" type="boolean | null">
+<ParamField path="privacy_mode" type="string | null">
 
-Value for the X-Privacy-Mode request header.
+When set to `true`, sensitive values in the response are obfuscated (replaced with `&lt;GG>OBFUSCATED&lt;/GG>`). Useful for sharing API responses without exposing sensitive data. Possible values: true, false.
 
-Default: `true`.
+Default: `null`.
 
 </ParamField>
 
@@ -60,7 +60,7 @@ Required secrets:
 
 <ParamField path="incident_id" type="integer" required>
 
-Secret incident ID.
+The id of the incident to retrieve.
 
 </ParamField>
 
@@ -72,9 +72,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="with_occurrences" type="integer | null">
 
-API-native query parameters.
+Retrieve a number of occurrences of this incident.
 
 Default: `null`.
 
@@ -96,6 +96,22 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="assignee_email" type="string | null">
+
+Public secret incidents assigned to this email.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assignee_id" type="integer | null">
+
+Public secret incidents assigned to this user id.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the GitGuardian API.
@@ -104,19 +120,195 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters.
+Pagination cursor.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="privacy_mode" type="boolean | null">
+<ParamField path="custom_tag_key" type="string | null">
 
-Value for the X-Privacy-Mode request header.
+Public secret incidents with the given custom tag key.
 
-Default: `true`.
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="custom_tag_value" type="string | null">
+
+Public secret incidents with the given custom tag value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="custom_tags" type="string | null">
+
+Public secret incidents with one of the following custom tag ids. To retrieve incidents containing several custom tags at once, this query parameter should be used several times to intersect the results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="date_after" type="string | null">
+
+Entries found after this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="date_before" type="string | null">
+
+Entries found before this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="declarative_secret_status" type="string | null">
+
+Public secret incidents with the following declarative secret status. Possible values: revoked, active, test_credential, false_positive, low_risk.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="detector_group_name" type="string | null">
+
+Public secret incidents belonging to the specified detector group.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="feedback" type="boolean | null">
+
+Public secret incidents with or without feedback.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ignorer_api_token_id" type="string | null">
+
+Public secret incidents ignored by this API token id.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ignorer_id" type="integer | null">
+
+Public secret incidents ignored by this user id.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ordering" type="string | null">
+
+Sort the results by their field value. The default sort is ASC, DESC if the field is preceded by a '-'. Possible values: date, -date, resolved_at, -resolved_at, ignored_at, -ignored_at, risk_score, -risk_score.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="privacy_mode" type="string | null">
+
+When set to `true`, sensitive values in the response are obfuscated (replaced with `&lt;GG>OBFUSCATED&lt;/GG>`). Useful for sharing API responses without exposing sensitive data. Possible values: true, false.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="resolver_api_token_id" type="string | null">
+
+Public secret incidents resolved by this API token id.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="resolver_id" type="integer | null">
+
+Public secret incidents resolved by this user id.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="risk_score_max" type="integer | null">
+
+Incidents with risk score lesser than value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="risk_score_min" type="integer | null">
+
+Incidents with risk score greater than value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+Filter public secret incidents by severity. Possible values: critical, high, medium, low, info, unknown.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Public secret incidents with the following status. Possible values: IGNORED, TRIGGERED, ASSIGNED, RESOLVED.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tags" type="string | null">
+
+Public secret incidents with one of the following tags. Use `NONE` if you want to filter incidents with no tags.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="triggered_at_after" type="string | null">
+
+Incidents with triggered_at after this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="triggered_at_before" type="string | null">
+
+Incidents with triggered_at before this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="validity" type="string | null">
+
+Public secret incident with the following validity. Possible values: valid, invalid, failed_to_check, no_checker, unknown.
+
+Default: `null`.
 
 </ParamField>
 
@@ -138,7 +330,15 @@ Required secrets:
 
 <ParamField path="incident_id" type="integer" required>
 
-Public secret incident ID.
+The id of the incident to retrieve.
+
+</ParamField>
+
+<ParamField path="attachment_reason" type="string | null">
+
+Occurrences with one of the following attachment reasons. Possible values: by_dev_from_perimeter, on_github_org_in_perimeter, from_secret_grasper.
+
+Default: `null`.
 
 </ParamField>
 
@@ -150,9 +350,105 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters.
+Pagination cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="date_after" type="string | null">
+
+Entries found after this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="date_before" type="string | null">
+
+Entries found before this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filepath" type="string | null">
+
+Entries matching this filepath search.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ordering" type="string | null">
+
+Sort the results by their field value. The default sort is ASC, DESC if the field is preceded by a '-'. Possible values: id, -id, date, -date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="presence" type="string | null">
+
+Entries that have the following presence status. Possible values: present, removed, unknown.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+Filter occurrences by the severity of their related incident. Can specify multiple values separated by commas. Possible values: critical, high, medium, low, info, unknown.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sha" type="string | null">
+
+Entries starting with the commit sha search string.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="source_id" type="integer | null">
+
+Filter on the source ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Filter occurrences by the status of their related incident. Can specify multiple values separated by commas. Possible values: IGNORED, TRIGGERED, ASSIGNED, RESOLVED.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tags" type="string | null">
+
+Public secret incidents with one of the following tags. Use `NONE` if you want to filter incidents with no tags.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="validity" type="string | null">
+
+Filter occurrences by the validity of their related secret. Can specify multiple values separated by commas. Possible values: valid, invalid, failed_to_check, no_checker, unknown.
 
 Default: `null`.
 
@@ -174,6 +470,22 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="assignee_email" type="string | null">
+
+Incidents assigned to this email.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assignee_id" type="integer | null">
+
+Incidents assigned to this user id.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the GitGuardian API.
@@ -182,9 +494,201 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters.
+Pagination cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="custom_tag_key" type="string | null">
+
+Incidents with the given custom tag key.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="custom_tag_value" type="string | null">
+
+Incidents with the given custom tag value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="custom_tags" type="string | null">
+
+Incidents with one of the following custom tag ids. To retrieve incidents containing several custom tags at once, this query parameter should be used several times to intersect the results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="date_after" type="string | null">
+
+Entries found after this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="date_before" type="string | null">
+
+Entries found before this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="detector_group_name" type="string | null">
+
+Incidents belonging to the specified detector group.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclude_tags" type="string | null">
+
+Exclude incidents with any of the following tags (comma-separated). Use `NONE` to exclude incidents with no tags.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="feedback" type="boolean | null">
+
+Incidents with or without feedback.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ignorer_api_token_id" type="string | null">
+
+Incidents ignored by this API token id.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ignorer_id" type="integer | null">
+
+Incidents ignored by this user id.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="only_on_provider_archived_sources" type="boolean | null">
+
+When true, only return secret incidents where every detection is on a source archived on the provider (same meaning as `provider_metadata.archived` on the Sources API). Source types that do not support an archived flag are never considered archived.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ordering" type="string | null">
+
+Sort the results by their field value. The default sort is ASC, DESC if the field is preceded by a '-'. Possible values: date, -date, resolved_at, -resolved_at, ignored_at, -ignored_at, risk_score, -risk_score.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="resolver_api_token_id" type="string | null">
+
+Incidents resolved by this API token id.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="resolver_id" type="integer | null">
+
+Incidents resolved by this user id.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="risk_score_max" type="integer | null">
+
+Incidents with risk score lesser than value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="risk_score_min" type="integer | null">
+
+Incidents with risk score greater than value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+Filter incidents by severity. Possible values: critical, high, medium, low, info, unknown.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Incidents with the following status. Possible values: IGNORED, TRIGGERED, ASSIGNED, RESOLVED.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tags" type="string | null">
+
+Incidents with one of the following tags. Use `NONE` if you want to filter incidents with no tags.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="triggered_at_after" type="string | null">
+
+Incidents with triggered_at after this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="triggered_at_before" type="string | null">
+
+Incidents with triggered_at before this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="validity" type="string | null">
+
+Secrets with the following validity. Possible values: valid, invalid, failed_to_check, no_checker, unknown.
 
 Default: `null`.
 
@@ -206,6 +710,22 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="author_info" type="string | null">
+
+Entries matching this author email search.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="author_name" type="string | null">
+
+Entries matching this author name search.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the GitGuardian API.
@@ -214,9 +734,161 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters.
+Pagination cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="date_after" type="string | null">
+
+Entries found after this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="date_before" type="string | null">
+
+Entries found before this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclude_tags" type="string | null">
+
+Exclude occurrences with any of the following tags (comma-separated). Use `NONE` to exclude occurrences with no tags.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filepath" type="string | null">
+
+Entries matching this filepath search.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="incident_assignee_id" type="integer | null">
+
+Filter by incident assignee member ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="incident_id" type="integer | null">
+
+Filter by incident ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ordering" type="string | null">
+
+Sort the results by their field value. The default sort is ASC, DESC if the field is preceded by a '-'. Possible values: date, -date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of items to list per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="presence" type="string | null">
+
+Entries that have the following presence status. Possible values: present, removed.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+Filter occurrences by the severity of their related incident. Can specify multiple values separated by commas. Possible values: critical, high, medium, low, info, unknown.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sha" type="string | null">
+
+Entries starting with the commit sha search string.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="source_id" type="integer | null">
+
+Filter on the source ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="source_monitoring_status" type="string | null">
+
+Keep only occurrences whose source's real-time monitoring status is one of the given (comma-separated) buckets. Requires the monitoring-status feature to be enabled for the workspace; otherwise the parameter is ignored.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="source_name" type="string | null">
+
+Entries matching this source name search.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="source_type" type="string | null">
+
+Filter by source type. Possible values: bitbucket, bitbucket_cloud, github, gitlab, azure_devops, slack, jira_cloud, confluence_cloud, microsoft_teams, confluence_data_center, jira_data_center, aws_ecr, azure_cr, google_artifact, jfrog_artifact, docker_hub, servicenow, sharepoint_online, sharepoint_online_drive, sharepoint_online_pages, microsoft_onedrive, custom_source.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Filter occurrences by the status of their related incident. Can specify multiple values separated by commas. Possible values: IGNORED, TRIGGERED, ASSIGNED, RESOLVED.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tags" type="string | null">
+
+Occurrences with one of the following tags. Use `NONE` if you want to filter occurrences with no tags.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="validity" type="string | null">
+
+Filter occurrences by the validity of their related secret. Can specify multiple values separated by commas. Possible values: valid, invalid, failed_to_check, no_checker, unknown.
 
 Default: `null`.
 
@@ -240,7 +912,7 @@ Required secrets:
 
 <ParamField path="document" type="string" required>
 
-Document content to scan.
+Document content to scan. Request body shouldn't exceed 1MB.
 
 </ParamField>
 
@@ -252,9 +924,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="filename" type="string | null">
 
-Additional API-native request body fields, such as filename.
+Filename associated with the document, for example `.env`. Maximum length is 256 characters.
 
 Default: `null`.
 

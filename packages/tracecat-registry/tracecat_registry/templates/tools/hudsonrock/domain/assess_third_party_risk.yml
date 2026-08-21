@@ -13,7 +13,7 @@ definition:
   expects:
     domain:
       type: str
-      description: Domain to assess.
+      description: The domain to evaluate for potential security risks.
     base_url:
       type: str | None
       description: Base URL of the HudsonRock API.

@@ -11,10 +11,29 @@ definition:
     - name: dehashed
       keys: ["DEHASHED_API_KEY"]
   expects:
-    payload:
-      type: dict[str, Any] | None
-      description: DeHashed API-native search payload.
-      default: null
+    query:
+      type: str
+      description: DeHashed search query. Use DeHashed search syntax, such as email:"user@example.com", username:"someuser", or a bare quoted value to match across fields.
+    page:
+      type: int
+      description: Result page number. Must be 1 or greater.
+      default: 1
+    size:
+      type: int
+      description: Results per page. Must be between 1 and 10000.
+      default: 100
+    regex:
+      type: bool
+      description: Whether to use regex matching. Cannot be true when wildcard is true.
+      default: false
+    wildcard:
+      type: bool
+      description: Whether to use wildcard matching. Cannot be true when regex is true.
+      default: false
+    de_dupe:
+      type: bool
+      description: Whether DeHashed should remove duplicate results.
+      default: false
     base_url:
       type: str | None
       description: Base URL of the DeHashed API.
@@ -29,5 +48,11 @@ definition:
           Accept: application/json
           Content-Type: application/json
           DeHashed-Api-Key: ${{ SECRETS.dehashed.DEHASHED_API_KEY }}
-        payload: ${{ inputs.payload }}
+        payload:
+          query: ${{ inputs.query }}
+          page: ${{ inputs.page }}
+          size: ${{ inputs.size }}
+          regex: ${{ inputs.regex }}
+          wildcard: ${{ inputs.wildcard }}
+          de_dupe: ${{ inputs.de_dupe }}
   returns: ${{ steps.request.result }}

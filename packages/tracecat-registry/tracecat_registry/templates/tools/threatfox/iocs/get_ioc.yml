@@ -11,13 +11,13 @@ definition:
     - name: abusech
       keys: ["ABUSECH_API_KEY"]
   expects:
+    ioc_id:
+      type: str
+      description: ThreatFox IOC ID.
     base_url:
       type: str | None
       description: Base URL of the ThreatFox API.
       default: null
-    ioc_id:
-      type: str
-      description: ThreatFox IOC ID.
   steps:
     - ref: request
       action: core.http_request

@@ -16,7 +16,7 @@ Reference: [https://api.first.org/epss/](https://api.first.org/epss/)
 
 <ParamField path="cve" type="string" required>
 
-CVE identifier to retrieve as a time series.
+Filters by EPSS CVE ID. Multiple values are supported separated by commas. The maximum size accepted for this parameter is 2000 characters (including commas).
 
 </ParamField>
 
@@ -28,9 +28,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="date" type="string | null">
 
-Additional API-native query parameters.
+Date in the format YYYY-MM-DD (since April 14, 2021), shows the historic values for epss and percentile attributes.
 
 Default: `null`.
 
@@ -48,7 +48,7 @@ Reference: [https://api.first.org/epss/](https://api.first.org/epss/)
 
 <ParamField path="cve" type="string" required>
 
-CVE identifier or comma-separated CVE identifiers.
+Filters by EPSS CVE ID. Multiple values are supported separated by commas. The maximum size accepted for this parameter is 2000 characters (including commas).
 
 </ParamField>
 
@@ -60,9 +60,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="date" type="string | null">
 
-Additional API-native query parameters.
+Date in the format YYYY-MM-DD (since April 14, 2021), shows the historic values for epss and percentile attributes.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Limits the maximun number of records to be shown. Should be an integer number between 0 and 10,000.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+Offsets the list of records by this number. The first item is 0.
 
 Default: `null`.
 
@@ -86,9 +102,73 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="date" type="string | null">
 
-API-native query parameters.
+Date in the format YYYY-MM-DD (since April 14, 2021), shows the historic values for epss and percentile attributes.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="days" type="integer | null">
+
+Number of days since the EPSS score was added to the database (starting at 1, not affected by the date parameter).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="epss_gt" type="number | null">
+
+Only display CVEs with EPSS score greater or equal than the parameter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="epss_lt" type="number | null">
+
+Only display CVEs with EPSS score lower or equal than the parameter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Limits the maximun number of records to be shown. Should be an integer number between 0 and 10,000.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+Offsets the list of records by this number. The first item is 0.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="percentile_gt" type="number | null">
+
+Only display CVEs with percentile greater or equal than the parameter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="percentile_lt" type="number | null">
+
+Only display CVEs with percentile lower or equal than the parameter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="q" type="string | null">
+
+Free text search at the CVE ID (allows partial matches).
 
 Default: `null`.
 

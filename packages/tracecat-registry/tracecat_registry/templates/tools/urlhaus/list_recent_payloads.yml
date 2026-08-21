@@ -11,14 +11,14 @@ definition:
     - name: abusech
       keys: ["ABUSECH_API_KEY"]
   expects:
-    base_url:
-      type: str | None
-      description: URLhaus API base URL.
-      default: null
     limit:
       type: int
       description: Maximum number of payloads to return. URLhaus allows up to 1000.
       default: 100
+    base_url:
+      type: str | None
+      description: URLhaus API base URL.
+      default: null
   steps:
     - ref: request
       action: core.http_request

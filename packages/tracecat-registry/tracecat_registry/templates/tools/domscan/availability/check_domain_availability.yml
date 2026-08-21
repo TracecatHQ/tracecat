@@ -10,9 +10,21 @@ definition:
     - name: domscan
       keys: ["DOMSCAN_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    name:
+      type: str | None
+      description: Domain name without TLD. Use together with tlds (e.g., "example" for example.com).
+      default: null
+    tlds:
+      type: str | None
+      description: Comma-separated list of TLDs to check (max 50). Use together with name.
+      default: null
+    domain:
+      type: str | None
+      description: Single-domain shortcut for one TLD, for example "mycompany.com".
+      default: null
+    prefer_cache:
+      type: bool | None
+      description: Return cached results if available (faster).
       default: null
     base_url:
       type: str | None
@@ -26,5 +38,9 @@ definition:
         method: GET
         headers:
           x-api-key: ${{ SECRETS.domscan.DOMSCAN_API_KEY }}
-        params: ${{ inputs.params }}
+        params:
+          name: ${{ inputs.name }}
+          tlds: ${{ inputs.tlds }}
+          domain: ${{ inputs.domain }}
+          prefer_cache: ${{ inputs.prefer_cache }}
   returns: ${{ steps.request.result }}

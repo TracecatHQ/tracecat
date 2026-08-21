@@ -13,9 +13,29 @@ definition:
     tweet_id:
       type: str
       description: X post ID.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    tweet_fields:
+      type: str | None
+      description: A comma separated list of Post fields to display.
+      default: null
+    expansions:
+      type: str | None
+      description: A comma separated list of fields to expand.
+      default: null
+    user_fields:
+      type: str | None
+      description: A comma separated list of User fields to display.
+      default: null
+    media_fields:
+      type: str | None
+      description: A comma separated list of Media fields to display.
+      default: null
+    poll_fields:
+      type: str | None
+      description: A comma separated list of Poll fields to display.
+      default: null
+    place_fields:
+      type: str | None
+      description: A comma separated list of Place fields to display.
       default: null
     base_url:
       type: str | None
@@ -30,5 +50,11 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.x.X_APP_ONLY_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          "tweet.fields": ${{ inputs.tweet_fields }}
+          expansions: ${{ inputs.expansions }}
+          "user.fields": ${{ inputs.user_fields }}
+          "media.fields": ${{ inputs.media_fields }}
+          "poll.fields": ${{ inputs.poll_fields }}
+          "place.fields": ${{ inputs.place_fields }}
   returns: ${{ steps.request.result }}

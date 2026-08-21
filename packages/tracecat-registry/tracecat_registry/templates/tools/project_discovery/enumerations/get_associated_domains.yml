@@ -11,13 +11,41 @@ definition:
     - name: project_discovery
       keys: ["PDCP_API_KEY"]
   expects:
+    domain:
+      type: str | None
+      description: Domain name to fetch associated domains. If omitted, returns associated domains for all your verified domains.
+      default: null
+    source:
+      type: str | None
+      description: Comma-separated source filter (acquisition_history, certificate_history, whois_history).
+      default: null
+    active:
+      type: bool | None
+      description: Filter by liveness (true=alive, false=unreachable).
+      default: null
+    sort:
+      type: str | None
+      description: Sort results (active, domain, source, subdomain_count, update_date).
+      default: null
+    limit:
+      type: int | None
+      description: Maximum results per page (pagination). If omitted, returns all.
+      default: null
+    page:
+      type: int | None
+      description: Page number (pagination, starts at 1).
+      default: null
+    raw:
+      type: bool | None
+      description: If true, returns plain text list (one domain per line).
+      default: null
+    team_id:
+      type: str | None
+      description: "Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team"
+      default: null
     base_url:
       type: str | None
       description: ProjectDiscovery Cloud API base URL.
-      default: null
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
       default: null
   steps:
     - ref: request
@@ -27,5 +55,13 @@ definition:
         method: GET
         headers:
           X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
-        params: ${{ inputs.params }}
+          X-Team-Id: ${{ inputs.team_id }}
+        params:
+          domain: ${{ inputs.domain }}
+          source: ${{ inputs.source }}
+          active: ${{ inputs.active }}
+          sort: ${{ inputs.sort }}
+          limit: ${{ inputs.limit }}
+          page: ${{ inputs.page }}
+          raw: ${{ inputs.raw }}
   returns: ${{ steps.request.result }}

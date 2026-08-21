@@ -11,16 +11,20 @@ definition:
     - name: shodan
       keys: ["SHODAN_API_KEY"]
   expects:
-    base_url:
-      type: str | None
-      description: Shodan REST API base URL.
-      default: null
     ip:
       type: str
       description: Host IP address.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    history:
+      type: bool | None
+      description: "True if all historical banners should be returned (default: False)"
+      default: null
+    minify:
+      type: bool | None
+      description: "True to only return the list of ports and the general host information, no banners. (default: False)"
+      default: null
+    base_url:
+      type: str | None
+      description: Shodan REST API base URL.
       default: null
   steps:
     - ref: request
@@ -28,5 +32,8 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.shodan.base_url || "https://api.shodan.io" }}/shodan/host/${{ FN.url_encode(inputs.ip) }}
         method: GET
-        params: '${{ FN.merge([{"key": SECRETS.shodan.SHODAN_API_KEY}, inputs.params || {}]) }}'
+        params:
+          key: ${{ SECRETS.shodan.SHODAN_API_KEY }}
+          history: ${{ inputs.history }}
+          minify: ${{ inputs.minify }}
   returns: ${{ steps.request.result }}

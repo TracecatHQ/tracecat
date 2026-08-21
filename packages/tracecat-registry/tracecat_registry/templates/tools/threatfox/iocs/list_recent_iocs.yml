@@ -11,14 +11,14 @@ definition:
     - name: abusech
       keys: ["ABUSECH_API_KEY"]
   expects:
-    base_url:
-      type: str | None
-      description: Base URL of the ThreatFox API.
-      default: null
     days:
       type: int | None
       description: Number of days to filter IOCs by first_seen. ThreatFox allows 1 through 7 and defaults to 3.
       default: 3
+    base_url:
+      type: str | None
+      description: Base URL of the ThreatFox API.
+      default: null
   steps:
     - ref: request
       action: core.http_request

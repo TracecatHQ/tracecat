@@ -21,9 +21,36 @@ definition:
       type: str
       description: Response media type to request.
       default: application/x-ndjson
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    include_alert_priority_details:
+      type: str | None
+      description: >-
+        Control which alert priority fields to include in the response. Set to "true" to include
+        all fields, "false" to exclude all fields, or specify individual fields like
+        "components,formula" to include only those fields.
+      default: null
+    include_scores:
+      type: bool
+      description: Include scores event in the response. include_scores_details implies this flag.
+      default: false
+    include_scores_details:
+      type: str | None
+      description: >-
+        Control which score detail fields to include in the scores event. Set to "true" to
+        include all fields, "false" to exclude all fields, or specify individual fields like
+        "components,formula" to include only those fields.
+      default: null
+    include_license_details:
+      type: bool
+      description: >-
+        Include license details in the response. This can increase the response size
+        significantly.
+      default: false
+    cached:
+      type: bool | None
+      description: >-
+        Return cached immutable scan results. When enabled and results are cached, returns the
+        pre-computed scan. When results are not yet cached, returns 202 Accepted and enqueues a
+        background job.
       default: null
     base_url:
       type: str | None
@@ -38,5 +65,10 @@ definition:
         headers:
           Accept: ${{ inputs.accept }}
           Authorization: Bearer ${{ SECRETS.socket.SOCKET_API_TOKEN }}
-        params: ${{ inputs.params }}
+        params:
+          include_alert_priority_details: ${{ inputs.include_alert_priority_details }}
+          include_scores: ${{ inputs.include_scores }}
+          include_scores_details: ${{ inputs.include_scores_details }}
+          include_license_details: ${{ inputs.include_license_details }}
+          cached: ${{ inputs.cached }}
   returns: ${{ steps.request.result }}

@@ -118,9 +118,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="datasource" type="string | null">
 
-API-native query parameters.
+Datasources to search - scans (urlscan.io), hostnames, incidents, notifications, certificates (urlscan Pro).
 
 Default: `null`.
 
@@ -128,8 +128,24 @@ Default: `null`.
 
 <ParamField path="query" type="string">
 
-urlscan search query. Maps to q.
+Search Query (Elasticsearch Query String). Maps to q.
 
 Default: `"*"`.
+
+</ParamField>
+
+<ParamField path="search_after" type="string | null">
+
+For retrieving the next batch of results, send the value of the sort attribute of the last (oldest) result you received (comma-separated) from the previous call.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+Number of results to return.
+
+Default: `null`.
 
 </ParamField>

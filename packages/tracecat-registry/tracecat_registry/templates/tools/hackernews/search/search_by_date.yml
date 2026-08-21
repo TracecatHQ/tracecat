@@ -8,9 +8,29 @@ definition:
   name: search_by_date
   secrets: []
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    query:
+      type: str | None
+      description: Full-text search query.
+      default: null
+    tags:
+      type: str | None
+      description: Algolia tag filter, such as story, comment, front_page, author_pg, story_1, or grouped tags.
+      default: null
+    numericFilters:
+      type: str | None
+      description: Algolia numeric filters, such as created_at_i>1700000000, points>10, or num_comments>=5.
+      default: null
+    page:
+      type: int | None
+      description: Page number to retrieve.
+      default: null
+    hitsPerPage:
+      type: int | None
+      description: Number of hits per page.
+      default: null
+    restrictSearchableAttributes:
+      type: str | None
+      description: Comma-delimited attributes to search, such as url.
       default: null
     base_url:
       type: str | None
@@ -24,5 +44,11 @@ definition:
         method: GET
         headers:
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          query: ${{ inputs.query }}
+          tags: ${{ inputs.tags }}
+          numericFilters: ${{ inputs.numericFilters }}
+          page: ${{ inputs.page }}
+          hitsPerPage: ${{ inputs.hitsPerPage }}
+          restrictSearchableAttributes: ${{ inputs.restrictSearchableAttributes }}
   returns: ${{ steps.request.result }}

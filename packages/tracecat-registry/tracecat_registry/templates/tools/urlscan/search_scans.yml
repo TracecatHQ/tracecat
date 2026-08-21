@@ -11,17 +11,29 @@ definition:
     - name: urlscan
       keys: ["URLSCAN_API_KEY"]
   expects:
+    query:
+      type: str
+      description: Search Query (Elasticsearch Query String). Maps to q.
+      default: "*"
+    size:
+      type: int | None
+      description: Number of results to return.
+      default: null
+    search_after:
+      type: str | None
+      description: >-
+        For retrieving the next batch of results, send the value of the sort attribute of the
+        last (oldest) result you received (comma-separated) from the previous call.
+      default: null
+    datasource:
+      type: str | None
+      description: >-
+        Datasources to search - scans (urlscan.io), hostnames, incidents, notifications,
+        certificates (urlscan Pro).
+      default: null
     base_url:
       type: str | None
       description: urlscan base URL.
-      default: null
-    query:
-      type: str
-      description: urlscan search query. Maps to q.
-      default: "*"
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
       default: null
   steps:
     - ref: request
@@ -32,5 +44,9 @@ definition:
         headers:
           API-Key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
           Accept: application/json
-        params: '${{ FN.merge([{"q": inputs.query}, inputs.params || {}]) }}'
+        params:
+          q: ${{ inputs.query }}
+          size: ${{ inputs.size }}
+          search_after: ${{ inputs.search_after }}
+          datasource: ${{ inputs.datasource }}
   returns: ${{ steps.request.result }}

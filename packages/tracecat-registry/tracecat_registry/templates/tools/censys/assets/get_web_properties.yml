@@ -13,14 +13,14 @@ definition:
   expects:
     webproperty_ids:
       type: list[str]
-      description: Web property identifiers to retrieve, usually hostname:port values.
+      description: A list of web property identifiers, such as platform.censys.io:80. Up to 100 per call.
     at_time:
       type: str | None
-      description: Optional RFC3339 timestamp to view all requested web properties at a specific point in time.
+      description: RFC3339 Timestamp to view all requested webproperties at a specific point in time. Must be a valid RFC3339 string. Ensure that you suffix the date with T00:00:00Z or a specific time.
       default: null
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    organization_id:
+      type: str | None
+      description: The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
       default: null
     base_url:
       type: str | None
@@ -35,7 +35,8 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
           Content-Type: application/json
-        params: ${{ inputs.params }}
+        params:
+          organization_id: ${{ inputs.organization_id }}
         payload:
           webproperty_ids: ${{ inputs.webproperty_ids }}
           at_time: ${{ inputs.at_time }}

@@ -10,9 +10,53 @@ definition:
     - name: hunter
       keys: ["HUNTER_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    domain:
+      type: str | None
+      description: Domain name from which you want to find the email addresses. For example, "stripe.com". Required unless company is provided.
+      default: null
+    company:
+      type: str | None
+      description: The company name from which you want to find the email addresses. For example, "stripe". Note that you'll get better results by supplying the domain name as we won't have to find it. If you send a request with both the domain and the company name, we'll use the domain name. It doesn't need to be in lowercase. Required unless domain is provided.
+      default: null
+    limit:
+      type: int | None
+      description: Specifies the max number of email addresses to return. The default is 10.
+      default: null
+    offset:
+      type: int | None
+      description: Specifies the number of email addresses to skip. The default is 0.
+      default: null
+    type:
+      type: str | None
+      description: Get only `personal` or `generic` email addresses.
+      default: null
+    seniority:
+      type: str | None
+      description: Get only email addresses for people with the selected seniority level. The possible values are `junior`, `senior` or `executive`. Several seniority levels can be selected (delimited by a comma).
+      default: null
+    department:
+      type: str | None
+      description: Get only email addresses for people working in the selected department(s). The possible values are `executive`, `it`, `finance`, `management`, `sales`, `legal`, `support`, `hr`, `marketing`, `communication`, `education`, `design`, `health`, `operations`, `product`, `research`, `consulting`, `administrative` or `procurement`. Several departments can be selected (comma-delimited).
+      default: null
+    decision_maker:
+      type: bool | None
+      description: Set to `true` or `false` to get only the email addresses of the company's decision makers (or, with `false`, only the non-decision-makers). Decision makers are the people most likely to hold buying authority, inferred from their seniority and department.
+      default: null
+    required_field:
+      type: str | None
+      description: Get only email addresses for people that have the selected field(s). The possible values are `full_name`, `position` and `phone_number`. Several fields can be selected (comma-delimited).
+      default: null
+    verification_status:
+      type: str | None
+      description: Get only email addresses that have the selected verification status(es). The possible values are `valid`, `accept_all` and `unknown`. Several statuses can be selected (comma-delimited).
+      default: null
+    job_titles:
+      type: str | None
+      description: Get only email addresses for people that have the selected job title(s). Several job titles can be selected (comma-delimited).
+      default: null
+    aggregations:
+      type: bool | None
+      description: "Set to `true` or `false` to include a breakdown of the domain's email addresses in `meta.aggregations`: the number of personal email addresses per department, the number of decision makers, and the split between personal and generic addresses. The counts reflect the filters applied to the search. Omitted by default."
       default: null
     base_url:
       type: str | None
@@ -26,5 +70,18 @@ definition:
         method: GET
         headers:
           Accept: application/json
-        params: '${{ FN.merge([{"api_key": SECRETS.hunter.HUNTER_API_KEY}, inputs.params || {}]) }}'
+          X-API-KEY: ${{ SECRETS.hunter.HUNTER_API_KEY }}
+        params:
+          domain: ${{ inputs.domain }}
+          company: ${{ inputs.company }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          type: ${{ inputs.type }}
+          seniority: ${{ inputs.seniority }}
+          department: ${{ inputs.department }}
+          decision_maker: ${{ inputs.decision_maker }}
+          required_field: ${{ inputs.required_field }}
+          verification_status: ${{ inputs.verification_status }}
+          job_titles: ${{ inputs.job_titles }}
+          aggregations: ${{ inputs.aggregations }}
   returns: ${{ steps.request.result }}

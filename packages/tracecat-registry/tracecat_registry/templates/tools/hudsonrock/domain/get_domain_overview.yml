@@ -13,10 +13,50 @@ definition:
   expects:
     domains:
       type: list[str]
-      description: Domains to summarize.
-    payload:
-      type: dict[str, Any] | None
-      description: Additional API-native request body fields.
+      description: List of domains to retrieve compromise overview statistics for. Accepts root domains (example.com) and will aggregate data across all subdomains. Between 1-500 domains can be specified per request.
+    min_employees_compromised:
+      type: int | None
+      description: Minimum threshold for employee compromises. Returns only domains with at least this many compromised employee accounts. Useful for filtering out domains with negligible compromise counts.
+      default: null
+    max_employees_compromised:
+      type: int | None
+      description: Maximum threshold for employee compromises. Returns only domains with no more than this many compromised employee accounts. Useful for focusing on organizations within specific size ranges.
+      default: null
+    min_users_compromised:
+      type: int | None
+      description: Minimum threshold for user compromises. Returns only domains with at least this many compromised user accounts. Helps identify domains with significant consumer impact.
+      default: null
+    max_users_compromised:
+      type: int | None
+      description: Maximum threshold for user compromises. Returns only domains with no more than this many compromised user accounts. Helps focus on domains with specific consumer impact ranges.
+      default: null
+    last_employee_compromised:
+      type: str | None
+      description: ISO 8601 formatted timestamp (YYYY-MM-DDThh:mm:ssZ) to filter for domains with employee compromises after this date. Identifies domains with recent corporate breaches.
+      default: null
+    last_user_compromised:
+      type: str | None
+      description: ISO 8601 formatted timestamp (YYYY-MM-DDThh:mm:ssZ) to filter for domains with user compromises after this date. Identifies domains with recent consumer-facing breaches.
+      default: null
+    last_employee_uploaded:
+      type: str | None
+      description: ISO 8601 formatted timestamp (YYYY-MM-DDThh:mm:ssZ) to filter for domains with employee data uploaded after this date. Reflects when the data became available in our system.
+      default: null
+    last_user_uploaded:
+      type: str | None
+      description: ISO 8601 formatted timestamp (YYYY-MM-DDThh:mm:ssZ) to filter for domains with user data uploaded after this date. Reflects when the data became available in our system.
+      default: null
+    sort_by:
+      type: str | None
+      description: Field to sort overview results by. Time-based sorting helps identify recent breaches, while count-based sorting identifies the most severely affected domains.
+      default: null
+    sort_direction:
+      type: str | None
+      description: "'desc' prioritizes recent breaches or highest compromise counts (recommended for threat monitoring), while 'asc' shows oldest breaches or lowest counts first."
+      default: null
+    cursor:
+      type: str | None
+      description: Base64 encoded pagination cursor for retrieving the next set of overview results. Obtained from the 'nextCursor' field in the previous response. Essential for processing large domain lists.
       default: null
     base_url:
       type: str | None
@@ -32,5 +72,17 @@ definition:
           Accept: application/json
           Content-Type: application/json
           api-key: ${{ SECRETS.hudsonrock.HUDSONROCK_API_KEY }}
-        payload: '${{ FN.merge([inputs.payload || {}, {"domains": inputs.domains}]) }}'
+        payload:
+          domains: ${{ inputs.domains }}
+          min_employees_compromised: ${{ inputs.min_employees_compromised }}
+          max_employees_compromised: ${{ inputs.max_employees_compromised }}
+          min_users_compromised: ${{ inputs.min_users_compromised }}
+          max_users_compromised: ${{ inputs.max_users_compromised }}
+          last_employee_compromised: ${{ inputs.last_employee_compromised }}
+          last_user_compromised: ${{ inputs.last_user_compromised }}
+          last_employee_uploaded: ${{ inputs.last_employee_uploaded }}
+          last_user_uploaded: ${{ inputs.last_user_uploaded }}
+          sort_by: ${{ inputs.sort_by }}
+          sort_direction: ${{ inputs.sort_direction }}
+          cursor: ${{ inputs.cursor }}
   returns: ${{ steps.request.result }}

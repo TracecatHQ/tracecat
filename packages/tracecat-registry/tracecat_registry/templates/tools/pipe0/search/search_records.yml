@@ -10,9 +10,12 @@ definition:
     - name: pipe0
       keys: ["PIPE0_API_KEY"]
   expects:
-    payload:
+    search:
+      type: dict[str, Any]
+      description: Pipe0 search object. Takes a search_id and a config object holding limit and filters.
+    config:
       type: dict[str, Any] | None
-      description: API-native request body passed through without validation.
+      description: Pipe0 run configuration object, covering environment, widgets, and field_definitions.
       default: null
     base_url:
       type: str | None
@@ -28,5 +31,7 @@ definition:
           Authorization: Bearer ${{ SECRETS.pipe0.PIPE0_API_KEY }}
           Accept: application/json
           Content-Type: application/json
-        payload: ${{ inputs.payload }}
+        payload:
+          search: ${{ inputs.search }}
+          config: ${{ inputs.config }}
   returns: ${{ steps.request.result }}

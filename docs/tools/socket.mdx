@@ -34,7 +34,7 @@ Socket organization slug.
 
 <ParamField path="repo" type="string" required>
 
-Repository slug to associate with the full scan.
+The slug of the repository to associate the full-scan with.
 
 </ParamField>
 
@@ -46,9 +46,97 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="branch" type="string | null">
 
-API-native query parameters in addition to the required repo value.
+The branch name to associate the full-scan with. Branch names must follow Git branch name rules: be 1-255 characters long; cannot be exactly @; cannot begin or end with /, ., or .lock; cannot contain "//", "..", or "@&#123;"; and cannot include control characters, spaces, or any of ~^:?*[.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="commit_hash" type="string | null">
+
+The commit hash to associate the full-scan with.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="commit_message" type="string | null">
+
+The commit message to associate the full-scan with.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="committers" type="string | null">
+
+The committers to associate with the full-scan. Set query more than once to set multiple.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="integration_org_slug" type="string | null">
+
+The integration org slug to associate the full-scan with. If omitted, the Socket org name will be used. This is used to generate links and badges.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="integration_type" type="string | null">
+
+The integration type to associate the full-scan with. Defaults to "Api" if omitted. Supported values are api, github, gitlab, bitbucket, azure and web.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="make_default_branch" type="boolean | null">
+
+Set the default branch of the repository to the branch of this full-scan. A branch name is required with this option.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="pull_request" type="integer | null">
+
+The pull request number to associate the full-scan with.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scan_type" type="string | null">
+
+The type of scan to perform. Defaults to 'socket'. Must be 32 characters or less. Used for categorizing multiple SBOM heads per repository branch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="set_as_pending_head" type="boolean | null">
+
+Designate this full-scan as the latest scan of a given branch. Default branch head scans are included in org alerts. This is only supported on the default branch. A branch name is required with this option.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tmp" type="boolean | null">
+
+Create a temporary full-scan that is not listed in the reports dashboard. Cannot be used when set_as_pending_head=true.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="workspace" type="string | null">
+
+The workspace of the repository to associate the full-scan with.
 
 Default: `null`.
 
@@ -82,6 +170,12 @@ Socket organization slug.
 
 </ParamField>
 
+<ParamField path="repo" type="string" required>
+
+The slug of the repository to associate the full-scan with.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Socket API.
@@ -90,9 +184,97 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="branch" type="string | null">
 
-API-native query parameters.
+The branch name to associate the full-scan with. Branch names must follow Git branch name rules: be 1-255 characters long; cannot be exactly @; cannot begin or end with /, ., or .lock; cannot contain "//", "..", or "@&#123;"; and cannot include control characters, spaces, or any of ~^:?*[.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="commit_hash" type="string | null">
+
+The commit hash to associate the full-scan with.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="commit_message" type="string | null">
+
+The commit message to associate the full-scan with.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="committers" type="string | null">
+
+The committers to associate with the full-scan. Set query more than once to set multiple.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="integration_org_slug" type="string | null">
+
+The integration org slug to associate the full-scan with. If omitted, the Socket org name will be used. This is used to generate links and badges.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="integration_type" type="string | null">
+
+The integration type to associate the full-scan with. Defaults to "Api" if omitted. Supported values are api, github, gitlab, bitbucket, azure and web.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="make_default_branch" type="boolean | null">
+
+Set the default branch of the repository to the branch of this full-scan. A branch name is required with this option.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="pull_request" type="integer | null">
+
+The pull request number to associate the full-scan with.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scan_type" type="string | null">
+
+The type of scan to perform. Defaults to 'socket'. Must be 32 characters or less. Used for categorizing multiple SBOM heads per repository branch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="set_as_pending_head" type="boolean | null">
+
+Designate this full-scan as the latest scan of a given branch. Default branch head scans are included in org alerts. This is only supported on the default branch. A branch name is required with this option.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tmp" type="boolean | null">
+
+Create a temporary full-scan that is not listed in the reports dashboard. Cannot be used when set_as_pending_head=true.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="workspace" type="string | null">
+
+The workspace of the repository to associate the full-scan with.
 
 Default: `null`.
 
@@ -134,6 +316,22 @@ Default: `"application/x-ndjson"`.
 
 </ParamField>
 
+<ParamField path="actions" type="array[string] | null">
+
+Include only alerts with comma separated actions defined by security policy. Supported values are error, monitor, warn and ignore.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="alerts" type="boolean | null">
+
+Include alert metadata.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Socket API.
@@ -142,9 +340,81 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cachedResultsOnly" type="boolean | null">
 
-API-native query parameters.
+Legacy fallback for older clients. Only used when poll is omitted: cachedResultsOnly=true behaves like poll=false, while cachedResultsOnly=false preserves the older blocking behavior.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="compact" type="boolean | null">
+
+Compact metadata. When enabled, excludes metadata fields like author, scores, size, dependencies, and manifest files. Always includes: id, type, name, version, release, namespace, subpath, alerts, and alertPriorities.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="fixable" type="boolean | null">
+
+Include only fixable alerts.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="labels" type="array[string] | null">
+
+Repository label slugs to apply policies. Only one label is supported currently; the parameter is an array to allow future support for multiple labels.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="licenseattrib" type="boolean | null">
+
+Include license attribution data, including license text and author information. Maps attribution/license text to a list of data objects to which that attribution info applies.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="licensedetails" type="boolean | null">
+
+Include detailed license information, including location and match strength, for each license datum.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="poll" type="boolean | null">
+
+When true, wait up to timeoutSec for pending analysis to complete before returning. When false (default), return the current known state immediately, including synthesized pendingScan and notFound alerts when alerts=true unless purlErrors=true keeps legacy not-found errors.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="purlErrors" type="boolean | null">
+
+Return errors found with handling PURLs as error objects in the stream.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="summary" type="boolean | null">
+
+Include a summary object at the end of the stream with counts of malformed, resolved, and not found PURLs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeoutSec" type="integer | null">
+
+Maximum time in seconds to wait for package resolution and, when poll=true, pending analysis. Inputs that have not completed processing when the timeout is reached return pendingScan alerts when alerts=true, or errors when purlErrors=true.
 
 Default: `null`.
 
@@ -216,9 +486,105 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="branch" type="string | null">
 
-API-native query parameters.
+A branch name to filter full-scans by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="commit_hash" type="string | null">
+
+A commit hash to filter full-scans by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="direction" type="string | null">
+
+Specify sort direction. Supported values are asc and desc. Socket defaults to desc.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="from" type="string | null">
+
+A Unix timestamp in seconds that filters full-scans prior to the date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number to return when using offset-style pagination. Ignored when cursor pagination is used. Socket defaults to 1.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Specify the maximum number of results to return per page. Socket defaults to 30.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="pull_request" type="string | null">
+
+A PR number to filter full-scans by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="repo" type="string | null">
+
+A repository slug to filter full-scans by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scan_type" type="string | null">
+
+A scan type to filter full-scans by (e.g. socket, socket_tier1, socket_basics).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Specify Sort order. Supported values are name and created_at. Socket defaults to created_at.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="startAfterCursor" type="string | null">
+
+Cursor token for pagination. Pass the returned nextPageCursor from previous responses to fetch the next set of results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="use_cursor" type="boolean | null">
+
+Set to true on the first request to opt into cursor-based pagination.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="workspace" type="string | null">
+
+A repository workspace to filter full-scans by.
 
 Default: `null`.
 
@@ -284,9 +650,89 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="created_after" type="string | null">
 
-API-native query parameters.
+A Unix timestamp in seconds that filters results to items only created after the date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="direction" type="string | null">
+
+Order direction of the provided sort field. Supported values are desc and asc. Socket defaults to desc.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ecosystem" type="string | null">
+
+Filter threats by package ecosystem. Supported values are github, cargo, clawhub, composer, chrome, firefox-extension, edge-extension, golang, huggingface, maven, npm, nuget, vscode, pypi, gem and swift.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+Filter by threat classification. Supported values: mal (malware, including possible malware), vuln (vulnerability), typo (typosquat, including possible typosquat), anom (anomaly), spy (telemetry), obf (obfuscated code), dual (dual-use tool), joke (protestware or joke package), tp (all confirmed true positives), fp (false positive), u (unreviewed), c (classified, i.e. anything except unreviewed). Socket defaults to mal.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_human_reviewed" type="boolean | null">
+
+Only return threats which have been human-reviewed.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="name" type="string | null">
+
+Filter threats by package name.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page_cursor" type="string | null">
+
+Page cursor token. Pass the returned nextPageCursor to this query string to fetch the next page of the threat feed.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of threats per page. Socket defaults to 30.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Set the sort order for the threat feed items. Default is descending order by updated_at, which includes all new and updated threat feed items. Supported values are id, created_at and updated_at.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="updated_after" type="string | null">
+
+A Unix timestamp in seconds that filters results to items only updated after the timestamp.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="version" type="string | null">
+
+Filter threats by package version.
 
 Default: `null`.
 
@@ -336,9 +782,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cached" type="boolean | null">
 
-API-native query parameters.
+Return cached immutable scan results. When enabled and results are cached, returns the pre-computed scan. When results are not yet cached, returns 202 Accepted and enqueues a background job.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_alert_priority_details" type="string | null">
+
+Control which alert priority fields to include in the response. Set to "true" to include all fields, "false" to exclude all fields, or specify individual fields like "components,formula" to include only those fields.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_license_details" type="boolean">
+
+Include license details in the response. This can increase the response size significantly.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="include_scores" type="boolean">
+
+Include scores event in the response. include_scores_details implies this flag.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="include_scores_details" type="string | null">
+
+Control which score detail fields to include in the scores event. Set to "true" to include all fields, "false" to exclude all fields, or specify individual fields like "components,formula" to include only those fields.
 
 Default: `null`.
 

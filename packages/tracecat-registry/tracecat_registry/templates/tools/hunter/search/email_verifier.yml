@@ -10,10 +10,9 @@ definition:
     - name: hunter
       keys: ["HUNTER_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
-      default: null
+    email:
+      type: str
+      description: The email address you want to verify.
     base_url:
       type: str | None
       description: Base URL of the Hunter API.
@@ -26,5 +25,7 @@ definition:
         method: GET
         headers:
           Accept: application/json
-        params: '${{ FN.merge([{"api_key": SECRETS.hunter.HUNTER_API_KEY}, inputs.params || {}]) }}'
+          X-API-KEY: ${{ SECRETS.hunter.HUNTER_API_KEY }}
+        params:
+          email: ${{ inputs.email }}
   returns: ${{ steps.request.result }}

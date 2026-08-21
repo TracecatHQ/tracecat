@@ -7,6 +7,10 @@ definition:
   namespace: tools.domscan
   name: get_coverage
   expects:
+    live:
+      type: str | None
+      description: Set to 1 to include live RDAP endpoint health checks.
+      default: null
     base_url:
       type: str | None
       description: Base URL of the DomScan API.
@@ -17,4 +21,6 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.domscan.base_url || "https://domscan.net" }}/v1/coverage
         method: GET
+        params:
+          live: ${{ inputs.live }}
   returns: ${{ steps.request.result }}

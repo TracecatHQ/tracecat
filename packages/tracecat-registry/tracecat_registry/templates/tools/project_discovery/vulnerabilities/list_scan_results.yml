@@ -11,13 +11,89 @@ definition:
     - name: project_discovery
       keys: ["PDCP_API_KEY"]
   expects:
+    offset:
+      type: int | None
+      description: number of results to skip
+      default: null
+    limit:
+      type: int | None
+      description: number of results to get
+      default: null
+    severity:
+      type: str | None
+      description: string separated by comma e.g. info,high. Defaults to unknown,low,medium,high,critical.
+      default: null
+    search:
+      type: str | None
+      description: search term
+      default: null
+    host:
+      type: str | None
+      description: comma separated host e.g. hosts=https://example.com,https://x.com
+      default: null
+    domain:
+      type: str | None
+      description: comma separated domain names e.g-> domain=domain1.com,domain2.com
+      default: null
+    port:
+      type: str | None
+      description: comma separated ports e.g. ports=80,443
+      default: null
+    templates:
+      type: str | None
+      description: comma separated templates e.g. templates=tech-detect,azure-takeover
+      default: null
+    time:
+      type: str | None
+      description: filter by time ( last_day, last_week, last_month )
+      default: null
+    vuln_status:
+      type: str | None
+      description: comma separated vuln_status e.g vuln_status=open,fixed
+      default: null
+    tags:
+      type: str | None
+      description: comma separated tags e.g tags=xss,cve
+      default: null
+    sort_asc:
+      type: str | None
+      description: comma separated ascending sorting e.g sort_asc=created_at,severity
+      default: null
+    sort_desc:
+      type: str | None
+      description: comma separated descending sorting e.g sort_desc=created_at,severity
+      default: null
+    is_ticket:
+      type: bool | None
+      description: Return the records that have issue trackers.
+      default: null
+    labels:
+      type: str | None
+      description: filter by comma separated labels e.g labels=p1,p2
+      default: null
+    category:
+      type: str | None
+      description: filter by comma separated categories e.g category=cve,xss
+      default: null
+    is_regression:
+      type: bool | None
+      description: filter by is_regression
+      default: null
+    is_internal:
+      type: bool | None
+      description: filter by is_internal (internal vs external hosts)
+      default: null
+    asset_metadata:
+      type: bool | None
+      description: Asset details for the vulnerability.
+      default: null
+    team_id:
+      type: str | None
+      description: "Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team"
+      default: null
     base_url:
       type: str | None
       description: ProjectDiscovery Cloud API base URL.
-      default: null
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
       default: null
   steps:
     - ref: request
@@ -27,5 +103,25 @@ definition:
         method: GET
         headers:
           X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
-        params: ${{ inputs.params }}
+          X-Team-Id: ${{ inputs.team_id }}
+        params:
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+          severity: ${{ inputs.severity }}
+          search: ${{ inputs.search }}
+          host: ${{ inputs.host }}
+          domain: ${{ inputs.domain }}
+          port: ${{ inputs.port }}
+          templates: ${{ inputs.templates }}
+          time: ${{ inputs.time }}
+          vuln_status: ${{ inputs.vuln_status }}
+          tags: ${{ inputs.tags }}
+          sort_asc: ${{ inputs.sort_asc }}
+          sort_desc: ${{ inputs.sort_desc }}
+          is_ticket: ${{ inputs.is_ticket }}
+          labels: ${{ inputs.labels }}
+          category: ${{ inputs.category }}
+          is_regression: ${{ inputs.is_regression }}
+          is_internal: ${{ inputs.is_internal }}
+          asset_metadata: ${{ inputs.asset_metadata }}
   returns: ${{ steps.request.result }}

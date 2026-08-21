@@ -10,9 +10,12 @@ definition:
     - name: domscan
       keys: ["DOMSCAN_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    domain:
+      type: str
+      description: Domain to query DNS records for.
+    type:
+      type: str | None
+      description: DNS record type to query, one of A, AAAA, MX, NS, TXT, SOA, CNAME, CAA, PTR, or SRV. DomScan defaults to A.
       default: null
     base_url:
       type: str | None
@@ -26,5 +29,7 @@ definition:
         method: GET
         headers:
           x-api-key: ${{ SECRETS.domscan.DOMSCAN_API_KEY }}
-        params: ${{ inputs.params }}
+        params:
+          domain: ${{ inputs.domain }}
+          type: ${{ inputs.type }}
   returns: ${{ steps.request.result }}

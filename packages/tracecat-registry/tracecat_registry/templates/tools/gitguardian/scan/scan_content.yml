@@ -13,10 +13,10 @@ definition:
   expects:
     document:
       type: str
-      description: Document content to scan.
-    payload:
-      type: dict[str, Any] | None
-      description: Additional API-native request body fields, such as filename.
+      description: Document content to scan. Request body shouldn't exceed 1MB.
+    filename:
+      type: str | None
+      description: Filename associated with the document, for example `.env`. Maximum length is 256 characters.
       default: null
     base_url:
       type: str | None
@@ -32,5 +32,7 @@ definition:
           Accept: application/json
           Authorization: Token ${{ SECRETS.gitguardian.GITGUARDIAN_API_KEY }}
           Content-Type: application/json
-        payload: '${{ FN.merge([inputs.payload || {}, {"document": inputs.document}]) }}'
+        payload:
+          document: ${{ inputs.document }}
+          filename: ${{ inputs.filename }}
   returns: ${{ steps.request.result }}

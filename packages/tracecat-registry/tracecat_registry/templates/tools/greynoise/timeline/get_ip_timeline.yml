@@ -11,20 +11,40 @@ definition:
     - name: greynoise
       keys: ["GREYNOISE_API_KEY"]
   expects:
-    base_url:
-      type: str | None
-      description: GreyNoise API base URL.
-      default: null
     ip:
       type: str
       description: IPv4 address to lookup.
     field:
-      type: str | None
-      description: Timeline field to summarize.
+      type: str
+      description: >-
+        Field over which to show activity breakdown. Supported values are destination_port,
+        http_path, http_user_agent, source_asn, source_asn_subnet, source_org, source_rdns,
+        tag_ids and classification.
       default: "classification"
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    days:
+      type: str | None
+      description: >-
+        Number of days to show data for. source_asn_subnet is limited to 90 days. GreyNoise
+        defaults to 1.
+      default: null
+    granularity:
+      type: str | None
+      description: >-
+        Granularity of activity date ranges. This can be in hours (e.g. Xh) or days (Xd). Valid
+        hours are between 1 and 24. Valid days are between 1 and 90. source_asn_subnet supports
+        daily granularity only (1d or 24h). GreyNoise defaults to 1d.
+      default: null
+    workspace_labels:
+      type: str | None
+      description: >-
+        Comma-separated list of dataset scopes to include in the query. When omitted, only the
+        default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's
+        global dataset), community (aggregated community-contributed data), and personal (the
+        authenticated caller's own workspace data).
+      default: null
+    base_url:
+      type: str | None
+      description: GreyNoise API base URL.
       default: null
   steps:
     - ref: request
@@ -35,5 +55,9 @@ definition:
         headers:
           key: ${{ SECRETS.greynoise.GREYNOISE_API_KEY }}
           Accept: application/json
-        params: '${{ FN.merge([{"field": inputs.field}, inputs.params || {}]) }}'
+        params:
+          field: ${{ inputs.field }}
+          days: ${{ inputs.days }}
+          granularity: ${{ inputs.granularity }}
+          workspace_labels: ${{ inputs.workspace_labels }}
   returns: ${{ steps.request.result }}

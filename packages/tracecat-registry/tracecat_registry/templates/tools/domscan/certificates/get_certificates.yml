@@ -10,9 +10,24 @@ definition:
     - name: domscan
       keys: ["DOMSCAN_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    domain:
+      type: str
+      description: Domain to search certificate transparency logs for.
+    include_subdomains:
+      type: bool | None
+      description: Include certificates issued for subdomains of the requested domain. DomScan defaults to true.
+      default: null
+    include_expired:
+      type: bool | None
+      description: Include certificates that have already expired.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum certificates to return on this page. DomScan defaults to 100.
+      default: null
+    cursor:
+      type: str | None
+      description: Offset cursor from pagination.next_cursor in the previous page.
       default: null
     base_url:
       type: str | None
@@ -26,5 +41,10 @@ definition:
         method: GET
         headers:
           x-api-key: ${{ SECRETS.domscan.DOMSCAN_API_KEY }}
-        params: ${{ inputs.params }}
+        params:
+          domain: ${{ inputs.domain }}
+          include_subdomains: ${{ inputs.include_subdomains }}
+          include_expired: ${{ inputs.include_expired }}
+          limit: ${{ inputs.limit }}
+          cursor: ${{ inputs.cursor }}
   returns: ${{ steps.request.result }}

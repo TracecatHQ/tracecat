@@ -28,13 +28,13 @@ Field to aggregate by.
 
 <ParamField path="number_of_buckets" type="integer" required>
 
-Number of buckets to return.
+Number of buckets to split results into, from 1 to 2000.
 
 </ParamField>
 
 <ParamField path="query" type="string" required>
 
-CenQL query string to aggregate upon.
+CenQL query string to search upon.
 
 </ParamField>
 
@@ -48,7 +48,7 @@ Default: `null`.
 
 <ParamField path="count_by_level" type="string | null">
 
-Optional document level to count by for nested fields.
+Specifies which document level's count is returned per term bucket, primarily for nested fields. This is the same functionality available in the Count By dropdown in the Report Builder UI.
 
 Default: `null`.
 
@@ -56,15 +56,15 @@ Default: `null`.
 
 <ParamField path="filter_by_query" type="boolean | null">
 
-Limit aggregation results to values that satisfy the query constraints.
+Controls whether aggregation results are limited to values that match the query. When true, only field values that satisfy the query constraints are included in aggregation counts.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="organization_id" type="string | null">
 
-API-native query parameters.
+The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
 
 Default: `null`.
 
@@ -88,7 +88,7 @@ Required secrets:
 
 <ParamField path="certificate_id" type="string" required>
 
-SHA-256 certificate fingerprint.
+The SHA-256 certificate fingerprint.
 
 </ParamField>
 
@@ -100,9 +100,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="organization_id" type="string | null">
 
-API-native query parameters.
+The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
 
 Default: `null`.
 
@@ -126,7 +126,7 @@ Required secrets:
 
 <ParamField path="certificate_id" type="string" required>
 
-SHA-256 certificate fingerprint.
+The SHA-256 certificate fingerprint.
 
 </ParamField>
 
@@ -138,9 +138,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="organization_id" type="string | null">
 
-API-native query parameters.
+The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
 
 Default: `null`.
 
@@ -164,7 +164,7 @@ Required secrets:
 
 <ParamField path="certificate_ids" type="array[string]" required>
 
-SHA-256 certificate fingerprints to retrieve.
+A list of SHA-256 certificate fingerprints. Up to 1,000 per call.
 
 </ParamField>
 
@@ -176,9 +176,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="organization_id" type="string | null">
 
-API-native query parameters.
+The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
 
 Default: `null`.
 
@@ -202,7 +202,15 @@ Required secrets:
 
 <ParamField path="host_id" type="string" required>
 
-Host IP address.
+The IP address of a host.
+
+</ParamField>
+
+<ParamField path="at_time" type="string | null">
+
+RFC3339 Timestamp to view a host at a specific point in time. Must be a valid RFC3339 string. Ensure that you suffix the date with T00:00:00Z or a specific time.
+
+Default: `null`.
 
 </ParamField>
 
@@ -214,9 +222,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="organization_id" type="string | null">
 
-API-native query parameters.
+The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
 
 Default: `null`.
 
@@ -238,9 +246,21 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="end_time" type="string" required>
+
+End time of the host timeline. Equivalent to the From field in the event history UI. This must be the timestamp furthest from the current time. For example, if you want events from January 1, 2025 to the start of January 2, 2025, input the January 1 timestamp here. Must be a valid RFC3339 string. Ensure that you suffix the date with T00:00:00Z or a specific time.
+
+</ParamField>
+
 <ParamField path="host_id" type="string" required>
 
-Host IP address.
+The IP address of a host.
+
+</ParamField>
+
+<ParamField path="start_time" type="string" required>
+
+Start time of the host timeline. Equivalent to the To field in the event history UI. This must be the timestamp closest to the current time. For example, if you want events from January 1, 2025 to the start of January 2, 2025, input the January 2 timestamp here. Must be a valid RFC3339 string. Ensure that you suffix the date with T00:00:00Z or a specific time.
 
 </ParamField>
 
@@ -252,9 +272,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="organization_id" type="string | null">
 
-API-native query parameters.
+The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
 
 Default: `null`.
 
@@ -278,13 +298,13 @@ Required secrets:
 
 <ParamField path="host_ids" type="array[string]" required>
 
-Host IP addresses to retrieve.
+A list of host IP addresses. Up to 100 per call.
 
 </ParamField>
 
 <ParamField path="at_time" type="string | null">
 
-Optional RFC3339 timestamp to view all requested hosts at a specific point in time.
+RFC3339 Timestamp to view all requested hosts at a specific point in time. Must be a valid RFC3339 string. Ensure that you suffix the date with T00:00:00Z or a specific time.
 
 Default: `null`.
 
@@ -298,9 +318,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="organization_id" type="string | null">
 
-API-native query parameters.
+The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
 
 Default: `null`.
 
@@ -324,13 +344,13 @@ Required secrets:
 
 <ParamField path="webproperty_ids" type="array[string]" required>
 
-Web property identifiers to retrieve, usually hostname:port values.
+A list of web property identifiers, such as platform.censys.io:80. Up to 100 per call.
 
 </ParamField>
 
 <ParamField path="at_time" type="string | null">
 
-Optional RFC3339 timestamp to view all requested web properties at a specific point in time.
+RFC3339 Timestamp to view all requested webproperties at a specific point in time. Must be a valid RFC3339 string. Ensure that you suffix the date with T00:00:00Z or a specific time.
 
 Default: `null`.
 
@@ -344,9 +364,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="organization_id" type="string | null">
 
-API-native query parameters.
+The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
 
 Default: `null`.
 
@@ -370,7 +390,15 @@ Required secrets:
 
 <ParamField path="webproperty_id" type="string" required>
 
-Web property identifier, usually hostname:port.
+A web property identifier. Web properties are identified using a combination of a hostname and port joined with a colon, such as platform.censys.io:80.
+
+</ParamField>
+
+<ParamField path="at_time" type="string | null">
+
+RFC3339 Timestamp to view a webproperty at a specific point in time. Must be a valid RFC3339 string. Ensure that you suffix the date with T00:00:00Z or a specific time.
+
+Default: `null`.
 
 </ParamField>
 
@@ -382,9 +410,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="organization_id" type="string | null">
 
-API-native query parameters.
+The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
 
 Default: `null`.
 
@@ -422,7 +450,15 @@ Default: `null`.
 
 <ParamField path="fields" type="array[string] | null">
 
-Optional list of fields to return in the response.
+Specify fields to only return in the response. If you provide fields and omit host.services.port, host.services.transport_protocol, and host.services.protocol, then matched_services will not be returned in the response.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="organization_id" type="string | null">
+
+The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
 
 Default: `null`.
 
@@ -430,7 +466,7 @@ Default: `null`.
 
 <ParamField path="page_size" type="integer | null">
 
-Number of results to return per page. Censys defaults to 100.
+Number of results to return per page. The default and maximum is 100.
 
 Default: `null`.
 
@@ -438,15 +474,7 @@ Default: `null`.
 
 <ParamField path="page_token" type="string | null">
 
-Page token from a previous response.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-API-native query parameters.
+Page token for the requested page of search results.
 
 Default: `null`.
 

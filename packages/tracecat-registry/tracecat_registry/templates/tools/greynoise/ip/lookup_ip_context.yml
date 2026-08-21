@@ -11,16 +11,20 @@ definition:
     - name: greynoise
       keys: ["GREYNOISE_API_KEY"]
   expects:
-    base_url:
-      type: str | None
-      description: GreyNoise API base URL.
-      default: null
     ip:
       type: str
       description: IPv4 address to lookup.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    workspace_labels:
+      type: str | None
+      description: >-
+        Comma-separated list of dataset scopes to include in the query. When omitted, only the
+        default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's
+        global dataset), community (aggregated community-contributed data), and personal (the
+        authenticated caller's own workspace data).
+      default: null
+    base_url:
+      type: str | None
+      description: GreyNoise API base URL.
       default: null
   steps:
     - ref: request
@@ -31,5 +35,6 @@ definition:
         headers:
           key: ${{ SECRETS.greynoise.GREYNOISE_API_KEY }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          workspace_labels: ${{ inputs.workspace_labels }}
   returns: ${{ steps.request.result }}

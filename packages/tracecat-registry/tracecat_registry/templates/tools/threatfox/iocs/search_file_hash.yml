@@ -11,13 +11,13 @@ definition:
     - name: abusech
       keys: ["ABUSECH_API_KEY"]
   expects:
+    file_hash:
+      type: str
+      description: MD5 or SHA256 file hash.
     base_url:
       type: str | None
       description: Base URL of the ThreatFox API.
       default: null
-    file_hash:
-      type: str
-      description: MD5 or SHA256 file hash.
   steps:
     - ref: request
       action: core.http_request

@@ -20,6 +20,18 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="input" type="array[object]" required>
+
+Input records to enrich. Pipe0 accepts at most 100 items.
+
+</ParamField>
+
+<ParamField path="pipes" type="array[object]" required>
+
+Pipe configurations to run. Each item takes a pipe_id and a config object.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Pipe0 API.
@@ -28,9 +40,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="config" type="object | null">
 
-API-native request body passed through without validation.
+Pipe0 run configuration object, covering environment, transform, widgets, and field_definitions.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="field_annotations" type="object | null">
+
+Pipe0 field annotations object applied to the input records.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scopes" type="array[string] | null">
+
+Pipe0 scopes to apply to the run.
 
 Default: `null`.
 
@@ -52,6 +80,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="search" type="object" required>
+
+Pipe0 search object. Takes a search_id and a config object holding limit and filters.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the Pipe0 API.
@@ -60,9 +94,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="config" type="object | null">
 
-API-native request body passed through without validation.
+Pipe0 run configuration object, covering environment, widgets, and field_definitions.
 
 Default: `null`.
 

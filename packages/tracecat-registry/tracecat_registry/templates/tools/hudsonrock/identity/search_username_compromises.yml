@@ -13,10 +13,50 @@ definition:
   expects:
     logins:
       type: list[str]
-      description: Usernames to search.
-    payload:
-      type: dict[str, Any] | None
-      description: Additional API-native request body fields.
+      description: Array of usernames to search for.
+    sort_by:
+      type: str | None
+      description: Field to sort results by. 'date_compromised' sorts by when the infection occurred, while 'date_uploaded' sorts by when the data was integrated into our platform.
+      default: null
+    sort_direction:
+      type: str | None
+      description: Direction to sort results. 'desc' returns newest records first (recommended for monitoring), while 'asc' returns oldest records first.
+      default: null
+    types:
+      type: list[str] | None
+      description: Filter results by credential type. 'employees' returns corporate email credentials (@company.com), 'users' returns consumer credentials, and 'third_parties' returns credentials from related domains.
+      default: null
+    domains:
+      type: list[str] | None
+      description: List of domains to filter results by. Accepts root domains (example.com) and will match all subdomains. Maximum 50 domains per request.
+      default: null
+    keywords:
+      type: list[str] | None
+      description: "Filter results to URLs containing specified keywords. Useful for finding credentials for specific services (e.g., ['vpn', 'admin', 'portal']). Maximum 10 keywords."
+      default: null
+    keywords_match:
+      type: str | None
+      description: Determines how multiple keywords are matched. 'any' returns results matching at least one keyword, while 'all' requires all keywords to match.
+      default: null
+    filter_credentials:
+      type: bool | None
+      description: Controls credential filtering in results. When true, returns only credentials matching the search criteria. When false, returns all credentials from matching stealers.
+      default: null
+    cursor:
+      type: str | None
+      description: Base64 encoded pagination cursor for retrieving the next set of results. Obtained from the 'nextCursor' field in the previous response.
+      default: null
+    start_date:
+      type: str | None
+      description: ISO 8601 formatted timestamp to filter results from this date/time onward.
+      default: null
+    end_date:
+      type: str | None
+      description: ISO 8601 formatted timestamp to filter results up to this date/time.
+      default: null
+    additional_fields:
+      type: list[str] | None
+      description: "Optional additional data to include in results: 'search_data', 'installed_software', 'employee_session_cookies', 'password_strength', 'sensitive_applications', 'dir_tree'."
       default: null
     base_url:
       type: str | None
@@ -32,5 +72,17 @@ definition:
           Accept: application/json
           Content-Type: application/json
           api-key: ${{ SECRETS.hudsonrock.HUDSONROCK_API_KEY }}
-        payload: '${{ FN.merge([inputs.payload || {}, {"logins": inputs.logins}]) }}'
+        payload:
+          logins: ${{ inputs.logins }}
+          sort_by: ${{ inputs.sort_by }}
+          sort_direction: ${{ inputs.sort_direction }}
+          types: ${{ inputs.types }}
+          domains: ${{ inputs.domains }}
+          keywords: ${{ inputs.keywords }}
+          keywords_match: ${{ inputs.keywords_match }}
+          filter_credentials: ${{ inputs.filter_credentials }}
+          cursor: ${{ inputs.cursor }}
+          start_date: ${{ inputs.start_date }}
+          end_date: ${{ inputs.end_date }}
+          additional_fields: ${{ inputs.additional_fields }}
   returns: ${{ steps.request.result }}

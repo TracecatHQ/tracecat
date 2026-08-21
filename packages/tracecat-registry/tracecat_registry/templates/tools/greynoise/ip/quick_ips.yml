@@ -11,13 +11,21 @@ definition:
     - name: greynoise
       keys: ["GREYNOISE_API_KEY"]
   expects:
+    ips:
+      type: list[str]
+      description: IPv4 addresses to lookup. GreyNoise supports up to 10000 per request.
+    workspace_labels:
+      type: str | None
+      description: >-
+        Comma-separated list of dataset scopes to include in the query. When omitted, only the
+        default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's
+        global dataset), community (aggregated community-contributed data), and personal (the
+        authenticated caller's own workspace data).
+      default: null
     base_url:
       type: str | None
       description: GreyNoise API base URL.
       default: null
-    ips:
-      type: list[str]
-      description: IPv4 addresses to lookup. GreyNoise supports up to 10000 per request.
   steps:
     - ref: request
       action: core.http_request
@@ -30,6 +38,7 @@ definition:
           Content-Type: application/json
         params:
           quick: true
+          workspace_labels: ${{ inputs.workspace_labels }}
         payload:
           ips: ${{ inputs.ips }}
   returns: ${{ steps.request.result }}

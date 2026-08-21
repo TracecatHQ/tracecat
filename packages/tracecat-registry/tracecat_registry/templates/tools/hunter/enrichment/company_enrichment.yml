@@ -10,9 +10,12 @@ definition:
     - name: hunter
       keys: ["HUNTER_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    domain:
+      type: str
+      description: The domain name for which you to find associated information.
+    clearbit_format:
+      type: str | None
+      description: As more customers switch to Clearbit, we've updated the Enrichment API to support the same Clearbit schema. Any value you provide will now be formatted to match Clearbit's schema for consistency.
       default: null
     base_url:
       type: str | None
@@ -26,5 +29,8 @@ definition:
         method: GET
         headers:
           Accept: application/json
-        params: '${{ FN.merge([{"api_key": SECRETS.hunter.HUNTER_API_KEY}, inputs.params || {}]) }}'
+          X-API-KEY: ${{ SECRETS.hunter.HUNTER_API_KEY }}
+        params:
+          domain: ${{ inputs.domain }}
+          clearbit_format: ${{ inputs.clearbit_format }}
   returns: ${{ steps.request.result }}

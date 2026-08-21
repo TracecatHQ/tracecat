@@ -10,10 +10,9 @@ definition:
     - name: domscan
       keys: ["DOMSCAN_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
-      default: null
+    domain:
+      type: str
+      description: Domain to score for reputation.
     base_url:
       type: str | None
       description: Base URL of the DomScan API.
@@ -26,5 +25,6 @@ definition:
         method: GET
         headers:
           x-api-key: ${{ SECRETS.domscan.DOMSCAN_API_KEY }}
-        params: ${{ inputs.params }}
+        params:
+          domain: ${{ inputs.domain }}
   returns: ${{ steps.request.result }}

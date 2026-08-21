@@ -34,9 +34,49 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="expansions" type="string | null">
 
-API-native query parameters.
+A comma separated list of fields to expand.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="media_fields" type="string | null">
+
+A comma separated list of Media fields to display.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="place_fields" type="string | null">
+
+A comma separated list of Place fields to display.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="poll_fields" type="string | null">
+
+A comma separated list of Poll fields to display.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tweet_fields" type="string | null">
+
+A comma separated list of Post fields to display.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="user_fields" type="string | null">
+
+A comma separated list of User fields to display.
 
 Default: `null`.
 
@@ -72,9 +112,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="expansions" type="string | null">
 
-API-native query parameters.
+A comma separated list of fields to expand.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tweet_fields" type="string | null">
+
+A comma separated list of Post fields to display.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="user_fields" type="string | null">
+
+A comma separated list of User fields to display.
 
 Default: `null`.
 
@@ -96,6 +152,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="query" type="string" required>
+
+X recent search query.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the X API.
@@ -104,9 +166,113 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="end_time" type="string | null">
 
-API-native query parameters.
+Newest UTC timestamp to include, formatted as YYYY-MM-DDTHH:mm:ssZ.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expansions" type="string | null">
+
+A comma separated list of fields to expand.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="max_results" type="integer | null">
+
+Maximum number of results. X supports 10 to 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="media_fields" type="string | null">
+
+A comma separated list of Media fields to display.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="next_token" type="string | null">
+
+A base32hex-encoded pagination token.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="pagination_token" type="string | null">
+
+A base32hex-encoded pagination token.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="place_fields" type="string | null">
+
+A comma separated list of Place fields to display.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="poll_fields" type="string | null">
+
+A comma separated list of Poll fields to display.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="since_id" type="string | null">
+
+Return results with a post ID greater than this ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_order" type="string | null">
+
+Result order, such as recency or relevancy.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_time" type="string | null">
+
+Oldest UTC timestamp to include, formatted as YYYY-MM-DDTHH:mm:ssZ. Must be within the last 7 days.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tweet_fields" type="string | null">
+
+A comma separated list of Post fields to display.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="until_id" type="string | null">
+
+Return results with a post ID less than this ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="user_fields" type="string | null">
+
+A comma separated list of User fields to display.
 
 Default: `null`.
 

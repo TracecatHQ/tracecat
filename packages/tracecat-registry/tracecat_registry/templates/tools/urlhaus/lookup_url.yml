@@ -11,13 +11,13 @@ definition:
     - name: abusech
       keys: ["ABUSECH_API_KEY"]
   expects:
+    url:
+      type: str
+      description: URL to lookup.
     base_url:
       type: str | None
       description: URLhaus API base URL.
       default: null
-    url:
-      type: str
-      description: URL to lookup.
   steps:
     - ref: request
       action: core.http_request

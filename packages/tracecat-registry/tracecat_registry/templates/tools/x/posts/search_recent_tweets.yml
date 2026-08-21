@@ -10,9 +10,64 @@ definition:
     - name: x
       keys: ["X_APP_ONLY_TOKEN"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    query:
+      type: str
+      description: X recent search query.
+    start_time:
+      type: str | None
+      description: Oldest UTC timestamp to include, formatted as YYYY-MM-DDTHH:mm:ssZ. Must be within the last 7 days.
+      default: null
+    end_time:
+      type: str | None
+      description: Newest UTC timestamp to include, formatted as YYYY-MM-DDTHH:mm:ssZ.
+      default: null
+    since_id:
+      type: str | None
+      description: Return results with a post ID greater than this ID.
+      default: null
+    until_id:
+      type: str | None
+      description: Return results with a post ID less than this ID.
+      default: null
+    max_results:
+      type: int | None
+      description: Maximum number of results. X supports 10 to 100.
+      default: null
+    next_token:
+      type: str | None
+      description: A base32hex-encoded pagination token.
+      default: null
+    pagination_token:
+      type: str | None
+      description: A base32hex-encoded pagination token.
+      default: null
+    sort_order:
+      type: str | None
+      description: Result order, such as recency or relevancy.
+      default: null
+    tweet_fields:
+      type: str | None
+      description: A comma separated list of Post fields to display.
+      default: null
+    expansions:
+      type: str | None
+      description: A comma separated list of fields to expand.
+      default: null
+    user_fields:
+      type: str | None
+      description: A comma separated list of User fields to display.
+      default: null
+    media_fields:
+      type: str | None
+      description: A comma separated list of Media fields to display.
+      default: null
+    poll_fields:
+      type: str | None
+      description: A comma separated list of Poll fields to display.
+      default: null
+    place_fields:
+      type: str | None
+      description: A comma separated list of Place fields to display.
       default: null
     base_url:
       type: str | None
@@ -27,5 +82,20 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.x.X_APP_ONLY_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          query: ${{ inputs.query }}
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
+          since_id: ${{ inputs.since_id }}
+          until_id: ${{ inputs.until_id }}
+          max_results: ${{ inputs.max_results }}
+          next_token: ${{ inputs.next_token }}
+          pagination_token: ${{ inputs.pagination_token }}
+          sort_order: ${{ inputs.sort_order }}
+          "tweet.fields": ${{ inputs.tweet_fields }}
+          expansions: ${{ inputs.expansions }}
+          "user.fields": ${{ inputs.user_fields }}
+          "media.fields": ${{ inputs.media_fields }}
+          "poll.fields": ${{ inputs.poll_fields }}
+          "place.fields": ${{ inputs.place_fields }}
   returns: ${{ steps.request.result }}

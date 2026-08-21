@@ -11,13 +11,13 @@ definition:
     - name: project_discovery
       keys: ["PDCP_API_KEY"]
   expects:
+    leakid:
+      type: str
+      description: 32-character MD5 hash identifying the leak (from list_leaks).
     base_url:
       type: str | None
       description: ProjectDiscovery Cloud API base URL.
       default: null
-    leakid:
-      type: str
-      description: 32-character MD5 hash identifying the leak (from list_leaks).
   steps:
     - ref: request
       action: core.http_request

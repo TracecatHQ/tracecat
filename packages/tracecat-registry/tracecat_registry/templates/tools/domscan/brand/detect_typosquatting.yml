@@ -10,9 +10,20 @@ definition:
     - name: domscan
       keys: ["DOMSCAN_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    domain:
+      type: str
+      description: Domain to analyze for typosquatting risks.
+    check_registered:
+      type: bool | None
+      description: Check if generated typos are actually registered. Disabled by default and capped for faster responses.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum permutations to generate and check. DomScan defaults to 100.
+      default: null
+    include_tld_swap:
+      type: bool | None
+      description: Include TLD variation permutations (e.g., .co instead of .com). DomScan defaults to true.
       default: null
     base_url:
       type: str | None
@@ -26,5 +37,9 @@ definition:
         method: GET
         headers:
           x-api-key: ${{ SECRETS.domscan.DOMSCAN_API_KEY }}
-        params: ${{ inputs.params }}
+        params:
+          domain: ${{ inputs.domain }}
+          check_registered: ${{ inputs.check_registered }}
+          limit: ${{ inputs.limit }}
+          include_tld_swap: ${{ inputs.include_tld_swap }}
   returns: ${{ steps.request.result }}

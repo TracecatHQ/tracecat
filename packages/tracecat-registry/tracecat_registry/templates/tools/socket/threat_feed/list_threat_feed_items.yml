@@ -14,9 +14,67 @@ definition:
     org_slug:
       type: str
       description: Socket organization slug.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    per_page:
+      type: int | None
+      description: Number of threats per page. Socket defaults to 30.
+      default: null
+    page_cursor:
+      type: str | None
+      description: >-
+        Page cursor token. Pass the returned nextPageCursor to this query string to fetch the
+        next page of the threat feed.
+      default: null
+    sort:
+      type: str | None
+      description: >-
+        Set the sort order for the threat feed items. Default is descending order by updated_at,
+        which includes all new and updated threat feed items. Supported values are id, created_at
+        and updated_at.
+      default: null
+    updated_after:
+      type: str | None
+      description: >-
+        A Unix timestamp in seconds that filters results to items only updated after the
+        timestamp.
+      default: null
+    created_after:
+      type: str | None
+      description: >-
+        A Unix timestamp in seconds that filters results to items only created after the date.
+      default: null
+    direction:
+      type: str | None
+      description: >-
+        Order direction of the provided sort field. Supported values are desc and asc. Socket
+        defaults to desc.
+      default: null
+    filter:
+      type: str | None
+      description: >-
+        Filter by threat classification. Supported values: mal (malware, including possible
+        malware), vuln (vulnerability), typo (typosquat, including possible typosquat), anom
+        (anomaly), spy (telemetry), obf (obfuscated code), dual (dual-use tool), joke
+        (protestware or joke package), tp (all confirmed true positives), fp (false positive), u
+        (unreviewed), c (classified, i.e. anything except unreviewed). Socket defaults to mal.
+      default: null
+    name:
+      type: str | None
+      description: Filter threats by package name.
+      default: null
+    version:
+      type: str | None
+      description: Filter threats by package version.
+      default: null
+    is_human_reviewed:
+      type: bool | None
+      description: Only return threats which have been human-reviewed.
+      default: null
+    ecosystem:
+      type: str | None
+      description: >-
+        Filter threats by package ecosystem. Supported values are github, cargo, clawhub,
+        composer, chrome, firefox-extension, edge-extension, golang, huggingface, maven, npm,
+        nuget, vscode, pypi, gem and swift.
       default: null
     base_url:
       type: str | None
@@ -31,5 +89,16 @@ definition:
         headers:
           Accept: application/json
           Authorization: Bearer ${{ SECRETS.socket.SOCKET_API_TOKEN }}
-        params: ${{ inputs.params }}
+        params:
+          per_page: ${{ inputs.per_page }}
+          page_cursor: ${{ inputs.page_cursor }}
+          sort: ${{ inputs.sort }}
+          updated_after: ${{ inputs.updated_after }}
+          created_after: ${{ inputs.created_after }}
+          direction: ${{ inputs.direction }}
+          filter: ${{ inputs.filter }}
+          name: ${{ inputs.name }}
+          version: ${{ inputs.version }}
+          is_human_reviewed: ${{ inputs.is_human_reviewed }}
+          ecosystem: ${{ inputs.ecosystem }}
   returns: ${{ steps.request.result }}

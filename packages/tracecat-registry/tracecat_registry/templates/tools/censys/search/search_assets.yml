@@ -15,19 +15,19 @@ definition:
       description: CenQL query string to search upon.
     fields:
       type: list[str] | None
-      description: Optional list of fields to return in the response.
+      description: Specify fields to only return in the response. If you provide fields and omit host.services.port, host.services.transport_protocol, and host.services.protocol, then matched_services will not be returned in the response.
       default: null
     page_size:
       type: int | None
-      description: Number of results to return per page. Censys defaults to 100.
+      description: Number of results to return per page. The default and maximum is 100.
       default: null
     page_token:
       type: str | None
-      description: Page token from a previous response.
+      description: Page token for the requested page of search results.
       default: null
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    organization_id:
+      type: str | None
+      description: The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
       default: null
     base_url:
       type: str | None
@@ -42,7 +42,8 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
           Content-Type: application/json
-        params: ${{ inputs.params }}
+        params:
+          organization_id: ${{ inputs.organization_id }}
         payload:
           query: ${{ inputs.query }}
           fields: ${{ inputs.fields }}

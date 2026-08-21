@@ -13,24 +13,24 @@ definition:
   expects:
     query:
       type: str
-      description: CenQL query string to aggregate upon.
+      description: CenQL query string to search upon.
     field:
       type: str
       description: Field to aggregate by.
     number_of_buckets:
       type: int
-      description: Number of buckets to return.
+      description: Number of buckets to split results into, from 1 to 2000.
     count_by_level:
       type: str | None
-      description: Optional document level to count by for nested fields.
+      description: Specifies which document level's count is returned per term bucket, primarily for nested fields. This is the same functionality available in the Count By dropdown in the Report Builder UI.
       default: null
     filter_by_query:
       type: bool | None
-      description: Limit aggregation results to values that satisfy the query constraints.
+      description: Controls whether aggregation results are limited to values that match the query. When true, only field values that satisfy the query constraints are included in aggregation counts.
       default: null
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    organization_id:
+      type: str | None
+      description: The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
       default: null
     base_url:
       type: str | None
@@ -45,7 +45,8 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
           Content-Type: application/json
-        params: ${{ inputs.params }}
+        params:
+          organization_id: ${{ inputs.organization_id }}
         payload:
           query: ${{ inputs.query }}
           field: ${{ inputs.field }}

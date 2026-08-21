@@ -34,17 +34,33 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="field" type="string | null">
+<ParamField path="days" type="string | null">
 
-Timeline field to summarize.
+Number of days to show data for. source_asn_subnet is limited to 90 days. GreyNoise defaults to 1.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="field" type="string">
+
+Field over which to show activity breakdown. Supported values are destination_port, http_path, http_user_agent, source_asn, source_asn_subnet, source_org, source_rdns, tag_ids and classification.
 
 Default: `"classification"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="granularity" type="string | null">
 
-API-native query parameters.
+Granularity of activity date ranges. This can be in hours (e.g. Xh) or days (Xd). Valid hours are between 1 and 24. Valid days are between 1 and 90. source_asn_subnet supports daily granularity only (1d or 24h). GreyNoise defaults to 1d.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="workspace_labels" type="string | null">
+
+Comma-separated list of dataset scopes to include in the query. When omitted, only the default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's global dataset), community (aggregated community-contributed data), and personal (the authenticated caller's own workspace data).
 
 Default: `null`.
 
@@ -80,9 +96,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="count" type="integer | null">
 
-API-native query parameters.
+Number of top aggregates to grab. Minimum 1, maximum 10000. GreyNoise defaults to 1000.
 
 Default: `null`.
 
@@ -118,9 +134,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="workspace_labels" type="string | null">
 
-API-native query parameters.
+Comma-separated list of dataset scopes to include in the query. When omitted, only the default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's global dataset), community (aggregated community-contributed data), and personal (the authenticated caller's own workspace data).
 
 Default: `null`.
 
@@ -156,9 +172,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="workspace_labels" type="string | null">
 
-API-native query parameters.
+Comma-separated list of dataset scopes to include in the query. When omitted, only the default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's global dataset), community (aggregated community-contributed data), and personal (the authenticated caller's own workspace data).
 
 Default: `null`.
 
@@ -194,6 +210,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="workspace_labels" type="string | null">
+
+Comma-separated list of dataset scopes to include in the query. When omitted, only the default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's global dataset), community (aggregated community-contributed data), and personal (the authenticated caller's own workspace data).
+
+Default: `null`.
+
+</ParamField>
+
 ## Query GNQL
 
 Action ID: `tools.greynoise.query_gnql`
@@ -224,9 +248,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="exclude" type="string | null">
 
-API-native query parameters.
+Comma-separated list of fields to exclude from the response. Recognized top-level response fields (e.g. tags, cves, vpn, tor, raw_data, metadata), metadata.&lt;subfield> paths (e.g. metadata.organization, metadata.source_country, metadata.destination_countries), and raw_data.&lt;subfield> paths (e.g. raw_data.ja3, raw_data.http.useragent) are accepted. The special value tags.details preserves tag identity (id, slug) and strips only the enriched details. Unknown field names return 400.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="format" type="string | null">
+
+Specifies the desired format of the results. Must be either csv or json. GreyNoise defaults to json.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="quick" type="boolean | null">
+
+If true, the response will only include the IP address and the classification or trust level.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scroll" type="string | null">
+
+Scroll token to paginate through results. Incompatible with format=csv.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+The number of results provided per page for paginating through all results of a query. Minimum 1, maximum 10000. GreyNoise defaults to 10000.
 
 Default: `null`.
 
@@ -262,6 +318,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="workspace_labels" type="string | null">
+
+Comma-separated list of dataset scopes to include in the query. When omitted, only the default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's global dataset), community (aggregated community-contributed data), and personal (the authenticated caller's own workspace data).
+
+Default: `null`.
+
+</ParamField>
+
 ## Quick IPs
 
 Action ID: `tools.greynoise.quick_ips`
@@ -287,6 +351,14 @@ IPv4 addresses to lookup. GreyNoise supports up to 10000 per request.
 <ParamField path="base_url" type="string | null">
 
 GreyNoise API base URL.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="workspace_labels" type="string | null">
+
+Comma-separated list of dataset scopes to include in the query. When omitted, only the default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's global dataset), community (aggregated community-contributed data), and personal (the authenticated caller's own workspace data).
 
 Default: `null`.
 

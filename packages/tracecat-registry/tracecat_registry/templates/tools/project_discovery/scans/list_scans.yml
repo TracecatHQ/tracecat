@@ -11,13 +11,41 @@ definition:
     - name: project_discovery
       keys: ["PDCP_API_KEY"]
   expects:
+    offset:
+      type: int | None
+      description: number of scan-status results to skip
+      default: null
+    limit:
+      type: int | None
+      description: number of scan-status results to fetch
+      default: null
+    search:
+      type: str | None
+      description: search term for running scans
+      default: null
+    status:
+      type: str | None
+      description: filter by status (failed, finished, queued, running, starting, uploaded, scheduled)
+      default: null
+    sort_asc:
+      type: str | None
+      description: comma separated ascending sorting e.g sort_asc=created_at,severity
+      default: null
+    sort_desc:
+      type: str | None
+      description: comma separated descending sorting e.g sort_desc=created_at,severity
+      default: null
+    is_internal:
+      type: bool | None
+      description: filter by internal scans
+      default: null
+    team_id:
+      type: str | None
+      description: "Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team"
+      default: null
     base_url:
       type: str | None
       description: ProjectDiscovery Cloud API base URL.
-      default: null
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
       default: null
   steps:
     - ref: request
@@ -27,5 +55,13 @@ definition:
         method: GET
         headers:
           X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
-        params: ${{ inputs.params }}
+          X-Team-Id: ${{ inputs.team_id }}
+        params:
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+          search: ${{ inputs.search }}
+          status: ${{ inputs.status }}
+          sort_asc: ${{ inputs.sort_asc }}
+          sort_desc: ${{ inputs.sort_desc }}
+          is_internal: ${{ inputs.is_internal }}
   returns: ${{ steps.request.result }}

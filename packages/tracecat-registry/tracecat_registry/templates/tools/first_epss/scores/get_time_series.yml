@@ -10,10 +10,10 @@ definition:
   expects:
     cve:
       type: str
-      description: CVE identifier to retrieve as a time series.
-    params:
-      type: dict[str, Any] | None
-      description: Additional API-native query parameters.
+      description: Filters by EPSS CVE ID. Multiple values are supported separated by commas. The maximum size accepted for this parameter is 2000 characters (including commas).
+    date:
+      type: str | None
+      description: Date in the format YYYY-MM-DD (since April 14, 2021), shows the historic values for epss and percentile attributes.
       default: null
     base_url:
       type: str | None
@@ -27,5 +27,8 @@ definition:
         method: GET
         headers:
           Accept: application/json
-        params: '${{ FN.merge([inputs.params || {}, {"cve": inputs.cve, "scope": "time-series"}]) }}'
+        params:
+          cve: ${{ inputs.cve }}
+          date: ${{ inputs.date }}
+          scope: time-series
   returns: ${{ steps.request.result }}

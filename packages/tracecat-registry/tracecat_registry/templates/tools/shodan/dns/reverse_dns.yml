@@ -11,16 +11,12 @@ definition:
     - name: shodan
       keys: ["SHODAN_API_KEY"]
   expects:
+    ips:
+      type: str
+      description: Comma-separated list of IP addresses; example "74.125.227.230,204.79.197.200"
     base_url:
       type: str | None
       description: Shodan REST API base URL.
-      default: null
-    ips:
-      type: str
-      description: Comma-separated list of IP addresses, such as "8.8.8.8,1.1.1.1".
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
       default: null
   steps:
     - ref: request
@@ -28,5 +24,7 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.shodan.base_url || "https://api.shodan.io" }}/dns/reverse
         method: GET
-        params: '${{ FN.merge([{"key": SECRETS.shodan.SHODAN_API_KEY, "ips": inputs.ips}, inputs.params || {}]) }}'
+        params:
+          key: ${{ SECRETS.shodan.SHODAN_API_KEY }}
+          ips: ${{ inputs.ips }}
   returns: ${{ steps.request.result }}

@@ -20,15 +20,161 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="payload" type="object" required>
+<ParamField path="agent_auto_discover" type="boolean | null">
 
-Enumeration request body (name, targets, configuration, etc.).
+Enable agent auto discovery.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="agent_behavior" type="string | null">
+
+Agent behavior (distribute or mirror). Defaults to distribute.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="agent_id" type="string | null">
+
+Agent ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="agent_networks" type="array[string] | null">
+
+Agent networks.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="agent_tags" type="array[string] | null">
+
+Agent tags.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="alerting_config_ids" type="array[string] | null">
+
+Alerting config IDs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="automatic_vuln_scans" type="boolean | null">
+
+Enable automatic vulnerability scans.
+
+Default: `null`.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 ProjectDiscovery Cloud API base URL.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cloudlist_config_ids" type="array[string] | null">
+
+Cloudlist config IDs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="disable_global_alert_config" type="boolean | null">
+
+Disable the global alert config.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="enrichment_inputs" type="array[string] | null">
+
+Enrichment inputs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="enumeration_config" type="object | null">
+
+Enumeration config object (documented keys are follow-redirect and ports).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="enumeration_ports" type="string | null">
+
+Enumeration ports.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclude_targets" type="array[string] | null">
+
+Targets to exclude.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclusions" type="array[string] | null">
+
+Combined inclusion and exclusion patterns for discovery scope. Exclusion patterns (e.g. `*.staging.company.com`) filter out matching targets. Inclusion patterns use a `+` prefix (e.g. `+prod-*.company.com`) to restrict discovery to only matching targets (allowlist mode). When inclusion patterns are present, targets must match at least one inclusion pattern and not match any exclusion pattern. Supports exact domains, wildcard patterns, IP addresses, and CIDR ranges.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="name" type="string | null">
+
+Enumeration name.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_domain_enumeration" type="boolean | null">
+
+Enable per-domain enumeration.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="root_domains" type="array[string] | null">
+
+Root domains to enumerate.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="steps" type="array[string] | null">
+
+Enumeration steps to run (dns_resolve, dns_bruteforce, dns_permute, port_scan, http_probe, http_screenshot, endpoint_crawling, dns_passive, tls_scan, uncover_assets, dns_scraping).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
 
 Default: `null`.
 
@@ -50,15 +196,225 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="payload" type="object" required>
+<ParamField path="agent_behavior" type="string | null">
 
-Scan request body (targets, templates, configuration, etc.).
+Agent behavior (distribute or mirror). Defaults to distribute.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="agent_id" type="string | null">
+
+Agent ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="agent_networks" type="array[string] | null">
+
+Agent networks.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="agent_tags" type="array[string] | null">
+
+Agent tags.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="alerting_config_ids" type="array[string] | null">
+
+Alerting config IDs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="all" type="boolean | null">
+
+Run all templates.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="asset_filters" type="object | null">
+
+Asset filters object (documented keys are is_tech, is_favicon, is_new, labels, host, port, status_code, content_length, title, domain, cname, technologies, ip, is_screenshot, time, start_date, end_date, custom_filter, search, enumeration_ids, only_dns, only_ip, not_seen_for_days).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="assets" type="array[string] | null">
+
+Assets to scan.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="automatic_scan" type="boolean | null">
+
+Enable automatic scan.
+
+Default: `null`.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 ProjectDiscovery Cloud API base URL.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="disable_global_alert_config" type="boolean | null">
+
+Disable the global alert config.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="disable_global_report_config" type="boolean | null">
+
+Disable the global report config.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="disable_global_scan_config" type="boolean | null">
+
+Disable the global scan config.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="early_templates" type="array[string] | null">
+
+Early templates to run.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="enumeration_ids" type="array[object] | null">
+
+Array of EnumerationIds objects. Each object requires `id` (string).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclude_targets" type="array[string] | null">
+
+Targets to exclude.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclusions" type="array[string] | null">
+
+Combined inclusion and exclusion patterns for scan scope. Exclusion patterns (e.g. `*.staging.company.com`) filter out matching targets. Inclusion patterns use a `+` prefix (e.g. `+prod-*.company.com`) to restrict scanning to only matching targets (allowlist mode). When inclusion patterns are present, targets must match at least one inclusion pattern and not match any exclusion pattern. Supports exact domains, wildcard patterns, IP addresses, and CIDR ranges.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="name" type="string | null">
+
+Scan name.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="private_templates" type="array[object] | null">
+
+Array of PrivateTemplates objects. Each object requires `name` (string) and `contents` (string).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="recommended" type="boolean | null">
+
+Run recommended templates.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="reporting_config_ids" type="array[string] | null">
+
+Reporting config IDs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scan_all_assets" type="boolean | null">
+
+Scan all assets.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scan_config_ids" type="array[string] | null">
+
+Scan config IDs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="schedule_only" type="boolean | null">
+
+Only schedule the scan.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="socks5_proxy" type="string | null">
+
+SOCKS5 proxy.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="targets" type="array[string] | null">
+
+Targets to scan.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="templates" type="array[string] | null">
+
+Templates to run.
 
 Default: `null`.
 
@@ -80,6 +436,14 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="active" type="boolean | null">
+
+Filter by liveness (true=alive, false=unreachable).
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 ProjectDiscovery Cloud API base URL.
@@ -88,9 +452,57 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="domain" type="string | null">
 
-API-native query parameters.
+Domain name to fetch associated domains. If omitted, returns associated domains for all your verified domains.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum results per page (pagination). If omitted, returns all.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number (pagination, starts at 1).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="raw" type="boolean | null">
+
+If true, returns plain text list (one domain per line).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Sort results (active, domain, source, subdomain_count, update_date).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="source" type="string | null">
+
+Comma-separated source filter (acquisition_history, certificate_history, whois_history).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
 
 Default: `null`.
 
@@ -120,6 +532,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="unmask_email" type="boolean | null">
+
+Unmask email addresses in the results.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get email leak stats
 
 Action ID: `tools.project_discovery.get_email_leak_stats`
@@ -132,13 +552,21 @@ Reference: [https://docs.projectdiscovery.io/api-reference/leaks/get-email-stats
 
 <ParamField path="email" type="string" required>
 
-Email address to get leak statistics for.
+Email to get stats for.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 ProjectDiscovery Cloud API base URL.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="unmask_email" type="boolean | null">
+
+Unmask email addresses in the results.
 
 Default: `null`.
 
@@ -174,6 +602,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
+
+Default: `null`.
+
+</ParamField>
+
 ## Get enumeration contents
 
 Action ID: `tools.project_discovery.get_enumeration_contents`
@@ -204,9 +640,233 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cname" type="string | null">
 
-API-native query parameters.
+cname to filter
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="content_length" type="string | null">
+
+Filter by comma separated content lengths, e.g-> content_length=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="custom_filter" type="string | null">
+
+custom query to filter. double encode the query string.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="domain" type="string | null">
+
+Filter by comma separated domain names, e.g-> domain=domain1.com,domain2.com
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_date" type="string | null">
+
+time filter end date (YYYY-MM-DD).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="favicon" type="string | null">
+
+Filter by comma separated favicons, e.g-> favicon=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="host" type="string | null">
+
+Filter by comma separated hosts, e.g-> host=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ip" type="string | null">
+
+ips to filter
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_favicon" type="boolean | null">
+
+Return the records that have favicon.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_internal" type="boolean | null">
+
+filter by is_internal (internal vs external hosts)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_new" type="boolean | null">
+
+Filter by new content.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_screenshot" type="boolean | null">
+
+asset with screenshots
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_tech" type="boolean | null">
+
+Return records that have technologies.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="labels" type="string | null">
+
+Filter by comma separated labels, e.g-> labels=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The numbers of items to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="not_seen_for_days" type="integer | null">
+
+Return assets that haven't been seen in the last N days. An asset is only included if a scan that covers it has run during that period without rediscovering it, so assets that simply haven't been rescanned recently are not matched.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+The number of items to skip before starting to collect the result set.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="only_dns" type="boolean | null">
+
+Query only dns FQDN records.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="only_ip" type="boolean | null">
+
+Query only dns IP records.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="port" type="string | null">
+
+Filter by comma separated ports, e.g-> port=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+Search on the content name.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_asc" type="string | null">
+
+comma separated ascending sorting e.g sort_asc=created_at,name
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_desc" type="string | null">
+
+comma separated descending sorting e.g sort_desc=created_at,name
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_date" type="string | null">
+
+time filter start date (YYYY-MM-DD).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status_code" type="string | null">
+
+Filter by comma separated status codes, e.g-> status_code=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="technologies" type="string | null">
+
+technologies to filter
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="time" type="string | null">
+
+time filter to select (last_day, last_week, last_month, last_3_months, last_6_months, last_12_months, all_time). Defaults to all_time.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="title" type="string | null">
+
+Filter by comma separated titles, e.g-> title=p1,p2
 
 Default: `null`.
 
@@ -272,6 +932,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
+
+Default: `null`.
+
+</ParamField>
+
 ## Get vulnerability
 
 Action ID: `tools.project_discovery.get_vulnerability`
@@ -302,9 +970,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="fields" type="string | null">
 
-API-native query parameters.
+template data fields
 
 Default: `null`.
 
@@ -364,9 +1032,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="event_type" type="string | null">
 
-API-native query parameters.
+Filter by event types (comma-separated). Supported values are detected, status_change, resolved, reopened, severity_change, template_released, template_updated. If not provided, returns all events.
 
 Default: `null`.
 
@@ -396,9 +1064,217 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cname" type="string | null">
 
-API-native query parameters.
+cname to filter
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="content_length" type="string | null">
+
+Filter by comma separated content lengths, e.g-> content_length=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="custom_filter" type="string | null">
+
+custom query to filter. double encode the query string.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="domain" type="string | null">
+
+Filter by comma separated domain names, e.g-> domain=domain1.com,domain2.com
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="favicon" type="string | null">
+
+Filter by comma separated favicons, e.g-> favicon=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="host" type="string | null">
+
+Filter by comma separated hosts, e.g-> host=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ip" type="string | null">
+
+ips to filter
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_favicon" type="boolean | null">
+
+Return the records that have favicon.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_internal" type="boolean | null">
+
+filter by is_internal (internal vs external hosts)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_new" type="boolean | null">
+
+Filter by new content.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_screenshot" type="boolean | null">
+
+asset with screenshots
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_tech" type="boolean | null">
+
+Return records that have technologies.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="labels" type="string | null">
+
+Filter by comma separated labels, e.g-> labels=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The numbers of items to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="not_seen_for_days" type="integer | null">
+
+Return assets that haven't been seen in the last N days. An asset is only included if a scan that covers it has run during that period without rediscovering it, so assets that simply haven't been rescanned recently are not matched.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+The number of items to skip before starting to collect the result set.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="only_dns" type="boolean | null">
+
+Query only dns FQDN records.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="only_ip" type="boolean | null">
+
+Query only dns IP records.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="port" type="string | null">
+
+Filter by comma separated ports, e.g-> port=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+Search on the content name.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_asc" type="string | null">
+
+comma separated ascending sorting e.g sort_asc=created_at,name
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_desc" type="string | null">
+
+comma separated descending sorting e.g sort_desc=created_at,name
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status_code" type="string | null">
+
+Filter by comma separated status codes, e.g-> status_code=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="technologies" type="string | null">
+
+technologies to filter
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="time" type="string | null">
+
+time filter to select (last_day, last_week, last_month, last_3_months, last_6_months, last_12_months, all_time). Defaults to all_time.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="title" type="string | null">
+
+Filter by comma separated titles, e.g-> title=p1,p2
 
 Default: `null`.
 
@@ -428,9 +1304,105 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="custom_filter" type="string | null">
 
-API-native query parameters.
+custom query to filter. double encode the query string.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_date" type="string | null">
+
+time filter end date (YYYY-MM-DD).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="enum_type" type="string | null">
+
+types of enumeration list (comma seperated)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_internal" type="boolean | null">
+
+filter by internal enumerations
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The numbers of items to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+The number of items to skip before starting to collect the result set.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+search keyword in enumeration list
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_asc" type="string | null">
+
+comma separated ascending sorting e.g sort_asc=created_at,name
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_desc" type="string | null">
+
+comma separated descending sorting e.g sort_desc=created_at,name
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_date" type="string | null">
+
+time filter start date (YYYY-MM-DD).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+comma separated filter enumeration result by status
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="time" type="string | null">
+
+time range to get enumerations from (last_day, last_week, last_month, last_3_months, last_6_months, last_12_months, all_time). Defaults to all_time.
 
 Default: `null`.
 
@@ -460,9 +1432,145 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="country" type="string | null">
 
-API-native query parameters.
+Filter by specific country (used with group_by for drill-down).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="device_ip" type="string | null">
+
+Filter by specific device IP (used with group_by for drill-down).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="domain" type="string | null">
+
+Filter leaks by specific domain (applies to employee/customer leaks).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="email" type="string | null">
+
+Filter leaks by specific email (can be personal, employee, or customer email from user's authorized results).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_date" type="string | null">
+
+time filter end date (YYYY-MM-DD).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="group_by" type="string | null">
+
+Group results by field - returns group summaries when used without field-specific filtering. Supported fields are url, country, device_ip, hostname, email, hardware_id.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="hardware_id" type="string | null">
+
+Filter by specific hardware ID (used with group_by for drill-down).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="hostname" type="string | null">
+
+Filter by specific hostname (used with group_by for drill-down).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Number of results per page for pagination.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page_number" type="integer | null">
+
+Page number for pagination (starts from 1).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+Search query to filter results across all fields.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_by" type="string | null">
+
+supported sort fields (url, username, log_date, country, device_ip, host_username, hostname, os, hardware_id, malware_path)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_order" type="string | null">
+
+supported sort order (asc or desc)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_date" type="string | null">
+
+time filter start date (YYYY-MM-DD).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+supported status (fixed or open)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="time_range" type="string | null">
+
+Time range (all_time, current_month, last_month, last_3_months, last_6_months, last_12_months). Defaults to all_time.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+Filter by specific leak type (single value only). Supported values are all, personal, employee, customer, external_vendor_leaks, organization_leaks.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="url" type="string | null">
+
+Filter by specific URL (used with group_by for drill-down).
 
 Default: `null`.
 
@@ -484,6 +1592,14 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="asset_metadata" type="boolean | null">
+
+Asset details for the vulnerability.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 ProjectDiscovery Cloud API base URL.
@@ -492,9 +1608,153 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="category" type="string | null">
 
-API-native query parameters.
+filter by comma separated categories e.g category=cve,xss
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="domain" type="string | null">
+
+comma separated domain names e.g-> domain=domain1.com,domain2.com
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="host" type="string | null">
+
+comma separated host e.g. hosts=https://example.com,https://x.com
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_internal" type="boolean | null">
+
+filter by is_internal (internal vs external hosts)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_regression" type="boolean | null">
+
+filter by is_regression
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="is_ticket" type="boolean | null">
+
+Return the records that have issue trackers.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="labels" type="string | null">
+
+filter by comma separated labels e.g labels=p1,p2
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+number of results to get
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+number of results to skip
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="port" type="string | null">
+
+comma separated ports e.g. ports=80,443
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+search term
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="severity" type="string | null">
+
+string separated by comma e.g. info,high. Defaults to unknown,low,medium,high,critical.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_asc" type="string | null">
+
+comma separated ascending sorting e.g sort_asc=created_at,severity
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_desc" type="string | null">
+
+comma separated descending sorting e.g sort_desc=created_at,severity
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tags" type="string | null">
+
+comma separated tags e.g tags=xss,cve
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="templates" type="string | null">
+
+comma separated templates e.g. templates=tech-detect,azure-takeover
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="time" type="string | null">
+
+filter by time ( last_day, last_week, last_month )
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="vuln_status" type="string | null">
+
+comma separated vuln_status e.g vuln_status=open,fixed
 
 Default: `null`.
 
@@ -524,9 +1784,65 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="is_internal" type="boolean | null">
 
-API-native query parameters.
+filter by internal scans
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+number of scan-status results to fetch
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+number of scan-status results to skip
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+search term for running scans
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_asc" type="string | null">
+
+comma separated ascending sorting e.g sort_asc=created_at,severity
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_desc" type="string | null">
+
+comma separated descending sorting e.g sort_desc=created_at,severity
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+filter by status (failed, finished, queued, running, starting, uploaded, scheduled)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
 
 Default: `null`.
 
@@ -556,9 +1872,57 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="event_type" type="string | null">
 
-API-native query parameters.
+comma separated event_type e.g. event_type=vul_status,vul_status_change
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+number of results to get
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+number of results to skip
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_asc" type="string | null">
+
+comma separated ascending sorting e.g sort_asc=created_at,severity
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_desc" type="string | null">
+
+comma separated descending sorting e.g sort_desc=created_at,severity
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="time" type="string | null">
+
+time filter to select (last_day, last_week, last_month, last_3_months, last_6_months, last_12_months, all_time). Defaults to all_time.
 
 Default: `null`.
 
@@ -594,6 +1958,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
+
+Default: `null`.
+
+</ParamField>
+
 ## Rescan scan
 
 Action ID: `tools.project_discovery.rescan_scan`
@@ -624,6 +1996,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="team_id" type="string | null">
+
+Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
+
+Default: `null`.
+
+</ParamField>
+
 ## Search vulnerabilities
 
 Action ID: `tools.project_discovery.search_vulnerabilities`
@@ -648,9 +2028,81 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="facet_size" type="integer | null">
 
-API-native query parameters.
+Number of facets to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="fields" type="string | null">
+
+List of fields to return (comma separated).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="highlight" type="boolean | null">
+
+Whether to highlight the search results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The numbers of items to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+The numbers of items to skip.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="q" type="string | null">
+
+Search query.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="range_facets" type="string | null">
+
+List of range facet fields (comma separated).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_asc" type="string | null">
+
+Sort results in ascending order (CSV field names).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_desc" type="string | null">
+
+Sort results in descending order (CSV field names).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="term_facets" type="string | null">
+
+List of term facet fields (comma separated).
 
 Default: `null`.
 

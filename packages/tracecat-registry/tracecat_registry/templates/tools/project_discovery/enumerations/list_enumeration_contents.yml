@@ -11,13 +11,117 @@ definition:
     - name: project_discovery
       keys: ["PDCP_API_KEY"]
   expects:
+    offset:
+      type: int | None
+      description: The number of items to skip before starting to collect the result set.
+      default: null
+    time:
+      type: str | None
+      description: time filter to select (last_day, last_week, last_month, last_3_months, last_6_months, last_12_months, all_time). Defaults to all_time.
+      default: null
+    limit:
+      type: int | None
+      description: The numbers of items to return.
+      default: null
+    is_tech:
+      type: bool | None
+      description: Return records that have technologies.
+      default: null
+    is_favicon:
+      type: bool | None
+      description: Return the records that have favicon.
+      default: null
+    search:
+      type: str | None
+      description: Search on the content name.
+      default: null
+    labels:
+      type: str | None
+      description: Filter by comma separated labels, e.g-> labels=p1,p2
+      default: null
+    is_new:
+      type: bool | None
+      description: Filter by new content.
+      default: null
+    host:
+      type: str | None
+      description: Filter by comma separated hosts, e.g-> host=p1,p2
+      default: null
+    port:
+      type: str | None
+      description: Filter by comma separated ports, e.g-> port=p1,p2
+      default: null
+    status_code:
+      type: str | None
+      description: Filter by comma separated status codes, e.g-> status_code=p1,p2
+      default: null
+    title:
+      type: str | None
+      description: Filter by comma separated titles, e.g-> title=p1,p2
+      default: null
+    content_length:
+      type: str | None
+      description: Filter by comma separated content lengths, e.g-> content_length=p1,p2
+      default: null
+    domain:
+      type: str | None
+      description: Filter by comma separated domain names, e.g-> domain=domain1.com,domain2.com
+      default: null
+    cname:
+      type: str | None
+      description: cname to filter
+      default: null
+    technologies:
+      type: str | None
+      description: technologies to filter
+      default: null
+    ip:
+      type: str | None
+      description: ips to filter
+      default: null
+    sort_asc:
+      type: str | None
+      description: comma separated ascending sorting e.g sort_asc=created_at,name
+      default: null
+    sort_desc:
+      type: str | None
+      description: comma separated descending sorting e.g sort_desc=created_at,name
+      default: null
+    custom_filter:
+      type: str | None
+      description: custom query to filter. double encode the query string.
+      default: null
+    is_screenshot:
+      type: bool | None
+      description: asset with screenshots
+      default: null
+    favicon:
+      type: str | None
+      description: Filter by comma separated favicons, e.g-> favicon=p1,p2
+      default: null
+    only_dns:
+      type: bool | None
+      description: Query only dns FQDN records.
+      default: null
+    only_ip:
+      type: bool | None
+      description: Query only dns IP records.
+      default: null
+    is_internal:
+      type: bool | None
+      description: filter by is_internal (internal vs external hosts)
+      default: null
+    not_seen_for_days:
+      type: int | None
+      description: Return assets that haven't been seen in the last N days. An asset is only included if a scan that covers it has run during that period without rediscovering it, so assets that simply haven't been rescanned recently are not matched.
+      default: null
+    team_id:
+      type: str | None
+      description: "Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team"
+      default: null
     base_url:
       type: str | None
       description: ProjectDiscovery Cloud API base URL.
-      default: null
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
       default: null
   steps:
     - ref: request
@@ -27,5 +131,32 @@ definition:
         method: GET
         headers:
           X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
-        params: ${{ inputs.params }}
+          X-Team-Id: ${{ inputs.team_id }}
+        params:
+          offset: ${{ inputs.offset }}
+          time: ${{ inputs.time }}
+          limit: ${{ inputs.limit }}
+          is_tech: ${{ inputs.is_tech }}
+          is_favicon: ${{ inputs.is_favicon }}
+          search: ${{ inputs.search }}
+          labels: ${{ inputs.labels }}
+          is_new: ${{ inputs.is_new }}
+          host: ${{ inputs.host }}
+          port: ${{ inputs.port }}
+          status_code: ${{ inputs.status_code }}
+          title: ${{ inputs.title }}
+          content_length: ${{ inputs.content_length }}
+          domain: ${{ inputs.domain }}
+          cname: ${{ inputs.cname }}
+          technologies: ${{ inputs.technologies }}
+          ip: ${{ inputs.ip }}
+          sort_asc: ${{ inputs.sort_asc }}
+          sort_desc: ${{ inputs.sort_desc }}
+          custom_filter: ${{ inputs.custom_filter }}
+          is_screenshot: ${{ inputs.is_screenshot }}
+          favicon: ${{ inputs.favicon }}
+          only_dns: ${{ inputs.only_dns }}
+          only_ip: ${{ inputs.only_ip }}
+          is_internal: ${{ inputs.is_internal }}
+          not_seen_for_days: ${{ inputs.not_seen_for_days }}
   returns: ${{ steps.request.result }}

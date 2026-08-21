@@ -52,9 +52,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="count" type="integer | null">
 
-API-native query parameters.
+Number of data wells to return. DeHashed supports 20 or 50.
+
+Default: `20`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Result page number. Must be 1 or greater.
+
+Default: `1`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Sort by added, name, date, or records. Append -ASC or -DESC for direction.
 
 Default: `null`.
 
@@ -76,6 +92,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="query" type="string" required>
+
+DeHashed search query. Use DeHashed search syntax, such as email:"user@example.com", username:"someuser", or a bare quoted value to match across fields.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the DeHashed API.
@@ -84,10 +106,42 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="de_dupe" type="boolean">
 
-DeHashed API-native search payload.
+Whether DeHashed should remove duplicate results.
 
-Default: `null`.
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="page" type="integer">
+
+Result page number. Must be 1 or greater.
+
+Default: `1`.
+
+</ParamField>
+
+<ParamField path="regex" type="boolean">
+
+Whether to use regex matching. Cannot be true when wildcard is true.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="size" type="integer">
+
+Results per page. Must be between 1 and 10000.
+
+Default: `100`.
+
+</ParamField>
+
+<ParamField path="wildcard" type="boolean">
+
+Whether to use wildcard matching. Cannot be true when regex is true.
+
+Default: `false`.
 
 </ParamField>

@@ -22,7 +22,7 @@ Required secrets:
 
 <ParamField path="domain" type="string" required>
 
-Domain to assess.
+The domain to evaluate for potential security risks.
 
 </ParamField>
 
@@ -52,7 +52,7 @@ Required secrets:
 
 <ParamField path="domains" type="array[string]" required>
 
-Domains to discover compromised assets for.
+List of domains to perform discovery on. Accepts root domains (example.com) and will match all subdomains. Between 1-500 domains can be specified per request.
 
 </ParamField>
 
@@ -64,9 +64,33 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-Additional API-native request body fields.
+Base64 encoded pagination cursor for retrieving the next set of results. Obtained from the 'nextCursor' field in the previous response.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keywords" type="array[string] | null">
+
+Optional keywords to narrow discovery results to specific services or applications.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keywords_match" type="string | null">
+
+Determines how multiple keywords are matched during discovery. 'any' returns results matching at least one keyword (broader discovery), while 'all' requires all keywords to match.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="types" type="array[string] | null">
+
+Types of compromises to discover. 'employees' finds corporate email credentials (@company.com), while 'users' finds consumer credentials.
 
 Default: `null`.
 
@@ -114,7 +138,7 @@ Required secrets:
 
 <ParamField path="domains" type="array[string]" required>
 
-Domains to summarize.
+List of domains to retrieve compromise overview statistics for. Accepts root domains (example.com) and will aggregate data across all subdomains. Between 1-500 domains can be specified per request.
 
 </ParamField>
 
@@ -126,9 +150,89 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-Additional API-native request body fields.
+Base64 encoded pagination cursor for retrieving the next set of overview results. Obtained from the 'nextCursor' field in the previous response. Essential for processing large domain lists.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="last_employee_compromised" type="string | null">
+
+ISO 8601 formatted timestamp (YYYY-MM-DDThh:mm:ssZ) to filter for domains with employee compromises after this date. Identifies domains with recent corporate breaches.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="last_employee_uploaded" type="string | null">
+
+ISO 8601 formatted timestamp (YYYY-MM-DDThh:mm:ssZ) to filter for domains with employee data uploaded after this date. Reflects when the data became available in our system.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="last_user_compromised" type="string | null">
+
+ISO 8601 formatted timestamp (YYYY-MM-DDThh:mm:ssZ) to filter for domains with user compromises after this date. Identifies domains with recent consumer-facing breaches.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="last_user_uploaded" type="string | null">
+
+ISO 8601 formatted timestamp (YYYY-MM-DDThh:mm:ssZ) to filter for domains with user data uploaded after this date. Reflects when the data became available in our system.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="max_employees_compromised" type="integer | null">
+
+Maximum threshold for employee compromises. Returns only domains with no more than this many compromised employee accounts. Useful for focusing on organizations within specific size ranges.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="max_users_compromised" type="integer | null">
+
+Maximum threshold for user compromises. Returns only domains with no more than this many compromised user accounts. Helps focus on domains with specific consumer impact ranges.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="min_employees_compromised" type="integer | null">
+
+Minimum threshold for employee compromises. Returns only domains with at least this many compromised employee accounts. Useful for filtering out domains with negligible compromise counts.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="min_users_compromised" type="integer | null">
+
+Minimum threshold for user compromises. Returns only domains with at least this many compromised user accounts. Helps identify domains with significant consumer impact.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_by" type="string | null">
+
+Field to sort overview results by. Time-based sorting helps identify recent breaches, while count-based sorting identifies the most severely affected domains.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_direction" type="string | null">
+
+'desc' prioritizes recent breaches or highest compromise counts (recommended for threat monitoring), while 'asc' shows oldest breaches or lowest counts first.
 
 Default: `null`.
 
@@ -152,7 +256,15 @@ Required secrets:
 
 <ParamField path="domains" type="array[string]" required>
 
-Root domains to search.
+List of domains to filter results by. Accepts root domains (example.com) and will match all subdomains. Maximum 50 domains per request.
+
+</ParamField>
+
+<ParamField path="additional_fields" type="array[string] | null">
+
+Optional additional data to include in results: 'search_data', 'installed_software', 'employee_session_cookies', 'password_strength', 'sensitive_applications', 'dir_tree'.
+
+Default: `null`.
 
 </ParamField>
 
@@ -164,9 +276,89 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-Additional API-native request body fields.
+Base64 encoded pagination cursor for retrieving the next set of results. Obtained from the 'nextCursor' field in the previous response.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_date" type="string | null">
+
+Filter results up to this date/time. Applies to the field specified in 'sort_by'.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="external_domains" type="array[string] | null">
+
+List of third-party domains associated with your organization to search for. Ideal for SaaS platforms (company.salesforce.com), cloud services, or other external services your organization uses. Limited to 50 domains per request.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter_credentials" type="boolean | null">
+
+When true, returns only credentials matching the search criteria. When false, returns all credentials from matching stealers.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keywords" type="array[string] | null">
+
+Filter results to URLs containing specified keywords. Useful for finding credentials for specific services. Case-insensitive matching. Maximum 10 keywords per request.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keywords_match" type="string | null">
+
+'any' returns results matching at least one keyword (broader results), while 'all' requires all keywords to match.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_by" type="string | null">
+
+Field to sort results by. 'date_compromised' sorts by when the infection occurred, while 'date_uploaded' sorts by when the data was integrated into our platform.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_direction" type="string | null">
+
+Direction to sort results. 'desc' returns newest records first (recommended for monitoring), while 'asc' returns oldest records first.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_date" type="string | null">
+
+Filter results from this date/time onward. Applies to the field specified in 'sort_by'.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="subdomains" type="array[string] | null">
+
+Subdomain filters to match against subdomains in the URL field. Maximum 5 items allowed. Cannot be used together with 'keywords' or 'keywords_match' parameters.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="types" type="array[string] | null">
+
+Filter results by credential type. 'employees' returns corporate email credentials, 'users' returns consumer credentials, and 'third_parties' returns credentials from related domains.
 
 Default: `null`.
 
@@ -190,7 +382,15 @@ Required secrets:
 
 <ParamField path="logins" type="array[string]" required>
 
-Email addresses to search.
+Array of email addresses to search for.
+
+</ParamField>
+
+<ParamField path="additional_fields" type="array[string] | null">
+
+Optional additional data to include in results: 'search_data', 'installed_software', 'employee_session_cookies', 'password_strength', 'sensitive_applications', 'dir_tree'.
+
+Default: `null`.
 
 </ParamField>
 
@@ -202,9 +402,81 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-Additional API-native request body fields.
+Base64 encoded pagination cursor for retrieving the next set of results. Obtained from the 'nextCursor' field in the previous response.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="domains" type="array[string] | null">
+
+List of domains to filter results by. Accepts root domains (example.com) and will match all subdomains. Maximum 50 domains per request.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_date" type="string | null">
+
+ISO 8601 formatted timestamp (YYYY-MM-DDThh:mm:ssZ) to filter results up to this date/time.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter_credentials" type="boolean | null">
+
+Controls credential filtering in results. When true, returns only credentials matching the search criteria. When false, returns all credentials from matching stealers.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keywords" type="array[string] | null">
+
+Filter results to URLs containing specified keywords. Useful for finding credentials for specific services. Case-insensitive matching. Maximum 10 keywords per request.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keywords_match" type="string | null">
+
+Determines how multiple keywords are matched. 'any' returns results matching at least one keyword (broader results), while 'all' requires all keywords to match (narrower, more specific results).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_by" type="string | null">
+
+Field to sort results by. 'date_compromised' sorts by when the infection occurred, while 'date_uploaded' sorts by when the data was integrated into our platform.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_direction" type="string | null">
+
+Direction to sort results. 'desc' returns newest records first (recommended for monitoring), while 'asc' returns oldest records first (useful for historical analysis).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_date" type="string | null">
+
+ISO 8601 formatted timestamp (YYYY-MM-DDThh:mm:ssZ) to filter results from this date/time onward.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="types" type="array[string] | null">
+
+Filter results by credential type. 'employees' returns corporate email credentials (@company.com), 'users' returns consumer credentials, and 'third_parties' returns credentials from related domains.
 
 Default: `null`.
 
@@ -234,9 +506,65 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="cidr" type="string | null">
 
-HudsonRock API-native search body containing IPs or a CIDR range.
+CIDR range. Valid CIDR 21-32. One of ips or cidr is required.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Base64 encoded pagination cursor for retrieving the next set of results. Obtained from the 'nextCursor' field in the previous response.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_date" type="string | null">
+
+Filter results before this date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter_credentials" type="boolean | null">
+
+Return only matched credentials.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ips" type="array[string] | null">
+
+List of IP addresses. 1-50 IPs, IPv4/IPv6 format. One of ips or cidr is required.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_by" type="string | null">
+
+Sort results by 'date_compromised' or 'date_uploaded'.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_direction" type="string | null">
+
+Sort direction: 'asc' or 'desc'.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_date" type="string | null">
+
+Filter results after this date.
 
 Default: `null`.
 
@@ -260,7 +588,15 @@ Required secrets:
 
 <ParamField path="pcs" type="array[string]" required>
 
-Computer names to search.
+Array of computer names to search for.
+
+</ParamField>
+
+<ParamField path="additional_fields" type="array[string] | null">
+
+Optional additional data to include in results: 'search_data', 'installed_software', 'employee_session_cookies', 'password_strength', 'sensitive_applications', 'dir_tree'.
+
+Default: `null`.
 
 </ParamField>
 
@@ -272,9 +608,81 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-Additional API-native request body fields.
+Base64 encoded pagination cursor for retrieving the next set of results. Obtained from the 'nextCursor' field in the previous response. Provides more reliable pagination than offset-based approaches.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="domains" type="array[string] | null">
+
+List of domains to filter results by. Accepts root domains (example.com) and will match all subdomains. Maximum 50 domains per request. Required for 'third_parties' type filtering.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_date" type="string | null">
+
+ISO 8601 formatted timestamp (YYYY-MM-DDThh:mm:ssZ) to filter results up to this date/time. Applies to the field specified in 'sort_by'.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter_credentials" type="boolean | null">
+
+Controls credential filtering in results. When true, returns only credentials matching the search criteria. When false, returns all credentials from matching stealers, which may include credentials for unrelated domains/services.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keywords" type="array[string] | null">
+
+Filter results to URLs containing specified keywords. Useful for finding credentials for specific services (e.g., ['vpn', 'admin', 'portal']). Case-insensitive matching. Maximum 10 keywords per request.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keywords_match" type="string | null">
+
+Determines how multiple keywords are matched. 'any' returns results matching at least one keyword (broader results), while 'all' requires all keywords to match (narrower, more specific results).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_by" type="string | null">
+
+Field to sort results by. 'date_compromised' sorts by when the infection occurred, while 'date_uploaded' sorts by when the data was integrated into our platform.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_direction" type="string | null">
+
+Direction to sort results. 'desc' returns newest records first (recommended for monitoring), while 'asc' returns oldest records first (useful for historical analysis).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_date" type="string | null">
+
+ISO 8601 formatted timestamp (YYYY-MM-DDThh:mm:ssZ) to filter results from this date/time onward. Applies to the field specified in 'sort_by'.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="types" type="array[string] | null">
+
+Filter results by credential type. 'employees' returns corporate email credentials (@company.com), 'users' returns consumer credentials, and 'third_parties' returns credentials from related domains (only available when 'domains' parameter is provided).
 
 Default: `null`.
 
@@ -298,7 +706,15 @@ Required secrets:
 
 <ParamField path="stealers" type="array[string]" required>
 
-HudsonRock stealer IDs to search.
+Array of stealer IDs to search for.
+
+</ParamField>
+
+<ParamField path="additional_fields" type="array[string] | null">
+
+Optional additional data to include in results: 'search_data', 'installed_software', 'employee_session_cookies', 'password_strength', 'sensitive_applications', 'dir_tree'.
+
+Default: `null`.
 
 </ParamField>
 
@@ -310,9 +726,81 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-Additional API-native request body fields.
+Base64 encoded pagination cursor for retrieving the next set of results. Obtained from the 'nextCursor' field in the previous response.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="domains" type="array[string] | null">
+
+List of domains to filter results by. Accepts root domains (example.com) and will match all subdomains. Maximum 50 domains per request.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_date" type="string | null">
+
+ISO 8601 formatted timestamp to filter results up to this date/time. Applies to the field specified in 'sort_by'.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter_credentials" type="boolean | null">
+
+Controls credential filtering in results. When true, returns only credentials matching the search criteria. When false, returns all credentials from matching stealers.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keywords" type="array[string] | null">
+
+Filter results to URLs containing specified keywords. Useful for finding credentials for specific services. Case-insensitive matching. Maximum 10 keywords per request.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keywords_match" type="string | null">
+
+'any' returns results matching at least one keyword (broader results), while 'all' requires all keywords to match (narrower, more specific results).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_by" type="string | null">
+
+Field to sort results by. 'date_compromised' sorts by when the infection occurred, while 'date_uploaded' sorts by when the data was integrated into our platform.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_direction" type="string | null">
+
+Direction to sort results. 'desc' returns newest records first (recommended for monitoring), while 'asc' returns oldest records first.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_date" type="string | null">
+
+ISO 8601 formatted timestamp to filter results from this date/time onward. Applies to the field specified in 'sort_by'.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="types" type="array[string] | null">
+
+Filter results by credential type. 'employees' returns corporate email credentials, 'users' returns consumer credentials, and 'third_parties' returns credentials from related domains.
 
 Default: `null`.
 
@@ -336,7 +824,15 @@ Required secrets:
 
 <ParamField path="logins" type="array[string]" required>
 
-Usernames to search.
+Array of usernames to search for.
+
+</ParamField>
+
+<ParamField path="additional_fields" type="array[string] | null">
+
+Optional additional data to include in results: 'search_data', 'installed_software', 'employee_session_cookies', 'password_strength', 'sensitive_applications', 'dir_tree'.
+
+Default: `null`.
 
 </ParamField>
 
@@ -348,9 +844,81 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="payload" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-Additional API-native request body fields.
+Base64 encoded pagination cursor for retrieving the next set of results. Obtained from the 'nextCursor' field in the previous response.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="domains" type="array[string] | null">
+
+List of domains to filter results by. Accepts root domains (example.com) and will match all subdomains. Maximum 50 domains per request.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_date" type="string | null">
+
+ISO 8601 formatted timestamp to filter results up to this date/time.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter_credentials" type="boolean | null">
+
+Controls credential filtering in results. When true, returns only credentials matching the search criteria. When false, returns all credentials from matching stealers.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keywords" type="array[string] | null">
+
+Filter results to URLs containing specified keywords. Useful for finding credentials for specific services (e.g., ['vpn', 'admin', 'portal']). Maximum 10 keywords.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keywords_match" type="string | null">
+
+Determines how multiple keywords are matched. 'any' returns results matching at least one keyword, while 'all' requires all keywords to match.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_by" type="string | null">
+
+Field to sort results by. 'date_compromised' sorts by when the infection occurred, while 'date_uploaded' sorts by when the data was integrated into our platform.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_direction" type="string | null">
+
+Direction to sort results. 'desc' returns newest records first (recommended for monitoring), while 'asc' returns oldest records first.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_date" type="string | null">
+
+ISO 8601 formatted timestamp to filter results from this date/time onward.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="types" type="array[string] | null">
+
+Filter results by credential type. 'employees' returns corporate email credentials (@company.com), 'users' returns consumer credentials, and 'third_parties' returns credentials from related domains.
 
 Default: `null`.
 

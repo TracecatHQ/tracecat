@@ -14,9 +14,65 @@ definition:
     org_slug:
       type: str
       description: Socket organization slug.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    sort:
+      type: str | None
+      description: >-
+        Specify Sort order. Supported values are name and created_at. Socket defaults to
+        created_at.
+      default: null
+    direction:
+      type: str | None
+      description: Specify sort direction. Supported values are asc and desc. Socket defaults to desc.
+      default: null
+    per_page:
+      type: int | None
+      description: >-
+        Specify the maximum number of results to return per page. Socket defaults to 30.
+      default: null
+    page:
+      type: int | None
+      description: >-
+        The page number to return when using offset-style pagination. Ignored when cursor
+        pagination is used. Socket defaults to 1.
+      default: null
+    startAfterCursor:
+      type: str | None
+      description: >-
+        Cursor token for pagination. Pass the returned nextPageCursor from previous responses to
+        fetch the next set of results.
+      default: null
+    use_cursor:
+      type: bool | None
+      description: Set to true on the first request to opt into cursor-based pagination.
+      default: null
+    from:
+      type: str | None
+      description: A Unix timestamp in seconds that filters full-scans prior to the date.
+      default: null
+    workspace:
+      type: str | None
+      description: A repository workspace to filter full-scans by.
+      default: null
+    repo:
+      type: str | None
+      description: A repository slug to filter full-scans by.
+      default: null
+    branch:
+      type: str | None
+      description: A branch name to filter full-scans by.
+      default: null
+    pull_request:
+      type: str | None
+      description: A PR number to filter full-scans by.
+      default: null
+    commit_hash:
+      type: str | None
+      description: A commit hash to filter full-scans by.
+      default: null
+    scan_type:
+      type: str | None
+      description: >-
+        A scan type to filter full-scans by (e.g. socket, socket_tier1, socket_basics).
       default: null
     base_url:
       type: str | None
@@ -31,5 +87,18 @@ definition:
         headers:
           Accept: application/json
           Authorization: Bearer ${{ SECRETS.socket.SOCKET_API_TOKEN }}
-        params: ${{ inputs.params }}
+        params:
+          sort: ${{ inputs.sort }}
+          direction: ${{ inputs.direction }}
+          per_page: ${{ inputs.per_page }}
+          page: ${{ inputs.page }}
+          startAfterCursor: ${{ inputs.startAfterCursor }}
+          use_cursor: ${{ inputs.use_cursor }}
+          from: ${{ inputs.from }}
+          workspace: ${{ inputs.workspace }}
+          repo: ${{ inputs.repo }}
+          branch: ${{ inputs.branch }}
+          pull_request: ${{ inputs.pull_request }}
+          commit_hash: ${{ inputs.commit_hash }}
+          scan_type: ${{ inputs.scan_type }}
   returns: ${{ steps.request.result }}

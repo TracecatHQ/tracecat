@@ -10,9 +10,12 @@ definition:
     - name: domscan
       keys: ["DOMSCAN_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    domain:
+      type: str
+      description: Domain or subdomain to analyze (e.g. example.com or blog.example.com).
+    details:
+      type: bool | None
+      description: Include detailed breakdown. DomScan defaults to true.
       default: null
     base_url:
       type: str | None
@@ -26,5 +29,7 @@ definition:
         method: GET
         headers:
           x-api-key: ${{ SECRETS.domscan.DOMSCAN_API_KEY }}
-        params: ${{ inputs.params }}
+        params:
+          domain: ${{ inputs.domain }}
+          details: ${{ inputs.details }}
   returns: ${{ steps.request.result }}

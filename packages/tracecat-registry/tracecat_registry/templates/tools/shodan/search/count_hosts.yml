@@ -11,16 +11,16 @@ definition:
     - name: shodan
       keys: ["SHODAN_API_KEY"]
   expects:
+    query:
+      type: str
+      description: 'Shodan search query. The provided string is used to search the database of banners in Shodan, with the additional option to provide filters inside the search query using a "filter:value" format. For example, the following search query would find Apache Web servers located in Germany: "apache country:DE".'
+    facets:
+      type: str | None
+      description: A comma-separated list of properties to get summary information on. Property names can also be in the format of "property:count", where "count" is the number of facets that will be returned for a property (i.e. "country:100" to get the top 100 countries for a search query).
+      default: null
     base_url:
       type: str | None
       description: Shodan REST API base URL.
-      default: null
-    query:
-      type: str
-      description: Shodan host search query. Use this count action as a preflight before broad searches.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
       default: null
   steps:
     - ref: request
@@ -28,5 +28,8 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.shodan.base_url || "https://api.shodan.io" }}/shodan/host/count
         method: GET
-        params: '${{ FN.merge([{"key": SECRETS.shodan.SHODAN_API_KEY, "query": inputs.query}, inputs.params || {}]) }}'
+        params:
+          key: ${{ SECRETS.shodan.SHODAN_API_KEY }}
+          query: ${{ inputs.query }}
+          facets: ${{ inputs.facets }}
   returns: ${{ steps.request.result }}

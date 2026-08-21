@@ -10,9 +10,23 @@ definition:
     - name: pipe0
       keys: ["PIPE0_API_KEY"]
   expects:
-    payload:
+    pipes:
+      type: list[dict[str, Any]]
+      description: Pipe configurations to run. Each item takes a pipe_id and a config object.
+    input:
+      type: list[dict[str, Any]]
+      description: Input records to enrich. Pipe0 accepts at most 100 items.
+    config:
       type: dict[str, Any] | None
-      description: API-native request body passed through without validation.
+      description: Pipe0 run configuration object, covering environment, transform, widgets, and field_definitions.
+      default: null
+    field_annotations:
+      type: dict[str, Any] | None
+      description: Pipe0 field annotations object applied to the input records.
+      default: null
+    scopes:
+      type: list[str] | None
+      description: Pipe0 scopes to apply to the run.
       default: null
     base_url:
       type: str | None
@@ -28,5 +42,10 @@ definition:
           Authorization: Bearer ${{ SECRETS.pipe0.PIPE0_API_KEY }}
           Accept: application/json
           Content-Type: application/json
-        payload: ${{ inputs.payload }}
+        payload:
+          pipes: ${{ inputs.pipes }}
+          input: ${{ inputs.input }}
+          config: ${{ inputs.config }}
+          field_annotations: ${{ inputs.field_annotations }}
+          scopes: ${{ inputs.scopes }}
   returns: ${{ steps.request.result }}

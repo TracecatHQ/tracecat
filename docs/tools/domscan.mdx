@@ -20,17 +20,15 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
+<ParamField path="domain" type="string" required>
 
-Base URL of the DomScan API.
-
-Default: `null`.
+Domain to analyze.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="base_url" type="string | null">
 
-API-native query parameters.
+Base URL of the DomScan API.
 
 Default: `null`.
 
@@ -60,9 +58,33 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="domain" type="string | null">
 
-API-native query parameters.
+Single-domain shortcut for one TLD, for example "mycompany.com".
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="name" type="string | null">
+
+Domain name without TLD. Use together with tlds (e.g., "example" for example.com).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="prefer_cache" type="boolean | null">
+
+Return cached results if available (faster).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tlds" type="string | null">
+
+Comma-separated list of TLDs to check (max 50). Use together with name.
 
 Default: `null`.
 
@@ -84,6 +106,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="domain" type="string" required>
+
+Domain or subdomain to analyze (e.g. example.com or blog.example.com).
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the DomScan API.
@@ -92,9 +120,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="details" type="boolean | null">
 
-API-native query parameters.
+Include detailed breakdown. DomScan defaults to true.
 
 Default: `null`.
 
@@ -116,6 +144,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="handle" type="string" required>
+
+Social handle to check, without a leading @.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the DomScan API.
@@ -124,9 +158,17 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="platforms" type="string | null">
 
-API-native query parameters.
+Comma-separated platforms to check. Defaults to all known social platforms. Aliases listed by GET /v1/social/info are accepted.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="resources" type="string | null">
+
+Optional comma-separated resource types. If platforms is omitted, the request checks only these resources. Aliases listed by GET /v1/social/info are accepted.
 
 Default: `null`.
 
@@ -148,6 +190,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="domain" type="string" required>
+
+Domain to analyze for typosquatting risks.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the DomScan API.
@@ -156,9 +204,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="check_registered" type="boolean | null">
 
-API-native query parameters.
+Check if generated typos are actually registered. Disabled by default and capped for faster responses.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_tld_swap" type="boolean | null">
+
+Include TLD variation permutations (e.g., .co instead of .com). DomScan defaults to true.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum permutations to generate and check. DomScan defaults to 100.
 
 Default: `null`.
 
@@ -180,6 +244,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="domain" type="string" required>
+
+Root domain to search.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the DomScan API.
@@ -188,9 +258,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="include_wildcards" type="boolean | null">
 
-API-native query parameters.
+Return wildcard certificate SAN patterns in the separate wildcards array. Wildcards are never mixed into the concrete hostname list. DomScan defaults to false.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of concrete hostname entries to return, from 1 through 2000. DomScan defaults to 500.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="prefer_cache" type="boolean | null">
+
+Serve cached results only. If no fresh or stale cache is available, the API returns 202, queues a background refresh, and refunds the request credits. DomScan defaults to false.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sources" type="string | null">
+
+Compatibility selector. Only ct is accepted. It starts the passive discovery pipeline, but response entries identify the provider that supplied their evidence.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify" type="boolean | null">
+
+Check DNS only for the returned names. Verification does not discover additional names. DomScan defaults to false.
 
 Default: `null`.
 
@@ -212,6 +314,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="domain" type="string" required>
+
+Domain to search certificate transparency logs for.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the DomScan API.
@@ -220,9 +328,33 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="cursor" type="string | null">
 
-API-native query parameters.
+Offset cursor from pagination.next_cursor in the previous page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_expired" type="boolean | null">
+
+Include certificates that have already expired.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_subdomains" type="boolean | null">
+
+Include certificates issued for subdomains of the requested domain. DomScan defaults to true.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum certificates to return on this page. DomScan defaults to 100.
 
 Default: `null`.
 
@@ -246,6 +378,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="live" type="string | null">
+
+Set to 1 to include live RDAP endpoint health checks.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get DNS records
 
 Action ID: `tools.domscan.get_dns_records`
@@ -262,6 +402,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="domain" type="string" required>
+
+Domain to query DNS records for.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the DomScan API.
@@ -270,9 +416,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="type" type="string | null">
 
-API-native query parameters.
+DNS record type to query, one of A, AAAA, MX, NS, TXT, SOA, CNAME, CAA, PTR, or SRV. DomScan defaults to A.
 
 Default: `null`.
 
@@ -294,17 +440,15 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
+<ParamField path="domain" type="string" required>
 
-Base URL of the DomScan API.
-
-Default: `null`.
+Domain to analyze.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="base_url" type="string | null">
 
-API-native query parameters.
+Base URL of the DomScan API.
 
 Default: `null`.
 
@@ -326,17 +470,15 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
+<ParamField path="domain" type="string" required>
 
-Base URL of the DomScan API.
-
-Default: `null`.
+Domain to score for reputation.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="base_url" type="string | null">
 
-API-native query parameters.
+Base URL of the DomScan API.
 
 Default: `null`.
 
@@ -358,6 +500,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="keywords" type="string" required>
+
+Comma-separated keywords (max 10).
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Base URL of the DomScan API.
@@ -366,9 +514,49 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="check" type="boolean | null">
 
-API-native query parameters.
+Check availability of suggestions. DomScan defaults to true.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="industry" type="string | null">
+
+Industry for targeted suggestions, one of tech, finance, health, ecommerce, education, media, saas, crypto, ai, or gaming.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="language" type="string | null">
+
+Language for prefixes/suffixes (romanized for non-Latin scripts). 30 languages supported. DomScan defaults to en.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Max suggestions (1-100). DomScan defaults to 20.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="style" type="string | null">
+
+Suggestion style preference, one of brandable, keyword-rich, short, pronounceable, techy, playful, professional, or minimal. DomScan defaults to brandable.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tlds" type="string | null">
+
+Target TLDs. DomScan defaults to com,io,ai,co,app.
 
 Default: `null`.
 

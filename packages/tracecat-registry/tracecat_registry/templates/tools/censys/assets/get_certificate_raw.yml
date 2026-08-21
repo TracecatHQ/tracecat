@@ -14,10 +14,10 @@ definition:
   expects:
     certificate_id:
       type: str
-      description: SHA-256 certificate fingerprint.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+      description: The SHA-256 certificate fingerprint.
+    organization_id:
+      type: str | None
+      description: The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
       default: null
     base_url:
       type: str | None
@@ -32,5 +32,6 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
           Accept: application/x-pem-file
-        params: ${{ inputs.params }}
+        params:
+          organization_id: ${{ inputs.organization_id }}
   returns: ${{ steps.request.result }}

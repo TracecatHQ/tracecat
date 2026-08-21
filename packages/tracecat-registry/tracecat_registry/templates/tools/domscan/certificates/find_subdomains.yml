@@ -10,9 +10,28 @@ definition:
     - name: domscan
       keys: ["DOMSCAN_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    domain:
+      type: str
+      description: Root domain to search.
+    sources:
+      type: str | None
+      description: Compatibility selector. Only ct is accepted. It starts the passive discovery pipeline, but response entries identify the provider that supplied their evidence.
+      default: null
+    verify:
+      type: bool | None
+      description: Check DNS only for the returned names. Verification does not discover additional names. DomScan defaults to false.
+      default: null
+    include_wildcards:
+      type: bool | None
+      description: Return wildcard certificate SAN patterns in the separate wildcards array. Wildcards are never mixed into the concrete hostname list. DomScan defaults to false.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of concrete hostname entries to return, from 1 through 2000. DomScan defaults to 500.
+      default: null
+    prefer_cache:
+      type: bool | None
+      description: Serve cached results only. If no fresh or stale cache is available, the API returns 202, queues a background refresh, and refunds the request credits. DomScan defaults to false.
       default: null
     base_url:
       type: str | None
@@ -26,5 +45,11 @@ definition:
         method: GET
         headers:
           x-api-key: ${{ SECRETS.domscan.DOMSCAN_API_KEY }}
-        params: ${{ inputs.params }}
+        params:
+          domain: ${{ inputs.domain }}
+          sources: ${{ inputs.sources }}
+          verify: ${{ inputs.verify }}
+          include_wildcards: ${{ inputs.include_wildcards }}
+          limit: ${{ inputs.limit }}
+          prefer_cache: ${{ inputs.prefer_cache }}
   returns: ${{ steps.request.result }}

@@ -8,9 +8,35 @@ definition:
   namespace: tools.osv
   name: query_vulnerabilities
   expects:
-    payload:
-      type: dict[str, Any] | None
-      description: OSV API-native vulnerability query.
+    package_name:
+      type: str | None
+      description: >-
+        Name of the package. Should match the name used in the package ecosystem. Must be
+        paired with ecosystem and must not be used with purl.
+      default: null
+    ecosystem:
+      type: str | None
+      description: >-
+        The ecosystem for this package, such as PyPI, npm, Maven, Go, crates.io, NuGet,
+        RubyGems, or GIT.
+      default: null
+    version:
+      type: str | None
+      description: >-
+        The version string to query for. A fuzzy match is done against upstream versions.
+        Must not be used with commit or with a versioned purl.
+      default: null
+    commit:
+      type: str | None
+      description: The commit hash to query for. If specified, version should not be set.
+      default: null
+    purl:
+      type: str | None
+      description: The package URL for this package. Must not be used with package_name or ecosystem.
+      default: null
+    page_token:
+      type: str | None
+      description: OSV pagination token from a previous next_page_token response.
       default: null
     base_url:
       type: str | None
@@ -25,5 +51,12 @@ definition:
         headers:
           Accept: application/json
           Content-Type: application/json
-        payload: ${{ inputs.payload }}
+        payload:
+          commit: ${{ inputs.commit }}
+          version: ${{ inputs.version }}
+          package:
+            name: ${{ inputs.package_name }}
+            ecosystem: ${{ inputs.ecosystem }}
+            purl: ${{ inputs.purl }}
+          page_token: ${{ inputs.page_token }}
   returns: ${{ steps.request.result }}

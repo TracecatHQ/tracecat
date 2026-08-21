@@ -78,9 +78,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="limit" type="integer | null">
 
-API-native query parameters.
+Maximum number of rows to return. Defaults to 100 and cannot exceed 1000.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+Number of rows to skip, for pagination. Defaults to 0 and cannot exceed 2500.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+Search type. When omitted, the type is detected automatically (works for email, username, phone number and hash).
 
 Default: `null`.
 

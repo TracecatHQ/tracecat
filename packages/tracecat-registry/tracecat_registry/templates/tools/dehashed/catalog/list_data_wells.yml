@@ -8,9 +8,17 @@ definition:
   namespace: tools.dehashed
   name: list_data_wells
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    count:
+      type: int | None
+      description: Number of data wells to return. DeHashed supports 20 or 50.
+      default: 20
+    page:
+      type: int | None
+      description: Result page number. Must be 1 or greater.
+      default: 1
+    sort:
+      type: str | None
+      description: Sort by added, name, date, or records. Append -ASC or -DESC for direction.
       default: null
     base_url:
       type: str | None
@@ -24,5 +32,8 @@ definition:
         method: GET
         headers:
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          count: ${{ inputs.count }}
+          page: ${{ inputs.page }}
+          sort: ${{ inputs.sort }}
   returns: ${{ steps.request.result }}

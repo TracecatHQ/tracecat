@@ -11,17 +11,19 @@ definition:
     - name: abusech
       keys: ["ABUSECH_API_KEY"]
   expects:
-    base_url:
-      type: str | None
-      description: Base URL of the ThreatFox API.
-      default: null
     ioc:
       type: str
       description: IOC value to search, such as a URL, domain, IP, IP:port, or hash.
     exact_match:
       type: bool | None
-      description: Search for the exact IOC instead of a wildcard search.
-      default: true
+      description: >-
+        Search for the exact IOC instead of a wildcard search. Default: false
+        (wildcard search).
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the ThreatFox API.
+      default: null
   steps:
     - ref: request
       action: core.http_request

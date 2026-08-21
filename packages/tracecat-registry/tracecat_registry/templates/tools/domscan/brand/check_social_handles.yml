@@ -10,9 +10,16 @@ definition:
     - name: domscan
       keys: ["DOMSCAN_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    handle:
+      type: str
+      description: Social handle to check, without a leading @.
+    platforms:
+      type: str | None
+      description: Comma-separated platforms to check. Defaults to all known social platforms. Aliases listed by GET /v1/social/info are accepted.
+      default: null
+    resources:
+      type: str | None
+      description: Optional comma-separated resource types. If platforms is omitted, the request checks only these resources. Aliases listed by GET /v1/social/info are accepted.
       default: null
     base_url:
       type: str | None
@@ -26,5 +33,8 @@ definition:
         method: GET
         headers:
           x-api-key: ${{ SECRETS.domscan.DOMSCAN_API_KEY }}
-        params: ${{ inputs.params }}
+        params:
+          handle: ${{ inputs.handle }}
+          platforms: ${{ inputs.platforms }}
+          resources: ${{ inputs.resources }}
   returns: ${{ steps.request.result }}

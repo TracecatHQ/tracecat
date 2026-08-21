@@ -11,13 +11,17 @@ definition:
     - name: project_discovery
       keys: ["PDCP_API_KEY"]
   expects:
+    enumerate_id:
+      type: str
+      description: Enumeration ID to rescan.
+    team_id:
+      type: str | None
+      description: "Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team"
+      default: null
     base_url:
       type: str | None
       description: ProjectDiscovery Cloud API base URL.
       default: null
-    enumerate_id:
-      type: str
-      description: Enumeration ID to rescan.
   steps:
     - ref: request
       action: core.http_request
@@ -26,4 +30,5 @@ definition:
         method: POST
         headers:
           X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
+          X-Team-Id: ${{ inputs.team_id }}
   returns: ${{ steps.request.result }}

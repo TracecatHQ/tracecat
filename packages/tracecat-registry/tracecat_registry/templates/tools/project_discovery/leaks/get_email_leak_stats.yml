@@ -9,13 +9,17 @@ definition:
   namespace: tools.project_discovery
   name: get_email_leak_stats
   expects:
+    email:
+      type: str
+      description: Email to get stats for.
+    unmask_email:
+      type: bool | None
+      description: Unmask email addresses in the results.
+      default: null
     base_url:
       type: str | None
       description: ProjectDiscovery Cloud API base URL.
       default: null
-    email:
-      type: str
-      description: Email address to get leak statistics for.
   steps:
     - ref: request
       action: core.http_request
@@ -24,4 +28,5 @@ definition:
         method: GET
         params:
           email: ${{ inputs.email }}
+          unmask_email: ${{ inputs.unmask_email }}
   returns: ${{ steps.request.result }}

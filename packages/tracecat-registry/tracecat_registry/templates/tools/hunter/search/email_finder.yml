@@ -10,9 +10,33 @@ definition:
     - name: hunter
       keys: ["HUNTER_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    domain:
+      type: str | None
+      description: The domain name of the company. Required unless company or linkedin_handle is provided.
+      default: null
+    company:
+      type: str | None
+      description: The company name from which you want to find the email addresses. For example, "stripe". Note that providing the domain name gives better results as it removes the conversion from the company name. If you send a request with both the domain and the company name, the domain name will be used. The company name doesn't need to be in lowercase. Required unless domain or linkedin_handle is provided.
+      default: null
+    linkedin_handle:
+      type: str | None
+      description: The handle of the LinkedIn profile for which you to find the email address. Required unless domain or company is provided.
+      default: null
+    first_name:
+      type: str | None
+      description: The person's first name. It doesn't need to be in lowercase. Required unless full_name or linkedin_handle is provided.
+      default: null
+    last_name:
+      type: str | None
+      description: The person's last name. It doesn't need to be in lowercase. Required unless full_name or linkedin_handle is provided.
+      default: null
+    full_name:
+      type: str | None
+      description: The person's full name. Note that you'll get better results by supplying the person's first and last name if you can. It doesn't need to be in lowercase. Required unless first_name and last_name, or linkedin_handle is provided.
+      default: null
+    max_duration:
+      type: int | None
+      description: The maximum duration of the request in seconds. Setting a longer duration allows us to refine the results and provide more accurate data. It must range between 3 and 20. The default is 10.
       default: null
     base_url:
       type: str | None
@@ -26,5 +50,13 @@ definition:
         method: GET
         headers:
           Accept: application/json
-        params: '${{ FN.merge([{"api_key": SECRETS.hunter.HUNTER_API_KEY}, inputs.params || {}]) }}'
+          X-API-KEY: ${{ SECRETS.hunter.HUNTER_API_KEY }}
+        params:
+          domain: ${{ inputs.domain }}
+          company: ${{ inputs.company }}
+          linkedin_handle: ${{ inputs.linkedin_handle }}
+          first_name: ${{ inputs.first_name }}
+          last_name: ${{ inputs.last_name }}
+          full_name: ${{ inputs.full_name }}
+          max_duration: ${{ inputs.max_duration }}
   returns: ${{ steps.request.result }}
