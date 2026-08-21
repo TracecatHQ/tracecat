@@ -32,7 +32,7 @@ definition:
       description: Include alert metadata.
       default: null
     actions:
-      type: list[str] | None
+      type: str | None
       description: >-
         Include only alerts with comma separated actions defined by security policy. Supported
         values are error, monitor, warn and ignore.
