@@ -23,7 +23,7 @@ definition:
       description: Include retried jobs in the response. Defaults to `false`.
       default: null
     scope:
-      type: str | None
+      type: list[str] | None
       description: "Scope of jobs to show, as one of the job status values: `created`, `waiting_for_resource`, `preparing`, `waiting_for_callback`, `pending`, `running`, `success`, `failed`, `canceling`, `canceled`, `skipped`, `manual`, or `scheduled`. All jobs are returned if `scope` is not provided."
       default: null
     page:
@@ -49,7 +49,7 @@ definition:
           Accept: application/json
         params:
           include_retried: ${{ inputs.include_retried }}
-          scope: ${{ inputs.scope }}
+          scope[]: ${{ inputs.scope }}
           page: ${{ inputs.page }}
           per_page: ${{ inputs.per_page }}
   returns: ${{ steps.request.result }}

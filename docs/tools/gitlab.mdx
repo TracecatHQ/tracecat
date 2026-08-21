@@ -56,6 +56,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="actions" type="array[object]" required>
+
+An array of action hashes to commit as a batch. Each action hash takes `action` (one of `create`, `delete`, `move`, `update`, or `chmod`), `file_path`, and optionally `content`, `encoding`, `execute_filemode`, `last_commit_id`, and `previous_path`. Pass an empty array with allow_empty to create an empty commit.
+
+</ParamField>
+
 <ParamField path="branch" type="string" required>
 
 Name of the branch to commit into. To create a new branch, also provide either `start_branch` or `start_sha`, and optionally `start_project`.
@@ -71,14 +77,6 @@ Commit message.
 <ParamField path="project_id" type="string" required>
 
 GitLab API path value for project_id.
-
-</ParamField>
-
-<ParamField path="actions" type="array[object] | null">
-
-An array of action hashes to commit as a batch. Each action hash takes `action` (one of `create`, `delete`, `move`, `update`, or `chmod`), `file_path`, and optionally `content`, `encoding`, `execute_filemode`, `last_commit_id`, and `previous_path`.
-
-Default: `null`.
 
 </ParamField>
 
@@ -1866,7 +1864,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="scope" type="string | null">
+<ParamField path="scope" type="array[string] | null">
 
 Scope of jobs to show, as one of the job status values: `created`, `waiting_for_resource`, `preparing`, `waiting_for_callback`, `pending`, `running`, `success`, `failed`, `canceling`, `canceled`, `skipped`, `manual`, or `scheduled`. All jobs are returned if `scope` is not provided.
 

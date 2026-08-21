@@ -22,9 +22,10 @@ definition:
       type: str
       description: Commit message.
     actions:
-      type: list[dict[str, Any]] | None
-      description: An array of action hashes to commit as a batch. Each action hash takes `action` (one of `create`, `delete`, `move`, `update`, or `chmod`), `file_path`, and optionally `content`, `encoding`, `execute_filemode`, `last_commit_id`, and `previous_path`.
-      default: null
+      # Documented object shape; the `expects` grammar has no nested-object type,
+      # so the vendor's sub-keys are named in the description instead.
+      type: list[dict[str, Any]]
+      description: An array of action hashes to commit as a batch. Each action hash takes `action` (one of `create`, `delete`, `move`, `update`, or `chmod`), `file_path`, and optionally `content`, `encoding`, `execute_filemode`, `last_commit_id`, and `previous_path`. Pass an empty array with allow_empty to create an empty commit.
     allow_empty:
       type: bool | None
       description: When `true`, creates an empty commit. Default is `false`.
