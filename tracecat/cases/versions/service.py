@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime
 from typing import cast
@@ -259,15 +260,17 @@ class CaseVersionsService(BaseWorkspaceService):
             if predecessor_version is not None
             else None
         )
+        diff = (
+            await asyncio.to_thread(
+                compute_case_version_diff,
+                predecessor_read.content,
+                selected_read.content,
+            )
+            if predecessor_read is not None
+            else None
+        )
         return CaseVersionCompareRead(
             selected=selected_read,
             predecessor=predecessor_read,
-            diff=(
-                compute_case_version_diff(
-                    predecessor_read.content,
-                    selected_read.content,
-                )
-                if predecessor_read is not None
-                else None
-            ),
+            diff=diff,
         )

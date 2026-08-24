@@ -31,6 +31,7 @@ from tracecat.cases.schemas import (
     CaseSearchAggregateRead,
     CaseStatusGroupCounts,
 )
+from tracecat.cases.versions import router as case_versions_router
 from tracecat.cases.versions.schemas import (
     CaseVersionCompareRead,
     CaseVersionContentRead,
@@ -788,9 +789,9 @@ async def test_list_case_versions_success(
         has_more=False,
         has_previous=False,
     )
-    with patch.object(cases_router, "CasesService") as mock_service_cls:
+    with patch.object(case_versions_router, "CasesService") as mock_service_cls:
         mock_service = AsyncMock()
-        mock_service.get_case.return_value = mock_case
+        mock_service.case_exists.return_value = True
         mock_service.versions.list_versions.return_value = response_page
         mock_service_cls.return_value = mock_service
 
@@ -816,6 +817,7 @@ async def test_list_case_versions_success(
     assert call.kwargs["case_id"] == mock_case.id
     assert call.kwargs["field"] == CaseVersionField.SUMMARY
     assert call.kwargs["page"].limit == 25
+    mock_service.get_case.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -824,7 +826,7 @@ async def test_list_case_versions_rejects_oversized_cursor(
     test_admin_role: Role,
 ) -> None:
     """Oversized cursors are rejected before reaching the service."""
-    with patch.object(cases_router, "CasesService") as mock_service_cls:
+    with patch.object(case_versions_router, "CasesService") as mock_service_cls:
         response = client.get(
             f"/cases/{uuid.uuid4()}/versions",
             params={
@@ -844,9 +846,9 @@ async def test_list_case_versions_missing_case_returns_404(
 ) -> None:
     """Version history does not treat a missing case as empty history."""
     case_id = uuid.uuid4()
-    with patch.object(cases_router, "CasesService") as mock_service_cls:
+    with patch.object(case_versions_router, "CasesService") as mock_service_cls:
         mock_service = AsyncMock()
-        mock_service.get_case.return_value = None
+        mock_service.case_exists.return_value = False
         mock_service_cls.return_value = mock_service
 
         response = client.get(
@@ -855,6 +857,7 @@ async def test_list_case_versions_missing_case_returns_404(
         )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+    mock_service.get_case.assert_not_called()
     mock_service.versions.list_versions.assert_not_awaited()
 
 
@@ -898,7 +901,7 @@ async def test_compare_case_version_success_and_mismatch_404(
             ],
         ),
     )
-    with patch.object(cases_router, "CasesService") as mock_service_cls:
+    with patch.object(case_versions_router, "CasesService") as mock_service_cls:
         mock_service = AsyncMock()
         mock_service.versions.compare_with_predecessor.side_effect = [
             comparison,
@@ -942,7 +945,7 @@ async def test_restore_case_version_success_and_mismatch_404(
         restored_from_version_id=version_id,
         field=CaseVersionField.SUMMARY,
     )
-    with patch.object(cases_router, "CasesService") as mock_service_cls:
+    with patch.object(case_versions_router, "CasesService") as mock_service_cls:
         mock_service = AsyncMock()
         mock_service.restore_version.side_effect = [
             restored,

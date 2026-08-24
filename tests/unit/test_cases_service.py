@@ -250,6 +250,17 @@ class TestCasesService:
         assert retrieved_case.priority == case_create_params.priority
         assert retrieved_case.severity == case_create_params.severity
 
+    async def test_case_exists(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+    ) -> None:
+        """Test the lightweight case existence probe."""
+        created_case = await cases_service.create_case(case_create_params)
+
+        assert await cases_service.case_exists(created_case.id) is True
+        assert await cases_service.case_exists(uuid.uuid4()) is False
+
     async def test_create_and_get_case_with_assignee(
         self,
         cases_service: CasesService,

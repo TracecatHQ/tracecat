@@ -744,6 +744,14 @@ class CasesService(BaseWorkspaceService):
 
         return case
 
+    async def case_exists(self, case_id: uuid.UUID) -> bool:
+        """Return whether a case exists without loading its relationships."""
+        statement = select(Case.id).where(
+            Case.workspace_id == self.workspace_id,
+            Case.id == case_id,
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none() is not None
+
     async def _assign_next_case_number(self, case: Case) -> None:
         """Assign the next gapless number at the end of case creation."""
         next_case_number = await self.session.scalar(

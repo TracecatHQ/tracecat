@@ -12,13 +12,13 @@ from tracecat.agent.folders import router as agent_folder_router
 from tracecat.agent.preset import router as agent_preset_router
 from tracecat.agent.tags import definitions_router as agent_tag_definitions_router
 from tracecat.auth.types import Role
-from tracecat.cases import router as cases_router
 from tracecat.cases.dropdowns import router as case_dropdowns_router
 from tracecat.cases.durations import router as case_durations_router
 from tracecat.cases.rows import router as case_rows_router
 from tracecat.cases.tag_definitions import router as case_tag_definitions_router
 from tracecat.cases.tags import internal_router as internal_case_tags_router
 from tracecat.cases.tags import router as case_tags_router
+from tracecat.cases.versions import router as case_versions_router
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.inbox import router as inbox_router
@@ -371,9 +371,9 @@ async def test_case_duration_scope_guards(
 @pytest.mark.parametrize(
     ("endpoint", "required_scope"),
     [
-        (cases_router.list_case_versions, "case:read"),
-        (cases_router.compare_case_version, "case:read"),
-        (cases_router.restore_case_version, "case:update"),
+        (case_versions_router.list_case_versions, "case:read"),
+        (case_versions_router.compare_case_version, "case:read"),
+        (case_versions_router.restore_case_version, "case:update"),
     ],
 )
 async def test_case_version_scope_guards(
