@@ -1,8 +1,5 @@
 import { ExternalLinkIcon } from "lucide-react"
-import {
-  AGENT_TIMEOUT_SECONDS_DEFAULT,
-  DEFAULT_ACTION_TIMEOUT_SECONDS,
-} from "@/lib/action-timeout"
+import { DEFAULT_ACTION_TIMEOUT_SECONDS } from "@/lib/action-timeout"
 
 export function RunIfTooltip() {
   return (
@@ -161,9 +158,9 @@ export function TimeoutTooltip({ isAgent = false }: { isAgent?: boolean }) {
               after an approval starts a new timeout window.
             </div>
             <div>
-              Defaults to {AGENT_TIMEOUT_SECONDS_DEFAULT}s (30 minutes), capped
-              by the deployment's timeout ceiling. Values outside the allowed
-              range are adjusted to the nearest bound when saved.
+              Defaults to the deployment default, capped by the deployment's
+              timeout ceiling. Values outside the deployment bounds are adjusted
+              to the nearest bound when saved.
             </div>
           </>
         ) : (
@@ -182,7 +179,7 @@ export function TimeoutTooltip({ isAgent = false }: { isAgent?: boolean }) {
         <pre className="text-xs text-foreground/70">
           {isAgent ? (
             <>
-              timeout: {AGENT_TIMEOUT_SECONDS_DEFAULT}{" "}
+              timeout: 1800{" "}
               <span className="text-xs text-muted-foreground">
                 # 30 minutes
               </span>

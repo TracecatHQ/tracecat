@@ -375,8 +375,8 @@ function ActionPanelContent({
 
   // Local form state for this action. We always seed it from the latest
   // server-backed baseFormValues; hydration from drafts happens via effects.
-  // Agent timeout bounds are deployment-specific and validated server-side
-  // (422 on save); the form doesn't duplicate them.
+  // Agent timeout bounds are deployment-specific; the server clamps
+  // out-of-range values on save, so the form doesn't duplicate them.
   const methods = useForm<ActionFormSchema>({
     resolver: zodResolver(actionFormSchema),
     defaultValues: baseFormValues,

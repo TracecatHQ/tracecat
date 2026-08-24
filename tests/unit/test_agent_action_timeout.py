@@ -4,6 +4,8 @@ Agent timeouts clamp to [default, deployment ceiling] at parse time.
 No boundary rejects: out-of-bounds values normalize wherever they are seen.
 """
 
+import uuid
+
 import pytest
 
 from tracecat.agent import types as agent_types
@@ -11,6 +13,7 @@ from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.config import TRACECAT__AGENT_SANDBOX_TIMEOUT
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
+from tracecat.workflow.actions.schemas import ActionControlFlow, ActionRead
 from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
 
 
@@ -178,11 +181,8 @@ def test_legacy_db_row_with_baked_generic_default_clamps_up() -> None:
     """Rows persisted before clamping stored the full ActionControlFlow dump,
     baking the generic 300s default in as an explicit author value. Rebuilding
     statements from such rows must clamp the timeout up to the agent default."""
-    import uuid
-
     from tracecat.db.models import Action
     from tracecat.dsl.common import build_action_statements_from_actions
-    from tracecat.workflow.actions.schemas import ActionControlFlow
 
     workflow_id = uuid.uuid4()
     legacy_row = Action(
@@ -208,7 +208,6 @@ def test_action_write_api_clamps_out_of_bounds_agent_timeout() -> None:
     """Expand phase: the authoring surface clamps and persists instead of
     rejecting; a follow-up flips this to a 422 once telemetry is quiet."""
     from tracecat.workflow.actions.router import _clamp_agent_timeout
-    from tracecat.workflow.actions.schemas import ActionControlFlow
 
     def clamp(action_type: str, payload: dict | None) -> ActionControlFlow | None:
         cf = ActionControlFlow.model_validate(payload) if payload is not None else None
@@ -237,16 +236,67 @@ def test_action_write_api_clamps_out_of_bounds_agent_timeout() -> None:
     assert clamp("ai.agent", None) is None
 
 
+@pytest.mark.parametrize(
+    "control_flow",
+    [
+        {},
+        {"retry_policy": {}},
+        {"retry_policy": {"timeout": 300}},
+        {"retry_policy": {"timeout": AGENT_TIMEOUT_SECONDS_DEFAULT}},
+        {"retry_policy": {"timeout": 100_000}},
+    ],
+)
+def test_action_read_uses_lowered_deployment_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+    control_flow: dict[str, object],
+) -> None:
+    """Legacy rows display the timeout that actually executes."""
+    monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 900)
+
+    action = ActionRead(
+        id=uuid.uuid4(),
+        type="ai.agent",
+        title="Agent",
+        description="",
+        status="offline",
+        inputs="",
+        control_flow=ActionControlFlow.model_validate(control_flow),
+        is_interactive=False,
+    )
+
+    assert action.control_flow.retry_policy.timeout == 900
+
+
+def test_action_read_does_not_clamp_non_agent_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 900)
+
+    action = ActionRead(
+        id=uuid.uuid4(),
+        type="core.http_request",
+        title="HTTP request",
+        description="",
+        status="offline",
+        inputs="",
+        control_flow=ActionControlFlow.model_validate(
+            {"retry_policy": {"timeout": 1800}}
+        ),
+        is_interactive=False,
+    )
+
+    assert action.control_flow.retry_policy.timeout == 1800
+
+
 @pytest.mark.anyio
 async def test_action_create_persists_agent_default_timeout() -> None:
     """New agent actions store the deployment default explicitly; explicit
     values and non-agent actions are untouched."""
-    import uuid
     from unittest.mock import AsyncMock, MagicMock
 
     from tracecat.auth.types import Role
     from tracecat.identifiers import WorkflowUUID
-    from tracecat.workflow.actions.schemas import ActionControlFlow, ActionCreate
+    from tracecat.workflow.actions.schemas import ActionCreate
     from tracecat.workflow.actions.service import WorkflowActionService
 
     session = MagicMock()
@@ -296,7 +346,6 @@ async def test_action_create_persists_agent_default_timeout() -> None:
 async def test_graph_add_node_persists_agent_default_timeout() -> None:
     """The builder creates nodes via graph operations, not the actions API —
     the default injection must live on that path too."""
-    import uuid
     from unittest.mock import AsyncMock, MagicMock
 
     from tracecat.auth.types import Role
