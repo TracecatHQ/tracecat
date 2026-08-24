@@ -12,6 +12,9 @@ from tracecat.cases.versions.schemas import (
 )
 
 _WORD_DIFF_TOKEN_PATTERN = re.compile(r"\s+|\w+|[^\w\s]+")
+# Bound SequenceMatcher's quadratic worst case; larger inputs use an exact
+# whole-content replacement diff.
+_MAX_SEQUENCE_MATCHER_TOKEN_PAIRS = 1_000_000
 
 
 def compute_case_version_diff(
@@ -19,12 +22,6 @@ def compute_case_version_diff(
     selected: str,
 ) -> CaseVersionDiffRead:
     """Build a word-level edit script from predecessor to selected content."""
-    predecessor_tokens = _WORD_DIFF_TOKEN_PATTERN.findall(predecessor)
-    selected_tokens = _WORD_DIFF_TOKEN_PATTERN.findall(selected)
-    matcher = SequenceMatcher(
-        a=predecessor_tokens,
-        b=selected_tokens,
-    )
     segments: list[CaseVersionDiffSegmentRead] = []
 
     def append_segment(operation: CaseVersionDiffOperation, text: str) -> None:
@@ -38,6 +35,25 @@ def compute_case_version_diff(
             )
             return
         segments.append(CaseVersionDiffSegmentRead(operation=operation, text=text))
+
+    if predecessor == selected:
+        append_segment(CaseVersionDiffOperation.EQUAL, selected)
+        return CaseVersionDiffRead(changed=False, segments=segments)
+
+    predecessor_tokens = _WORD_DIFF_TOKEN_PATTERN.findall(predecessor)
+    selected_tokens = _WORD_DIFF_TOKEN_PATTERN.findall(selected)
+    if (
+        len(predecessor_tokens) * len(selected_tokens)
+        > _MAX_SEQUENCE_MATCHER_TOKEN_PAIRS
+    ):
+        append_segment(CaseVersionDiffOperation.DELETE, predecessor)
+        append_segment(CaseVersionDiffOperation.INSERT, selected)
+        return CaseVersionDiffRead(changed=True, segments=segments)
+
+    matcher = SequenceMatcher(
+        a=predecessor_tokens,
+        b=selected_tokens,
+    )
 
     for (
         tag,

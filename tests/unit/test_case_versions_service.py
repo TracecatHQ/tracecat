@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,6 +74,21 @@ def test_case_version_diff_returns_renderable_replacement_segments() -> None:
         (CaseVersionDiffOperation.DELETE, "unknown"),
         (CaseVersionDiffOperation.INSERT, "new"),
         (CaseVersionDiffOperation.EQUAL, " host"),
+    ]
+
+
+def test_case_version_diff_falls_back_when_token_budget_is_exceeded() -> None:
+    """Large comparisons use an exact coarse diff without SequenceMatcher."""
+    predecessor = "shared old " * 501
+    selected = "shared new " * 501
+
+    with patch("tracecat.cases.versions.diff.SequenceMatcher") as matcher:
+        diff = compute_case_version_diff(predecessor, selected)
+
+    matcher.assert_not_called()
+    assert [(segment.operation, segment.text) for segment in diff.segments] == [
+        (CaseVersionDiffOperation.DELETE, predecessor),
+        (CaseVersionDiffOperation.INSERT, selected),
     ]
 
 
