@@ -117,6 +117,33 @@ async def test_get_action_secrets_passes_sets_to_auth_sandbox(mocker):
 
 
 @pytest.mark.anyio
+async def test_get_action_secrets_uses_explicit_environment(mocker):
+    """An explicit environment overrides the ambient workflow context."""
+    mock_sandbox = mocker.MagicMock()
+    mock_sandbox.secrets = {}
+    mock_sandbox.__aenter__.return_value = mock_sandbox
+    mock_sandbox.__aexit__.return_value = None
+
+    auth_sandbox_mock = mocker.patch(
+        "tracecat.secrets.secrets_manager.AuthSandbox",
+        return_value=mock_sandbox,
+    )
+    runtime_env_mock = mocker.patch(
+        "tracecat.secrets.secrets_manager.get_runtime_env",
+        return_value="default",
+    )
+
+    await secrets_manager.get_action_secrets(
+        secret_exprs={"api.TOKEN"},
+        action_secrets=set(),
+        environment="staging",
+    )
+
+    assert auth_sandbox_mock.call_args.kwargs["environment"] == "staging"
+    runtime_env_mock.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_get_action_secrets_skips_optional_oauth(mocker):
     """Ensure optional OAuth integrations do not raise when missing."""
 

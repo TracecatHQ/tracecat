@@ -16719,6 +16719,10 @@ export const $MCPHttpServerConfig = {
       type: "string",
       title: "Id",
     },
+    environment: {
+      type: "string",
+      title: "Environment",
+    },
   },
   type: "object",
   required: ["name", "url"],
@@ -17697,6 +17701,10 @@ export const $MCPStdioServerConfig = {
     id: {
       type: "string",
       title: "Id",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
     },
     tools: {
       items: {

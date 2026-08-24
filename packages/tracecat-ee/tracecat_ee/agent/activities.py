@@ -336,7 +336,8 @@ class AgentActivities:
                     for hydrated, integration_id in configs_with_integration_id:
                         try:
                             secrets = await svc.resolve_mcp_integration_secrets(
-                                integration_id
+                                integration_id,
+                                environment=hydrated.get("environment"),
                             )
                         except (ValueError, MCPSecretResolutionError):
                             secrets = None
@@ -389,12 +390,13 @@ class AgentActivities:
                             effective_tool_approvals[approval_key] = True
                     defs[tool_name] = tool_def
 
-                # JWT claims carry the source integration id when available so
-                # the trusted MCP server can re-resolve headers per call. For
-                # legacy in-flight payloads that don't carry ``id`` (recorded
-                # before the refs-only cutover), fall back to the pre-rollout
-                # inline shape — otherwise discovery would add ``mcp__*`` tools
-                # that the trusted server can't authorize at call time.
+                # JWT claims carry the source integration id and effective
+                # environment when available so the trusted MCP server can
+                # re-resolve the correct headers per call. For legacy in-flight
+                # payloads that don't carry ``id`` (recorded before the
+                # refs-only cutover), fall back to the pre-rollout inline shape
+                # — otherwise discovery would add ``mcp__*`` tools that the
+                # trusted server can't authorize at call time.
                 user_mcp_claims = []
                 for cfg in http_servers:
                     integration_id_str = cfg.get("id")
@@ -403,6 +405,7 @@ class AgentActivities:
                             UserMCPServerClaim(
                                 name=cfg["name"],
                                 id=uuid.UUID(integration_id_str),
+                                environment=cfg.get("environment"),
                             )
                         )
                         continue

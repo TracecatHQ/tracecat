@@ -41,6 +41,14 @@ class ResolveAgentPresetConfigActivityInput(BaseModel):
         return self
 
 
+class ResolveAgentPresetConfigWithEnvironmentActivityInput(
+    ResolveAgentPresetConfigActivityInput
+):
+    """Preset resolution input with an explicit action environment."""
+
+    environment: str
+
+
 class ResolveAgentPresetVersionRefActivityInput(BaseModel):
     role: Role
     preset_slug: str
@@ -60,9 +68,16 @@ class ResolveAgentsConfigActivityInput(BaseModel):
     follow_latest_versions: bool | None = None
 
 
-@activity.defn
-async def resolve_agent_preset_config_activity(
+class ResolveAgentsConfigWithEnvironmentActivityInput(ResolveAgentsConfigActivityInput):
+    """Subagent resolution input with an explicit action environment."""
+
+    environment: str
+
+
+async def _resolve_agent_preset_config(
     args: ResolveAgentPresetConfigActivityInput,
+    *,
+    environment: str | None,
 ) -> AgentConfigPayload:
     async with AgentManagementService.with_session(role=args.role) as service:
         async with service.with_preset_config(
@@ -70,8 +85,25 @@ async def resolve_agent_preset_config_activity(
             slug=args.preset_slug,
             preset_version_id=args.preset_version_id,
             preset_version=args.preset_version,
+            environment=environment,
         ) as config:
             return agent_config_to_payload(config)
+
+
+@activity.defn
+async def resolve_agent_preset_config_activity(
+    args: ResolveAgentPresetConfigActivityInput,
+) -> AgentConfigPayload:
+    """Resolve a preset for replayed runs that predate environment propagation."""
+    return await _resolve_agent_preset_config(args, environment=None)
+
+
+@activity.defn
+async def resolve_agent_preset_config_with_environment_activity(
+    args: ResolveAgentPresetConfigWithEnvironmentActivityInput,
+) -> AgentConfigPayload:
+    """Resolve a preset in the action's effective environment."""
+    return await _resolve_agent_preset_config(args, environment=args.environment)
 
 
 @activity.defn
@@ -93,6 +125,23 @@ async def resolve_agent_preset_version_ref_activity(
 async def resolve_agents_config_activity(
     args: ResolveAgentsConfigActivityInput,
 ) -> ResolvedAgentsRuntimeConfig:
+    """Resolve subagent configs for runs that predate environment propagation."""
+    return await _resolve_agents_config(args, environment=None)
+
+
+@activity.defn
+async def resolve_agents_config_with_environment_activity(
+    args: ResolveAgentsConfigWithEnvironmentActivityInput,
+) -> ResolvedAgentsRuntimeConfig:
+    """Resolve subagent configs in the action's effective environment."""
+    return await _resolve_agents_config(args, environment=args.environment)
+
+
+async def _resolve_agents_config(
+    args: ResolveAgentsConfigActivityInput,
+    *,
+    environment: str | None,
+) -> ResolvedAgentsRuntimeConfig:
     async with AgentPresetService.with_session(role=args.role) as service:
         follow_latest_versions = args.follow_latest_versions
         if follow_latest_versions is None:
@@ -104,6 +153,7 @@ async def resolve_agents_config_activity(
             parent_slug=args.parent_slug,
             include_runtime_config=True,
             follow_latest_versions=follow_latest_versions,
+            environment=environment,
         )
         return resolved.to_runtime_config()
 

@@ -299,6 +299,54 @@ def agent_preset_create_params() -> AgentPresetCreate:
 
 
 @pytest.mark.anyio
+async def test_resolve_stdio_env_uses_explicit_environment(
+    agent_preset_service: AgentPresetService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested_secret_environments: list[str | None] = []
+    requested_variable_environments: list[str | None] = []
+
+    async def get_action_secrets(
+        **kwargs: object,
+    ) -> dict[str, dict[str, str]]:
+        requested_secret_environments.append(cast(str | None, kwargs["environment"]))
+        return {"api": {"TOKEN": "staging-token"}}
+
+    async def get_workspace_variables(
+        *_: object,
+        **kwargs: object,
+    ) -> dict[str, dict[str, str]]:
+        requested_variable_environments.append(cast(str | None, kwargs["environment"]))
+        return {"tenant": {"id": "staging-tenant"}}
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.secrets_manager.get_action_secrets",
+        get_action_secrets,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.get_workspace_variables",
+        get_workspace_variables,
+    )
+
+    resolved = await agent_preset_service.resolve_stdio_env(
+        stdio_env={
+            "TOKEN": "${{ SECRETS.api.TOKEN }}",
+            "TENANT": "${{ VARS.tenant.id }}",
+        },
+        mcp_integration_id=uuid.uuid4(),
+        mcp_integration_slug="environment-scoped-stdio",
+        environment="staging",
+    )
+
+    assert resolved == {
+        "TOKEN": "staging-token",
+        "TENANT": "staging-tenant",
+    }
+    assert requested_secret_environments == ["staging"]
+    assert requested_variable_environments == ["staging"]
+
+
+@pytest.mark.anyio
 class TestAgentPresetService:
     async def test_create_and_get_preset(
         self,

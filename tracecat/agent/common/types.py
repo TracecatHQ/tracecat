@@ -59,6 +59,10 @@ class MCPHttpServerConfig(TypedDict):
     resolved from. Set when produced by ``AgentPresetService`` resolvers so
     callers can re-resolve secrets per use without re-listing integrations."""
 
+    environment: NotRequired[str]
+    """Effective workflow/action environment for resolving workspace-backed
+    header templates at the trusted edge."""
+
 
 class MCPServerToolSummary(TypedDict):
     """Non-secret summary of a verified user MCP tool."""
@@ -84,6 +88,10 @@ class MCPStdioServerConfig(TypedDict):
     id: NotRequired[str]
     """Optional: UUID of the source ``mcp_integrations`` row this config was
     resolved from. See :class:`MCPHttpServerConfig.id`."""
+
+    environment: NotRequired[str]
+    """Effective workflow/action environment for resolving workspace-backed
+    process environment templates at the trusted edge."""
 
     tools: NotRequired[list[MCPServerToolSummary]]
     """Optional, non-secret tool summaries from the latest successful

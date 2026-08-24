@@ -100,8 +100,9 @@ def test_mcp_token_accepts_legacy_user_mcp_server_claim_shape(monkeypatch) -> No
 
 
 def test_mcp_token_round_trips_refs_only_user_mcp_server_claim(monkeypatch) -> None:
-    """New-shape claims (``name`` + ``id`` only) must round-trip cleanly so the
-    trusted server has the integration id it needs to re-resolve secrets.
+    """New-shape claims round-trip the id and non-secret resolution environment.
+
+    The trusted server needs both values to re-resolve the correct credentials.
     """
     workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
     integration_id = uuid.uuid4()
@@ -112,7 +113,13 @@ def test_mcp_token_round_trips_refs_only_user_mcp_server_claim(monkeypatch) -> N
         allowed_actions=["core.http_request"],
         session_id=session_id,
         registry_lock=_registry_lock(),
-        user_mcp_servers=[UserMCPServerClaim(name="modern-mcp", id=integration_id)],
+        user_mcp_servers=[
+            UserMCPServerClaim(
+                name="modern-mcp",
+                id=integration_id,
+                environment="staging",
+            )
+        ],
     )
 
     claims = verify_mcp_token(token)
@@ -120,6 +127,7 @@ def test_mcp_token_round_trips_refs_only_user_mcp_server_claim(monkeypatch) -> N
     ref = claims.user_mcp_servers[0]
     assert ref.name == "modern-mcp"
     assert ref.id == integration_id
+    assert ref.environment == "staging"
     # New-shape claims should not carry secret material.
     assert ref.url is None
     assert ref.headers == {}
