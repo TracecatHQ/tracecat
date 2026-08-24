@@ -148,7 +148,7 @@ async def get_file(
         response = await client.get(
             f"https://www.googleapis.com/drive/v3/files/{file_id}",
             headers={"Authorization": f"Bearer {access_token}"},
-            params={"fields": fields},
+            params={"fields": fields, "supportsAllDrives": "true"},
         )
         response.raise_for_status()
         return response.json()
@@ -211,7 +211,11 @@ async def upload_file(
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": f"multipart/related; boundary={boundary}",
             },
-            params={"uploadType": "multipart", "fields": fields},
+            params={
+                "uploadType": "multipart",
+                "fields": fields,
+                "supportsAllDrives": "true",
+            },
             content=multipart_body,
         )
         response.raise_for_status()
@@ -253,7 +257,7 @@ async def create_folder(
         response = await client.post(
             "https://www.googleapis.com/drive/v3/files",
             headers={"Authorization": f"Bearer {access_token}"},
-            params={"fields": fields},
+            params={"fields": fields, "supportsAllDrives": "true"},
             json=metadata,
         )
         response.raise_for_status()
@@ -285,7 +289,7 @@ async def delete_file(
         response = await client.patch(
             f"https://www.googleapis.com/drive/v3/files/{file_id}",
             headers={"Authorization": f"Bearer {access_token}"},
-            params={"fields": fields},
+            params={"fields": fields, "supportsAllDrives": "true"},
             json={"trashed": True},
         )
         response.raise_for_status()
@@ -316,6 +320,7 @@ async def permanently_delete_file(
         response = await client.delete(
             f"https://www.googleapis.com/drive/v3/files/{file_id}",
             headers={"Authorization": f"Bearer {access_token}"},
+            params={"supportsAllDrives": "true"},
         )
         response.raise_for_status()
         # Return status info if no content (DELETE typically returns 204)
@@ -349,7 +354,7 @@ async def get_file_permissions(
         response = await client.get(
             f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions",
             headers={"Authorization": f"Bearer {access_token}"},
-            params={"fields": fields},
+            params={"fields": fields, "supportsAllDrives": "true"},
         )
         response.raise_for_status()
         return response.json()
@@ -395,6 +400,7 @@ async def add_permission(
             params={
                 "sendNotificationEmail": str(send_notification).lower(),
                 "fields": fields,
+                "supportsAllDrives": "true",
             },
             json={
                 "type": "user",
@@ -433,7 +439,7 @@ async def update_permission(
         response = await client.patch(
             f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions/{permission_id}",
             headers={"Authorization": f"Bearer {access_token}"},
-            params={"fields": fields},
+            params={"fields": fields, "supportsAllDrives": "true"},
             json={"role": role},
         )
         response.raise_for_status()
@@ -465,6 +471,7 @@ async def revoke_permission(
         response = await client.delete(
             f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions/{permission_id}",
             headers={"Authorization": f"Bearer {access_token}"},
+            params={"supportsAllDrives": "true"},
         )
         response.raise_for_status()
         # Return status info if no content (DELETE typically returns 204)
