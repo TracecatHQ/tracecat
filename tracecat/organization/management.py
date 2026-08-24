@@ -353,13 +353,18 @@ async def ensure_single_tenant_user_defaults(
     *,
     user_id: uuid.UUID,
     is_superuser: bool,
+    allow_new_members: bool = False,
 ) -> OrganizationID | None:
     """Ensure single-tenant users are real members of the default organization.
 
     In multi-tenant deployments this is a no-op. In single-tenant deployments,
-    every user receives default organization membership. Superusers receive the
-    organization-owner role; regular users receive organization-member unless
-    they already have an org-wide assignment.
+    superusers receive the organization-owner role and existing members are
+    repaired to organization-member unless they already have an org-wide
+    assignment.
+
+    Admission is opt-in: pass ``allow_new_members=True`` from provisioning
+    paths. Self-service callers keep the default, so registration leaves
+    membership to provisioning or invitation acceptance.
     """
     if config.TRACECAT__EE_MULTI_TENANT:
         return None
@@ -371,6 +376,7 @@ async def ensure_single_tenant_user_defaults(
             user_id=user_id,
             organization_id=organization_id,
             is_superuser=is_superuser,
+            allow_new_members=allow_new_members,
         )
         await session.commit()
     return result.organization_id
@@ -382,11 +388,16 @@ async def ensure_single_tenant_user_defaults_for_session(
     user_id: uuid.UUID,
     is_superuser: bool,
     organization_id: OrganizationID | None = None,
+    allow_new_members: bool = False,
 ) -> SingleTenantUserDefaultsResult:
     """Ensure single-tenant user defaults in a caller-owned session.
 
     This checks tenant mode, resolves or creates the default organization, and
     applies membership/RBAC without committing the caller's session.
+
+    Admission is opt-in: pass ``allow_new_members=True`` from provisioning
+    paths. Under the default, existing members are repaired without granting
+    new memberships.
     """
     if config.TRACECAT__EE_MULTI_TENANT:
         return SingleTenantUserDefaultsResult(organization_id=None, changed=False)
@@ -397,15 +408,18 @@ async def ensure_single_tenant_user_defaults_for_session(
         except NoResultFound:
             organization_id = await ensure_default_organization()
 
-    changed = await ensure_single_tenant_user_defaults_in_session(
+    enrolled = await ensure_single_tenant_user_defaults_in_session(
         session=session,
         user_id=user_id,
         organization_id=organization_id,
         is_superuser=is_superuser,
+        allow_new_members=allow_new_members,
     )
+    if enrolled is None:
+        return SingleTenantUserDefaultsResult(organization_id=None, changed=False)
     return SingleTenantUserDefaultsResult(
         organization_id=organization_id,
-        changed=changed,
+        changed=enrolled,
     )
 
 
@@ -415,8 +429,13 @@ async def ensure_single_tenant_user_defaults_in_session(
     user_id: uuid.UUID,
     organization_id: OrganizationID,
     is_superuser: bool,
-) -> bool:
-    """Ensure single-tenant org membership and org-wide RBAC in a session."""
+    allow_new_members: bool = False,
+) -> bool | None:
+    """Ensure single-tenant org membership and org-wide RBAC in a session.
+
+    Returns whether anything changed, or ``None`` when ``allow_new_members`` is
+    False and the user holds no membership to repair.
+    """
     # Fast path: if the user already has default-org membership and an
     # acceptable org-wide role, there is nothing to repair.
     membership_result = await session.execute(
@@ -426,6 +445,10 @@ async def ensure_single_tenant_user_defaults_in_session(
         )
     )
     membership = membership_result.scalar_one_or_none()
+
+    # Self-service paths repair existing members but never admit new ones.
+    if membership is None and not allow_new_members and not is_superuser:
+        return None
 
     assignment_result = await session.execute(
         select(UserRoleAssignment, DBRole.slug)
