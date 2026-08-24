@@ -104,11 +104,11 @@ async def list_files(
             "pageSize": max_results,
             "orderBy": order_by,
             "fields": fields,
+            "supportsAllDrives": "true",
         }
         if query:
             params["q"] = query
         if include_shared_drives or drive_id:
-            params["supportsAllDrives"] = "true"
             params["includeItemsFromAllDrives"] = "true"
         if drive_id:
             params["corpora"] = "drive"
