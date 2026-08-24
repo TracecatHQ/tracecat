@@ -1,0 +1,73 @@
+docs/self-hosting/aws-fargate.mdx
+  s_7116d66917ac71::t_26c93af24204c9 7
+  s_7116d66917ac71::t_f932b3b72fa7d3 6,86
+  s_7116d66917ac71::t_fd88cd3e800395 54,67,84-85
+  s_7116d66917ac71::t_a27af5dc38485d 87
+docs/snippets/core-actions-pointer.mdx
+  s_7116d66917ac71::t_cb9bbe7bec9f13 3
+  s_7116d66917ac71::t_bb645de91e4c95 4
+  s_7116d66917ac71::t_444af6f600ae7e 1-2
+docs/automations/actions.mdx
+  s_7116d66917ac71::t_2b6c644650a3b2 3,7-8,14-18
+  s_7116d66917ac71::t_008847d18263de 19
+docs/self-hosting/kubernetes.mdx
+  s_7116d66917ac71::t_f932b3b72fa7d3 6,366
+  s_7116d66917ac71::t_26c93af24204c9 7
+  s_7116d66917ac71::t_fd88cd3e800395 364-365,367
+docs/snippets/environment-variables.mdx
+  s_7116d66917ac71::t_fd88cd3e800395 34
+docs/docs.json
+  s_7116d66917ac71::t_67227ca47d1fc9 34,36-38,49,67-73,75,138-156,158
+  s_7116d66917ac71::t_b41dba83a84be8 135,159
+  s_7116d66917ac71::t_ffc6bd1eb793d6 106-107
+  s_7116d66917ac71::t_d07c395079c558 90,157
+docs/automations/cases/agent-mentions.mdx
+  s_7116d66917ac71::t_5c07981a36e6cf 72
+  s_7116d66917ac71::t_2b6c644650a3b2 4
+docs/self-hosting/docker-compose.mdx
+  s_7116d66917ac71::t_f932b3b72fa7d3 6,85
+  s_7116d66917ac71::t_fd88cd3e800395 83-84,86
+  s_7116d66917ac71::t_26c93af24204c9 7
+docs/snippets/first-superadmin.mdx
+  s_7116d66917ac71::t_001ee641cc7894 1
+  s_7116d66917ac71::t_4edb640aee197a 2-4,8,11
+  s_7116d66917ac71::t_85838678f11ce1 5-7
+  s_7116d66917ac71::t_86c0e9e39a3b31 9-10,12
+docs/snippets/core-actions-list.mdx
+  s_7116d66917ac71::t_444af6f600ae7e 1-5
+docs/overview/getting-started.mdx
+  s_7116d66917ac71::t_30788295a233e2 20-21
+  s_7116d66917ac71::t_f932b3b72fa7d3 5,41
+  s_7116d66917ac71::t_fd88cd3e800395 39
+  s_7116d66917ac71::t_4746c49761b2fb 8-16
+docs/automations/workflows.mdx
+  s_7116d66917ac71::t_2b6c644650a3b2 3,6-8
+  s_7116d66917ac71::t_3594ef8deaf8d6 9
+docs/overview/introduction.mdx
+  s_7116d66917ac71::t_4d08e62324b364 17
+  s_7116d66917ac71::t_9a819e10a0a361 7,9-10,13,16,18-23,27-28,30-31,33-34,36-37,39-40,42-46,48-49
+  s_7116d66917ac71::t_e28994a1eb63ba 14
+  s_7116d66917ac71::t_382057b917bb7a 51-52
+docs/automations/cases.mdx
+  s_7116d66917ac71::t_5c07981a36e6cf 2
+docs/authentication/basic.mdx
+  s_7116d66917ac71::t_f932b3b72fa7d3 6,34
+  s_7116d66917ac71::t_fd88cd3e800395 32-33,35
+  s_7116d66917ac71::t_26c93af24204c9 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "52d57fe90c3194dad782ee475738151dbfa2d0b2",
+  "prompts": {},
+  "sessions": {
+    "s_7116d66917ac71": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "046897f4-fb32-4be0-961f-5f1d37da4dc9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
