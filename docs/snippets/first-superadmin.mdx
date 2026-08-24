@@ -1,0 +1,12 @@
+Set the first superadmin's email before anyone signs in. Until it is set, nobody can register, and the first account must match it. It takes one case-sensitive email address, so use the exact casing your identity provider sends.
+
+| Deployment | Setting |
+| :--------- | :------ |
+| Docker Compose | `TRACECAT__AUTH_SUPERADMIN_EMAIL` in `.env` |
+| AWS ECS Fargate | `TF_VAR_auth_superadmin_email`, or `auth_superadmin_email` in your `.tfvars` |
+| Kubernetes | `tracecat.auth.superadminEmail` in `values.yaml` |
+
+- Basic auth: sign up with that email, then log in.
+- SSO: log in through your identity provider. Tracecat creates the account on first login.
+
+The account becomes superadmin and owner of the default organization.

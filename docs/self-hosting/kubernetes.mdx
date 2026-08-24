@@ -3,6 +3,8 @@ title: Kubernetes
 description: "Deploy self-hosted Tracecat to Kubernetes with the OCI Helm chart: install Tracecat services and Temporal on EKS, GKE, or any conformant cluster."
 ---
 
+import FirstSuperadmin from "/snippets/first-superadmin.mdx";
+
 <Info>
   The Tracecat Helm chart is distributed as a private OCI artifact hosted in AWS ECR.
   Please contact [customer success](https://cal.com/team/tracecat) for access for evaluations or internal enterprise use.
@@ -358,6 +360,10 @@ Once deployed, access your instance at:
 - UI: `https://<your-domain>`
 - API docs: `https://<your-domain>/api/docs`
 - MCP: `https://<your-domain>/mcp`
+
+## First login
+
+<FirstSuperadmin />
 
 ## Upgrade the Helm chart
 

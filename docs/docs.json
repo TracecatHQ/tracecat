@@ -29,11 +29,13 @@
             "icon": "workflow",
             "pages": [
               "automations/tracecat-mcp",
-              "automations/workflows",
-              "automations/actions",
               {
                 "group": "Core concepts",
+                "expanded": true,
                 "pages": [
+                  "automations/workflows",
+                  "automations/actions",
+                  "automations/tables",
                   "automations/core-concepts/expressions",
                   "automations/core-concepts/secrets",
                   "automations/core-concepts/variables",
@@ -43,27 +45,8 @@
                 ]
               },
               {
-                "group": "Core actions",
-                "expanded": true,
-                "pages": [
-                  "automations/core-actions/request-actions/http",
-                  "automations/core-actions/request-actions/sql",
-                  "automations/core-actions/request-actions/ssh",
-                  "automations/core-actions/request-actions/grpc",
-                  "automations/core-actions/request-actions/email",
-                  "automations/core-actions/transform-actions/reshape",
-                  "automations/core-actions/transform-actions/python-script",
-                  "automations/core-actions/transform-actions/data-transforms",
-                  "automations/core-actions/transform-actions/require",
-                  "automations/core-actions/workflow-actions/run-subflow",
-                  "automations/core-actions/workflow-actions/scatter-gather-loops",
-                  "automations/core-actions/workflow-actions/while-loops",
-                  "automations/core-actions/case-actions/cases",
-                  "automations/core-actions/memory-actions/tables"
-                ]
-              },
-              {
                 "group": "Triggers",
+                "expanded": true,
                 "pages": [
                   "automations/triggers/webhooks",
                   "automations/triggers/schedules",
@@ -81,10 +64,15 @@
                   "automations/integrations/oauth-integrations",
                   "automations/integrations/mcp-integrations"
                 ]
-              },
+              }
+            ]
+          },
+          {
+            "group": "Resolve cases",
+            "icon": "ticket-check",
+            "pages": [
               "automations/cases",
-              "automations/cases/agent-mentions",
-              "automations/tables"
+              "automations/cases/agent-mentions"
             ]
           },
           {
@@ -99,7 +87,7 @@
             ]
           },
           {
-            "group": "Building custom actions",
+            "group": "Building custom integrations",
             "icon": "blocks",
             "pages": [
               "custom-actions/custom-registry",
@@ -112,11 +100,11 @@
             "group": "Self-hosting",
             "icon": "server",
             "pages": [
-              "self-hosting/architecture",
               "self-hosting/docker-compose",
-              "self-hosting/tls",
               "self-hosting/aws-fargate",
               "self-hosting/kubernetes",
+              "self-hosting/architecture",
+              "self-hosting/tls",
               "self-hosting/environment-variables",
               "self-hosting/security"
             ]
@@ -144,10 +132,31 @@
         ]
       },
       {
-        "tab": "Tools",
+        "tab": "Integrations",
         "groups": [
           {
-            "group": "Tools",
+            "group": "Core actions",
+            "icon": "boxes",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/request-actions/http",
+              "automations/core-actions/request-actions/sql",
+              "automations/core-actions/request-actions/ssh",
+              "automations/core-actions/request-actions/grpc",
+              "automations/core-actions/request-actions/email",
+              "automations/core-actions/transform-actions/reshape",
+              "automations/core-actions/transform-actions/python-script",
+              "automations/core-actions/transform-actions/data-transforms",
+              "automations/core-actions/transform-actions/require",
+              "automations/core-actions/workflow-actions/run-subflow",
+              "automations/core-actions/workflow-actions/scatter-gather-loops",
+              "automations/core-actions/workflow-actions/while-loops",
+              "automations/core-actions/case-actions/cases",
+              "automations/core-actions/memory-actions/tables"
+            ]
+          },
+          {
+            "group": "Integrations",
             "icon": "wrench",
             "pages": [
               "tools/abuseipdb",

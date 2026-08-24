@@ -3,6 +3,8 @@ title: Docker Compose
 description: "Deploy self-hosted Tracecat using Docker Compose: bring up the API, executor, worker, frontend, Postgres, and Temporal stack on a single host in minutes."
 ---
 
+import FirstSuperadmin from "/snippets/first-superadmin.mdx";
+
 <Warning>
   Docker Compose deployments default to basic email / password authentication.
   Production deployments should use [OIDC](/authentication/oidc) or [SAML](/authentication/saml) SSO.
@@ -77,6 +79,10 @@ Once deployed, access your instance at:
   Modern browsers upgrade requests to a public hostname to HTTPS, so the UI fails with `ERR_CONNECTION_REFUSED` even while `curl` over HTTP still works.
   Enable TLS before going to production. See [TLS and certificates](/self-hosting/tls).
 </Warning>
+
+## First login
+
+<FirstSuperadmin />
 
 ## Updating Tracecat
 
