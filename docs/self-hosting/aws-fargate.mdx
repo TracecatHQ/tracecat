@@ -4,6 +4,7 @@ description: "Deploy self-hosted Tracecat to AWS ECS Fargate using Terraform: pr
 ---
 
 import FirstSuperadmin from "/snippets/first-superadmin.mdx";
+import GenerateSecrets from "/snippets/generate-secrets.mdx";
 
 <Warning>
   This stack exposes Tracecat to the public internet.
@@ -30,7 +31,7 @@ cd tracecat/deployments/fargate
 
 ## Create core secrets
 
-<Snippet file="generate-secrets.mdx" />
+<GenerateSecrets />
 
 You can create these in AWS Secrets Manager manually or use the helper script:
 

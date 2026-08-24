@@ -4,6 +4,7 @@ description: "Deploy self-hosted Tracecat to Kubernetes with the OCI Helm chart:
 ---
 
 import FirstSuperadmin from "/snippets/first-superadmin.mdx";
+import GenerateSecrets from "/snippets/generate-secrets.mdx";
 
 <Info>
   The Tracecat Helm chart is distributed as a private OCI artifact hosted in AWS ECR.
@@ -25,7 +26,7 @@ import FirstSuperadmin from "/snippets/first-superadmin.mdx";
 
 Tracecat requires four cryptographic secrets.
 
-<Snippet file="generate-secrets.mdx" />
+<GenerateSecrets />
 
 ## Secrets management
 

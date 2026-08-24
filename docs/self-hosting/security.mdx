@@ -3,6 +3,8 @@ title: Security
 description: "Harden your self-hosted Tracecat deployment: rotate secrets, lock down network egress, configure SSO and RBAC, and meet common compliance baselines."
 ---
 
+import GenerateSecrets from "/snippets/generate-secrets.mdx";
+
 ## Infrastructure credentials
 
 The default configuration ships with weak, well-known passwords for PostgreSQL, MinIO, and Redis. Replace them with strong, unique values before exposing Tracecat to production traffic.
@@ -46,7 +48,7 @@ Tracecat requires four cryptographic secrets, plus an optional keyring if you en
 | `USER_AUTH_SECRET` | Password reset tokens, email verification, OAuth state, the MCP OIDC issuer keypair, and the internal OIDC client secret. |
 | `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Versioned keyring for Temporal payload encryption. Optional. Tracecat reads it only when `TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED` is true. |
 
-<Snippet file="generate-secrets.mdx" />
+<GenerateSecrets />
 
 ### Temporal payload keyring
 

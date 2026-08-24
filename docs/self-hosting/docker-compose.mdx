@@ -4,6 +4,7 @@ description: "Deploy self-hosted Tracecat using Docker Compose: bring up the API
 ---
 
 import FirstSuperadmin from "/snippets/first-superadmin.mdx";
+import GenerateSecrets from "/snippets/generate-secrets.mdx";
 
 <Warning>
   Docker Compose deployments default to basic email / password authentication.
@@ -22,7 +23,7 @@ import FirstSuperadmin from "/snippets/first-superadmin.mdx";
 
 The `env.sh` script (next step) generates these automatically. If you need to generate them manually:
 
-<Snippet file="generate-secrets.mdx" />
+<GenerateSecrets />
 
 ## Download configuration files
 
