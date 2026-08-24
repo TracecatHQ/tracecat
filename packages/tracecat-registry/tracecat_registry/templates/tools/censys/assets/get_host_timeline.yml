@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Get host timeline
+  description: >-
+    Get a host timeline. Calls GET /v3/global/asset/host/{host_id}/timeline directly.
+  display_group: Censys
+  doc_url: https://docs.censys.com/reference/v3-globaldata-asset-host-timeline
+  namespace: tools.censys
+  name: get_host_timeline
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_TOKEN"]
+  expects:
+    host_id:
+      type: str
+      description: The IP address of a host.
+    start_time:
+      type: str
+      description: Start time of the host timeline. Equivalent to the To field in the event history UI. This must be the timestamp closest to the current time. For example, if you want events from January 1, 2025 to the start of January 2, 2025, input the January 2 timestamp here. Must be a valid RFC3339 string. Ensure that you suffix the date with T00:00:00Z or a specific time.
+    end_time:
+      type: str
+      description: End time of the host timeline. Equivalent to the From field in the event history UI. This must be the timestamp furthest from the current time. For example, if you want events from January 1, 2025 to the start of January 2, 2025, input the January 1 timestamp here. Must be a valid RFC3339 string. Ensure that you suffix the date with T00:00:00Z or a specific time.
+    organization_id:
+      type: str | None
+      description: The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Censys Platform API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.censys.base_url || "https://api.platform.censys.io" }}/v3/global/asset/host/${{ FN.url_encode(inputs.host_id) }}/timeline
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
+        params:
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
+          organization_id: ${{ inputs.organization_id }}
+  returns: ${{ steps.request.result }}

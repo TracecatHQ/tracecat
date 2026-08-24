@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 APPROVAL_CONTINUATION_PROMPT = "Continue."
+MODEL_CONTEXT_PROMPT_PREFIX = "<tracecat-model-context>\n"
+DISPLAY_ONLY_SESSION_LINE_FLAG = "isDisplayOnly"
 APPROVAL_INTERRUPT_CONTENT_EXACT = "interrupted"
 APPROVAL_INTERRUPT_CONTENT_MARKERS = (
     "doesn't want to take this action",
@@ -26,6 +28,25 @@ def session_line_uuid(line_data: Mapping[str, object]) -> str | None:
 def is_meta_session_line(line_data: Mapping[str, object]) -> bool:
     """Return True for Claude Code metadata rows."""
     return line_data.get("isMeta") is True
+
+
+def is_display_only_session_line(line_data: Mapping[str, object]) -> bool:
+    """Return True for UI-only rows that must not enter model history."""
+    return line_data.get(DISPLAY_ONLY_SESSION_LINE_FLAG) is True
+
+
+def is_model_context_session_line(line_data: Mapping[str, object]) -> bool:
+    """Return True for hidden user prompts that remain model-visible on resume."""
+    match line_data:
+        case {"type": "user", "message": {"content": str(text)}}:
+            return text.startswith(MODEL_CONTEXT_PROMPT_PREFIX)
+        case {
+            "type": "user",
+            "message": {"content": [{"type": "text", "text": str(text)}]},
+        }:
+            return text.startswith(MODEL_CONTEXT_PROMPT_PREFIX)
+        case _:
+            return False
 
 
 def is_synthetic_session_line(line_data: Mapping[str, object]) -> bool:

@@ -1,5 +1,5 @@
 import os
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any
 
 import orjson
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import get_default_organization_id
 from tracecat.audit.logger import audit_log
+from tracecat.audit.service import clear_audit_setting_cache
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
@@ -25,10 +26,12 @@ from tracecat.db.models import OrganizationSetting
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseOrgService
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.schemas import (
+    AgentOtelSettingsUpdate,
     AgentSettingsUpdate,
     AppSettingsUpdate,
     AuditSettingsUpdate,
@@ -43,6 +46,11 @@ from tracecat.settings.schemas import (
 VERSIONED_RESOURCE_RESOLUTION_STRATEGY_SETTING = (
     "app_versioned_resource_resolution_strategy"
 )
+AUDIT_SETTINGS_KEYS = frozenset(AuditSettingsUpdate.keys())
+
+
+class AgentOtelEndpointNotAllowedError(Exception):
+    """Raised when the OTel collector endpoint resolves to a non-public address."""
 
 
 def _deserialize_setting_value(
@@ -67,6 +75,7 @@ class SettingsService(BaseOrgService):
     service_name = "settings"
     groups: list[type[BaseSettingsGroup]] = [
         AgentSettingsUpdate,
+        AgentOtelSettingsUpdate,
         GitSettingsUpdate,
         SAMLSettingsUpdate,
         AppSettingsUpdate,
@@ -139,7 +148,7 @@ class SettingsService(BaseOrgService):
     async def list_org_settings(
         self,
         *,
-        keys: set[str] | None = None,
+        keys: Collection[str] | None = None,
         value_type: str | None = None,
         is_encrypted: bool | None = None,
         limit: int | None = None,
@@ -215,6 +224,8 @@ class SettingsService(BaseOrgService):
         """Create a new organization setting."""
         setting = await self._create_org_setting(params)
         await self.session.commit()
+        if params.key in AUDIT_SETTINGS_KEYS:
+            clear_audit_setting_cache()
         return setting
 
     async def _update_setting(
@@ -259,6 +270,8 @@ class SettingsService(BaseOrgService):
         updated_setting = await self._update_setting(setting, params)
         self.session.add(updated_setting)
         await self.session.commit()
+        if setting.key in AUDIT_SETTINGS_KEYS:
+            clear_audit_setting_cache()
         await self.session.refresh(updated_setting)
         return updated_setting
 
@@ -273,6 +286,8 @@ class SettingsService(BaseOrgService):
             return
         await self.session.delete(setting)
         await self.session.commit()
+        if setting.key in AUDIT_SETTINGS_KEYS:
+            clear_audit_setting_cache()
 
     # Grouped settings
 
@@ -314,8 +329,9 @@ class SettingsService(BaseOrgService):
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_audit_settings(self, params: AuditSettingsUpdate) -> None:
-        audit_settings = await self.list_org_settings(keys=AuditSettingsUpdate.keys())
+        audit_settings = await self.list_org_settings(keys=AUDIT_SETTINGS_KEYS)
         await self._update_grouped_settings(audit_settings, params)
+        clear_audit_setting_cache()
 
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
@@ -328,6 +344,24 @@ class SettingsService(BaseOrgService):
     async def update_agent_settings(self, params: AgentSettingsUpdate) -> None:
         agent_settings = await self.list_org_settings(keys=AgentSettingsUpdate.keys())
         await self._update_grouped_settings(agent_settings, params)
+
+    @require_scope("org:settings:update")
+    @audit_log(resource_type="organization_setting", action="update")
+    async def update_agent_otel_settings(self, params: AgentOtelSettingsUpdate) -> None:
+        otel_config = params.agent_otel_config
+        if otel_config.enabled and otel_config.endpoint is not None:
+            # The host posts tenant telemetry to this endpoint, so a private
+            # address would make it an internal-network oracle. Reject before
+            # persisting; the error carries no address.
+            try:
+                await validate_url_resolves_public_async(str(otel_config.endpoint))
+            except DisallowedUrlError as exc:
+                raise AgentOtelEndpointNotAllowedError from exc
+
+        otel_settings = await self.list_org_settings(
+            keys=AgentOtelSettingsUpdate.keys()
+        )
+        await self._update_grouped_settings(otel_settings, params)
 
 
 def _resolve_setting_override(key: str) -> Any:

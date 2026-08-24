@@ -4,11 +4,12 @@
  * Verifies the React.memo wrappers on MessagePart, ToolInput, and ToolOutput
  * by counting renders via a spy on the mocked CodeBlock component.
  */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+
 import { render } from "@testing-library/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 // Track how many times the CodeBlock mock renders
 let codeBlockRenderCount = 0

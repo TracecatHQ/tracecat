@@ -10,13 +10,14 @@ definition:
     - name: elastic_security
       keys: ["ELASTIC_API_KEY"]
   expects:
-    payload:
+    assignees:
+      # Documented object shape; the `expects` grammar has no nested-object type,
+      # so the vendor's sub-keys are named in the description instead.
       type: dict[str, Any]
-      description: API-native JSON request body.
-    params:
-      type: dict[str, Any] | None
-      description: Optional native Kibana query parameters.
-      default: null
+      description: Details about the assignees to assign and unassign. Requires `add` and `remove`, each a list of user profile `uid`s to assign or unassign. Users need to activate their user profile by logging into Kibana at least once.
+    ids:
+      type: list[str]
+      description: A list of alerts `id`s.
     base_url:
       type: str | None
       description: Kibana base URL (e.g. https://localhost:5601).
@@ -48,11 +49,12 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
         method: POST
-        params: ${{ inputs.params }}
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
           kbn-xsrf: tracecat
           Content-Type: application/json
-        payload: ${{ inputs.payload }}
+        payload:
+          assignees: ${{ inputs.assignees }}
+          ids: ${{ inputs.ids }}
   returns: ${{ steps.request.result.data }}

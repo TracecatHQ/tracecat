@@ -1,7 +1,6 @@
-import { useQuery } from "@tanstack/react-query"
-
 import { organizationGetOrganizationEntitlements } from "@/client"
 import { useOrganization } from "@/hooks/use-organization"
+import { useQuery } from "@/lib/query"
 
 type EntitlementKey = keyof Awaited<
   ReturnType<typeof organizationGetOrganizationEntitlements>

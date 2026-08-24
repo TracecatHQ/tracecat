@@ -3,13 +3,12 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
 from asyncpg.exceptions import UndefinedTableError
-from sqlalchemy import and_, func, or_, select
 from sqlalchemy import exc as sa_exc
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,11 +23,15 @@ from tracecat.cases.schemas import TableRowLinkedEvent, TableRowUnlinkedEvent
 from tracecat.cases.service import CaseEventsService
 from tracecat.db.models import Case, CaseTableRow, Table
 from tracecat.exceptions import TracecatNotFoundError
-from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
+from tracecat.pagination import (
+    CursorPaginatedResponse,
+    PageParams,
+    paginate,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TablesService
 
-MAX_LINKED_ROWS_PER_CASE = 200
+MAX_LINKED_ROWS_PER_CASE = 5_000
 MAX_TABLES_PER_CASE = 10
 
 
@@ -59,7 +62,6 @@ class CaseTableRowsService(BaseWorkspaceService):
         reverse: bool = False,
         include_row_data: bool = True,
     ) -> CursorPaginatedResponse[CaseTableRowRead]:
-        paginator = BaseCursorPaginator(self.session)
         stmt = (
             select(CaseTableRow)
             .where(
@@ -67,89 +69,30 @@ class CaseTableRowsService(BaseWorkspaceService):
                 CaseTableRow.case_id == case_id,
             )
             .options(selectinload(CaseTableRow.case))
-            .order_by(CaseTableRow.created_at.desc(), CaseTableRow.id.desc())
         )
 
-        if cursor:
-            cursor_data = paginator.decode_cursor(cursor)
-            cursor_id = uuid.UUID(cursor_data.id)
-            cursor_created_at: datetime | None = None
-            if cursor_data.sort_column == "created_at" and isinstance(
-                cursor_data.sort_value, datetime
-            ):
-                cursor_created_at = cursor_data.sort_value
-            if cursor_created_at is None:
-                cursor_created_at = await self.session.scalar(
-                    select(CaseTableRow.created_at).where(
-                        CaseTableRow.workspace_id == self.workspace_id,
-                        CaseTableRow.case_id == case_id,
-                        CaseTableRow.id == cursor_id,
-                    )
-                )
-            if cursor_created_at is None:
-                raise ValueError("Invalid cursor for case rows")
-            if reverse:
-                stmt = stmt.where(
-                    or_(
-                        CaseTableRow.created_at > cursor_created_at,
-                        and_(
-                            CaseTableRow.created_at == cursor_created_at,
-                            CaseTableRow.id > cursor_id,
-                        ),
-                    )
-                )
-                stmt = stmt.order_by(
-                    CaseTableRow.created_at.asc(), CaseTableRow.id.asc()
-                )
-            else:
-                stmt = stmt.where(
-                    or_(
-                        CaseTableRow.created_at < cursor_created_at,
-                        and_(
-                            CaseTableRow.created_at == cursor_created_at,
-                            CaseTableRow.id < cursor_id,
-                        ),
-                    )
-                )
-
-        stmt = stmt.limit(limit + 1)
-        result = await self.session.execute(stmt)
-        links = result.scalars().all()
-
-        has_more = len(links) > limit
-        items = links[:limit] if has_more else links
-        has_previous = cursor is not None
-
-        if reverse:
-            items = list(reversed(items))
-
-        hydrated = await self._hydrate_links(items, include_row_data=include_row_data)
-
-        next_cursor = None
-        prev_cursor = None
-        if items and has_more:
-            next_cursor = paginator.encode_cursor(
-                items[-1].id,
-                sort_column="created_at",
-                sort_value=items[-1].created_at,
-            )
-        if items and cursor:
-            prev_cursor = paginator.encode_cursor(
-                items[0].id,
-                sort_column="created_at",
-                sort_value=items[0].created_at,
-            )
-
-        if reverse:
-            next_cursor, prev_cursor = prev_cursor, next_cursor
-            has_more, has_previous = has_previous, has_more
+        # ``reverse`` remains accepted at the service boundary for compatibility;
+        # the opaque cursor now owns scan direction.
+        page = await paginate(
+            self.session,
+            stmt,
+            page=PageParams(limit=limit, cursor=cursor),
+            order_by=(
+                CaseTableRow.created_at.desc(),
+                CaseTableRow.id.desc(),
+            ),
+        )
+        hydrated = await self._hydrate_links(
+            page.items,
+            include_row_data=include_row_data,
+        )
 
         return CursorPaginatedResponse(
             items=hydrated,
-            next_cursor=next_cursor,
-            prev_cursor=prev_cursor,
-            has_more=has_more,
-            has_previous=has_previous,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
         )
 
     async def link_row(
@@ -333,6 +276,22 @@ class CaseTableRowsService(BaseWorkspaceService):
         include_row_data: bool,
     ) -> list[CaseTableRowRead]:
         tables_by_id = await self._get_tables_by_id([link.table_id for link in links])
+        rows_by_table_id: dict[uuid.UUID, dict[uuid.UUID, dict[str, Any]]] = {}
+        if include_row_data:
+            row_ids_by_table_id: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
+            for link in links:
+                if link.table_id in tables_by_id:
+                    row_ids_by_table_id[link.table_id].add(link.row_id)
+
+            for table_id, row_ids in row_ids_by_table_id.items():
+                try:
+                    rows_by_table_id[table_id] = await self.tables.get_rows(
+                        tables_by_id[table_id], list(row_ids)
+                    )
+                except sa_exc.DBAPIError as exc:
+                    if not isinstance(exc.orig, UndefinedTableError):
+                        raise
+
         hydrated: list[CaseTableRowRead] = []
 
         for link in links:
@@ -340,15 +299,8 @@ class CaseTableRowsService(BaseWorkspaceService):
             row_data: dict[str, Any] | None = None
             is_available = False
             if include_row_data and table is not None:
-                try:
-                    row_data = await self.tables.get_row(table, link.row_id)
-                    is_available = True
-                except TracecatNotFoundError:
-                    is_available = False
-                except sa_exc.DBAPIError as exc:
-                    if not isinstance(exc.orig, UndefinedTableError):
-                        raise
-                    is_available = False
+                row_data = rows_by_table_id.get(link.table_id, {}).get(link.row_id)
+                is_available = row_data is not None
             elif not include_row_data:
                 is_available = True
 

@@ -1,7 +1,6 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ChevronDown, Loader2, MoreVertical } from "lucide-react"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
@@ -107,6 +106,7 @@ import {
   useModelProvidersStatus,
   useProviderCredentialConfigs,
 } from "@/lib/hooks"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 
 const CURSOR_PAGE_SIZE = 100
@@ -2233,6 +2233,7 @@ export function OrgSettingsAgentForm() {
   const credentialDeleteMutation = useMutation({
     mutationFn: async (provider: string) =>
       await agentDeleteProviderCredentials({ provider }),
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       invalidateBuiltInAgentQueries()
     },
@@ -2240,6 +2241,7 @@ export function OrgSettingsAgentForm() {
   const refreshProviderMutation = useMutation({
     mutationFn: async (providerId: string) =>
       await refreshCustomProviderCatalog({ providerId }),
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       invalidateOrganizationAgentQueries()
     },
@@ -2247,6 +2249,7 @@ export function OrgSettingsAgentForm() {
   const deleteCustomProviderMutation = useMutation({
     mutationFn: async (providerId: string) =>
       await deleteCustomProvider({ providerId }),
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       invalidateOrganizationAgentQueries()
     },
@@ -2254,6 +2257,7 @@ export function OrgSettingsAgentForm() {
   const deleteCatalogEntryMutation = useMutation({
     mutationFn: async (catalogId: string) =>
       await deleteCatalogEntry({ catalogId }),
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       invalidateOrganizationAgentQueries()
     },
@@ -2271,6 +2275,7 @@ export function OrgSettingsAgentForm() {
         },
       })
     },
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: ["organization", "agent-model-access"],
@@ -2305,6 +2310,7 @@ export function OrgSettingsAgentForm() {
         )
       }
     },
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: ["organization", "agent-model-access"],

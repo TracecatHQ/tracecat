@@ -8,7 +8,14 @@ from pathlib import Path
 
 JAILED_AGENT_HOME_DIR = Path("/home/agent")
 JAILED_AGENT_JOB_DIR = Path("/run/tracecat/job")
+JAILED_AGENT_UV_STATE_DIR = JAILED_AGENT_JOB_DIR.parent / "uv-state"
 JAILED_AGENT_WORK_DIR = Path("/work")
+AGENT_UV_STATE_DIR_NAME = "uv-state"
+
+
+def job_uv_state_dir(job_dir: Path) -> Path:
+    """Return the ephemeral UV-managed state directory for one agent job."""
+    return job_dir / AGENT_UV_STATE_DIR_NAME
 
 
 @dataclass(frozen=True, slots=True)

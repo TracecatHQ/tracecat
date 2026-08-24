@@ -1,14 +1,74 @@
+import threading
+from collections import OrderedDict
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import StrEnum, auto
 from typing import Any, TypeVar
 
-import jsonpath_ng.ext
 import jsonpath_ng.jsonpath as jsonpath_nodes
 from jsonpath_ng.exceptions import JsonPathParserError
+from jsonpath_ng.ext.parser import ExtentedJsonPathParser
 
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.logger import logger
+
+# jsonpath_ng builds a new PLY parser per parse() call, and without a shipped
+# parsetab module every call re-imports the missing table module and regenerates
+# the LALR table. That import-lock traffic can deadlock the process if a Temporal
+# activity thread is cancelled while holding the import lock. Build one parser at
+# module import time and serialize access: PLY's LRParser mutates shared state
+# during parse and is not thread-safe. Callers treat parsed expression trees as
+# read-only, so sharing them across threads is safe.
+_JSONPATH_PARSER = ExtentedJsonPathParser()
+_JSONPATH_PARSER_LOCK = threading.Lock()
+
+# functools.lru_cache may execute the wrapped function multiple times for
+# concurrent misses. Separate cache and parser locks keep hits from waiting on
+# parsing, while the second cache lookup coalesces cacheable misses. These limits
+# affect retention only; longer JSONPaths remain valid and parse without caching.
+_JSONPATH_CACHE_MAXSIZE = 1024
+_JSONPATH_CACHE_MAX_EXPR_LENGTH = 256
+_JSONPATH_CACHE: OrderedDict[str, jsonpath_nodes.JSONPath] = OrderedDict()
+_JSONPATH_CACHE_LOCK = threading.Lock()
+
+
+def _get_cached_jsonpath(expr: str) -> jsonpath_nodes.JSONPath | None:
+    """Return a cached JSONPath and update its LRU position."""
+    with _JSONPATH_CACHE_LOCK:
+        parsed = _JSONPATH_CACHE.get(expr)
+        if parsed is not None:
+            _JSONPATH_CACHE.move_to_end(expr)
+        return parsed
+
+
+def _cache_jsonpath(expr: str, parsed: jsonpath_nodes.JSONPath) -> None:
+    """Cache a JSONPath, evicting the least recently used entry if full."""
+    with _JSONPATH_CACHE_LOCK:
+        _JSONPATH_CACHE[expr] = parsed
+        if len(_JSONPATH_CACHE) > _JSONPATH_CACHE_MAXSIZE:
+            _JSONPATH_CACHE.popitem(last=False)
+
+
+def parse_jsonpath(expr: str) -> jsonpath_nodes.JSONPath:
+    """Parse a JSONPath using the shared process-wide parser.
+
+    Expressions exceeding the cache admission limit remain valid and are parsed
+    without being retained.
+    """
+    cacheable = len(expr) <= _JSONPATH_CACHE_MAX_EXPR_LENGTH
+    if cacheable and (parsed := _get_cached_jsonpath(expr)) is not None:
+        return parsed
+
+    with _JSONPATH_PARSER_LOCK:
+        # Another thread may have populated the cache while this thread waited.
+        if cacheable and (parsed := _get_cached_jsonpath(expr)) is not None:
+            return parsed
+
+        parsed = _JSONPATH_PARSER.parse(expr)
+        if cacheable:
+            _cache_jsonpath(expr, parsed)
+        return parsed
+
 
 # Maximum number of key segments allowed after the variable name in VARS expressions.
 # This is currently limited to support `VARS.<name>.<key>` paths, and can be increased
@@ -124,7 +184,7 @@ def eval_jsonpath(
         )
     try:
         # Try to evaluate the expression
-        jsonpath_expr = jsonpath_ng.ext.parse(expr)
+        jsonpath_expr = parse_jsonpath(expr)
     except JsonPathParserError as e:
         logger.error(
             "Invalid jsonpath expression", expr=repr(expr), context_type=context_type

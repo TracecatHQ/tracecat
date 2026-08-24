@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: List supergroup members
+  description: >-
+    List supergroup members. Calls GET /supergroups/{group_id}/members/ directly. Returns
+    effective membership, including members inherited from rules. Required scope:
+    supergroups.read.
+  display_group: Rippling
+  doc_url: https://developer.rippling.com/documentation/rest-api/reference/list-supergroups-group-id-members
+  namespace: tools.rippling
+  name: list_supergroup_members
+  secrets:
+    - name: rippling
+      keys: ["RIPPLING_API_KEY"]
+  expects:
+    group_id:
+      type: str
+      description: Rippling API path value for group_id.
+    expand:
+      type: str | None
+      description: >-
+        Fields in a response can represent objects themselves. Instead of making an additional API
+        call, you can expand field(s) in a response using the `expand` query parameter. Use commas
+        to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API
+        supports two levels of expansion and up to ten expanded fields per request. Expandable
+        fields: `worker`.
+      default: null
+    order_by:
+      type: str | None
+      description: >-
+        The `order_by` parameter is used to select field(s) to sort by and to define whether results
+        are sorted in ascending or descending order. Supported sort directions are `asc` for
+        ascending order and `desc` for descending order. Unless indicated, the default sort
+        direction is ascending order. Use commas to specify multiple fields to sort. Sortable
+        fields: `id`, `created_at`, `updated_at`.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Rippling REST API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/supergroups/${{ FN.url_encode(inputs.group_id) }}/members/
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
+          Accept: application/json
+          Rippling-Api-Version: '2024-08-01'
+        params:
+          expand: ${{ inputs.expand }}
+          order_by: ${{ inputs.order_by }}
+  returns: ${{ steps.request.result }}

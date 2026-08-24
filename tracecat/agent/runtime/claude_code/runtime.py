@@ -50,6 +50,7 @@ from claude_agent_sdk.types import (
 )
 
 from tracecat.agent.common.config import (
+    AGENT_RUNTIME_PROTECTED_ENV_VARS,
     TRACECAT__AGENT_MCP_BRIDGE_PORT,
     TRACECAT__DISABLE_NSJAIL,
 )
@@ -87,8 +88,10 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_CONTINUATION_PROMPT,
     is_approval_continuation_prompt_line,
     is_meta_session_line,
+    is_model_context_session_line,
     is_synthetic_session_line,
 )
+from tracecat.integrations.mcp_validation import sanitize_mcp_command_args
 from tracecat.logger import logger
 
 CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
@@ -216,6 +219,8 @@ CHILD_AGENT_DISALLOWED_TOOLS = [
     "TaskOutput",
     *CLAUDE_CODE_STATEFUL_TOOLS,
 ]
+
+TOOL_SEARCH_TOOL_NAME = "ToolSearch"
 
 # Tools that require internet access (these bypass sandbox network isolation
 # because they're executed server-side by Anthropic, not in the sandbox)
@@ -519,9 +524,33 @@ class ClaudeAgentRuntime:
                 "command": stdio_config["command"],
             }
             if args := stdio_config.get("args"):
-                server_config["args"] = args
+                sanitized_args, protected_options = sanitize_mcp_command_args(
+                    command=stdio_config["command"],
+                    args=args,
+                )
+                if protected_options:
+                    logger.warning(
+                        "Ignoring protected stdio MCP command options",
+                        server_name=server_name,
+                        command=stdio_config["command"],
+                        options=sorted(protected_options),
+                    )
+                if sanitized_args:
+                    server_config["args"] = sanitized_args
             if env := stdio_config.get("env"):
-                server_config["env"] = env
+                protected_env_keys = AGENT_RUNTIME_PROTECTED_ENV_VARS & env.keys()
+                if protected_env_keys:
+                    logger.warning(
+                        "Ignoring protected stdio MCP environment variables",
+                        server_name=server_name,
+                        env_keys=sorted(protected_env_keys),
+                    )
+                if sanitized_env := {
+                    key: value
+                    for key, value in env.items()
+                    if key not in AGENT_RUNTIME_PROTECTED_ENV_VARS
+                }:
+                    server_config["env"] = sanitized_env
             if (timeout := stdio_config.get("timeout")) is not None:
                 server_config["timeout"] = timeout
             servers[server_name] = cast(McpStdioServerConfig, server_config)
@@ -777,7 +806,11 @@ class ClaudeAgentRuntime:
         # SDK compaction artifacts marked with structural flags
         # isCompactSummary messages are persisted as kind='compaction' for badge rendering
         # isMeta messages (like caveats) are internal
-        if is_meta_session_line(line_data) or line_data.get("isCompactSummary"):
+        if (
+            is_meta_session_line(line_data)
+            or is_model_context_session_line(line_data)
+            or line_data.get("isCompactSummary")
+        ):
             return True
 
         msg_type = line_data.get("type", "")
@@ -1314,6 +1347,8 @@ class ClaudeAgentRuntime:
             )
 
             disallowed_tools = list(CHILD_AGENT_DISALLOWED_TOOLS)
+            if subagent.config.model_provider == "bedrock":
+                disallowed_tools.append(TOOL_SEARCH_TOOL_NAME)
             if not self._runtime_internet_access_enabled:
                 disallowed_tools.extend(INTERNET_TOOLS)
 
@@ -1462,12 +1497,17 @@ class ClaudeAgentRuntime:
             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = (
                 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
             )
-        # The CLI disables tool search (deferred tool loading) for
-        # non-first-party base URLs — ours is always the socket bridge — unless
-        # explicitly enabled. Every leg terminates at the managed LiteLLM or an
-        # Anthropic-compatible passthrough gateway; both tolerate its wire
-        # artifacts (defer_loading, tool_reference; verified on LiteLLM 1.89).
-        env["ENABLE_TOOL_SEARCH"] = "true"
+        # Bedrock does not consistently support tool search across APIs, models,
+        # and opaque inference profiles. Explicitly disable it for Bedrock roots
+        # so the CLI sends full tool definitions without tool_reference blocks.
+        # Bedrock subagents are handled through their per-agent disallowed tools.
+        env["ENABLE_TOOL_SEARCH"] = (
+            "false" if payload.config.model_provider == "bedrock" else "true"
+        )
+        # Sandbox-safe Claude OTel env (no headers, no tenant endpoint — the
+        # shim points the SDK at its OtelBridge).
+        if payload.agent_otel_sandbox_env:
+            env.update(payload.agent_otel_sandbox_env)
         return env
 
     def _build_options(

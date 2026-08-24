@@ -1,11 +1,11 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import { useCallback } from "react"
 import { caseAttachmentsCreateAttachment } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { describeAttachmentUploadError } from "@/lib/cases/attachment-errors"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import { useQueryClient } from "@/lib/query"
 
 /** Stable URI persisted in markdown for case attachment images. */
 export const ATTACHMENT_URI_SCHEME = "attachment://"

@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Company enrichment
+  description: Company enrichment. Calls GET /v2/companies/find directly.
+  display_group: Hunter.io
+  doc_url: https://hunter.io/api-documentation#company-enrichment
+  namespace: tools.hunter
+  name: company_enrichment
+  secrets:
+    - name: hunter
+      keys: ["HUNTER_API_KEY"]
+  expects:
+    domain:
+      type: str
+      description: The domain name for which you to find associated information.
+    clearbit_format:
+      type: str | None
+      description: As more customers switch to Clearbit, we've updated the Enrichment API to support the same Clearbit schema. Any value you provide will now be formatted to match Clearbit's schema for consistency.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Hunter API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hunter.base_url || "https://api.hunter.io" }}/v2/companies/find
+        method: GET
+        headers:
+          Accept: application/json
+          X-API-KEY: ${{ SECRETS.hunter.HUNTER_API_KEY }}
+        params:
+          domain: ${{ inputs.domain }}
+          clearbit_format: ${{ inputs.clearbit_format }}
+  returns: ${{ steps.request.result }}

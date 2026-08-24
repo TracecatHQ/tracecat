@@ -1,12 +1,12 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import {
   type OrganizationGetOrganizationResponse,
   type OrganizationListCurrentUserOrganizationMembershipsResponse,
   organizationGetOrganization,
   organizationListCurrentUserOrganizationMemberships,
 } from "@/client"
+import { useQuery } from "@/lib/query"
 
 /**
  * Hook to fetch the current organization.

@@ -1,4 +1,3 @@
-import type { QueryClient } from "@tanstack/react-query"
 import * as ai from "ai"
 import type {
   AgentSessionEntity,
@@ -10,7 +9,9 @@ import type {
   ChatReadVercel,
   UIMessage,
 } from "@/client"
+import { invalidateCaseCommentQueries } from "@/lib/cases/comment-queries"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import type { QueryClient } from "@/lib/query"
 
 export type ApprovalCard = {
   tool_call_id: string
@@ -305,10 +306,7 @@ export const ENTITY_TO_INVALIDATION: Record<
       // Invalidate cases list for workspace
       queryClient.invalidateQueries({ queryKey: ["cases", workspaceId] })
       invalidateCaseActivityQueries(queryClient, entityId, workspaceId)
-      // Invalidate case comments
-      queryClient.invalidateQueries({
-        queryKey: ["case-comments", entityId, workspaceId],
-      })
+      invalidateCaseCommentQueries(queryClient, entityId, workspaceId)
     },
   },
   agent_preset: {

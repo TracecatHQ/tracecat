@@ -1,5 +1,7 @@
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from sqlalchemy import func, select
@@ -7,16 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.rows import service as case_rows_service_module
 from tracecat.cases.rows.schemas import CaseTableRowLinkCreate
 from tracecat.cases.rows.service import (
-    MAX_LINKED_ROWS_PER_CASE,
     MAX_TABLES_PER_CASE,
     CaseTableRowsService,
 )
 from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
-from tracecat.db.models import CaseTableRow
-from tracecat.pagination import BaseCursorPaginator
+from tracecat.db.models import CaseTableRow, Table
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
@@ -167,6 +168,11 @@ async def test_link_row_returns_existing_link_when_limit_reached_after_initial_m
     case_rows_service: CaseTableRowsService,
     tables_service: TablesService,
 ) -> None:
+    test_link_limit = 2
+    monkeypatch.setattr(
+        case_rows_service_module, "MAX_LINKED_ROWS_PER_CASE", test_link_limit
+    )
+
     case = await _create_case(cases_service)
     table_id, row_id = await _create_table_with_row(
         tables_service,
@@ -187,7 +193,7 @@ async def test_link_row_returns_existing_link_when_limit_reached_after_initial_m
             table_id=table_id,
             row_id=uuid.uuid4(),
         )
-        for _ in range(MAX_LINKED_ROWS_PER_CASE - 1)
+        for _ in range(test_link_limit - 1)
     ]
     session.add_all([existing_link, *filler_links])
     await session.commit()
@@ -218,6 +224,77 @@ async def test_link_row_returns_existing_link_when_limit_reached_after_initial_m
 
     assert link.id == existing_link.id
     assert calls == 2
+
+
+@pytest.mark.anyio
+async def test_list_rows_batches_hydration_by_table(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table_id, first_row_id = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_batch_hydration_{uuid.uuid4().hex[:8]}",
+        value="first",
+    )
+    table = await tables_service.get_table(table_id)
+    second_row = await tables_service.insert_row(
+        table,
+        TableRowInsert(data={"value": "second"}),
+    )
+    second_row_id = second_row.get("id")
+    assert isinstance(second_row_id, uuid.UUID)
+
+    for row_id in (first_row_id, second_row_id):
+        await case_rows_service.link_row(
+            case=case,
+            params=CaseTableRowLinkCreate(table_id=table_id, row_id=row_id),
+        )
+
+    missing_row_id = uuid.uuid4()
+    session.add(
+        CaseTableRow(
+            workspace_id=case_rows_service.workspace_id,
+            case_id=case.id,
+            table_id=table_id,
+            row_id=missing_row_id,
+        )
+    )
+    await session.commit()
+
+    original_get_rows = case_rows_service.tables.get_rows
+    get_rows_calls: list[tuple[uuid.UUID, set[uuid.UUID]]] = []
+
+    async def tracked_get_rows(
+        table: Table, row_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, dict[str, Any]]:
+        get_rows_calls.append((table.id, set(row_ids)))
+        return await original_get_rows(table, row_ids)
+
+    monkeypatch.setattr(case_rows_service.tables, "get_rows", tracked_get_rows)
+
+    page = await case_rows_service.list_rows(
+        case_id=case.id,
+        limit=10,
+        include_row_data=True,
+    )
+
+    assert get_rows_calls == [(table_id, {first_row_id, second_row_id, missing_row_id})]
+    rows_by_id = {row.row_id: row for row in page.items}
+    first_row = rows_by_id[first_row_id]
+    assert first_row.row_data is not None
+    assert first_row.row_data["value"] == "first"
+    assert first_row.is_row_available is True
+    second_row = rows_by_id[second_row_id]
+    assert second_row.row_data is not None
+    assert second_row.row_data["value"] == "second"
+    assert second_row.is_row_available is True
+    missing_row = rows_by_id[missing_row_id]
+    assert missing_row.row_data is None
+    assert missing_row.is_row_available is False
 
 
 @pytest.mark.anyio
@@ -304,11 +381,64 @@ async def test_list_rows_cursor_uses_created_at_and_id_order(
         oldest_small_id,
     ]
 
-    legacy_cursor = BaseCursorPaginator.encode_cursor(middle_large_id)
-    legacy_page = await case_rows_service.list_rows(
-        case_id=case.id,
-        limit=2,
-        cursor=legacy_cursor,
-        include_row_data=False,
+
+@pytest.mark.anyio
+async def test_list_rows_reverse_pagination_cursors_round_trip(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    """Backward cursors return the adjacent page and keep both directions valid."""
+    case = await _create_case(cases_service)
+    table_id, _ = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_reverse_{uuid.uuid4().hex[:8]}",
+        value="seed",
     )
-    assert [item.id for item in legacy_page.items] == [older_small_id, oldest_small_id]
+    base_time = datetime(2026, 1, 1, tzinfo=UTC)
+    links = [
+        CaseTableRow(
+            workspace_id=case_rows_service.workspace_id,
+            case_id=case.id,
+            table_id=table_id,
+            row_id=uuid.uuid4(),
+            created_at=base_time + timedelta(minutes=i),
+            updated_at=base_time + timedelta(minutes=i),
+        )
+        for i in range(6)
+    ]
+    session.add_all(links)
+    await session.commit()
+    expected_ids = [
+        link.id
+        for link in sorted(links, key=lambda link: link.created_at, reverse=True)
+    ]
+
+    async def get_page(cursor: str | None = None, *, reverse: bool = False):
+        return await case_rows_service.list_rows(
+            case_id=case.id,
+            limit=2,
+            cursor=cursor,
+            reverse=reverse,
+            include_row_data=False,
+        )
+
+    page1 = await get_page()
+    page2 = await get_page(page1.next_cursor)
+    page3 = await get_page(page2.next_cursor)
+    assert [item.id for item in page3.items] == expected_ids[4:6]
+    assert page3.prev_cursor is not None
+
+    back = await get_page(page3.prev_cursor, reverse=True)
+    assert [item.id for item in back.items] == expected_ids[2:4]
+    assert back.next_cursor is not None
+    assert back.prev_cursor is not None
+
+    forward_again = await get_page(back.next_cursor)
+    assert [item.id for item in forward_again.items] == expected_ids[4:6]
+
+    back_to_first = await get_page(back.prev_cursor, reverse=True)
+    assert [item.id for item in back_to_first.items] == expected_ids[:2]
+    assert back_to_first.next_cursor is not None
+    assert back_to_first.prev_cursor is None

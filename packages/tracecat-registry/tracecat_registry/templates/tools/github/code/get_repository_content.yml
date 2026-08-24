@@ -20,9 +20,9 @@ definition:
     path:
       type: str
       description: Nested repository content path.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    ref:
+      type: str | None
+      description: "The name of the commit/branch/tag. Default: the repository’s default branch."
       default: null
     base_url:
       type: str
@@ -38,5 +38,6 @@ definition:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
-      params: ${{ inputs.params }}
+      params:
+        ref: ${{ inputs.ref }}
   returns: ${{ steps.request.result }}

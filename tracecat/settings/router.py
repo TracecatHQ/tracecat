@@ -3,6 +3,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.audit.service import (
+    AuditService,
+    AuditWebhookNotConfiguredError,
+    AuditWebhookUrlNotAllowedError,
+)
 from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.auth.enums import AuthType
 from tracecat.authz.controls import require_scope
@@ -11,18 +16,24 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import OrganizationDomain
 from tracecat.identifiers import OrganizationID
 from tracecat.settings.schemas import (
+    AgentOtelSettingsRead,
+    AgentOtelSettingsUpdate,
     AgentSettingsRead,
     AgentSettingsUpdate,
     AppSettingsRead,
     AppSettingsUpdate,
     AuditSettingsRead,
     AuditSettingsUpdate,
+    AuditWebhookTestResult,
     GitSettingsRead,
     GitSettingsUpdate,
     SAMLSettingsRead,
     SAMLSettingsUpdate,
 )
-from tracecat.settings.service import SettingsService
+from tracecat.settings.service import (
+    AgentOtelEndpointNotAllowedError,
+    SettingsService,
+)
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 
@@ -228,6 +239,33 @@ async def update_audit_settings(
     await service.update_audit_settings(params)
 
 
+@router.post("/audit/test", response_model=AuditWebhookTestResult)
+@require_scope("org:settings:update")
+async def test_audit_webhook(
+    *,
+    role: OrgUserRole,
+    params: AuditSettingsUpdate,
+) -> AuditWebhookTestResult:
+    """Probe the submitted audit webhook configuration with a marked test event."""
+    try:
+        return await AuditService.probe_webhook(
+            sink="organization",
+            organization_id=role.organization_id,
+            role=role,
+            settings=params,
+        )
+    except AuditWebhookNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audit webhook is not configured",
+        ) from exc
+    except AuditWebhookUrlNotAllowedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audit webhook URL is not allowed",
+        ) from exc
+
+
 @router.get("/agent", response_model=AgentSettingsRead)
 @require_scope("org:settings:read")
 async def get_agent_settings(
@@ -252,3 +290,35 @@ async def update_agent_settings(
 ) -> None:
     service = SettingsService(session, role)
     await service.update_agent_settings(params)
+
+
+@router.get("/agent-otel", response_model=AgentOtelSettingsRead)
+@require_scope("org:settings:read")
+async def get_agent_otel_settings(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> AgentOtelSettingsRead:
+    service = SettingsService(session, role)
+    keys = AgentOtelSettingsRead.keys()
+    settings = await service.list_org_settings(keys=keys)
+    settings_dict, _ = service.get_values_with_decryption_fallback(settings)
+    return AgentOtelSettingsRead(**settings_dict)
+
+
+@router.patch("/agent-otel", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:update")
+async def update_agent_otel_settings(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    params: AgentOtelSettingsUpdate,
+) -> None:
+    service = SettingsService(session, role)
+    try:
+        await service.update_agent_otel_settings(params)
+    except AgentOtelEndpointNotAllowedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Agent OTel endpoint is not allowed",
+        ) from exc

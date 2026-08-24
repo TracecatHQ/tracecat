@@ -1,8 +1,9 @@
-import { CheckIcon, PlusCircledIcon } from "@radix-ui/react-icons"
+import { PlusCircledIcon } from "@radix-ui/react-icons"
 import type { Column } from "@tanstack/react-table"
 import type * as React from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { CheckIndicator } from "@/components/ui/check-indicator"
 import {
   Command,
   CommandEmpty,
@@ -18,7 +19,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
-import { cn } from "@/lib/utils"
 
 interface DataTableFacetedFilterProps<TData, TValue> {
   column?: Column<TData, TValue>
@@ -90,7 +90,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                 return (
                   <CommandItem
                     key={option.value}
-                    className="text-xs"
+                    className="group text-xs"
                     onSelect={() => {
                       if (isSelected) {
                         selectedValues.delete(option.value)
@@ -103,16 +103,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                       )
                     }}
                   >
-                    <div
-                      className={cn(
-                        "mr-2 flex size-4 items-center justify-center rounded-sm border border-primary text-xs",
-                        isSelected
-                          ? "bg-primary text-primary-foreground"
-                          : "opacity-50 [&_svg]:invisible"
-                      )}
-                    >
-                      <CheckIcon className={cn("size-4")} />
-                    </div>
+                    <CheckIndicator checked={isSelected} />
                     {option.icon && (
                       <option.icon className="mr-2 size-4 text-muted-foreground" />
                     )}

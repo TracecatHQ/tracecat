@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowRight, ExternalLink, Loader2, Lock, Sparkles } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
@@ -46,6 +45,7 @@ import {
   getPendingStdioMcpCatalogVerificationIds,
   getPendingStdioMcpVerificationIds,
 } from "@/lib/integrations"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 

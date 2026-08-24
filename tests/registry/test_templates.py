@@ -1,8 +1,10 @@
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from tracecat.expressions.policy import ExpressionPolicy, expression_policy
 from tracecat.registry.actions.schemas import (
     RegistryActionValidationErrorInfo,
     TemplateAction,
@@ -10,6 +12,21 @@ from tracecat.registry.actions.schemas import (
 from tracecat.registry.actions.service import validate_action_template
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repository import Repository
+
+
+def _contains_secret_expression(value: Any) -> bool:
+    match value:
+        case str():
+            return "${{" in value and "SECRETS." in value
+        case list():
+            return any(_contains_secret_expression(item) for item in value)
+        case dict():
+            return any(
+                _contains_secret_expression(key) or _contains_secret_expression(item)
+                for key, item in value.items()
+            )
+        case _:
+            return False
 
 
 @pytest.mark.anyio
@@ -76,6 +93,13 @@ async def test_template_action_validation(file_path):
     action = TemplateAction.from_yaml(file_path)
     assert action.type == "action"
     assert action.definition
+    for step in action.definition.steps:
+        for parameter, value in step.args.items():
+            if _contains_secret_expression(value):
+                assert (
+                    expression_policy(step.action, parameter)
+                    is ExpressionPolicy.RESOLVE
+                )
 
     # Test registration
     repo.register_template_action(action)

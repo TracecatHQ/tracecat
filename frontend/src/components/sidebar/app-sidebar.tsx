@@ -441,7 +441,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   title: "MCP access",
                   href: `${basePath}/mcp`,
                   icon: TerminalIcon,
-                  isActive: pathname?.startsWith(`${basePath}/mcp`),
+                  isActive:
+                    pathname === `${basePath}/mcp` ||
+                    pathname?.startsWith(`${basePath}/mcp/`),
                 }
               : null,
           ].filter((item) => item !== null)}

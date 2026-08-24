@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Scan content
+  description: >-
+    Scan content. Calls POST /v1/scan directly with one document.
+  display_group: GitGuardian
+  doc_url: https://api.gitguardian.com/docs#tag/Scan-Methods/operation/scan
+  namespace: tools.gitguardian
+  name: scan_content
+  secrets:
+    - name: gitguardian
+      keys: ["GITGUARDIAN_API_KEY"]
+  expects:
+    document:
+      type: str
+      description: Document content to scan. Request body shouldn't exceed 1MB.
+    filename:
+      type: str | None
+      description: Filename associated with the document, for example `.env`. Maximum length is 256 characters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the GitGuardian API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.gitguardian.base_url || "https://api.gitguardian.com" }}/v1/scan
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Token ${{ SECRETS.gitguardian.GITGUARDIAN_API_KEY }}
+          Content-Type: application/json
+        payload:
+          document: ${{ inputs.document }}
+          filename: ${{ inputs.filename }}
+  returns: ${{ steps.request.result }}

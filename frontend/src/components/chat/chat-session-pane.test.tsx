@@ -1,8 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { UIMessage } from "ai"
 import type { ReactNode } from "react"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 const mockUseVercelChatResult = {
   clearError: jest.fn(),

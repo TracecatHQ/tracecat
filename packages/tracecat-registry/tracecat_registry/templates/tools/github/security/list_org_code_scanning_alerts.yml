@@ -14,9 +14,49 @@ definition:
     org:
       type: str
       description: GitHub API path value for org.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    tool_name:
+      type: str | None
+      description: The name of a code scanning tool. Only results by this tool will be listed. You can specify the tool by using either `tool_name` or `tool_guid`, but not both.
+      default: null
+    tool_guid:
+      type: str | None
+      description: The GUID of a code scanning tool. Only results by this tool will be listed. Note that some code scanning tools may not include a GUID in their analysis data. You can specify the tool by using either `tool_guid` or `tool_name`, but not both.
+      default: null
+    before:
+      type: str | None
+      description: A cursor, as given in the Link header. If specified, the query only searches for results before this cursor.
+      default: null
+    after:
+      type: str | None
+      description: A cursor, as given in the Link header. If specified, the query only searches for results after this cursor.
+      default: null
+    page:
+      type: int | None
+      description: "The page number of the results to fetch. Default: `1`."
+      default: null
+    per_page:
+      type: int | None
+      description: "The number of results per page (max 100). Default: `30`."
+      default: null
+    direction:
+      type: str | None
+      description: "The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`."
+      default: null
+    state:
+      type: str | None
+      description: "If specified, only code scanning alerts with this state will be returned. Can be one of: `open`, `closed`, `dismissed`, `fixed`."
+      default: null
+    sort:
+      type: str | None
+      description: "The property by which to sort the results. Default: `created`. Can be one of: `created`, `updated`."
+      default: null
+    severity:
+      type: str | None
+      description: "If specified, only code scanning alerts with this severity will be returned. Can be one of: `critical`, `high`, `medium`, `low`, `warning`, `note`, `error`."
+      default: null
+    assignees:
+      type: str | None
+      description: Filter alerts by assignees. Provide a comma-separated list of user handles (e.g., `octocat` or `octocat,hubot`). Use `*` to list alerts with at least one assignee or `none` to list alerts with no assignees.
       default: null
     base_url:
       type: str
@@ -32,5 +72,16 @@ definition:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
-      params: ${{ inputs.params }}
+      params:
+        tool_name: ${{ inputs.tool_name }}
+        tool_guid: ${{ inputs.tool_guid }}
+        before: ${{ inputs.before }}
+        after: ${{ inputs.after }}
+        page: ${{ inputs.page }}
+        per_page: ${{ inputs.per_page }}
+        direction: ${{ inputs.direction }}
+        state: ${{ inputs.state }}
+        sort: ${{ inputs.sort }}
+        severity: ${{ inputs.severity }}
+        assignees: ${{ inputs.assignees }}
   returns: ${{ steps.request.result }}

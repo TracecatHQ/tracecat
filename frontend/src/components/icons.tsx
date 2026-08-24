@@ -17,33 +17,47 @@ import type { LucideIcon } from "lucide-react"
 import {
   Blend,
   BlocksIcon,
+  Boxes,
   BoxIcon,
+  BriefcaseBusiness,
+  Bug,
   Building2Icon,
   CirclePlay,
   Code,
   Cpu,
+  Crosshair,
   DatabaseIcon,
+  FileKey,
+  Fingerprint,
   Fish,
+  FishSymbol,
   FolderTree,
+  Gauge,
   Globe,
+  GlobeLock,
   Headset,
   KeyRound,
+  Landmark,
   Laptop,
   Link,
   ListChecks,
   LogInIcon,
   MailIcon,
+  MailSearch,
   MapPin,
   MergeIcon,
   MessageCircleMore,
   MessageCirclePlus,
   Microscope,
+  MonitorX,
+  Newspaper,
   Plug2,
   Radar,
   RefreshCcw,
   ScanSearch,
   Search,
   SendIcon,
+  Server,
   ShieldAlert,
   ShieldBan,
   ShieldCheck,
@@ -52,8 +66,11 @@ import {
   SplitIcon,
   Swords,
   Table,
+  Telescope,
+  UserSearch,
   Users,
   WandSparkles,
+  Waypoints,
   WorkflowIcon,
   ZapIcon,
 } from "lucide-react"
@@ -643,6 +660,9 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.sentry": createIconRenderer(SentryIcon),
     "tools.slack_sdk": createIconRenderer(SlackIcon),
     "tools.terraform": createIconRenderer(TerraformIcon),
+    "tools.x": createIconRenderer(Icons.twitter, {
+      iconClassName: "fill-current",
+    }),
     // New brand marks
     "tools.confluence": createIconRenderer(ConfluenceIcon),
     "tools.google_maps": createIconRenderer(GoogleMapsIcon),
@@ -658,6 +678,9 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.falconpy": createCatalogIconRenderer("crowdstrike_falcon_mcp"),
     "tools.elastic_security": createCatalogIconRenderer("elastic_mcp"),
     "tools.elasticsearch": createCatalogIconRenderer("elastic_mcp"),
+    "tools.greynoise": createCatalogIconRenderer("greynoise_mcp"),
+    "tools.iru": createCatalogIconRenderer("iru_mcp"),
+    "tools.jamf": createCatalogIconRenderer("jamf_mcp"),
     "tools.panther": createCatalogIconRenderer("panther_mcp"),
     "tools.rootly": createCatalogIconRenderer("rootly_mcp"),
     "tools.sentinel_one": createCatalogIconRenderer("sentinelone_mcp"),
@@ -675,9 +698,29 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       Swords,
       "bg-red-500/10 text-red-600 dark:text-red-400"
     ),
+    "tools.censys": createColoredLucideRenderer(
+      Telescope,
+      "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
+    ),
+    "tools.cisa_kev": createColoredLucideRenderer(
+      Landmark,
+      "bg-red-500/10 text-red-600 dark:text-red-400"
+    ),
     "tools.crowdsec": createColoredLucideRenderer(
       Users,
       "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+    ),
+    "tools.dehashed": createColoredLucideRenderer(
+      UserSearch,
+      "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+    ),
+    "tools.domscan": createColoredLucideRenderer(
+      GlobeLock,
+      "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+    ),
+    "tools.first_epss": createColoredLucideRenderer(
+      Gauge,
+      "bg-violet-500/10 text-violet-600 dark:text-violet-400"
     ),
     "tools.fleetdm": createColoredLucideRenderer(
       Laptop,
@@ -686,6 +729,22 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.freshservice": createColoredLucideRenderer(
       Headset,
       "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    ),
+    "tools.gitguardian": createColoredLucideRenderer(
+      FileKey,
+      "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+    ),
+    "tools.hackernews": createColoredLucideRenderer(
+      Newspaper,
+      "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+    ),
+    "tools.hudsonrock": createColoredLucideRenderer(
+      MonitorX,
+      "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+    ),
+    "tools.hunter": createColoredLucideRenderer(
+      MailSearch,
+      "bg-blue-500/10 text-blue-600 dark:text-blue-400"
     ),
     "tools.hybrid_analysis": createColoredLucideRenderer(
       Microscope,
@@ -703,9 +762,37 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       KeyRound,
       "bg-amber-500/10 text-amber-600 dark:text-amber-400"
     ),
+    "tools.openphish": createColoredLucideRenderer(
+      FishSymbol,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+    ),
+    "tools.osv": createColoredLucideRenderer(
+      Bug,
+      "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    ),
     "tools.phishlabs": createColoredLucideRenderer(
       Fish,
       "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+    ),
+    "tools.pipe0": createColoredLucideRenderer(
+      Waypoints,
+      "bg-purple-500/10 text-purple-600 dark:text-purple-400"
+    ),
+    "tools.project_discovery": createColoredLucideRenderer(
+      Crosshair,
+      "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+    ),
+    "tools.rippling": createColoredLucideRenderer(
+      BriefcaseBusiness,
+      "bg-purple-500/10 text-purple-600 dark:text-purple-400"
+    ),
+    "tools.shodan": createColoredLucideRenderer(
+      Server,
+      "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+    ),
+    "tools.socket": createColoredLucideRenderer(
+      Boxes,
+      "bg-teal-500/10 text-teal-600 dark:text-teal-400"
     ),
     "tools.tavily": createColoredLucideRenderer(
       Search,
@@ -714,6 +801,10 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.tenable_sc": createColoredLucideRenderer(
       ScanSearch,
       "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+    ),
+    "tools.threatfox": createColoredLucideRenderer(
+      Fingerprint,
+      "bg-red-500/10 text-red-600 dark:text-red-400"
     ),
     "tools.threatstream": createColoredLucideRenderer(
       Radar,
@@ -863,6 +954,7 @@ export const providerIcons: Record<
       <ServiceNowIcon {...rest} />
     </div>
   ),
+  jamf: createCatalogIconRenderer("jamf_mcp"),
   slack: ({ className, iconClassName, flairsize: _ignored, ...rest }) => (
     <div className={cn("!rounded-sm", className)}>
       <SlackIcon {...rest} className={cn("size-full", iconClassName)} />
@@ -975,6 +1067,8 @@ export const secretIcons: Record<
       <JiraIcon {...rest} />
     </div>
   ),
+  jamf: createCatalogIconRenderer("jamf_mcp"),
+  iru: createCatalogIconRenderer("iru_mcp"),
   datadog: ({ className, ...rest }) => (
     <div className={className}>
       <DatadogIcon {...rest} />

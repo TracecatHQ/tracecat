@@ -17,9 +17,45 @@ definition:
     repo:
       type: str
       description: GitHub API path value for repo.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    actor:
+      type: str | None
+      description: Returns someone's workflow runs. Use the login for the user who created the `push` associated with the check suite or workflow run.
+      default: null
+    branch:
+      type: str | None
+      description: Returns workflow runs associated with a branch. Use the name of the branch of the `push`.
+      default: null
+    event:
+      type: str | None
+      description: Returns workflow run triggered by the event you specify. For example, `push`, `pull_request` or `issue`. For more information, see "[Events that trigger workflows](https://docs.github.com/actions/automating-your-workflow-with-github-actions/events-that-trigger-workflows)."
+      default: null
+    status:
+      type: str | None
+      description: 'Returns workflow runs with the check run `status` or `conclusion` that you specify. For example, a conclusion can be `success` or a status can be `in_progress`. Only GitHub Actions can set a status of `waiting`, `pending`, or `requested`. Can be one of: `completed`, `action_required`, `cancelled`, `failure`, `neutral`, `skipped`, `stale`, `success`, `timed_out`, `in_progress`, `queued`, `requested`, `waiting`, `pending`.'
+      default: null
+    per_page:
+      type: int | None
+      description: The number of results per page (max 100).
+      default: null
+    page:
+      type: int | None
+      description: The page number of the results to fetch.
+      default: null
+    created:
+      type: str | None
+      description: Returns workflow runs created within the given date-time range. For more information on the syntax, see "[Understanding the search syntax](https://docs.github.com/search-github/getting-started-with-searching-on-github/understanding-the-search-syntax#query-for-dates)."
+      default: null
+    exclude_pull_requests:
+      type: bool | None
+      description: If `true` pull requests are omitted from the response (empty array).
+      default: null
+    check_suite_id:
+      type: int | None
+      description: Returns workflow runs with the `check_suite_id` that you specify.
+      default: null
+    head_sha:
+      type: str | None
+      description: Only returns workflow runs that are associated with the specified `head_sha`.
       default: null
     base_url:
       type: str
@@ -35,5 +71,15 @@ definition:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
-      params: ${{ inputs.params }}
+      params:
+        actor: ${{ inputs.actor }}
+        branch: ${{ inputs.branch }}
+        event: ${{ inputs.event }}
+        status: ${{ inputs.status }}
+        per_page: ${{ inputs.per_page }}
+        page: ${{ inputs.page }}
+        created: ${{ inputs.created }}
+        exclude_pull_requests: ${{ inputs.exclude_pull_requests }}
+        check_suite_id: ${{ inputs.check_suite_id }}
+        head_sha: ${{ inputs.head_sha }}
   returns: ${{ steps.request.result }}

@@ -41,6 +41,9 @@ from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
+    PageParams,
+    PaginationError,
+    paginate,
 )
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
@@ -75,6 +78,7 @@ _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
     InFailedSQLTransactionError,
 )
+_TABLE_ROW_READ_BATCH_SIZE = 5_000
 _TABLE_SYSTEM_COLUMNS = frozenset({"id", "created_at", "updated_at"})
 
 DYNAMIC_WORKSPACE_TENANT_COLUMN = "__tc_workspace_id"
@@ -866,6 +870,37 @@ class BaseTablesService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Row {row_id} not found in table {table.name}")
         return dict(row)
 
+    async def get_rows(
+        self, table: Table, row_ids: Sequence[UUID]
+    ) -> dict[UUID, dict[str, Any]]:
+        """Get rows by ID, keyed by row ID."""
+        if not row_ids:
+            return {}
+
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
+        conn = await self.session.connection()
+        rows_by_id: dict[UUID, dict[str, Any]] = {}
+        unique_row_ids = list(dict.fromkeys(row_ids))
+
+        for start in range(0, len(unique_row_ids), _TABLE_ROW_READ_BATCH_SIZE):
+            batch = unique_row_ids[start : start + _TABLE_ROW_READ_BATCH_SIZE]
+            stmt = (
+                sa.select(*self._visible_columns(table))
+                .select_from(table_clause)
+                .where(sa.column("id").in_(batch))
+            )
+            result = await conn.execute(stmt)
+            for row in result.mappings():
+                row_data: dict[str, Any] = dict(row)
+                row_id = row_data.get("id")
+                if not isinstance(row_id, UUID):
+                    raise TypeError("Table row ID must be a UUID")
+                rows_by_id[row_id] = row_data
+
+        return rows_by_id
+
     async def insert_row(
         self,
         table: Table,
@@ -1353,10 +1388,10 @@ class BaseTablesService(BaseWorkspaceService):
         """
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
-        conn = await self.session.connection()
 
         # Build the base query
-        stmt = sa.select(*self._visible_columns(table)).select_from(
+        visible_columns = self._visible_columns(table)
+        stmt = sa.select(*visible_columns).select_from(
             sa.table(sanitized_table_name, schema=schema_name)
         )
 
@@ -1442,97 +1477,47 @@ class BaseTablesService(BaseWorkspaceService):
         if sort_column not in valid_columns:
             raise ValueError(f"Invalid order_by column: {sort_column}")
 
-        sort_col = sa.column(self._sanitize_identifier(sort_column))
-
-        # Apply cursor-based pagination with sort-column-aware filtering
-        if params.cursor:
-            try:
-                cursor_data = BaseCursorPaginator.decode_cursor(params.cursor)
-            except Exception as e:
-                raise ValueError(f"Invalid cursor: {e}") from e
-
-            cursor_id = UUID(cursor_data.id)
-
-            # Check if cursor was created with the same sort column
-            cursor_sort_value = cursor_data.sort_value
-            cursor_has_sort_value = (
-                cursor_data.sort_column == sort_column and cursor_sort_value is not None
-            )
-
-            if cursor_has_sort_value:
-                # Use sort column value for cursor filtering
-                sort_cursor_value = cursor_sort_value
-
-                # Composite filtering: (sort_col, id) matches ORDER BY
-                if sort_direction == "asc":
-                    if params.reverse:
-                        # Going backward: get records before cursor in sort order
-                        stmt = stmt.where(
-                            sa.or_(
-                                sort_col < sort_cursor_value,
-                                sa.and_(
-                                    sort_col == sort_cursor_value,
-                                    sa.column("id") < cursor_id,
-                                ),
-                            )
-                        )
-                    else:
-                        # Going forward: get records after cursor in sort order
-                        stmt = stmt.where(
-                            sa.or_(
-                                sort_col > sort_cursor_value,
-                                sa.and_(
-                                    sort_col == sort_cursor_value,
-                                    sa.column("id") > cursor_id,
-                                ),
-                            )
-                        )
-                else:
-                    # Descending order
-                    if params.reverse:
-                        # Going backward: get records after cursor in sort order
-                        stmt = stmt.where(
-                            sa.or_(
-                                sort_col > sort_cursor_value,
-                                sa.and_(
-                                    sort_col == sort_cursor_value,
-                                    sa.column("id") > cursor_id,
-                                ),
-                            )
-                        )
-                    else:
-                        # Going forward: get records before cursor in sort order
-                        stmt = stmt.where(
-                            sa.or_(
-                                sort_col < sort_cursor_value,
-                                sa.and_(
-                                    sort_col == sort_cursor_value,
-                                    sa.column("id") < cursor_id,
-                                ),
-                            )
-                        )
-
-        # Apply sorting: (sort_col, id) for stable pagination
-        # Use id as tie-breaker unless we're already sorting by id
         if sort_column == "id":
-            # No tie-breaker needed when sorting by id (already unique)
-            if sort_direction == "asc":
-                stmt = stmt.order_by(sort_col.asc())
-            else:
-                stmt = stmt.order_by(sort_col.desc())
+            sort_type: sa.types.TypeEngine = sa.Uuid()
+        elif sort_column in {"created_at", "updated_at"}:
+            sort_type = sa.TIMESTAMP(timezone=True)
         else:
-            # Add id as tie-breaker for non-unique columns
-            if sort_direction == "asc":
-                stmt = stmt.order_by(sort_col.asc(), sa.column("id").asc())
-            else:
-                stmt = stmt.order_by(sort_col.desc(), sa.column("id").desc())
+            table_column = next(
+                column for column in table.columns if column.name == sort_column
+            )
+            sort_type = self._sa_type_for_column(SqlType(table_column.type))
 
-        # Fetch limit + 1 to determine if there are more items
-        stmt = stmt.limit(params.limit + 1)
+        sort_col = sa.column(self._sanitize_identifier(sort_column), sort_type)
+        id_col = sa.column("id", sa.Uuid())
+
+        # ``reverse`` remains accepted at the service boundary for compatibility;
+        # the opaque cursor now owns scan direction.
+        if sort_column == "id":
+            if sort_direction == "asc":
+                ordering = (sort_col.asc(),)
+            else:
+                ordering = (sort_col.desc(),)
+        else:
+            if sort_direction == "asc":
+                ordering = (sort_col.asc(), id_col.asc())
+            else:
+                ordering = (sort_col.desc(), id_col.desc())
+
+        visible_names = tuple(column.name for column in visible_columns)
+
+        def build_row(values: tuple[object, ...]) -> dict[str, Any]:
+            return dict(zip(visible_names, values, strict=True))
 
         try:
-            result = await conn.execute(stmt)
-            rows = [dict(row) for row in result.mappings().all()]
+            page = await paginate(
+                self.session,
+                stmt,
+                page=PageParams(limit=params.limit, cursor=params.cursor),
+                order_by=ordering,
+                row_factory=build_row,
+            )
+        except PaginationError:
+            raise
         except ProgrammingError as e:
             while (cause := e.__cause__) is not None:
                 e = cause
@@ -1551,47 +1536,12 @@ class BaseTablesService(BaseWorkspaceService):
             )
             raise
 
-        # Check if there are more items
-        has_more = len(rows) > params.limit
-        if has_more:
-            rows = rows[: params.limit]
-        has_previous = params.cursor is not None
-
-        # Generate cursors with sort column info for proper pagination
-        next_cursor = None
-        prev_cursor = None
-
-        if rows:
-            if has_more:
-                # Generate next cursor from the last item
-                last_item = rows[-1]
-                next_cursor = BaseCursorPaginator.encode_cursor(
-                    last_item["id"],
-                    sort_column=sort_column,
-                    sort_value=last_item.get(sort_column),
-                )
-
-            if params.cursor:
-                # If we used a cursor to get here, we can go back
-                first_item = rows[0]
-                prev_cursor = BaseCursorPaginator.encode_cursor(
-                    first_item["id"],
-                    sort_column=sort_column,
-                    sort_value=first_item.get(sort_column),
-                )
-
-        # If we were doing reverse pagination, swap the cursors and reverse items
-        if params.reverse:
-            rows = list(reversed(rows))
-            next_cursor, prev_cursor = prev_cursor, next_cursor
-            has_more, has_previous = has_previous, has_more
-
         return CursorPaginatedResponse(
-            items=rows,
-            next_cursor=next_cursor,
-            prev_cursor=prev_cursor,
-            has_more=has_more,
-            has_previous=has_previous,
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
         )
 
     async def batch_insert_rows(

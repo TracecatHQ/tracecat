@@ -27,6 +27,35 @@ TRACECAT__DISABLE_NSJAIL = os.environ.get(
 ).lower() in ("true", "1")
 """Disable nsjail sandbox and use the unsafe PID executor instead."""
 
+_AGENT_RUNTIME_UV_PATH_ENV_VARS = (
+    ("UV_CACHE_DIR", "cache"),
+    ("UV_CREDENTIALS_DIR", "credentials"),
+    ("UV_PYTHON_INSTALL_DIR", "python"),
+    ("UV_PYTHON_BIN_DIR", "bin"),
+    ("UV_PYTHON_CACHE_DIR", "python-cache"),
+    ("UV_TOOL_DIR", "tools"),
+    ("UV_TOOL_BIN_DIR", "bin"),
+)
+
+AGENT_RUNTIME_PROTECTED_ENV_VARS = frozenset(
+    {
+        "UV_LINK_MODE",
+        *(key for key, _relative_path in _AGENT_RUNTIME_UV_PATH_ENV_VARS),
+    }
+)
+"""Environment variables reserved for Tracecat's agent runtime isolation."""
+
+
+def build_agent_runtime_uv_env(uv_state_dir: Path) -> dict[str, str]:
+    """Build job-scoped environment settings for UV-managed runtime storage."""
+    env = {
+        key: str(uv_state_dir / relative_path)
+        for key, relative_path in _AGENT_RUNTIME_UV_PATH_ENV_VARS
+    }
+    env["UV_LINK_MODE"] = "copy"
+    return env
+
+
 # === Well-known runtime paths (internal to agent worker) === #
 
 AGENT_RUNTIME_DIR = Path("/run/tracecat")
@@ -57,6 +86,12 @@ LLM_SOCKET_NAME = "llm.sock"
 JAILED_LLM_SOCKET_PATH = AGENT_RUNTIME_DIR / "llm.sock"
 """Path to the LLM socket inside the jail."""
 
+OTEL_SOCKET_NAME = "otel.sock"
+"""Name of the per-job Agent OTel relay socket."""
+
+JAILED_OTEL_SOCKET_PATH = Path("/var/run/tracecat/otel.sock")
+"""Path to the Agent OTel relay socket inside the jail."""
+
 # === Runtime socket overrides (primarily for direct subprocess mode) === #
 #
 # In NSJail mode, the orchestrator mounts per-job sockets into the jailed paths above.
@@ -73,6 +108,11 @@ TRACECAT__AGENT_LLM_SOCKET_PATH = Path(
     os.environ.get("TRACECAT__AGENT_LLM_SOCKET_PATH", str(JAILED_LLM_SOCKET_PATH))
 )
 """Path to the orchestrator LLM socket for the runtime bridge to connect to."""
+
+TRACECAT__AGENT_OTEL_SOCKET_PATH = Path(
+    os.environ.get("TRACECAT__AGENT_OTEL_SOCKET_PATH", str(JAILED_OTEL_SOCKET_PATH))
+)
+"""Path to the orchestrator OTel relay socket for the runtime bridge to connect to."""
 
 # === Managed LiteLLM defaults === #
 

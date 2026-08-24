@@ -845,7 +845,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         await self.session.commit()
 
     @require_scope("workflow:create")
-    @audit_log(resource_type="workflow", action="create")
+    @audit_log(resource_type="workflow", action="create", resource_id_attr="id")
     async def create_workflow(self, params: WorkflowCreate) -> Workflow:
         """Create a new workflow."""
         now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
@@ -1487,6 +1487,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 commit=False,
             )
             await self.session.commit()
+            # Keep server-generated fields loaded for response serialization.
+            await self.session.refresh(workflow)
         return workflow
 
     @require_scope("workflow:create")
@@ -1588,6 +1590,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 start_delay=act_stmt.start_delay,
                 wait_until=act_stmt.wait_until,
                 join_strategy=act_stmt.join_strategy,
+                environment=act_stmt.environment,
                 mask_output=act_stmt.mask_output,
             )
             pos = (action_positions or {}).get(act_stmt.ref)

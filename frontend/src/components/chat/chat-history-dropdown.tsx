@@ -27,6 +27,18 @@ import { getDisplayName } from "@/lib/auth"
 
 export type ChatHistoryScope = "team" | "mine"
 
+const COMMENT_AGENT_SESSION_BADGE = "From comment"
+
+function isCommentAgentSession(
+  chat: AgentSessionsListSessionsResponse[number]
+): boolean {
+  return (
+    "created_by" in chat &&
+    chat.entity_type === "case" &&
+    chat.channel_context?.session_origin === "case_comment"
+  )
+}
+
 interface ChatHistoryDropdownProps {
   chats: AgentSessionsListSessionsResponse | undefined
   isLoading: boolean
@@ -123,7 +135,10 @@ export function ChatHistoryDropdown({
 
               const createdBy =
                 "created_by" in chat ? chat.created_by : chat.user_id
-              return `${chat.title} ${chat.id} ${creatorLabel(createdBy)}`
+              const origin = isCommentAgentSession(chat)
+                ? COMMENT_AGENT_SESSION_BADGE
+                : ""
+              return `${chat.title} ${chat.id} ${creatorLabel(createdBy)} ${origin}`
                 .toLowerCase()
                 .includes(normalizedSearch)
                 ? 1
@@ -152,6 +167,14 @@ export function ChatHistoryDropdown({
                           {chat.title}
                         </span>
                         <ChatLastErrorIndicator session={chat} />
+                        {isCommentAgentSession(chat) ? (
+                          <Badge
+                            variant="secondary"
+                            className="shrink-0 px-1.5 py-0 text-[10px] font-normal"
+                          >
+                            {COMMENT_AGENT_SESSION_BADGE}
+                          </Badge>
+                        ) : null}
                         {chat.is_readonly ? (
                           <Badge
                             variant="outline"

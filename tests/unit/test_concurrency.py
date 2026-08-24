@@ -10,6 +10,7 @@ from tracecat.concurrency import (
     apartial,
     cooperative,
     cooperative_every,
+    rejoin_future_through_cancellation,
 )
 
 
@@ -585,3 +586,57 @@ async def test_cooperative_exception_during_sleep():
     assert len(result) >= 1
     assert result[0] == 1
     assert len(result) <= 2  # At most 2 items before exception
+
+
+@pytest.mark.anyio
+async def test_rejoin_future_finishes_through_repeated_cancellation() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def operation() -> None:
+        started.set()
+        await release.wait()
+        finished.set()
+
+    operation_task = asyncio.create_task(operation())
+    joining_task = asyncio.create_task(
+        rejoin_future_through_cancellation(operation_task)
+    )
+    await started.wait()
+
+    joining_task.cancel()
+    await asyncio.sleep(0)
+    joining_task.cancel()
+    await asyncio.sleep(0)
+    assert not joining_task.done()
+
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await joining_task
+    assert finished.is_set()
+
+
+@pytest.mark.anyio
+async def test_rejoin_future_chains_cleanup_failure_from_cancellation() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    cleanup_error = RuntimeError("cleanup failed")
+
+    async def operation() -> None:
+        started.set()
+        await release.wait()
+        raise cleanup_error
+
+    operation_task = asyncio.create_task(operation())
+    joining_task = asyncio.create_task(
+        rejoin_future_through_cancellation(operation_task)
+    )
+    await started.wait()
+
+    joining_task.cancel()
+    await asyncio.sleep(0)
+    release.set()
+    with pytest.raises(asyncio.CancelledError) as raised:
+        await joining_task
+    assert raised.value.__cause__ is cleanup_error

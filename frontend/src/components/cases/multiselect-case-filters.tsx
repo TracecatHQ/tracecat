@@ -1,9 +1,10 @@
 "use client"
 
-import { Check, ChevronsUpDown } from "lucide-react"
+import { ChevronsUpDown } from "lucide-react"
 import { type ComponentType, type ReactNode, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { CheckIndicator } from "@/components/ui/check-indicator"
 import {
   Command,
   CommandEmpty,
@@ -99,7 +100,7 @@ export function CaseFilterMultiSelect<T extends string>({
                   <CommandItem
                     key={option.value}
                     value={`${option.label} ${option.value}`}
-                    className="flex items-center gap-2 text-xs"
+                    className="group flex items-center gap-2 text-xs"
                     onSelect={() => {
                       const nextValue = isSelected
                         ? value.filter((item) => item !== option.value)
@@ -108,19 +109,7 @@ export function CaseFilterMultiSelect<T extends string>({
                       setOpen(true)
                     }}
                   >
-                    <div
-                      className={cn(
-                        "mr-2 flex size-4 items-center justify-center rounded-sm border",
-                        isSelected
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-muted text-muted-foreground"
-                      )}
-                    >
-                      <Check
-                        className={cn("size-3", !isSelected && "opacity-0")}
-                        aria-hidden
-                      />
-                    </div>
+                    <CheckIndicator checked={isSelected} />
                     {Icon ? (
                       <Icon
                         className={cn(

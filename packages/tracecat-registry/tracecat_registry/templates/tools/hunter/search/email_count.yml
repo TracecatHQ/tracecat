@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Email count
+  description: Count email addresses. Calls GET /v2/email-count directly.
+  display_group: Hunter.io
+  doc_url: https://hunter.io/api-documentation#email-count
+  namespace: tools.hunter
+  name: email_count
+  secrets:
+    - name: hunter
+      keys: ["HUNTER_API_KEY"]
+  expects:
+    domain:
+      type: str | None
+      description: The domain name for which you want to know how many email addresses we have. Required unless company is provided.
+      default: null
+    company:
+      type: str | None
+      description: The company name for which you want to know how many email addresses we have. For example, "stripe". Note that you'll get better results by supplying the domain name as we won't have to find it. If you send a request with both the domain and the company name, we'll use the domain name. It doesn't need to be in lowercase. It must be composed of at least 3 characters. Required unless domain is provided.
+      default: null
+    type:
+      type: str | None
+      description: Get the count of only `personal` or `generic` email addresses.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Hunter API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hunter.base_url || "https://api.hunter.io" }}/v2/email-count
+        method: GET
+        headers:
+          Accept: application/json
+          X-API-KEY: ${{ SECRETS.hunter.HUNTER_API_KEY }}
+        params:
+          domain: ${{ inputs.domain }}
+          company: ${{ inputs.company }}
+          type: ${{ inputs.type }}
+  returns: ${{ steps.request.result }}

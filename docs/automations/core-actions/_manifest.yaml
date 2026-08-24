@@ -1,14 +1,95 @@
 pages:
   - slug: request-actions/http
     title: HTTP
+    imports: |
+      import OAuthTokenExpressions from "/snippets/oauth-token-expressions.mdx";
+    info: |
+      Connect to any REST API with the `core.http_request`, `core.http_poll`, and
+      `core.http_paginate` actions.
+
+      ## Authentication
+
+      Authenticate requests with an API key or a managed OAuth access token.
+
+      ### API keys
+
+      Store API keys and static tokens as
+      [Secrets](/automations/core-concepts/secrets), then add the secret to
+      `headers`.
+
+      Pass a secret as a bearer token:
+
+      ```yaml
+      headers:
+        Authorization: Bearer ${{ SECRETS.<secret_name>.<SECRET_KEY> }}
+      ```
+
+      If the API expects a dedicated key header, use the same expression:
+
+      ```yaml
+      headers:
+        X-API-Key: ${{ SECRETS.<secret_name>.<SECRET_KEY> }}
+      ```
+
+      ### OAuth
+
+      Connect an [OAuth integration](/automations/integrations/oauth-integrations),
+      then pass its managed access token as a bearer token.
+
+      <OAuthTokenExpressions />
     actions:
       - id: core.http_request
         examples:
           - http-request-basic
       - id: core.http_poll
+        info: |
+          ### Poll condition examples
+
+          `poll_condition` receives a response with `data`, `status_code`, and
+          `headers`. The action stops polling when the lambda returns `True`.
+
+          Prefer `!=` over a single success check when the API has exactly one
+          nonterminal state. Default a missing status to that state so a transient
+          response does not stop polling:
+
+          ```python
+          lambda response: response["data"].get("status", "processing") != "processing"
+          ```
+
+          This stops on failures and cancellations that a positive
+          `status == "completed"` check would miss.
+
+          If the API also uses nonterminal states such as `queued` or `pending`,
+          list its terminal states with `in`:
+
+          ```python
+          lambda response: response["data"].get("status") in ["completed", "failed", "cancelled"]
+          ```
+
+          Keep `poll_max_attempts` above `0` to prevent indefinite polling if the
+          condition never matches.
+
+          Stop on an HTTP status code:
+
+          ```python
+          lambda response: response["status_code"] == 200
+          ```
+
+          Stop when a response header has the expected value:
+
+          ```python
+          lambda response: response["headers"].get("x-status") == "completed"
+          ```
         examples:
           - http-poll-job
       - id: core.http_paginate
+        info: |
+          <Tip>
+            For large lists, request a bounded page and process each batch in a
+            [While loop](/automations/core-actions/workflow-actions/while-loops)
+            until the API returns no next cursor or no items. This avoids returning
+            the full dataset at once.
+          </Tip>
         examples:
           - http-paginate-results
 

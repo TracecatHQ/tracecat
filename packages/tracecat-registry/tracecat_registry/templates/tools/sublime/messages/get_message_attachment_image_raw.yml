@@ -11,8 +11,11 @@ definition:
       keys: ["SUBLIME_API_KEY"]
   expects:
     payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
       type: dict[str, Any]
-      description: API-native JSON request body.
+      description: >-
+        API-native request body. Documented fields: raw (required), file_type.
     base_url:
       type: str | None
       description: Base URL of the Sublime API.

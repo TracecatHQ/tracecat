@@ -10,9 +10,45 @@ definition:
     - name: elastic_security
       keys: ["ELASTIC_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: Optional native Kibana query parameters.
+    page:
+      type: int | None
+      description: The page number to return.
+      default: null
+    pageSize:
+      type: int | None
+      description: The number of response actions to return per page.
+      default: null
+    commands:
+      type: list[str] | None
+      description: A list of response action command names to filter by. Allowed values are `isolate`, `unisolate`, `kill-process`, `suspend-process`, `running-processes`, `get-file`, `execute`, `upload`, `scan`, `runscript`, `cancel`, `memory-dump`.
+      default: null
+    agentIds:
+      type: list[str] | None
+      description: A list of Elastic Agent IDs to filter the response actions by.
+      default: null
+    userIds:
+      type: list[str] | None
+      description: A list of user IDs that submitted the response actions.
+      default: null
+    startDate:
+      type: str | None
+      description: A start date in ISO 8601 format or Date Math format (for example, `now-24h`).
+      default: null
+    endDate:
+      type: str | None
+      description: An end date in ISO 8601 format or Date Math format (for example, `now`).
+      default: null
+    agentTypes:
+      type: str | None
+      description: The agent type to filter response actions by. Defaults to `endpoint`. Allowed values are `endpoint`, `sentinel_one`, `crowdstrike`, `microsoft_defender_endpoint`.
+      default: null
+    withOutputs:
+      type: list[str] | None
+      description: A list of response action IDs whose outputs should be included in the response.
+      default: null
+    types:
+      type: list[str] | None
+      description: A list of response action types to filter by (`automated`, `manual`).
       default: null
     base_url:
       type: str | None
@@ -45,7 +81,17 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          page: ${{ inputs.page }}
+          pageSize: ${{ inputs.pageSize }}
+          commands: ${{ inputs.commands }}
+          agentIds: ${{ inputs.agentIds }}
+          userIds: ${{ inputs.userIds }}
+          startDate: ${{ inputs.startDate }}
+          endDate: ${{ inputs.endDate }}
+          agentTypes: ${{ inputs.agentTypes }}
+          withOutputs: ${{ inputs.withOutputs }}
+          types: ${{ inputs.types }}
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}

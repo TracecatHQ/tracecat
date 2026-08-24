@@ -1,10 +1,10 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import {
   type OrgPendingInvitationRead,
   organizationListMyPendingInvitations,
 } from "@/client"
+import { useQuery } from "@/lib/query"
 
 export function usePendingOrgInvitations() {
   const {

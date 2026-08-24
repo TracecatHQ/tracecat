@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Get certificate raw
+  description: >-
+    Get a raw certificate. Calls GET
+    /v3/global/asset/certificate/{certificate_id}/raw directly.
+  display_group: Censys
+  doc_url: https://docs.censys.com/reference/v3-globaldata-asset-certificate-raw
+  namespace: tools.censys
+  name: get_certificate_raw
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_TOKEN"]
+  expects:
+    certificate_id:
+      type: str
+      description: The SHA-256 certificate fingerprint.
+    organization_id:
+      type: str | None
+      description: The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Censys Platform API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.censys.base_url || "https://api.platform.censys.io" }}/v3/global/asset/certificate/${{ FN.url_encode(inputs.certificate_id) }}/raw
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
+          Accept: application/x-pem-file
+        params:
+          organization_id: ${{ inputs.organization_id }}
+  returns: ${{ steps.request.result }}
