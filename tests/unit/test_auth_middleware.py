@@ -294,6 +294,49 @@ async def test_authenticate_user_only_invalidates_scope_cache_when_defaults_chan
 
 
 @pytest.mark.anyio
+async def test_authenticate_user_does_not_enroll() -> None:
+    """The auth path leaves enrollment to provisioning or invitation."""
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+    user = MagicMock(spec=User)
+    user.id = uuid.uuid4()
+    user.is_superuser = False
+    session = AsyncMock()
+
+    defaults = AsyncMock(
+        return_value=SingleTenantUserDefaultsResult(
+            organization_id=None,
+            changed=False,
+        )
+    )
+    with (
+        patch(
+            "tracecat.auth.credentials.ensure_single_tenant_user_defaults_for_session",
+            new=defaults,
+        ),
+        patch(
+            "tracecat.auth.credentials._resolve_org_for_regular_user",
+            new=AsyncMock(return_value=uuid.uuid4()),
+        ),
+        patch(
+            "tracecat.auth.credentials.compute_effective_scopes",
+            new=AsyncMock(return_value=frozenset()),
+        ),
+        patch("tracecat.auth.credentials.set_rls_context", new=AsyncMock()),
+    ):
+        await _authenticate_user(
+            request=request,
+            session=session,
+            user=user,
+            workspace_id=None,
+        )
+
+    assert defaults.await_args is not None
+    assert defaults.await_args.kwargs.get("allow_new_members", False) is False
+
+
+@pytest.mark.anyio
 async def test_role_dependency_resolves_superuser_workspace_membership_without_platform_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

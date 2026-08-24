@@ -52,6 +52,7 @@ class AdminUserService(BasePlatformService):
                 session=self.session,
                 user_id=user.id,
                 is_superuser=user.is_superuser,
+                allow_new_members=True,
             )
             await self.session.commit()
         except IntegrityError as e:
@@ -94,6 +95,7 @@ class AdminUserService(BasePlatformService):
             session=self.session,
             user_id=user.id,
             is_superuser=user.is_superuser,
+            allow_new_members=True,
         )
         await self.session.commit()
         await self.session.refresh(user)
