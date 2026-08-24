@@ -63,6 +63,20 @@ async def list_files(
             description="Fields to return (e.g., 'files(id,name,mimeType)' or '*' for all)",
         ),
     ] = "*",
+    include_shared_drives: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="Include files from Shared Drives (sets supportsAllDrives and includeItemsFromAllDrives).",
+        ),
+    ] = False,
+    drive_id: Annotated[
+        str,
+        Field(
+            default="",
+            description="Optional Shared Drive ID to scope the search to a single Shared Drive. Implies include_shared_drives.",
+        ),
+    ] = "",
 ) -> dict[str, Any]:
     """
     List and search files in Google Drive.
@@ -74,6 +88,12 @@ async def list_files(
     - 'me' in owners - Files you own
     - modifiedTime > '2024-01-01' - Recently modified
     - trashed = false - Not in trash
+
+    Shared Drives:
+    - Set include_shared_drives=true to reach files in any Shared Drive
+      the user has access to.
+    - Set drive_id to scope the search to one specific Shared Drive
+      (automatically enables include_shared_drives).
 
     Returns the full API response including files array and nextPageToken.
     """
@@ -87,6 +107,12 @@ async def list_files(
         }
         if query:
             params["q"] = query
+        if include_shared_drives or drive_id:
+            params["supportsAllDrives"] = "true"
+            params["includeItemsFromAllDrives"] = "true"
+        if drive_id:
+            params["corpora"] = "drive"
+            params["driveId"] = drive_id
 
         response = await client.get(
             "https://www.googleapis.com/drive/v3/files",
