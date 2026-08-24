@@ -18,6 +18,7 @@ from tracecat.cases.rows import router as case_rows_router
 from tracecat.cases.tag_definitions import router as case_tag_definitions_router
 from tracecat.cases.tags import internal_router as internal_case_tags_router
 from tracecat.cases.tags import router as case_tags_router
+from tracecat.cases.versions import router as case_versions_router
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.inbox import router as inbox_router
@@ -361,6 +362,21 @@ async def test_workspace_collection_scope_guards(endpoint: AsyncEndpoint) -> Non
     ],
 )
 async def test_case_duration_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (case_versions_router.list_case_versions, "case:read"),
+        (case_versions_router.compare_case_version, "case:read"),
+        (case_versions_router.restore_case_version, "case:update"),
+    ],
+)
+async def test_case_version_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
