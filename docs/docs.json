@@ -50,6 +50,7 @@
                 "pages": [
                   "automations/triggers/webhooks",
                   "automations/triggers/schedules",
+                  "automations/triggers/workflows-as-apis",
                   "automations/triggers/error-workflows",
                   "automations/triggers/case-triggers",
                   "automations/triggers/task-triggers",
@@ -159,6 +160,7 @@
             "group": "Integrations",
             "icon": "wrench",
             "pages": [
+              "integrations/overview",
               "tools/abuseipdb",
               "tools/alertmedia",
               "tools/amazon_s3",

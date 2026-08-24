@@ -358,18 +358,25 @@ def _update_tools_nav(doc: dict[str, Any], tool_pages: list[str]) -> None:
         raise ValueError("docs.json is missing `navigation.tabs`.")
 
     for tab in tabs:
-        if not isinstance(tab, dict) or tab.get("tab") != "Tools":
+        if not isinstance(tab, dict) or tab.get("tab") != "Integrations":
             continue
         groups = tab.get("groups")
         if not isinstance(groups, list):
-            raise ValueError("The Tools tab is missing `groups`.")
+            raise ValueError("The Integrations tab is missing `groups`.")
         for group in groups:
-            if not isinstance(group, dict) or group.get("group") != "Tools":
+            if not isinstance(group, dict) or group.get("group") != "Integrations":
                 continue
-            group["pages"] = tool_pages
+            # Keep hand-authored pages (such as the overview) ahead of the
+            # generated tool namespace pages instead of overwriting them.
+            preserved = [
+                page
+                for page in group.get("pages", [])
+                if isinstance(page, str) and not page.startswith("tools/")
+            ]
+            group["pages"] = preserved + tool_pages
             return
 
-    raise ValueError("Could not find navigation entry for the Tools tab.")
+    raise ValueError("Could not find navigation entry for the Integrations tab.")
 
 
 def _dump_docs_json(doc: dict[str, Any]) -> str:
