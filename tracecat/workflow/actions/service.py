@@ -3,12 +3,15 @@ from collections.abc import Sequence
 from sqlalchemy import column, delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 
+from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Action, Workflow
+from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import Position
 from tracecat.identifiers import ActionID, WorkflowID, WorkflowUUID
 from tracecat.service import BaseWorkspaceService
 from tracecat.workflow.actions.schemas import (
+    ActionControlFlow,
     ActionCreate,
     ActionPositionUpdate,
     ActionUpdate,
@@ -41,6 +44,13 @@ class WorkflowActionService(BaseWorkspaceService):
 
     @require_scope("workflow:create")
     async def create_action(self, params: ActionCreate) -> Action:
+        control_flow = params.control_flow or ActionControlFlow()
+        if PlatformAction.is_agent(params.type) and (
+            "timeout" not in control_flow.retry_policy.model_fields_set
+        ):
+            # New agent actions persist the deployment default explicitly so
+            # the stored value always matches what executes.
+            control_flow.retry_policy.timeout = clamp_agent_timeout_seconds(None)
         action = Action(
             workspace_id=self.workspace_id,
             workflow_id=WorkflowUUID.new(params.workflow_id),
@@ -48,9 +58,7 @@ class WorkflowActionService(BaseWorkspaceService):
             title=params.title,
             description=params.description,
             inputs=params.inputs,
-            control_flow=params.control_flow.model_dump()
-            if params.control_flow
-            else {},
+            control_flow=control_flow.model_dump(),
             is_interactive=params.is_interactive,
             interaction=params.interaction.model_dump() if params.interaction else None,
             position_x=params.position_x,

@@ -3,8 +3,7 @@ from typing import cast
 from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError
 
-from tracecat import config
-from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
+from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -75,30 +74,32 @@ async def list_actions(
     ]
 
 
-def _validate_agent_timeout_bounds(
+def _clamp_agent_timeout(
     action_type: str, control_flow: ActionControlFlow | None
 ) -> None:
-    """Reject out-of-bounds agent timeouts on the authoring surface.
+    """Normalize agent timeouts to the deployment bounds at write time.
 
-    Import, sync, and legacy-row paths clamp silently instead (see
-    ``ActionStatement.apply_agent_timeout_policy``); this guard exists so the
-    builder tells the author at write time rather than running a different
-    value than they typed.
+    Expand phase of a staged rollout: out-of-bounds values are clamped and
+    persisted (stored always equals executed) and the event is logged. A
+    follow-up flips this to a 422 once telemetry shows no legitimate writer
+    hits the clamp. Import, sync, and legacy rows clamp at parse time instead.
     """
     if control_flow is None or not PlatformAction.is_agent(action_type):
         return
     retry_policy = control_flow.retry_policy
-    if "timeout" not in retry_policy.model_fields_set:
-        return
-    ceiling = config.TRACECAT__AGENT_SANDBOX_TIMEOUT
-    floor = min(AGENT_TIMEOUT_SECONDS_DEFAULT, ceiling)
-    if not (floor <= retry_policy.timeout <= ceiling):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Agent action timeout must be between {floor} and {ceiling} seconds."
-            ),
+    explicit = "timeout" in retry_policy.model_fields_set
+    clamped = clamp_agent_timeout_seconds(retry_policy.timeout if explicit else None)
+    if explicit and clamped != retry_policy.timeout:
+        logger.info(
+            "Clamped agent action timeout at write",
+            action_type=action_type,
+            requested=retry_policy.timeout,
+            clamped=clamped,
         )
+    # Always assign: an omitted timeout (cleared field) resets to the
+    # deployment default explicitly, so a sparse retry_policy can never be
+    # persisted and re-inflated as the generic 300s on read.
+    retry_policy.timeout = clamped
 
 
 @router.post("")
@@ -113,7 +114,7 @@ async def create_action(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
-    _validate_agent_timeout_bounds(params.type, params.control_flow)
+    _clamp_agent_timeout(params.type, params.control_flow)
     svc = WorkflowActionService(session, role=role)
     try:
         action = await svc.create_action(params)
@@ -221,7 +222,7 @@ async def update_action(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
-    _validate_agent_timeout_bounds(action.type, params.control_flow)
+    _clamp_agent_timeout(action.type, params.control_flow)
     action = await svc.update_action(action, params)
     return ActionRead.model_validate(action)
 
