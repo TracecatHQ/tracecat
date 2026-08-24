@@ -1,0 +1,32 @@
+docs/automations/triggers/workflows-as-apis.mdx
+  s_7116d66917ac71::t_be3a20f949846d 1-69
+docs/automations/triggers/webhooks.mdx
+  s_7116d66917ac71::t_cbe432019792fb 57
+docs/snippets/core-actions-pointer.mdx
+  s_7116d66917ac71::t_20aa8ab9f9b262 4
+docs/docs.json
+  s_7116d66917ac71::t_bdd9d79b441e13 163
+  s_7116d66917ac71::t_f9e79785100ca0 53
+scripts/generate_tool_docs.py
+  s_7116d66917ac71::t_cd7252be3f7ad6 361,365,367,369-376,379
+docs/integrations/overview.mdx
+  s_7116d66917ac71::t_93013d05dba8cb 14
+  s_7116d66917ac71::t_3282911e3bd5ab 1-7,9-13,15-23
+  s_7116d66917ac71::t_6ebaca3cb1f5d3 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "fa35fcfa373cf594fa6dbbf7020ebafae55dc443",
+  "prompts": {},
+  "sessions": {
+    "s_7116d66917ac71": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "046897f4-fb32-4be0-961f-5f1d37da4dc9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
