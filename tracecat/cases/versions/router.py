@@ -19,7 +19,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, PageParams
 
-router = APIRouter(prefix="/{case_id}/versions")
+router = APIRouter(prefix="/cases/{case_id}/versions", tags=["cases"])
 
 
 @router.get(

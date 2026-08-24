@@ -13204,42 +13204,6 @@ export type CasesBatchDeleteCasesData = {
 
 export type CasesBatchDeleteCasesResponse = CaseBatchResponse
 
-export type CasesListCaseVersionsData = {
-  caseId: string
-  /**
-   * Cursor for pagination
-   */
-  cursor?: string | null
-  /**
-   * Optionally include only summary or description versions
-   */
-  field?: CaseVersionField | null
-  /**
-   * Maximum items per page
-   */
-  limit?: number
-  workspaceId: string
-}
-
-export type CasesListCaseVersionsResponse =
-  CursorPaginatedResponse_CaseVersionReadMinimal_
-
-export type CasesCompareCaseVersionData = {
-  caseId: string
-  versionId: string
-  workspaceId: string
-}
-
-export type CasesCompareCaseVersionResponse = CaseVersionCompareRead
-
-export type CasesRestoreCaseVersionData = {
-  caseId: string
-  versionId: string
-  workspaceId: string
-}
-
-export type CasesRestoreCaseVersionResponse = CaseVersionRestoreRead
-
 export type CasesGetCaseData = {
   caseId: string
   /**
@@ -13343,6 +13307,42 @@ export type CasesDeleteTaskData = {
 }
 
 export type CasesDeleteTaskResponse = void
+
+export type CasesListCaseVersionsData = {
+  caseId: string
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  /**
+   * Optionally include only summary or description versions
+   */
+  field?: CaseVersionField | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type CasesListCaseVersionsResponse =
+  CursorPaginatedResponse_CaseVersionReadMinimal_
+
+export type CasesCompareCaseVersionData = {
+  caseId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type CasesCompareCaseVersionResponse = CaseVersionCompareRead
+
+export type CasesRestoreCaseVersionData = {
+  caseId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type CasesRestoreCaseVersionResponse = CaseVersionRestoreRead
 
 export type CasesListCaseRowsData = {
   caseId: string
@@ -19117,51 +19117,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workspaces/{workspace_id}/cases/{case_id}/versions": {
-    get: {
-      req: CasesListCaseVersionsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CursorPaginatedResponse_CaseVersionReadMinimal_
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/cases/{case_id}/versions/{version_id}/compare": {
-    get: {
-      req: CasesCompareCaseVersionData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CaseVersionCompareRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/cases/{case_id}/versions/{version_id}/restore": {
-    post: {
-      req: CasesRestoreCaseVersionData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CaseVersionRestoreRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/workspaces/{workspace_id}/cases/{case_id}": {
     get: {
       req: CasesGetCaseData
@@ -19338,6 +19293,51 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/versions": {
+    get: {
+      req: CasesListCaseVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_CaseVersionReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/versions/{version_id}/compare": {
+    get: {
+      req: CasesCompareCaseVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseVersionCompareRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/versions/{version_id}/restore": {
+    post: {
+      req: CasesRestoreCaseVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseVersionRestoreRead
         /**
          * Validation Error
          */

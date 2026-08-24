@@ -63,7 +63,6 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.cases.versions.router import router as case_versions_router
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -549,9 +548,6 @@ async def batch_delete_cases(
             status_code=HTTP_409_CONFLICT,
             detail=exc.detail or str(exc),
         ) from exc
-
-
-cases_router.include_router(case_versions_router)
 
 
 @cases_router.get("/{case_id}")
