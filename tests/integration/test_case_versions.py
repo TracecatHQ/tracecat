@@ -417,10 +417,12 @@ async def test_restore_case_version_is_scoped_append_only_and_atomic(
     )
     assert event_count_before is not None
 
-    restored = await service.restore_version(
-        case_id=case.id,
-        version_id=summary_v1.id,
-    )
+    with patch.object(service, "get_case", new=AsyncMock()) as mock_get_case:
+        restored = await service.restore_version(
+            case_id=case.id,
+            version_id=summary_v1.id,
+        )
+    mock_get_case.assert_not_awaited()
     assert restored.restored is True
     assert restored.field == CaseVersionField.SUMMARY
 

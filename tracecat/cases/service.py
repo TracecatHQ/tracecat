@@ -979,7 +979,7 @@ class CasesService(BaseWorkspaceService):
         version_id: uuid.UUID,
     ) -> CaseVersionRestoreRead:
         """Restore one scoped field version through the normal update transaction."""
-        case = await self.get_case(case_id, for_update=True)
+        case = (await self._lock_cases([case_id])).get(case_id)
         if case is None:
             raise TracecatNotFoundError(f"Case '{case_id}' not found")
 
