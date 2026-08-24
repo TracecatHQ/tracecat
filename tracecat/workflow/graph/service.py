@@ -13,9 +13,11 @@ from sqlalchemy import column, delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import selectinload
 
+from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.db.models import Action, Workflow
+from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -50,6 +52,23 @@ class EdgeDedupKey:
     source_id: str
     source_type: EdgeSourceType
     source_handle: EdgeHandle | None
+
+
+def _normalize_agent_control_flow(
+    action_type: str, control_flow: dict[str, Any]
+) -> dict[str, Any]:
+    """Persist agent timeouts already normalized so stored always equals
+    executed, regardless of which write surface supplied the value. Absent
+    or malformed timeouts get the deployment default; explicit values clamp
+    to the deployment bounds. Non-agent actions pass through untouched."""
+    if not PlatformAction.is_agent(action_type):
+        return control_flow
+    retry_policy = dict(control_flow.get("retry_policy") or {})
+    timeout = retry_policy.get("timeout")
+    retry_policy["timeout"] = clamp_agent_timeout_seconds(
+        timeout if isinstance(timeout, int) and not isinstance(timeout, bool) else None
+    )
+    return {**control_flow, "retry_policy": retry_policy}
 
 
 class WorkflowGraphService(BaseWorkspaceService):
@@ -275,6 +294,9 @@ class WorkflowGraphService(BaseWorkspaceService):
 
     async def _add_node(self, workflow: Workflow, payload: AddNodePayload) -> None:
         """Add a new action node."""
+        control_flow = _normalize_agent_control_flow(
+            payload.type, dict(payload.control_flow or {})
+        )
         action = Action(
             workspace_id=self.workspace_id,
             workflow_id=workflow.id,
@@ -282,7 +304,7 @@ class WorkflowGraphService(BaseWorkspaceService):
             title=payload.title,
             description=payload.description or "",
             inputs=payload.inputs or "",
-            control_flow=payload.control_flow or {},
+            control_flow=control_flow,
             position_x=payload.position_x,
             position_y=payload.position_y,
             upstream_edges=[],  # New nodes start as entrypoints
@@ -307,6 +329,19 @@ class WorkflowGraphService(BaseWorkspaceService):
 
         if not update_values:
             return
+
+        if "control_flow" in update_values:
+            action_type = await self.session.scalar(
+                select(Action.type).where(
+                    Action.workspace_id == self.workspace_id,
+                    Action.workflow_id == workflow.id,
+                    Action.id == payload.action_id,
+                )
+            )
+            if action_type is not None:
+                update_values["control_flow"] = _normalize_agent_control_flow(
+                    action_type, update_values["control_flow"]
+                )
 
         stmt = (
             update(Action)

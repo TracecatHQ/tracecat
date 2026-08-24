@@ -104,6 +104,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ChatMessage
+from tracecat.config import TRACECAT__AGENT_SANDBOX_TIMEOUT
 from tracecat.db.models import AgentSessionHistory, User
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.schemas import RunActionInput
@@ -819,6 +820,123 @@ async def test_agent_workflow_simple_execution(
         assert result.message_history == session_messages
 
     assert [input.session_id for input in message_load_inputs] == [mock_session_id]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("configured_timeout_seconds", "expected_timeout_seconds"),
+    [(None, None), (TRACECAT__AGENT_SANDBOX_TIMEOUT, TRACECAT__AGENT_SANDBOX_TIMEOUT)],
+)
+async def test_agent_workflow_approval_continuation_gets_fresh_timeout_window(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_config_with_approvals: AgentConfig,
+    mock_session_id: uuid.UUID,
+    test_user: User,
+    configured_timeout_seconds: int | None,
+    expected_timeout_seconds: int | None,
+) -> None:
+    """Each continuous execution window receives the configured timeout."""
+    del test_user
+    queue = f"test-agent-timeout-window-{mock_session_id}"
+    approval_request_recorded = asyncio.Event()
+    approval_done_emitted = asyncio.Event()
+    executor_inputs: list[AgentExecutorInput] = []
+
+    def timed_executor(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        executor_inputs.append(input)
+        if call_count == 0:
+            assert input.timeout_seconds == expected_timeout_seconds
+            return AgentExecutorResult(
+                success=True,
+                approval_requested=True,
+                approval_items=[
+                    ToolCallContent(
+                        id="call-timeout-boundary",
+                        name="core__http_request",
+                        input={"url": "https://example.com", "method": "GET"},
+                    )
+                ],
+            )
+
+        assert input.timeout_seconds == expected_timeout_seconds
+        return AgentExecutorResult(
+            success=True,
+            output={"status": "completed-after-approval"},
+        )
+
+    @activity.defn(name="emit_session_error")
+    async def mock_emit_session_error(input: EmitSessionErrorInputs) -> None:
+        del input
+
+    @activity.defn(name="record_approval_requests")
+    async def mock_record_approval_requests(input: Any) -> None:
+        del input
+        approval_request_recorded.set()
+
+    @activity.defn(name="apply_approval_decisions")
+    async def mock_apply_approval_decisions(input: Any) -> None:
+        del input
+
+    activities = [
+        create_mock_create_session_activity(),
+        create_mock_load_session_activity(),
+        create_mock_load_session_messages_activity(),
+        create_mock_build_tool_definitions_activity(),
+        create_mock_run_agent_activity(timed_executor),
+        create_mock_execute_action_activity(),
+        create_mock_reconcile_tool_results_activity(),
+        create_mock_finalize_turn_activity(),
+        create_mock_emit_session_done_activity(done_event=approval_done_emitted),
+        mock_record_approval_requests,
+        mock_apply_approval_decisions,
+        mock_emit_session_error,
+    ]
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Exercise the maximum timeout boundary",
+            config=agent_config_with_approvals,
+            timeout_seconds=configured_timeout_seconds,
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        handle = await temporal_client.start_workflow(
+            DurableAgentWorkflow.run,
+            workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+        await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+        await asyncio.wait_for(approval_done_emitted.wait(), timeout=10)
+        await handle.execute_update(
+            DurableAgentWorkflow.set_approvals,
+            WorkflowApprovalSubmission(
+                approvals={"call-timeout-boundary": True},
+                approved_by=svc_role.user_id,
+            ),
+        )
+
+        result = await handle.result()
+
+    assert result.output == {"status": "completed-after-approval"}
+    assert [item.timeout_seconds for item in executor_inputs] == [
+        expected_timeout_seconds,
+        expected_timeout_seconds,
+    ]
 
 
 @pytest.mark.anyio

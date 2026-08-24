@@ -28,7 +28,6 @@ from tracecat.agent.cancellation import (
 )
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
-    TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
@@ -83,7 +82,7 @@ from tracecat.agent.sandbox.otel_relay import OTEL_SOCKET_NAME, OtelSocketReceiv
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.service import SkillService
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 from tracecat.config import (
@@ -170,6 +169,9 @@ class AgentExecutorInput(BaseModel):
         validation_alias=AliasChoices("llm_gateway_auth_token", "litellm_auth_token"),
     )
     agent_otel_auth_token: str | None = None
+    # Maximum continuous execution time, clamped to the deployment ceiling
+    # at resolution; None inherits the default.
+    timeout_seconds: int | None = None
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     # Fully resolved subagent definitions, each with scoped tools/tokens/routes.
@@ -285,7 +287,7 @@ class SandboxedAgentExecutor:
 
     input: AgentExecutorInput
     timeout_seconds: int = field(
-        default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT
+        default_factory=lambda: clamp_agent_timeout_seconds(None)
     )
     memory_mb: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_MEMORY_MB)
 
@@ -757,14 +759,18 @@ class SandboxedAgentExecutor:
                 elapsed = 0
 
                 while elapsed < self.timeout_seconds:
+                    wait_interval = min(
+                        heartbeat_interval,
+                        self.timeout_seconds - elapsed,
+                    )
                     done, _ = await asyncio.wait(
                         [broker_task, fatal_error_task],
-                        timeout=heartbeat_interval,
+                        timeout=wait_interval,
                         return_when=asyncio.FIRST_COMPLETED,
                     )
 
                     if not done:
-                        elapsed += heartbeat_interval
+                        elapsed += wait_interval
                         activity.heartbeat(
                             f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
                         )
@@ -1356,7 +1362,11 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
             subagent.config.mcp_servers, role=input.role
         )
 
-    executor = SandboxedAgentExecutor(input=input)
+    timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
+    executor = SandboxedAgentExecutor(
+        input=input,
+        timeout_seconds=timeout_seconds,
+    )
     result = await executor.run()
 
     if result.success:

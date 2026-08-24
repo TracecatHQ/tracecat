@@ -17,9 +17,13 @@ from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import AgentSubagentsConfig
-from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
+from tracecat.config import (
+    TRACECAT__AGENT_MAX_RETRIES,
+    TRACECAT__AGENT_SANDBOX_TIMEOUT,
+)
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
@@ -32,6 +36,19 @@ else:
     # Runtime fallbacks for types only used in annotations
     ModelMessage = Any
     CustomToolList = list[Any]
+
+
+def clamp_agent_timeout_seconds(timeout_seconds: int | None) -> int:
+    """Clamp an agent timeout to the deployment ceiling.
+
+    ``None`` inherits the hardcoded default; explicit values clamp to
+    [default, ceiling]. Never rejects: out-of-bounds values clamp.
+    """
+    ceiling = TRACECAT__AGENT_SANDBOX_TIMEOUT
+    floor = min(AGENT_TIMEOUT_SECONDS_DEFAULT, ceiling)
+    if timeout_seconds is None:
+        return floor
+    return min(max(timeout_seconds, floor), ceiling)
 
 
 class StreamKey(str):
