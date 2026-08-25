@@ -426,6 +426,30 @@ def test_wrapping_preserves_existing_classification() -> None:
     assert extract_error_envelope(wrapped) != fallback
 
 
+@pytest.mark.anyio
+async def test_wrapping_drops_outer_details_for_cause_classification() -> None:
+    original_envelope = _user_envelope()
+    fallback = _platform_envelope()
+    classified = _capture_application_error(original_envelope)
+    try:
+        raise ApplicationError(
+            "Outer platform failure",
+            {"diagnostic": "postgresql://user:secret@example.invalid/database"},
+        ) from classified
+    except ApplicationError as outer:
+        wrapped = _capture_wrapped_application_error(outer, fallback=fallback)
+    failure = Failure()
+
+    await DataConverter.default.encode_failure(wrapped, failure)
+
+    assert len(wrapped.details) == 1
+    assert wrapped.details[0]["schema"] == "tracecat.temporal_error.v1"
+    assert wrapped.type == original_envelope.kind.value
+    assert extract_error_envelope(wrapped) == original_envelope
+    assert "secret" not in str(failure)
+    assert "example.invalid" not in str(failure)
+
+
 def test_wrapping_unclassified_application_error_drops_original_details() -> None:
     fallback = _platform_envelope()
     original = ApplicationError(
