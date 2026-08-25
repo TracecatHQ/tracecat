@@ -1,0 +1,40 @@
+---
+title: "Workflow metadata"
+description: "Quick reference for the ENV fields available in Tracecat expressions: workflow run identifiers, timestamps, trigger type, and Workflow environment."
+---
+
+## Fields
+
+| Expression | Description |
+| --- | --- |
+| `${{ ENV.workflow.start_time }}` | Wall-clock time the run started |
+| `${{ ENV.workflow.time_anchor }}` | Anchor timestamp Tracecat uses for deterministic replay |
+| `${{ ENV.workflow.dispatch_type }}` | `push` when the caller supplied the workflow definition, `pull` when the run fetched the committed definition |
+| `${{ ENV.workflow.execution_id }}` | Unique ID of this workflow execution |
+| `${{ ENV.workflow.run_id }}` | UUID of this run attempt of the execution |
+| `${{ ENV.workflow.trigger_type }}` | `manual`, `scheduled`, `webhook`, or `case` |
+| `${{ ENV.workflow.logical_time }}` | Logical timestamp of the current action; `FN.now()` returns it so time-based expressions stay consistent across replays. Set when action inputs are built, so a `run_if` evaluated before any action has run sees `None` |
+| `${{ ENV.environment }}` | The [Workflow environment](/automations/workflows#environments) the run executes in |
+
+An action invoked as an agent tool runs with an empty `ENV` context, so every `ENV.*` expression resolves to `None` there.
+
+## Examples
+
+Branch on the trigger type:
+
+<CodeGroup>
+```yaml Expression
+run_if: ${{ ENV.workflow.trigger_type == "webhook" }}
+```
+
+```json Result
+{
+  "run_if": true
+}
+```
+</CodeGroup>
+
+## Related pages
+
+- See [Workflow metadata](/automations/core-concepts/workflow-metadata) for concepts and when to use each field.
+- See [Expressions](/automations/core-concepts/expressions) for expression syntax and contexts.

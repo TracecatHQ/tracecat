@@ -39,6 +39,7 @@
                   "automations/core-concepts/expressions",
                   "automations/core-concepts/secrets",
                   "automations/core-concepts/variables",
+                  "automations/core-concepts/workflow-metadata",
                   "automations/core-concepts/functions",
                   "automations/core-concepts/jsonpath",
                   "automations/core-concepts/workflow-definition"
@@ -270,7 +271,10 @@
             "icon": "book-open",
             "pages": [
               "cheatsheets/functions",
-              "cheatsheets/jsonpath"
+              "cheatsheets/jsonpath",
+              "cheatsheets/common-mistakes",
+              "cheatsheets/transformations",
+              "cheatsheets/workflow-metadata"
             ]
           }
         ]

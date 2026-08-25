@@ -1,0 +1,265 @@
+---
+title: "Transformations"
+description: "Recipes for common data transformations in Tracecat workflows: merging results, joining lists to table rows, date windows, filters, branch rejoins, and deduplicated writes."
+---
+
+## When to use Python instead
+
+Use [core.script.run_python](/automations/core-actions/transform-actions/python-script) instead of expressions when:
+
+- The transform needs `x[?(...)][0].field` or `x[?(...)].field[0]`: the first errors and the second silently returns the wrong value.
+- The same subexpression appears more than once.
+- An interpolated string may contain a quote, which breaks `python_lambda` text substitution.
+- The shape is polymorphic: sometimes a scalar, sometimes a list.
+
+A script costs a sandbox start per call. Keep expressions for everything else on this page: single-field extraction, ternaries, filters, and short `FN.` chains.
+
+## Add a field to an upstream result
+
+Use `FN.merge` to combine an upstream result with new fields. Later objects in the list win on key conflicts:
+
+<CodeGroup>
+```yaml Expression
+- ref: enrich_alert
+  action: core.transform.reshape
+  args:
+    value: ${{ FN.merge([ACTIONS.get_alert.result, {"triaged": True}]) }}
+```
+
+```json Result
+{
+  "id": "A-001",
+  "severity": "high",
+  "triaged": true
+}
+```
+</CodeGroup>
+
+## Join a list of IDs to table rows
+
+Look up one row per ID with `for_each`. The action runs once per item and its result is the list of rows in input order:
+
+```yaml
+- ref: get_hosts
+  action: core.table.lookup
+  for_each: ${{ for var.host_id in TRIGGER.host_ids }}
+  args:
+    table: hosts
+    column: id
+    value: ${{ var.host_id }}
+```
+
+Then build an ID-to-row mapping with `FN.zip_map`:
+
+<CodeGroup>
+```yaml Expression
+host_map: ${{ FN.zip_map(TRIGGER.host_ids, ACTIONS.get_hosts.result) }}
+```
+
+```json Result
+{
+  "host_map": {
+    "h-1": {"id": "h-1", "hostname": "api-1", "owner": "secops"},
+    "h-2": {"id": "h-2", "hostname": "worker-1", "owner": "platform"}
+  }
+}
+```
+</CodeGroup>
+
+If you do not already have the IDs, project them off the rows with `[*]`, then read an entry by key:
+
+```yaml
+host_map: ${{ FN.zip_map(ACTIONS.get_hosts.result[*].id, ACTIONS.get_hosts.result) }}
+host: ${{ ACTIONS.build_host_map.result["h-2"] }}
+```
+
+## Dates and time windows
+
+Current time as an ISO string. Pass `"seconds"` to drop microseconds, which trip up strict API parsers:
+
+<CodeGroup>
+```yaml Expression
+local_now: ${{ FN.to_isoformat(FN.now(), "seconds") }}
+utc_now: ${{ FN.to_isoformat(FN.utcnow(), "seconds") }}
+```
+
+```json Result
+{
+  "local_now": "2026-08-24T17:20:00",
+  "utc_now": "2026-08-24T21:20:00+00:00"
+}
+```
+</CodeGroup>
+
+A search window starting N days ago:
+
+<CodeGroup>
+```yaml Expression
+start_time: ${{ FN.to_isoformat(FN.now() - FN.days(7), "seconds") }}
+end_time: ${{ FN.to_isoformat(FN.now(), "seconds") }}
+```
+
+```json Result
+{
+  "start_time": "2026-08-17T17:20:00",
+  "end_time": "2026-08-24T17:20:00"
+}
+```
+</CodeGroup>
+
+Midnight N days ago is cleaner as a Python script:
+
+```yaml
+- ref: window_start
+  action: core.script.run_python
+  args:
+    inputs:
+      days: 7
+    script: |
+      from datetime import datetime, time, timedelta
+
+      def main(days):
+          cutoff = datetime.now() - timedelta(days=days)
+          return datetime.combine(cutoff.date(), time.min).isoformat()
+```
+
+Format, parse, and convert timezones. `format_datetime` takes a `strftime` pattern, `to_datetime` accepts ISO strings and epoch seconds, and `set_timezone` takes an IANA name:
+
+<CodeGroup>
+```yaml Expression
+day: ${{ FN.format_datetime(FN.now(), "%Y-%m-%d") }}
+parsed: ${{ FN.to_isoformat(FN.to_datetime(TRIGGER.created_at), "seconds") }}
+local: ${{ FN.to_isoformat(FN.set_timezone(TRIGGER.created_at, "America/New_York"), "seconds") }}
+```
+
+```json Result
+{
+  "day": "2026-08-24",
+  "parsed": "2026-08-06T06:57:15+02:00",
+  "local": "2026-08-06T00:57:15-04:00"
+}
+```
+</CodeGroup>
+
+## Filter a list and count matches
+
+A JSONPath filter returns the matching items as a list. When nothing matches it returns an empty list, never `None`, so no null guard is needed:
+
+<CodeGroup>
+```yaml Expression
+high_alerts: ${{ TRIGGER.alerts[?(@.severity == "high")] }}
+high_ids: ${{ TRIGGER.alerts[?(@.severity == "high")].id }}
+no_matches: ${{ TRIGGER.alerts[?(@.severity == "critical")] }}
+```
+
+```json Result
+{
+  "high_alerts": [{"id": "al-1", "severity": "high"}, {"id": "al-3", "severity": "high"}],
+  "high_ids": ["al-1", "al-3"],
+  "no_matches": []
+}
+```
+</CodeGroup>
+
+Count matches with `FN.length`, and take a single value with `FN.at`:
+
+<CodeGroup>
+```yaml Expression
+high_count: ${{ FN.length(TRIGGER.alerts[?(@.severity == "high")]) }}
+first_high_id: ${{ FN.at(TRIGGER.alerts[?(@.severity == "high")].id, 0) }}
+```
+
+```json Result
+{
+  "high_count": 2,
+  "first_high_id": "al-1"
+}
+```
+</CodeGroup>
+
+Always use `FN.at` to index into a filter result. Appending `[0]` to the path indexes into each matched value instead; see [Common mistakes](/cheatsheets/common-mistakes#indexing-a-filter-result).
+
+## Rejoin mutually exclusive branches
+
+When `run_if` sends a workflow down one of two branches, rejoin them with `join_strategy: any` on the downstream action. The default `all` requires every upstream branch to complete, so a join with one skipped branch and one that ran is unreachable and the run fails:
+
+```yaml
+- ref: block_ip
+  action: core.http_request
+  run_if: ${{ TRIGGER.severity == "high" }}
+  args:
+    url: https://firewall.example.com/block
+    method: POST
+    payload:
+      ip: ${{ TRIGGER.src_ip }}
+- ref: log_only
+  action: core.transform.reshape
+  run_if: ${{ TRIGGER.severity != "high" }}
+  args:
+    value:
+      status: logged
+- ref: update_case
+  action: core.transform.reshape
+  depends_on:
+    - block_ip
+    - log_only
+  join_strategy: any
+  args:
+    value:
+      outcome: ${{ ACTIONS.block_ip.result || ACTIONS.log_only.result }}
+```
+
+Hard-referencing only the skipped branch's result silently yields `null`, so use `||` to read whichever branch actually ran. Skip propagates to a downstream action only when all of its dependencies were skipped.
+
+## Insert rows without duplicates
+
+Give the table a unique index, then insert with `upsert: true` so repeated values update the existing row instead of appending a duplicate:
+
+```yaml
+- ref: store_iocs
+  action: core.table.insert_rows
+  args:
+    table: seen_iocs
+    rows_data: ${{ TRIGGER.iocs }}
+    upsert: true
+```
+
+See [Tables](/automations/tables#index-and-upsert) for creating the index and the constraints on it.
+
+## Apply a function to every item
+
+Every `FN` function has a `.map` variant that applies it to each item in a list:
+
+<CodeGroup>
+```yaml Expression
+upper_tags: ${{ FN.uppercase.map(TRIGGER.tags) }}
+timestamps: ${{ FN.to_isoformat.map(ACTIONS.whois.result.events[*].eventDate) }}
+```
+
+```json Result
+{
+  "upper_tags": ["AUTH", "AUTH", "CRITICAL"],
+  "timestamps": ["1997-09-15T00:00:00", "2030-01-01T00:00:00"]
+}
+```
+</CodeGroup>
+
+Scalar arguments broadcast across the list, so `${{ FN.prefix.map(TRIGGER.tags, "tag-") }}` prefixes every tag. Two lists of unequal length silently truncate to the shorter one: `${{ FN.add.map([1, 2, 3], [10, 20]) }}` returns `[11, 22]` and drops the `3`, so check lengths before mapping over multiple lists.
+
+When the per-item logic needs more than one function call, use `core.transform.map` with a `python_lambda`, and move to `core.script.run_python` once the logic outgrows a single lambda:
+
+```yaml
+- ref: normalize_hostnames
+  action: core.transform.map
+  args:
+    items: ${{ TRIGGER.hostnames }}
+    python_lambda: "lambda h: h.strip().lower()"
+```
+
+## Related pages
+
+- See [Common mistakes](/cheatsheets/common-mistakes) for the expression errors these recipes avoid.
+- See [JSONPath](/cheatsheets/jsonpath) for the full filter syntax used in the list recipes.
+- See [Functions](/cheatsheets/functions) for the complete `FN` function reference.
+- See [Python script](/automations/core-actions/transform-actions/python-script) for the `core.script.run_python` contract, dependencies, and SDK access.
+- See [Tables](/automations/tables) for table schemas, column types, and search behavior behind the deduplication recipe.
