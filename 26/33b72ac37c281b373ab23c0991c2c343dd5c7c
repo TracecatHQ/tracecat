@@ -1,0 +1,39 @@
+docs/automations/tables.mdx
+  s_af3ffe559c1554::t_8425e2ed159312 122
+docs/automations/core-actions/_manifest.yaml
+  s_af3ffe559c1554::t_64c05ee455a47b 170-171
+  s_af3ffe559c1554::t_8425e2ed159312 66-68,81-82,102,140,148,177,200-201,209-210,679
+docs/cheatsheets/common-mistakes.mdx
+  s_af3ffe559c1554::t_8425e2ed159312 39,77,92,107,145,198,221,262,280
+docs/cheatsheets/functions.mdx
+  s_af3ffe559c1554::t_8425e2ed159312 25
+docs/automations/core-actions/transform-actions/python-script.mdx
+  s_af3ffe559c1554::t_64c05ee455a47b 47-48
+  s_af3ffe559c1554::t_8425e2ed159312 17,25,54,77-78,86-87
+docs/cheatsheets/transformations.mdx
+  s_af3ffe559c1554::t_8425e2ed159312 29,41,67,99,135,169,173,201,205,236,238
+docs/automations/core-actions/request-actions/http.mdx
+  s_af3ffe559c1554::t_8425e2ed159312 195-197,210-211,376
+docs/automations/core-actions/memory-actions/tables.mdx
+  s_af3ffe559c1554::t_8425e2ed159312 325
+docs/cheatsheets/workflow-metadata.mdx
+  s_af3ffe559c1554::t_8425e2ed159312 16,19
+docs/automations/core-concepts/functions.mdx
+  s_af3ffe559c1554::t_8425e2ed159312 34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "2633b72ac37c281b373ab23c0991c2c343dd5c7c",
+  "prompts": {},
+  "sessions": {
+    "s_af3ffe559c1554": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "28e168b2-aff2-4083-8f30-4dec72508581",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
