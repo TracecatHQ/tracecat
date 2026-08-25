@@ -1447,6 +1447,31 @@ Table ID
       indicator_type: domain
 ```
 
+## `core.cases.get_linked_case_rows`
+
+Get linked rows for a specific case by ID.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+### Inputs
+
+<ParamField path="case_id" type="string" required>
+
+The ID of the case to retrieve.
+
+</ParamField>
+
+### Examples
+
+**Get linked table rows**
+
+```yaml
+- ref: linked_rows
+  action: core.cases.get_linked_case_rows
+  args:
+    case_id: ${{ TRIGGER.case_id }}
+```
+
 ## `core.cases.get_case_metrics`
 
 Get case metrics as OTEL-aligned time-series for the provided case IDs.

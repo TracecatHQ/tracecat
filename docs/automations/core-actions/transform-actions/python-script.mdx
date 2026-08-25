@@ -13,11 +13,50 @@ packages, or call Tracecat APIs from an isolated Python 3.12 sandbox.
 Tracecat passes `inputs` as function arguments and returns the
 function result as the action output.
 
+### Script contract
+
+Tracecat calls `main` if your script defines it; otherwise it calls
+the first non-private function, so a script with a single
+`def run(...)` works. Functions imported with
+`from module import name` count, so name the entrypoint `main`
+whenever your script imports functions. When a script defines more
+than one function, name the entrypoint `main`: validation rejects
+multi-function scripts without one.
+
+Keep top-level `import` and `def` statements at the same indentation
+inside the `script:` block scalar. YAML strips the shared leading
+indentation, so these lines reach Python at column 0.
+
+Tracecat passes `inputs` to the entrypoint as keyword arguments, so
+keys must match the function's parameter names. Give a parameter a
+default value when its key may be absent from `inputs`.
+
+Set `allow_network: true` when your script makes outbound network
+requests. When the executor runs with
+`TRACECAT__EXECUTOR_SANDBOX_ENABLED=true`, deployment-wide
+[CA certificates](/self-hosting/tls#trust-an-internal-ca-for-outbound-connections)
+do not reach sandboxed scripts.
+
+### Return values
+
+Tracecat serializes the function's return value to JSON. Most types
+convert cleanly: `datetime`, `date`, and `time` become ISO 8601
+strings (including inside lists and dicts), `timedelta` becomes
+seconds, `set` becomes a sorted list, `Decimal`, `UUID`, and `Path`
+become strings, an `Enum` becomes its value, a dataclass becomes an
+object, and `bytes` decodes as UTF-8 text.
+
+Any other object becomes its `repr()` string, such as
+`"<MyClass object at 0x...>"`. Return plain values.
+`Output not JSON-serializable` is raised only when serialization
+itself fails.
+
 ### Import Python packages
 
 Add pinned package specifications to `dependencies`, then import them
-in your script. Set `allow_network: true` so Tracecat can install the
-packages from PyPI. Tracecat caches installed packages between runs.
+in your script. Tracecat installs packages in a separate install
+phase with platform-managed network access (`allow_network: true` is
+not required) and caches installed packages between runs.
 
 ```yaml
 - ref: parse_timestamp
@@ -27,7 +66,6 @@ packages from PyPI. Tracecat caches installed packages between runs.
       timestamp: ${{ TRIGGER.created_at }}
     dependencies:
       - python-dateutil==2.9.0.post0
-    allow_network: true
     script: |
       from dateutil import parser
 
@@ -153,7 +191,7 @@ Python script to execute. Must contain at least one function. If multiple functi
 
 <ParamField path="allow_network" type="boolean">
 
-Whether to allow network access during script execution. Default is False. Set to True when installing PyPI dependencies or making external network requests.
+Whether to allow network access during script execution. Default is False. Set to True when the script makes external network requests. Dependency installation runs in a separate install phase and does not require it.
 
 Default: `false`.
 
@@ -177,7 +215,7 @@ Default: `null`.
 
 <ParamField path="inputs" type="object | null">
 
-Input data passed as function arguments to the main function. Keys must match the parameter names in the function signature. Missing parameters will receive `None`.
+Input data passed as keyword arguments to the main function. Keys must match the parameter names in the function signature; give a parameter a default value if its key may be missing.
 
 Default: `null`.
 

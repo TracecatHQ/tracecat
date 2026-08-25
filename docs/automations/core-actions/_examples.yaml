@@ -701,6 +701,15 @@ examples:
             value: ${{ TRIGGER.indicator }}
             indicator_type: domain
 
+  cases-get-linked-rows:
+    title: Get linked table rows
+    language: yaml
+    code: |
+      - ref: linked_rows
+        action: core.cases.get_linked_case_rows
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+
   cases-metrics:
     title: Read case metrics
     language: yaml
@@ -732,6 +741,98 @@ examples:
         action: core.table.get_table_metadata
         args:
           name: asset_inventory
+
+  tables-schema:
+    title: Manage table schema
+    language: yaml
+    code: |
+      - ref: rename_table
+        action: core.table.update_table
+        args:
+          name: asset_inventory
+          new_name: assets
+      - ref: add_owner_team
+        action: core.table.create_column
+        depends_on:
+          - rename_table
+        args:
+          table: assets
+          column:
+            name: owner_team
+            type: SELECT
+            options:
+              - secops
+              - platform
+      - ref: drop_owner_team
+        action: core.table.delete_column
+        depends_on:
+          - add_owner_team
+        args:
+          table: assets
+          column: owner_team
+
+  tables-rename:
+    title: Rename a table
+    language: yaml
+    code: |
+      - ref: rename_table
+        action: core.table.update_table
+        args:
+          name: asset_inventory
+          new_name: assets
+
+  tables-drop-column:
+    title: Delete a column
+    language: yaml
+    code: |
+      - ref: drop_owner_team
+        action: core.table.delete_column
+        args:
+          table: assets
+          column: owner_team
+
+  tables-unique-index:
+    title: Create a unique index and upsert
+    language: yaml
+    code: |
+      - ref: ensure_alerts_table
+        action: core.table.create_table
+        args:
+          name: alerts
+          columns:
+            - name: alert_id
+              type: TEXT
+            - name: status
+              type: TEXT
+          raise_on_duplicate: false
+      - ref: alerts_metadata
+        action: core.table.get_table_metadata
+        depends_on:
+          - ensure_alerts_table
+        args:
+          name: alerts
+      - ref: index_alert_id
+        action: core.table.update_column
+        depends_on:
+          - alerts_metadata
+        run_if: ${{ FN.length(ACTIONS.alerts_metadata.result.columns[?(@.is_index == true)]) == 0 }}
+        args:
+          table: alerts
+          column: alert_id
+          update:
+            is_index: true
+      - ref: upsert_alert
+        action: core.table.insert_row
+        depends_on:
+          - alerts_metadata
+          - index_alert_id
+        join_strategy: any
+        args:
+          table: alerts
+          upsert: true
+          row_data:
+            alert_id: ${{ TRIGGER.alert_id }}
+            status: ${{ TRIGGER.status }}
 
   tables-lookup:
     title: Look up rows
