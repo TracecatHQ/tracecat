@@ -1,0 +1,36 @@
+docs/manage-platform/users.mdx
+  s_af3ffe559c1554::t_5f00fe1f814077 10,20,28,36,40,42,44-48,52,54,58,84,86,90
+  s_af3ffe559c1554::t_ef8f3108ff1d4d 18
+docs/agents/ai-agent.mdx
+  s_af3ffe559c1554::t_5f00fe1f814077 40
+docs/automations/actions.mdx
+  s_af3ffe559c1554::t_5f00fe1f814077 173,175
+docs/manage-platform/rbac.mdx
+  s_af3ffe559c1554::t_5f00fe1f814077 37,39,56,58,60,66
+docs/snippets/environment-variables.mdx
+  s_af3ffe559c1554::t_5f00fe1f814077 84
+scripts/generate_ai_docs.py
+  s_af3ffe559c1554::t_5f00fe1f814077 197,255
+docs/agents/ai-action.mdx
+  s_af3ffe559c1554::t_5f00fe1f814077 26
+docs/agents/custom-llm-providers.mdx
+  s_af3ffe559c1554::t_5f00fe1f814077 102,104
+docs/manage-platform/git-sync.mdx
+  s_af3ffe559c1554::t_5f00fe1f814077 25,27,31,37,39,49,51,53,55,61,69,73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "6d8c135e5be090c2342b35a06202e7614f83e47a",
+  "prompts": {},
+  "sessions": {
+    "s_af3ffe559c1554": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "28e168b2-aff2-4083-8f30-4dec72508581",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
