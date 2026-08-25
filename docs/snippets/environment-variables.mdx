@@ -74,6 +74,16 @@
 | `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Store large action results in blob storage instead of Temporal history. |
 | `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` | `128000` | Byte threshold above which payloads are externalized to blob storage. |
 | `TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS` | `30` | Retention period in days for workflow artifacts. Objects older than this are automatically deleted via S3 lifecycle rules. Set to `0` to disable. |
+| `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` | `60` | Seconds Temporal waits for a heartbeat from an executor activity before failing it and retrying on a healthy worker. Set to `0` to disable. |
+| `TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL` | `30` | Seconds between heartbeats from executor activities. A value at or above `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` lets Temporal fail the activity between two heartbeats. Set to `0` to disable heartbeats. |
+
+### Agents
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT__AGENT_SANDBOX_TIMEOUT` | `3600` | Ceiling in seconds for the `timeout` of `ai.agent`, `ai.action`, and `ai.preset_agent`. Explicit values clamp to between `1800` and this value; unset means `1800`. A ceiling below `1800` replaces both the floor and the default. |
+| `TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT` | `3660` | Seconds the agent executor worker waits for running agent activities to finish during a planned shutdown. Defaults to `TRACECAT__AGENT_SANDBOX_TIMEOUT` plus `60`. |
+| `TRACECAT__LLM_PROXY_READ_TIMEOUT` | `600` | Seconds the sandbox LLM proxy waits for the next byte from the model gateway before failing the request with `504`. Separate from the agent timeout. |
 
 ### Blob storage
 
