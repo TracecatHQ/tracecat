@@ -1,0 +1,81 @@
+tracecat/registry/repository.py
+  s_510e6d069b484f::t_1b11927125c2ab 34,826
+frontend/src/lib/hooks.tsx
+  s_510e6d069b484f::t_c8b21fd20afa51 2076-2077,2079
+tests/unit/test_registry_sync_schemas.py
+  s_510e6d069b484f::t_5c0c8d7a2f11de 1-12,41-89
+tracecat/secrets/service.py
+  s_510e6d069b484f::t_1b11927125c2ab 465-466
+frontend/src/components/organization/org-registry-ssh-key.tsx
+  s_510e6d069b484f::t_c8b21fd20afa51 35,77-78,80,84,89-97,142,211-228
+tracecat/exceptions.py
+  s_510e6d069b484f::t_1b11927125c2ab 20,131-140
+  s_510e6d069b484f::t_f2ebc0cc71506f 141-142
+tracecat/registry/sync/schemas.py
+  s_510e6d069b484f::t_1b11927125c2ab 12-13,18-22,29-35,57-77
+frontend/src/components/organization/org-registry-versions-table.tsx
+  s_510e6d069b484f::t_950b8abb147b1b 191
+  s_510e6d069b484f::t_c8b21fd20afa51 24,190
+tracecat/registry/sync/entrypoint.py
+  s_510e6d069b484f::t_1b11927125c2ab 309
+frontend/src/components/organization/org-registry-versions.tsx
+  s_510e6d069b484f::t_c8b21fd20afa51 25-28,49,52,189,196
+  s_510e6d069b484f::t_950b8abb147b1b 190-192
+frontend/src/components/registry/version-diff-view.tsx
+  s_510e6d069b484f::t_c8b21fd20afa51 8
+tracecat/registry/repositories/router.py
+  s_510e6d069b484f::t_1b11927125c2ab 331,352-353,367,370
+  s_510e6d069b484f::t_5c0c8d7a2f11de 52-53
+frontend/src/lib/query.ts
+  s_510e6d069b484f::t_c8b21fd20afa51 11-25
+tracecat/registry/sync/subprocess.py
+  s_510e6d069b484f::t_1b11927125c2ab 16,149,153-155,157,176
+tracecat/registry/sync/runner.py
+  s_510e6d069b484f::t_1b11927125c2ab 85-86
+  s_510e6d069b484f::t_5c0c8d7a2f11de 36
+docs/custom-actions/custom-registry.mdx
+  s_510e6d069b484f::t_c8b21fd20afa51 54,72-74
+frontend/tests/git.test.ts
+  s_510e6d069b484f::t_950b8abb147b1b 37-39,43-45
+  s_510e6d069b484f::t_c8b21fd20afa51 1,34-36,40-42,46-54
+  s_510e6d069b484f::t_f6f6f991fbca15 55
+frontend/src/components/registry/dialogs/repository-sync-dialog.tsx
+  s_510e6d069b484f::t_c8b21fd20afa51 11,36-37,50,124,128
+tests/unit/test_registry_sync_sandbox.py
+  s_510e6d069b484f::t_5c0c8d7a2f11de 14,19-23,657-706
+frontend/src/components/registry/utils.ts
+  s_510e6d069b484f::t_c8b21fd20afa51 22-26
+tracecat/registry/sync/sandbox.py
+  s_510e6d069b484f::t_1b11927125c2ab 263,755
+frontend/src/providers/query.tsx
+  s_510e6d069b484f::t_c8b21fd20afa51 34
+tests/unit/test_registry_sync_subprocess.py
+  s_510e6d069b484f::t_5c0c8d7a2f11de 1-89
+frontend/src/components/registry/dialogs/version-diff-dialog.tsx
+  s_510e6d069b484f::t_c8b21fd20afa51 15,78,81-82
+frontend/src/lib/git.ts
+  s_510e6d069b484f::t_c8b21fd20afa51 27-37
+tests/unit/test_registry_sync_runner.py
+  s_510e6d069b484f::t_5c0c8d7a2f11de 12,36-40,571,573-574,598-601
+frontend/src/hooks/use-registry-versions.ts
+  s_510e6d069b484f::t_c8b21fd20afa51 1-7,10-161
+  s_510e6d069b484f::t_950b8abb147b1b 8-9
+frontend/src/components/ssh-keys/ssh-key-create-dialog.tsx
+  s_510e6d069b484f::t_c8b21fd20afa51 42-43,99-103,107-111,115,117,120,211-218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "b52746c49effc1e999770d9f2beaed6217f80360",
+  "prompts": {},
+  "sessions": {
+    "s_510e6d069b484f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2cb993b4-7e1a-4417-af15-197278ebffe3",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
