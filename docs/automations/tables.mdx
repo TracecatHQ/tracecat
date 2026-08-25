@@ -116,10 +116,10 @@ To create the index from a workflow definition, create the table with `core.tabl
       is_index: true
 ```
 
-A table can have one single-column unique index, and creating it fails if the column already contains duplicate values — remove the duplicates first.
+A table can have one single-column unique index, and creating it fails if the column already contains duplicate values; remove the duplicates first.
 
 Setting `is_index: true` is not idempotent: a second call raises `Table cannot have multiple unique indexes`.
-A workflow that recreates the table each run must guard the index step, and downstream steps need `join_strategy: any` so the guard being skipped does not skip them too:
+A workflow that repeats the index step on every run must guard it, and downstream steps need `join_strategy: any` so a skipped guard does not skip them too:
 
 ```yaml
 - ref: alerts_metadata

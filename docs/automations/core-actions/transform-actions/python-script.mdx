@@ -10,18 +10,17 @@ Execute a Python script.
 
 Use this action to transform workflow data, import third-party
 packages, or call Tracecat APIs from an isolated Python 3.12 sandbox.
-Tracecat passes `inputs` as function arguments and returns the
-function result as the action output.
 
 ### Script contract
 
 Tracecat calls `main` if your script defines it; otherwise it calls
 the first non-private function, so a script with a single
-`def run(...)` works. Functions imported with
-`from module import name` count, so name the entrypoint `main`
-whenever your script imports functions. When a script defines more
-than one function, name the entrypoint `main`: validation rejects
-multi-function scripts without one.
+`def run(...)` works.
+
+Name the entrypoint `main` whenever your script contains more than
+one function, counting functions imported with
+`from module import name`. Validation rejects multi-function
+scripts without one.
 
 Keep top-level `import` and `def` statements at the same indentation
 inside the `script:` block scalar. YAML strips the shared leading
@@ -47,16 +46,16 @@ become strings, an `Enum` becomes its value, a dataclass becomes an
 object, and `bytes` decodes as UTF-8 text.
 
 Any other object becomes its `repr()` string, such as
-`"<MyClass object at 0x...>"`. Return plain values.
-`Output not JSON-serializable` is raised only when serialization
+`"<MyClass object at 0x...>"`, so return plain values. Tracecat
+raises `Output not JSON-serializable` only when serialization
 itself fails.
 
 ### Import Python packages
 
 Add pinned package specifications to `dependencies`, then import them
-in your script. Tracecat installs packages in a separate install
-phase with platform-managed network access (`allow_network: true` is
-not required) and caches installed packages between runs.
+in your script. Tracecat installs them in a separate phase that does
+not need `allow_network: true`, and caches installed packages
+between runs.
 
 ```yaml
 - ref: parse_timestamp

@@ -26,11 +26,9 @@ The workflow-level `environment` field takes a literal string. An action-level `
 
 ## Expression contexts
 
-Expressions read data through these contexts.
-
 ### `TRIGGER`
 
-The payload that started the run. Append a [JSONPath](/automations/core-concepts/jsonpath) to read a field. Bare `${{ TRIGGER }}` passes the whole payload through; no other context works without a suffix.
+The payload that started the run; append a [JSONPath](/automations/core-concepts/jsonpath) to read a field. Bare `${{ TRIGGER }}` passes the whole payload through; no other context works without a suffix.
 
 <CodeGroup>
 ```yaml Expression
@@ -71,7 +69,7 @@ The loop variable that `for_each` binds on each iteration, referenced as `var.<n
 
 ### `FN`
 
-[Function](/automations/core-concepts/functions) calls, written as `FN.<name>(...)` with parentheses always and positional arguments. Append `.map` to apply a function to every item of a list.
+[Function](/automations/core-concepts/functions) calls, written as `FN.<name>(...)`, always with parentheses and only positional arguments. Append `.map` to apply a function to every item of a list.
 
 ### `inputs`
 

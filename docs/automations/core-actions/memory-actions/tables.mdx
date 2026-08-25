@@ -7,13 +7,6 @@ title: "Tables"
 Tables are the built-in structured data store behind `core.table.*`.
 Use them when your workflows need durable, queryable records such as asset inventories, user allowlists, enrichment results, or investigation evidence.
 
-## What tables are good for
-
-- Persisting enrichment data across workflow runs
-- Looking up records by a known field such as hostname, email, or indicator
-- Searching and exporting structured data for analysts
-- Attaching case context to reusable datasets
-
 ## Common workflow pattern
 
 1. Create the table once with a schema that fits your data and a unique index on the upsert column.
@@ -83,11 +76,30 @@ This is the same schema you use for tables that you later link to cases.
 - `default`: Optional value. It must match the column type.
 - `options`: Optional array of strings. Required for `SELECT` and `MULTI_SELECT`, and invalid for other types.
 
-The documented `type` values match the custom tables picker.
-Case custom fields use the same storage type family: `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, and `MULTI_SELECT`.
-In the case field picker, raw `JSONB` is currently surfaced through the `URL` kind, and `Long text` is layered on top of `TEXT`.
+The documented `type` values match the custom tables picker, and case custom fields use the same storage types.
+The case field picker surfaces raw `JSONB` through the `URL` kind and layers `Long text` on top of `TEXT`.
 
-## Notes
+Create a table with a `SELECT` column:
+
+```yaml
+- ref: create_table
+  action: core.table.create_table
+  args:
+    name: asset_inventory
+    columns:
+      - name: hostname
+        type: TEXT
+      - name: first_seen_at
+        type: TIMESTAMPTZ
+      - name: owner_team
+        type: SELECT
+        options:
+          - secops
+          - platform
+          - it
+```
+
+## Reading rows
 
 - Use `lookup` or `is_in` when you already know the column and value you need.
 - Use `search_rows` when you need broader text search or paginated results.
@@ -108,33 +120,7 @@ In the case field picker, raw `JSONB` is currently surfaced through the `URL` ki
         rows_data: ${{ var.batch }}
     ```
 
-    Each `var.batch` should be a list of rows that stays within your chosen batch size.
-  </Accordion>
-
-  <Accordion title="What column types should I use for tables and case-linked fields?">
-    Use the documented uppercase type names: `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, and `MULTI_SELECT`.
-
-    - Use `SELECT` and `MULTI_SELECT` only when you also provide `options`.
-    - Use `TEXT` or `JSONB` for flexible payloads.
-    - Case-linked custom fields follow the same storage type family as tables.
-
-    ```yaml
-    - ref: create_table
-      action: core.table.create_table
-      args:
-        name: asset_inventory
-        columns:
-          - name: hostname
-            type: TEXT
-          - name: first_seen_at
-            type: TIMESTAMPTZ
-          - name: owner_team
-            type: SELECT
-            options:
-              - secops
-              - platform
-              - it
-    ```
+    Keep each `var.batch` within your chosen batch size.
   </Accordion>
 </AccordionGroup>
 
@@ -143,12 +129,8 @@ In the case field picker, raw `JSONB` is currently surfaced through the `URL` ki
 Create a new lookup table with optional columns.
 
 <Info>
-  `columns` is a JSON array of column objects. Each object has
-  required `name` and uppercase `type` fields, plus optional
-  `nullable`, `default`, and `options` fields. Use `TEXT`,
-  `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`,
-  `SELECT`, or `MULTI_SELECT`. `options` is required for `SELECT`
-  and `MULTI_SELECT`.
+  `columns` takes the column objects described in
+  [Column schema](#column-schema).
 </Info>
 
 ### Inputs
@@ -348,11 +330,13 @@ The table to add the column to.
 Update a table column's name, type, nullability, default, index, or options.
 
 Set `update: {is_index: true}` to create the table's unique index on
-the column — `core.table.insert_row` with `upsert: true` uses it to
+the column; `core.table.insert_row` with `upsert: true` uses it to
 deduplicate writes. A table can have one single-column unique index:
 creation fails if the column already contains duplicate values, and a
 second `is_index: true` call raises `Table cannot have multiple
-unique indexes`. Guard the step when a workflow repeats it — see
+unique indexes`.
+
+Guard the step when a workflow repeats it; see
 [Tables](/automations/tables#index-and-upsert).
 
 ### Inputs

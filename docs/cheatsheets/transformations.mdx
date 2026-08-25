@@ -3,11 +3,11 @@ title: "Transformations"
 description: "Recipes for common data transformations in Tracecat workflows: merging results, joining lists to table rows, date windows, filters, branch rejoins, and deduplicated writes."
 ---
 
-## When to use Python instead
+## When to use a Python script
 
 Use [core.script.run_python](/automations/core-actions/transform-actions/python-script) instead of expressions when:
 
-- The transform needs `x[?(...)][0].field` or `x[?(...)].field[0]`: the first errors and the second silently returns the wrong value.
+- The transform reaches into a filter result deeper than `FN.at` allows: `x[?(...)][0].field` errors, and `x[?(...)].field[0]` silently returns the wrong value.
 - The same subexpression appears more than once.
 - An interpolated string may contain a quote, which breaks `python_lambda` text substitution.
 - The shape is polymorphic: sometimes a scalar, sometimes a list.
@@ -209,7 +209,7 @@ When `run_if` sends a workflow down one of two branches, rejoin them with `join_
       outcome: ${{ ACTIONS.block_ip.result || ACTIONS.log_only.result }}
 ```
 
-Hard-referencing only the skipped branch's result silently yields `null`, so use `||` to read whichever branch actually ran. Skip propagates to a downstream action only when all of its dependencies were skipped.
+Referencing only the skipped branch's result silently yields `null`, so use `||` to read whichever branch actually ran. Skip propagates to a downstream action only when all of its dependencies were skipped.
 
 ## Insert rows without duplicates
 

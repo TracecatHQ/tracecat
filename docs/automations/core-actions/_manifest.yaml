@@ -139,18 +139,17 @@ pages:
         info: |
           Use this action to transform workflow data, import third-party
           packages, or call Tracecat APIs from an isolated Python 3.12 sandbox.
-          Tracecat passes `inputs` as function arguments and returns the
-          function result as the action output.
 
           ### Script contract
 
           Tracecat calls `main` if your script defines it; otherwise it calls
           the first non-private function, so a script with a single
-          `def run(...)` works. Functions imported with
-          `from module import name` count, so name the entrypoint `main`
-          whenever your script imports functions. When a script defines more
-          than one function, name the entrypoint `main`: validation rejects
-          multi-function scripts without one.
+          `def run(...)` works.
+
+          Name the entrypoint `main` whenever your script contains more than
+          one function, counting functions imported with
+          `from module import name`. Validation rejects multi-function
+          scripts without one.
 
           Keep top-level `import` and `def` statements at the same indentation
           inside the `script:` block scalar. YAML strips the shared leading
@@ -176,16 +175,16 @@ pages:
           object, and `bytes` decodes as UTF-8 text.
 
           Any other object becomes its `repr()` string, such as
-          `"<MyClass object at 0x...>"`. Return plain values.
-          `Output not JSON-serializable` is raised only when serialization
+          `"<MyClass object at 0x...>"`, so return plain values. Tracecat
+          raises `Output not JSON-serializable` only when serialization
           itself fails.
 
           ### Import Python packages
 
           Add pinned package specifications to `dependencies`, then import them
-          in your script. Tracecat installs packages in a separate install
-          phase with platform-managed network access (`allow_network: true` is
-          not required) and caches installed packages between runs.
+          in your script. Tracecat installs them in a separate phase that does
+          not need `allow_network: true`, and caches installed packages
+          between runs.
 
           ```yaml
           - ref: parse_timestamp
@@ -559,13 +558,6 @@ pages:
       Tables are the built-in structured data store behind `core.table.*`.
       Use them when your workflows need durable, queryable records such as asset inventories, user allowlists, enrichment results, or investigation evidence.
 
-      ## What tables are good for
-
-      - Persisting enrichment data across workflow runs
-      - Looking up records by a known field such as hostname, email, or indicator
-      - Searching and exporting structured data for analysts
-      - Attaching case context to reusable datasets
-
       ## Common workflow pattern
 
       1. Create the table once with a schema that fits your data and a unique index on the upsert column.
@@ -635,11 +627,30 @@ pages:
       - `default`: Optional value. It must match the column type.
       - `options`: Optional array of strings. Required for `SELECT` and `MULTI_SELECT`, and invalid for other types.
 
-      The documented `type` values match the custom tables picker.
-      Case custom fields use the same storage type family: `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, and `MULTI_SELECT`.
-      In the case field picker, raw `JSONB` is currently surfaced through the `URL` kind, and `Long text` is layered on top of `TEXT`.
+      The documented `type` values match the custom tables picker, and case custom fields use the same storage types.
+      The case field picker surfaces raw `JSONB` through the `URL` kind and layers `Long text` on top of `TEXT`.
 
-      ## Notes
+      Create a table with a `SELECT` column:
+
+      ```yaml
+      - ref: create_table
+        action: core.table.create_table
+        args:
+          name: asset_inventory
+          columns:
+            - name: hostname
+              type: TEXT
+            - name: first_seen_at
+              type: TIMESTAMPTZ
+            - name: owner_team
+              type: SELECT
+              options:
+                - secops
+                - platform
+                - it
+      ```
+
+      ## Reading rows
 
       - Use `lookup` or `is_in` when you already know the column and value you need.
       - Use `search_rows` when you need broader text search or paginated results.
@@ -660,45 +671,15 @@ pages:
               rows_data: ${{ var.batch }}
           ```
 
-          Each `var.batch` should be a list of rows that stays within your chosen batch size.
-        </Accordion>
-
-        <Accordion title="What column types should I use for tables and case-linked fields?">
-          Use the documented uppercase type names: `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, and `MULTI_SELECT`.
-
-          - Use `SELECT` and `MULTI_SELECT` only when you also provide `options`.
-          - Use `TEXT` or `JSONB` for flexible payloads.
-          - Case-linked custom fields follow the same storage type family as tables.
-
-          ```yaml
-          - ref: create_table
-            action: core.table.create_table
-            args:
-              name: asset_inventory
-              columns:
-                - name: hostname
-                  type: TEXT
-                - name: first_seen_at
-                  type: TIMESTAMPTZ
-                - name: owner_team
-                  type: SELECT
-                  options:
-                    - secops
-                    - platform
-                    - it
-          ```
+          Keep each `var.batch` within your chosen batch size.
         </Accordion>
       </AccordionGroup>
     actions:
       - id: core.table.create_table
         info: |
           <Info>
-            `columns` is a JSON array of column objects. Each object has
-            required `name` and uppercase `type` fields, plus optional
-            `nullable`, `default`, and `options` fields. Use `TEXT`,
-            `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`,
-            `SELECT`, or `MULTI_SELECT`. `options` is required for `SELECT`
-            and `MULTI_SELECT`.
+            `columns` takes the column objects described in
+            [Column schema](#column-schema).
           </Info>
         examples:
           - tables-admin
@@ -717,11 +698,13 @@ pages:
       - id: core.table.update_column
         info: |
           Set `update: {is_index: true}` to create the table's unique index on
-          the column — `core.table.insert_row` with `upsert: true` uses it to
+          the column; `core.table.insert_row` with `upsert: true` uses it to
           deduplicate writes. A table can have one single-column unique index:
           creation fails if the column already contains duplicate values, and a
           second `is_index: true` call raises `Table cannot have multiple
-          unique indexes`. Guard the step when a workflow repeats it — see
+          unique indexes`.
+
+          Guard the step when a workflow repeats it; see
           [Tables](/automations/tables#index-and-upsert).
         examples:
           - tables-unique-index

@@ -26,7 +26,7 @@ An `&&` chain is safe only when every clause tolerates `None` on its own. Equali
 
 ## Unsupported Python syntax
 
-Expression syntax resembles Python but is a separate grammar. Each form below fails with `Error parsing expression`:
+Each Python form below fails with `Error parsing expression`:
 
 | Python habit | Write instead |
 | --- | --- |
@@ -36,7 +36,7 @@ Expression syntax resembles Python but is a separate grammar. Each form below fa
 | `[FN.uppercase(t) for t in TRIGGER.tags]` | `FN.uppercase.map(TRIGGER.tags)` |
 | `not not x` | `bool(x)`, or `not (not x)` |
 
-Never nest `${{ }}` inside `${{ }}`: `${{ FN.length(${{ TRIGGER.tags }}) }}` fails with `No terminal matches '$' in the current parser context`. Write the composition directly as `${{ FN.length(TRIGGER.tags) }}`.
+Never nest `${{ }}` inside `${{ }}`: `${{ FN.length(${{ TRIGGER.tags }}) }}` fails with `No terminal matches '$' in the current parser context`. Write `${{ FN.length(TRIGGER.tags) }}`.
 
 Inside a JSONPath filter the casing inverts: use `true` and `false`. An uppercase literal matches nothing and returns an empty list instead of raising:
 
@@ -87,7 +87,7 @@ Failed to parse expression: Unexpected token Token('FN_NAME_WITH_TRANSFORM', 'ep
 ```
 </CodeGroup>
 
-The first segment after `SECRETS` or `VARS` must be a dot: `VARS["cfg"]` fails with `Expected one of: * ATTRIBUTE_PATH`. Write `VARS.cfg` first, then brackets for anything deeper.
+The first segment after `SECRETS` or `VARS` must use dot syntax: `VARS["cfg"]` fails with `Expected one of: * ATTRIBUTE_PATH`. Write `VARS.cfg` first, then brackets for anything deeper.
 
 Missing keys behave differently by context. `${{ TRIGGER["nope"] }}` returns `null`, while the same lookup on `VARS` raises:
 
@@ -201,7 +201,7 @@ A ` #` fails silently: YAML treats it as a comment, so `title: ${{ FN.format("Al
 message: '${{ FN.format("Alert: {0}", TRIGGER.alert_id) }}'
 ```
 
-Use single outer quotes, not double; double quotes collide with the double quotes inside the expression.
+Double outer quotes collide with the double quotes inside the expression.
 
 ## Field access after functions
 
@@ -259,7 +259,7 @@ Compare aware with aware: `${{ FN.to_datetime(TRIGGER.created_at) < FN.utcnow() 
 
 ## Expressions in python_lambda
 
-Expressions do work inside `python_lambda` parameters. Tracecat substitutes the value as text before the lambda compiles, so write the expression as the Python literal it should become:
+Expressions work inside `python_lambda` parameters. Tracecat substitutes the value as text before the lambda compiles, so write the expression as the Python literal it should become:
 
 <CodeGroup>
 ```yaml Expression
@@ -275,7 +275,7 @@ lambda x: x['epss'] > 0.6
 ```
 </CodeGroup>
 
-Numbers, booleans, `None`, lists, and objects substitute as valid literals bare. Strings need single quotes around the expression: `'${{ VARS.cfg.severity }}'` becomes `'High'`, while the unquoted form becomes the bare name `High` and fails at call time with `NameError: name 'High' is not defined`.
+Numbers, booleans, `None`, lists, and objects substitute as valid literals without quotes. Strings need single quotes around the expression: `'${{ VARS.cfg.severity }}'` becomes `'High'`, while the unquoted form becomes the bare name `High` and fails at call time with `NameError: name 'High' is not defined`.
 
 A string value containing an apostrophe breaks the lambda with `Invalid syntax in expression: unterminated string literal`. When interpolated data can contain quotes, move the logic to `core.script.run_python`, which receives values through `inputs` instead of text substitution.
 
