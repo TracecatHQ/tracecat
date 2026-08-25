@@ -9,6 +9,7 @@ from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 
+from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import FinalizeGatherActivityResult
 from tracecat.dsl.types import (
     ActionErrorInfo,
@@ -80,14 +81,13 @@ async def test_legacy_action_error_payload_is_unchanged_without_envelope() -> No
 
     serialized = ActionErrorInfoAdapter.dump_python(error_info, mode="json")
     failure = Failure()
-    await DataConverter.default.encode_failure(
-        ApplicationError("Failed", error_info), failure
-    )
-    decoded = await DataConverter.default.decode_failure(failure)
+    data_converter = get_data_converter()
+    await data_converter.encode_failure(ApplicationError("Failed", error_info), failure)
+    decoded = await data_converter.decode_failure(failure)
 
     assert "envelope" not in serialized
     assert isinstance(decoded, ApplicationError)
-    assert "envelope" not in decoded.details[0]
+    assert decoded.details[0] == serialized
 
 
 @pytest.mark.anyio

@@ -69,6 +69,13 @@ class ActionErrorInfo(BaseModel):
         exclude_if=lambda value: value is None,
     )
 
+    def model_post_init(self, context: Any, /) -> None:
+        """Preserve the pre-envelope Temporal wire shape for defaulted fields."""
+        del context
+        self.__pydantic_fields_set__.update(
+            {"expr_context", "attempt", "stream_id", "children"}
+        )
+
     def format(self, loc: str = "run_action") -> str:
         locator = f"{self.expr_context}.{self.ref} -> {loc}"
         return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
