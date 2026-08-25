@@ -160,7 +160,7 @@ first_date: ${{ FN.at(ACTIONS.whois.result.events[?(@.eventAction == "registrati
 
 Non-empty literals like `${{ {"status": "ok"} }}` and `${{ [1, 2] }}` evaluate fine, but the empty forms raise. `${{ {} }}` fails with `cannot convert dictionary update sequence element #0 to a sequence` and `${{ [] }}` fails with `'NoneType' object is not iterable`.
 
-To pass an empty value to an action, write it in plain YAML outside the expression: `value: {}`. To test for emptiness, use `FN.is_empty(x)`, `FN.length(x) == 0`.
+To pass an empty value to an action, write it in plain YAML outside the expression: `value: {}`. To test for emptiness, use `FN.is_empty(x)` or `FN.length(x) == 0`.
 
 ## String escapes
 
