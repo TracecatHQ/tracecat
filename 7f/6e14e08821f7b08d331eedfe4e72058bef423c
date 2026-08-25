@@ -1,0 +1,27 @@
+docs/manage-platform/git-sync.mdx
+  s_af3ffe559c1554::t_f7a8b4d9947697 45
+docs/manage-platform/rbac.mdx
+  s_af3ffe559c1554::t_86097997dcf567 58
+docs/manage-platform/users.mdx
+  s_af3ffe559c1554::t_e2a7ebb7398d9f 65,71
+docs/security/architecture.mdx
+  s_af3ffe559c1554::t_691c2957eff815 488
+docs/snippets/environment-variables.mdx
+  s_af3ffe559c1554::t_0339994041ad92 77-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "7f6e14e08821f7b08d331eedfe4e72058bef423c",
+  "prompts": {},
+  "sessions": {
+    "s_af3ffe559c1554": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "28e168b2-aff2-4083-8f30-4dec72508581",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
