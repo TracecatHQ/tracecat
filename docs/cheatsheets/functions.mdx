@@ -21,17 +21,18 @@ prompt: ${{ FN.format("Investigate alert {0} with severity {1}", TRIGGER.alert_i
 ```
 </CodeGroup>
 
-Time manipulation for alert search windows:
+Time manipulation for alert search windows.
+`FN.to_isoformat` keeps microseconds by default; pass `"seconds"` as the second argument to truncate for APIs that expect second precision:
 
 <CodeGroup>
 ```yaml Expression
 start_time: ${{ FN.to_isoformat(FN.now() - FN.minutes(15)) }}
-end_time: ${{ FN.to_isoformat(FN.now()) }}
+end_time: ${{ FN.to_isoformat(FN.now(), "seconds") }}
 ```
 
 ```json Result
 {
-  "start_time": "2026-03-18T12:45:00",
+  "start_time": "2026-03-18T12:45:00.490979",
   "end_time": "2026-03-18T13:00:00"
 }
 ```
@@ -65,7 +66,7 @@ table: ${{ FN.to_markdown_table(ACTIONS.list_findings.result) }}
 
 ```json Result
 {
-  "table": "| id | severity |\n| --- | --- |\n| f-1 | high |\n| f-2 | medium |"
+  "table": "|id|severity|\n|-|-|\n|f-1|high|\n|f-2|medium|"
 }
 ```
 </CodeGroup>
@@ -85,6 +86,8 @@ unique_tags: ${{ FN.unique(TRIGGER.tags) }}
 }
 ```
 </CodeGroup>
+
+Functions accept positional arguments only: signatures in the reference below show parameter names such as `timespec: str = auto`, but keyword arguments do not parse.
 
 This page is generated from `tracecat/expressions/functions.py`.
 
