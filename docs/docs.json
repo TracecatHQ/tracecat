@@ -112,6 +112,15 @@
             ]
           },
           {
+            "group": "Manage platform",
+            "icon": "settings",
+            "pages": [
+              "manage-platform/users",
+              "manage-platform/rbac",
+              "manage-platform/git-sync"
+            ]
+          },
+          {
             "group": "Authentication",
             "icon": "shield",
             "pages": [

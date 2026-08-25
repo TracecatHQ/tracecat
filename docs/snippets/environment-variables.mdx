@@ -33,7 +33,7 @@
 | :------- | :------ | :---------- |
 | `TRACECAT__AUTH_SUPERADMIN_EMAIL` | | Email promoted to superadmin when that account is created. Set it before the first user registers; until then, nobody can register. |
 | `TRACECAT__AUTH_TYPES` | `basic` | Comma-separated list of enabled auth methods: `basic`, `oidc`, `saml`. |
-| `TRACECAT__AUTH_ALLOWED_DOMAINS` | | Comma-separated email domains allowed to register (e.g. `example.com,example.org`). Leave blank to allow all. |
+| `TRACECAT__AUTH_ALLOWED_DOMAINS` | | Comma-separated email domains allowed to create an account and to sign in through OIDC or SAML, e.g. `example.com,example.org`. Leave blank to allow all. Membership in an organization still comes from an invitation or admin provisioning. |
 | `TRACECAT__AUTH_MIN_PASSWORD_LENGTH` | `12` | Minimum password length for basic auth. |
 
 ### OIDC / OAuth

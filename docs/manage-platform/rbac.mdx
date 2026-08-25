@@ -1,0 +1,77 @@
+---
+title: Roles and permissions
+description: "Assign Tracecat built-in and custom roles to users and groups at the organization or workspace level, and scope service accounts to the permissions they need."
+---
+
+## Overview
+
+A scope is one permission on one resource, named `resource:action`, and a role bundles scopes. You assign a role to a user or a group either organization-wide or for a single workspace, and Tracecat computes each user's effective permissions from those assignments.
+
+## Built-in roles
+
+Tracecat seeds six built-in roles into every organization at startup. Tracecat rejects changes to a built-in role's scopes and rejects deleting it, so create a custom role when the built-in set does not fit.
+
+| Role | Level | What it can do | Scopes |
+| --- | --- | --- | --- |
+| `workspace-viewer` | Workspace | Read workflows, integrations, cases, tables, schedules, agents, secrets, tags, variables, the inbox, the workspace, and its member list. | 12 |
+| `workspace-editor` | Workspace | Everything `workspace-viewer` can, plus create and update those resources, run workflows, agents, and any action, terminate workflow runs, and run workflow sync and workspace sync. | 36 |
+| `workspace-admin` | Workspace | Everything `workspace-editor` can, plus delete those resources, update or delete the workspace, invite, update, and remove members, and manage workspace service accounts. | 56 |
+| `organization-member` | Organization | Read the organization, its member list, the registry, and organization secrets, and read and run agents. | 6 |
+| `organization-admin` | Organization | Everything `workspace-admin` can in every workspace, plus create workspaces, manage organization settings, members and invitations, roles, groups, and assignments, organization service accounts, the custom registry, and organization secrets, and read billing. | 84 |
+| `organization-owner` | Organization | Everything `organization-admin` can, plus `org:delete`, `org:billing:update`, and `org:owner:assign`. | 87 |
+
+The Scopes column counts the current definition. Startup seeding adds scopes a built-in role is missing and removes none, so an organization created before a scope was renamed also keeps the old name.
+
+`organization-owner` and `organization-admin` reach every workspace in the organization without a workspace membership. Every other user needs a workspace membership plus a workspace role, and `organization-member` on its own grants no workspace resource scope.
+
+`GET /rbac/roles` returns every role in the organization with its full scope list. The Scopes tab under Access control lists every scope by name.
+
+![Built-in roles](/img/manage-platform/rbac-roles.png)
+
+## Assignments
+
+An assignment binds one role to one user or one group, either organization-wide or for a single workspace. An organization-wide assignment applies in every workspace, and a workspace assignment grants nothing outside that workspace.
+
+A user's effective scopes are the union of their direct assignments and the assignments of every group they belong to. A user with `workspace-viewer` directly and a group assignment of `workspace-editor` in the same workspace holds every `workspace-editor` scope there.
+
+Each user holds at most one direct assignment per workspace and at most one organization-wide direct assignment, and the same limit applies to each group. A second assignment for the same user and workspace returns `409` with `User already has an assignment for this workspace`, and a second assignment for the same group and workspace returns `409` with `Group already has an assignment for this workspace`; change the role on the existing assignment instead.
+
+You can assign a role only when you hold every scope in it. Assigning a role with a scope you lack, or adding a user to a group whose roles carry such a scope, returns `403` with `Cannot grant scopes not held by the caller: <scopes>`; platform superusers are exempt from this ceiling.
+
+| Page | Route | What it manages |
+| --- | --- | --- |
+| Access control | `/organization/settings/rbac` | Roles, Groups, Group assignments, User assignments, and Scopes tabs for the whole organization. |
+| Workspace members | `/workspaces/{id}/members` | Members of one workspace. Changing a member's role writes a workspace-scoped user assignment. |
+| Workspace roles | `/workspaces/{id}/members/roles` | Roles in the organization, with the ones assigned in this workspace marked in use. |
+| Workspace groups | `/workspaces/{id}/members/groups` | Groups in the organization and their assignments in this workspace. |
+
+Access control and the workspace Roles and Groups pages require the `rbac_addons` entitlement, and every custom role, group, scope, and group assignment endpoint returns `403` with `EntitlementRequired` without it. Without the entitlement the UI redirects to `/organization/members` or `/workspaces/{id}/members`, where you invite members with a built-in role and change a member's role.
+
+A single-tenant deployment reads the entitlement from `TRACECAT__FEATURE_FLAGS=rbac`. A multi-tenant deployment reads it from the organization's tier.
+
+![Workspace Editor scopes](/img/manage-platform/rbac-assignment.png)
+
+## Organization membership
+
+A role assignment applies only to a user who is a member of the organization, and Tracecat rejects assigning a role or a group to a user without membership with `404` `User not found in organization`. A signed-in user without an organization membership sees `No organization access yet` instead of their workspaces, with any pending invitations listed.
+
+Registration and sign-in create no membership. On a single-tenant deployment, sign-in enrolls a superuser into the default organization and repairs the organization-wide role of an existing member; an account that holds no membership needs an invitation or provisioning before it can open a workspace.
+
+An accepted organization invitation creates the membership and an organization-wide assignment of the invited role. An accepted workspace invitation creates the organization membership with `organization-member` when the user has none, then the workspace membership; see [User management](/manage-platform/users) for invitations and provisioning.
+
+## Service accounts
+
+A service account holds scopes directly, with no role. An organization service account lives under `/organization/settings/service-accounts` and a workspace service account under `/workspaces/{id}/service-accounts`.
+
+Each kind draws from its own allowlist. A workspace service account can hold the workspace resource scopes for agents, cases, integrations, schedules, secrets, tables, tags, variables, and workflows, `workspace_sync:sync`, `workspace:read`, `workspace:update`, `workspace:delete`, `workspace:member:read`, `workspace:member:invite`, `workspace:member:remove`, and any `action:<name>:execute` scope; an organization service account can additionally hold `org:read`, `org:secret:*`, `org:settings:*`, `org:workspace:read`, `workspace:create`, and `org:rbac:*`.
+
+Requesting a scope outside the allowlist returns `400` with `Unsupported service account scopes requested: <scopes>`. Requesting a scope you do not hold yourself returns `403` with `Cannot assign service account scopes not held by the caller: <scopes>`.
+
+Service accounts require the `service_accounts` entitlement, and every service account endpoint returns `403` with `EntitlementRequired` without it. A single-tenant deployment resolves entitlements from built-in defaults that leave `service_accounts` off, and a multi-tenant deployment reads it from the organization's tier.
+
+## Related pages
+
+- See [User management](/manage-platform/users) for first login, invitations, provisioning, and platform administration.
+- See [API authentication](/api-reference/authentication) for creating a service account API key and calling the REST API with it.
+- See [Architecture](/security/architecture#role-based-access-control) for how RBAC fits the identity and trust model.
+- See [Organization audit logs](/audit-logs/organization) for the `rbac_role`, `rbac_group`, `rbac_assignment`, and `rbac_user_assignment` events.
