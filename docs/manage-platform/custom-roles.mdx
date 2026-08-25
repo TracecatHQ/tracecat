@@ -1,6 +1,6 @@
 ---
 title: Custom roles and groups
-description: "Create custom roles, scopes, and groups on the Access control page, and assign roles to users and groups organization-wide or per workspace."
+description: "Create custom roles, groups, and scopes for your organization, and assign roles to users and groups organization-wide or per workspace."
 icon: "lock"
 ---
 
@@ -8,17 +8,21 @@ icon: "lock"
 
 ## Overview
 
-Access control lives in the organization sidebar at `/organization/settings/rbac` with five tabs: Roles, Groups, Group assignments, User assignments, and Scopes. Roles bundle scopes, groups bundle users, and the assignment tabs bind roles to either.
+Roles bundle scopes, groups bundle users, and assignments bind a role to a user or a group.
+
+Open Members in the organization sidebar. With the entitlement active the page reads `Members and access control` and gains Roles and Groups tabs beside Members.
+
+Group assignments, User assignments, and Scopes live on the Access control page at `/organization/settings/rbac`. No sidebar entry links to it, so enter the URL.
 
 ## Turn it on
 
 Custom roles, groups, and scopes require the `rbac_addons` entitlement. A single-tenant deployment turns it on with `TRACECAT__FEATURE_FLAGS=rbac`, and a multi-tenant deployment reads it from the organization's tier.
 
-Without the entitlement the pages are absent rather than locked: Access control redirects to the organization Members page, the workspace Roles and Groups pages redirect to workspace Members, and the Members, Roles, and Groups toggle disappears from the workspace navigation.
+Without the entitlement the pages are absent rather than locked. The Members page shows a plain member list, Access control redirects to it, the workspace Roles and Groups pages redirect to workspace Members, and the Members, Roles, and Groups toggle disappears from the workspace navigation.
 
 ## Create a role
 
-Open the Roles tab and select `Create role`. The dialog takes a `Role name` and `Description`, then a permission picker with one row per category: Workflows, Cases, Data, Agents, Secrets, Integrations, Workspace, Organization, and Actions.
+Open the Roles tab on the Members page and select `Create role`. The dialog takes a `Role name` and `Description`, then a permission picker with one row per category: Workflows, Cases, Data, Agents, Secrets, Integrations, Workspace, Organization, and Actions.
 
 Each row sets a level of None, Read, Write, Execute (workflows and agents only), Admin, or Custom for individual scopes. The Actions category takes a namespace selector instead.
 
@@ -30,19 +34,19 @@ Tracecat refuses deleting a role that is still assigned with `Cannot delete role
 
 ## Custom scopes
 
-The Scopes tab lists every scope in the organization by name, and Filter by source narrows it to Platform or Custom scopes. Select `Create scope` to add your own: names follow `resource:action` and use only lowercase letters, numbers, colons, underscores, dots, asterisks, and hyphens.
+The Scopes tab on the Access control page lists every scope in the organization by name, and Filter by source narrows it to Platform or Custom scopes. Select `Create scope` to add your own: names follow `resource:action` and use only lowercase letters, numbers, colons, underscores, dots, asterisks, and hyphens.
 
 You can delete a custom scope; platform scopes have no Delete action.
 
 ## Groups
 
-Open the Groups tab and select `Create group`, which takes a name and a description. Tracecat refuses a duplicate name with `A group with this name already exists`.
+Open the Groups tab on the Members page and select `Create group`, which takes a name and a description. Tracecat refuses a duplicate name with `A group with this name already exists`.
 
 `Manage group` opens Members and Roles tabs. Membership is flat — there is no group nesting — and every member inherits the group's roles.
 
 ## Assign roles
 
-The Group assignments and User assignments tabs bind a role to a group or a user: pick the group or user, the role, and a scope of Organization-wide or a single workspace.
+On the Access control page, the Group assignments and User assignments tabs bind a role to a group or a user: pick the group or user, the role, and a scope of Organization-wide or a single workspace.
 
 Effective permissions are the union of direct and group assignments; no assignment overrides another.
 
