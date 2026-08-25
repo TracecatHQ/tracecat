@@ -253,7 +253,16 @@ export function computeUnifiedDiff(
     }
   }
 
-  applyWordLevelHighlights(rows)
+  // Prose diffing falls back here once either document exceeds its safe word
+  // diff bound. Keep that fallback bounded by skipping the same quadratic
+  // intra-line pass; large inputs still receive line-level additions and
+  // removals from `diffLines`.
+  if (
+    oldText.length <= MAX_PROSE_DIFF_CHARS &&
+    newText.length <= MAX_PROSE_DIFF_CHARS
+  ) {
+    applyWordLevelHighlights(rows)
+  }
 
   return {
     rows: collapseUnchangedRuns(rows, contextLines),

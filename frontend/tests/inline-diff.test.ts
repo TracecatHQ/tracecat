@@ -311,6 +311,22 @@ describe("computeUnifiedDiff", () => {
     expect(added.segments).toEqual([{ kind: "added", value: "zzz" }])
   })
 
+  it("skips word highlights when a document exceeds the prose bound", () => {
+    const longSharedLine = `shared ${"x".repeat(MAX_PROSE_DIFF_CHARS)}`
+    const result = computeUnifiedDiff(
+      `${longSharedLine} draft`,
+      `${longSharedLine} version`
+    )
+    const removed = result.rows.find((row) => row.kind === "removed")
+    const added = result.rows.find((row) => row.kind === "added")
+    expect(removed?.segments).toEqual([
+      { kind: "removed", value: `${longSharedLine} draft` },
+    ])
+    expect(added?.segments).toEqual([
+      { kind: "added", value: `${longSharedLine} version` },
+    ])
+  })
+
   it("only pairs the overlapping prefix when the runs differ in length", () => {
     const result = computeUnifiedDiff(
       "alpha one\ntail",
