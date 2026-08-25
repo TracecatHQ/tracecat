@@ -132,7 +132,7 @@ Write each comparison explicitly: `${{ 3 > 2 && 2 > 1 }}` returns `true`.
 
 <CodeGroup>
 ```yaml Expression
-first_date: ${{ ACTIONS.whois.result.events[?(@.eventAction == "registration")].eventDate[0] }}
+first_date: ${{ ACTIONS.get_domain_record.result.events[?(@.eventAction == "registration")].eventDate[0] }}
 ```
 
 ```json Result
@@ -146,7 +146,7 @@ Moving the index before the field also fails: `events[?(...)][0].eventDate` rais
 
 <CodeGroup>
 ```yaml Expression
-first_date: ${{ FN.at(ACTIONS.whois.result.events[?(@.eventAction == "registration")].eventDate, 0) }}
+first_date: ${{ FN.at(ACTIONS.get_domain_record.result.events[?(@.eventAction == "registration")].eventDate, 0) }}
 ```
 
 ```json Result
