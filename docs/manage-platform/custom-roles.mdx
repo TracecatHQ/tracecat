@@ -12,7 +12,7 @@ Roles bundle scopes, groups bundle users, and assignments bind a role to a user 
 
 Open Members in the organization sidebar. With the entitlement active the page reads `Members and access control` and gains Roles and Groups tabs beside Members.
 
-Group assignments, User assignments, and Scopes live on the Access control page at `/organization/settings/rbac`. No sidebar entry links to it, so enter the URL.
+In a workspace, open Members and switch views with the Members, Roles, and Groups toggle in the control bar at the top right, beside the action button.
 
 ## Turn it on
 
@@ -22,7 +22,7 @@ Without the entitlement the pages are absent rather than locked. The Members pag
 
 ## Create a role
 
-Open the Roles tab on the Members page and select `Create role`. The dialog takes a `Role name` and `Description`, then a permission picker with one row per category: Workflows, Cases, Data, Agents, Secrets, Integrations, Workspace, Organization, and Actions.
+Open the Roles tab and select `Create role`. The dialog takes a `Role name` and `Description`, then a permission picker with one row per category: Workflows, Cases, Data, Agents, Secrets, Integrations, Workspace, Organization, and Actions.
 
 Each row sets a level of None, Read, Write, Execute (workflows and agents only), Admin, or Custom for individual scopes. The Actions category takes a namespace selector instead.
 
@@ -34,27 +34,29 @@ Tracecat refuses deleting a role that is still assigned with `Cannot delete role
 
 ## Custom scopes
 
-The Scopes tab on the Access control page lists every scope in the organization by name, and Filter by source narrows it to Platform or Custom scopes. Select `Create scope` to add your own: names follow `resource:action` and use only lowercase letters, numbers, colons, underscores, dots, asterisks, and hyphens.
+The Scopes tab lists every scope in the organization by name, and Filter by source narrows it to Platform or Custom scopes. It lives on the Access control page at `/organization/settings/rbac`, alongside Group assignments and User assignments tabs that list every assignment in one place.
+
+Select `Create scope` to add your own: names follow `resource:action` and use only lowercase letters, numbers, colons, underscores, dots, asterisks, and hyphens.
 
 You can delete a custom scope; platform scopes have no Delete action.
 
 ## Groups
 
-Open the Groups tab on the Members page and select `Create group`, which takes a name and a description. Tracecat refuses a duplicate name with `A group with this name already exists`.
+Open the Groups tab and select `Create group`, which takes a name and a description. Tracecat refuses a duplicate name with `A group with this name already exists`.
 
 `Manage group` opens Members and Roles tabs. Membership is flat — there is no group nesting — and every member inherits the group's roles.
 
 ## Assign roles
 
-On the Access control page, the Group assignments and User assignments tabs bind a role to a group or a user: pick the group or user, the role, and a scope of Organization-wide or a single workspace.
+Assign a role to a user from the Members tab: open the member's row menu, choose `Manage roles`, then pick a role and a scope of Organization-wide or a single workspace under `Add role assignment`. Assign a role to a group from `Manage group` on the Groups tab.
 
 Effective permissions are the union of direct and group assignments; no assignment overrides another.
 
 ## In a workspace
 
-The workspace pages live under Members > Roles and Members > Groups. You create roles and groups only at the organization level, so these pages edit and assign but do not create.
+The control bar toggle switches between Members, Roles, and Groups, and the action button beside it becomes `Create role` or `Create group` for those views. Creating either still requires `org:rbac:create`.
 
-Assignments made here apply only to that workspace, and the picker hides organization-only scopes.
+Assignments made here apply only to that workspace, and the scope picker hides organization-only scopes.
 
 ## Related pages
 
