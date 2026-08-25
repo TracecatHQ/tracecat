@@ -98,7 +98,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:$${PORT:-8000}/health || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -374,7 +374,7 @@ services:
       migrations:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health/readiness"]
+      test: ["CMD-SHELL", "curl -f http://localhost:$${TRACECAT__LITELLM_PORT:-4000}/health/readiness || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 30
