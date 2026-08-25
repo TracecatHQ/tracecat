@@ -3,6 +3,8 @@ title: Basic
 description: "Authenticate into self-hosted Tracecat with basic email-and-password sign-in: configure user accounts, password policies, and admin bootstrap for small deployments."
 ---
 
+import FirstSuperadmin from "/snippets/first-superadmin.mdx";
+
 <Warning>
   In production, use OIDC or SAML SSO. Basic auth is meant for local development only.
 </Warning>
@@ -26,6 +28,10 @@ You can also combine auth types if you need to:
 ```bash
 TRACECAT__AUTH_TYPES=basic,oidc
 ```
+
+## First login
+
+<FirstSuperadmin />
 
 ## Minimum password length
 

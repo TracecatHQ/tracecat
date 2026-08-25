@@ -140,11 +140,11 @@ EXAMPLES: dict[str, dict[str, str]] = {
                 user_prompt: |
                   Review the latest evidence for case ${{ TRIGGER.case_id }} and decide what to do next.
                 actions:
-                  - core.cases.get
+                  - core.cases.get_case
                   - core.cases.create_comment
-                  - core.cases.update
+                  - core.cases.update_case
                 tool_approvals:
-                  core.cases.update: true
+                  core.cases.update_case: true
                 max_tool_calls: 4
             """
         ).strip(),

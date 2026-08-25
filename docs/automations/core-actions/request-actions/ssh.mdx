@@ -28,15 +28,25 @@ SSH host to connect to.
 
 </ParamField>
 
-<ParamField path="host_public_key" type="string" required>
-
-Expected public host key for the target host in '&lt;key_type> &lt;base64>' format. For non-22 ports, the entry is stored as [host]:port.
-
-</ParamField>
-
 <ParamField path="username" type="string" required>
 
 SSH username.
+
+</ParamField>
+
+<ParamField path="host_key_checking" type="boolean">
+
+Whether to verify the remote host key before connecting. Disable only for first-contact or otherwise trusted hosts; PID isolation and nsjail do not protect against SSH man-in-the-middle attacks.
+
+Default: `true`.
+
+</ParamField>
+
+<ParamField path="host_public_key" type="string | null">
+
+Expected public host key for the target host in '&lt;key_type> &lt;base64>' format. Required when host_key_checking is enabled. For non-22 ports, the entry is stored as [host]:port.
+
+Default: `null`.
 
 </ParamField>
 

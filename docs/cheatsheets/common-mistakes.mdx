@@ -1,0 +1,288 @@
+---
+title: "Common mistakes"
+description: "Fixes for the most common Tracecat expression errors: null guards, bracket indexing, YAML quoting, empty literals, and Python syntax that does not parse."
+---
+
+## Short-circuiting and null guards
+
+`&&` and `||` evaluate both operands, so a null check in front of a comparison does not protect it:
+
+<CodeGroup>
+```yaml Expression
+has_hits: ${{ ACTIONS.enrich.result.count != None && ACTIONS.enrich.result.count > 0 }}
+```
+
+```text Error
+Error evaluating expression `ACTIONS.enrich.result.count != None && ACTIONS.enrich.result.count > 0`
+...
+Reason: Error trying to process rule "gt_op":
+'>' not supported between instances of 'NoneType' and 'int'
+```
+</CodeGroup>
+
+The ternary `A if condition else B` is the only form that skips evaluation, so put the risky comparison inside it: `${{ ACTIONS.enrich.result.count > 0 if ACTIONS.enrich.result.count != None else False }}`.
+
+An `&&` chain is safe only when every clause tolerates `None` on its own. Equality checks like `!=` and `==` do, so `${{ TRIGGER.assignee != None && TRIGGER.severity == "high" }}` returns `false` without error; ordering comparisons like `>` do not.
+
+## Unsupported Python syntax
+
+Each Python form below fails with `Error parsing expression`:
+
+| Python habit | Write instead |
+| --- | --- |
+| `true`, `false`, `null` | `True`, `False`, `None` |
+| `a or b`, `a and b` | `a \|\| b`, `a && b` |
+| `FN.to_isoformat(x, timespec="seconds")` | Positional arguments only: `FN.to_isoformat(x, "seconds")` |
+| `[FN.uppercase(t) for t in TRIGGER.tags]` | `FN.uppercase.map(TRIGGER.tags)` |
+| `not not x` | `bool(x)`, or `not (not x)` |
+
+Nesting `${{ }}` inside `${{ }}` does not parse: `${{ FN.length(${{ TRIGGER.tags }}) }}` fails with `No terminal matches '$' in the current parser context`. Write `${{ FN.length(TRIGGER.tags) }}`.
+
+Inside a JSONPath filter the casing inverts: use `true` and `false`. An uppercase literal matches nothing and returns an empty list instead of raising:
+
+<CodeGroup>
+```yaml Expression
+wrong: ${{ TRIGGER.rows[?(@.enabled == True)] }}
+right: ${{ TRIGGER.rows[?(@.enabled == true)] }}
+```
+
+```json Result
+{
+  "wrong": [],
+  "right": [{ "name": "a", "enabled": true }]
+}
+```
+</CodeGroup>
+
+## Missing fields
+
+`TRIGGER`, `ACTIONS`, `ENV`, and `var` paths return `None` for anything that does not exist, including typos:
+
+<CodeGroup>
+```yaml Expression
+email: ${{ TRIGGER.usre.email }}
+```
+
+```json Result
+{
+  "email": null
+}
+```
+</CodeGroup>
+
+Inside a longer string, `None` becomes the literal text `None`. The template `"Assignee: ${{ TRIGGER.assignee }}"` renders as `"Assignee: None"`, so guard string interpolation with a ternary: `${{ TRIGGER.assignee if TRIGGER.assignee != None else "unassigned" }}`.
+
+## Bracket keys
+
+Quoted keys work everywhere brackets do: `TRIGGER["data"]` and `VARS.cfg["epss"]` both resolve. Unquoted keys work in some contexts and fail in others:
+
+<CodeGroup>
+```yaml Expression
+threshold: ${{ VARS.cfg[epss] }}
+```
+
+```text Error
+Error parsing expression `VARS.cfg[epss]`
+Failed to parse expression: Unexpected token Token('FN_NAME_WITH_TRANSFORM', 'epss') at line 1, column 10.
+```
+</CodeGroup>
+
+The first segment after `SECRETS` or `VARS` must use dot syntax: `VARS["cfg"]` fails with `Expected one of: * ATTRIBUTE_PATH`. Write `VARS.cfg` first, then brackets for anything deeper.
+
+`${{ TRIGGER["nope"] }}` returns `null`, while the same lookup on `VARS` raises:
+
+<CodeGroup>
+```yaml Expression
+value: ${{ VARS.cfg["nope"] }}
+```
+
+```text Error
+Error evaluating expression `VARS.cfg["nope"]`
+...
+Reason: Error trying to process rule "primary_expr":
+Key 'nope' not found for mapping access
+```
+</CodeGroup>
+
+Hyphenated keys in payloads are reachable with quoted brackets: `${{ TRIGGER["my-key"] }}` works. A hyphenated secret or variable name is not reachable at all: `SECRETS.my-secret.API_KEY` fails to parse, and the only fix is renaming the secret or variable with underscores.
+
+When the text after the hyphen starts with a context keyword, the expression parses as arithmetic: `${{ VARS.my-var.k }}` evaluates as `VARS.my` minus `var.k` and fails with `unsupported operand type(s) for -: 'NoneType' and 'NoneType'`.
+
+## Comparison chains
+
+Comparisons fold left instead of chaining: `3 > 2 > 1` becomes `(3 > 2) > 1`, then `True > 1`:
+
+<CodeGroup>
+```yaml Expression
+ordered: ${{ 3 > 2 > 1 }}
+```
+
+```json Result
+{
+  "ordered": false
+}
+```
+</CodeGroup>
+
+Write each comparison explicitly: `${{ 3 > 2 && 2 > 1 }}` returns `true`.
+
+## Indexing a filter result
+
+`[0]` after a JSONPath filter is absorbed into the path and applied to each matched value, so with matched dates like `"2015-03-20"` you index into the string itself:
+
+<CodeGroup>
+```yaml Expression
+first_date: ${{ ACTIONS.whois.result.events[?(@.eventAction == "registration")].eventDate[0] }}
+```
+
+```json Result
+{
+  "first_date": ["2"]
+}
+```
+</CodeGroup>
+
+Moving the index before the field also fails: `events[?(...)][0].eventDate` raises `Error trying to process rule "actions": 0`. `FN.at` takes the first element:
+
+<CodeGroup>
+```yaml Expression
+first_date: ${{ FN.at(ACTIONS.whois.result.events[?(@.eventAction == "registration")].eventDate, 0) }}
+```
+
+```json Result
+{
+  "first_date": "2015-03-20"
+}
+```
+</CodeGroup>
+
+## Empty literals
+
+Non-empty literals like `${{ {"status": "ok"} }}` and `${{ [1, 2] }}` evaluate fine, but the empty forms raise. `${{ {} }}` fails with `cannot convert dictionary update sequence element #0 to a sequence` and `${{ [] }}` fails with `'NoneType' object is not iterable`.
+
+To pass an empty value to an action, write it in plain YAML outside the expression: `value: {}`. To test for emptiness, use `FN.is_empty(x)` or `FN.length(x) == 0`.
+
+## String escapes
+
+Escape sequences stay literal: `${{ "a\nb" }}` is the four characters `a`, `\`, `n`, `b`, and `FN.length("a\nb")` returns `4`. The exception is `FN.join`, which unescapes its separator:
+
+<CodeGroup>
+```yaml Expression
+joined: ${{ FN.join(["a", "b"], "\n") }}
+length: ${{ FN.length(FN.join(["a", "b"], "\n")) }}
+```
+
+```json Result
+{
+  "joined": "a\nb",
+  "length": 3
+}
+```
+</CodeGroup>
+
+## YAML quoting
+
+A `: ` inside an unquoted expression breaks the YAML document:
+
+<CodeGroup>
+```yaml Expression
+message: ${{ FN.format("Alert: {0}", TRIGGER.alert_id) }}
+```
+
+```text Error
+mapping values are not allowed here
+  in "<unicode string>", line 1, column 30
+```
+</CodeGroup>
+
+A ` #` fails silently: `title: ${{ FN.format("Alert #{0}", TRIGGER.alert_id) }}` truncates to the literal text `${{ FN.format("Alert`, which passes through unevaluated. Wrap the whole value in single quotes whenever the expression contains `:`, `#`, or quotes:
+
+```yaml
+message: '${{ FN.format("Alert: {0}", TRIGGER.alert_id) }}'
+```
+
+Double outer quotes collide with the double quotes inside the expression.
+
+## Field access after functions
+
+Dotting into a function result does not parse:
+
+<CodeGroup>
+```yaml Expression
+hour: ${{ FN.now().hour }}
+```
+
+```text Error
+Error parsing expression `FN.now().hour`
+Failed to parse expression: Unexpected token Token('PARTIAL_JSONPATH_EXPR', '.hour') at line 1, column 9.
+```
+</CodeGroup>
+
+The accessor function `${{ FN.get_hour(FN.now()) }}` returns the hour.
+
+## VARS key depth
+
+A `VARS` path takes the variable name plus at most one key: `${{ VARS.cfg.network }}` returns the stored object, but one level deeper raises:
+
+<CodeGroup>
+```yaml Expression
+cidr: ${{ VARS.cfg.network.cidr }}
+```
+
+```text Error
+Error evaluating expression `VARS.cfg.network.cidr`
+...
+VARS expressions currently support at most one key segment (`VARS.<name>.<key>`).
+Got VARS.cfg.network.cidr with 2 key segments after the variable name.
+```
+</CodeGroup>
+
+Reach deeper values with `FN.lookup`: `${{ FN.lookup(VARS.cfg.network, "cidr") }}` returns `"10.0.0.0/8"`, or store the value one level flatter.
+
+## Naive and aware datetimes
+
+`FN.now()` returns a local time without timezone info, while `FN.utcnow()` and any parsed timestamp that carries an offset are timezone-aware. Mixing the two in arithmetic raises:
+
+<CodeGroup>
+```yaml Expression
+age: ${{ FN.to_datetime(TRIGGER.created_at) - FN.now() }}
+```
+
+```text Error
+Error evaluating expression `FN.to_datetime(TRIGGER.created_at) - FN.now()`
+...
+can't subtract offset-naive and offset-aware datetimes
+```
+</CodeGroup>
+
+Compare aware with aware: `${{ FN.to_datetime(TRIGGER.created_at) < FN.utcnow() }}` returns `true`. To mix with `FN.now()`, strip the offset with `FN.unset_timezone` first.
+
+## Expressions in python_lambda
+
+Expressions work inside `python_lambda` parameters. Write the expression as the Python literal it should become:
+
+<CodeGroup>
+```yaml Expression
+- ref: keep_high_epss
+  action: core.transform.filter
+  args:
+    items: ${{ ACTIONS.get_findings.result }}
+    python_lambda: "lambda x: x['epss'] > ${{ VARS.cfg.epss }}"
+```
+
+```python Result
+lambda x: x['epss'] > 0.6
+```
+</CodeGroup>
+
+Numbers, booleans, `None`, lists, and objects substitute as valid literals without quotes. Strings need single quotes around the expression: `'${{ VARS.cfg.severity }}'` becomes `'High'`, while the unquoted form becomes the bare name `High` and fails at call time with `NameError: name 'High' is not defined`.
+
+A string value containing an apostrophe breaks the lambda with `Invalid syntax in expression: unterminated string literal`. `core.script.run_python` accepts values that contain quotes through `inputs`.
+
+## Related pages
+
+- See [Expressions](/automations/core-concepts/expressions) for expression syntax, contexts, and operators.
+- See [Transformations](/cheatsheets/transformations) for recipes covering the tasks these mistakes come from.
+- See [JSONPath](/cheatsheets/jsonpath) for filter syntax and return behavior.
+- See [Functions](/cheatsheets/functions) for the full `FN` function reference.
+- See [Python script](/automations/core-actions/transform-actions/python-script) for the `core.script.run_python` contract and examples.

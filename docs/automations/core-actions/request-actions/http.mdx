@@ -11,8 +11,6 @@ Connect to any REST API with the `core.http_request`, `core.http_poll`, and
 
 ## Authentication
 
-Authenticate requests with an API key or a managed OAuth access token.
-
 ### API keys
 
 Store API keys and static tokens as
@@ -80,6 +78,14 @@ Default: `null`.
 Base64 encode the raw response body before returning. Use this for binary downloads to prevent corruption from text decoding.
 
 Default: `false`.
+
+</ParamField>
+
+<ParamField path="content" type="string | null">
+
+Raw string content to send as the request body (POST, PUT, and PATCH). Cannot be combined with payload, form_data, or files.
+
+Default: `null`.
 
 </ParamField>
 
@@ -186,16 +192,13 @@ Perform a HTTP request to a given URL with optional polling.
 `poll_condition` receives a response with `data`, `status_code`, and
 `headers`. The action stops polling when the lambda returns `True`.
 
-Prefer `!=` over a single success check when the API has exactly one
-nonterminal state. Default a missing status to that state so a transient
-response does not stop polling:
+When the API has exactly one nonterminal state, `!=` against it stops
+on every terminal state, and the `.get` default treats a missing
+`status` as that state:
 
 ```python
 lambda response: response["data"].get("status", "processing") != "processing"
 ```
-
-This stops on failures and cancellations that a positive
-`status == "completed"` check would miss.
 
 If the API also uses nonterminal states such as `queued` or `pending`,
 list its terminal states with `in`:
@@ -204,8 +207,8 @@ list its terminal states with `in`:
 lambda response: response["data"].get("status") in ["completed", "failed", "cancelled"]
 ```
 
-Keep `poll_max_attempts` above `0` to prevent indefinite polling if the
-condition never matches.
+With `poll_max_attempts: 0`, polling never stops if the condition never
+matches.
 
 Stop on an HTTP status code:
 
@@ -370,8 +373,7 @@ Paginate through a HTTP response.
 <Tip>
   For large lists, request a bounded page and process each batch in a
   [While loop](/automations/core-actions/workflow-actions/while-loops)
-  until the API returns no next cursor or no items. This avoids returning
-  the full dataset at once.
+  until the API returns no next cursor or no items.
 </Tip>
 
 ### Inputs
