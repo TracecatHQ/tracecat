@@ -1,0 +1,45 @@
+docs/manage-platform/rbac.mdx
+  s_92642171366a17::t_6fabe36c9e079d 3,35,37,39,41,45,53-55
+  s_92642171366a17::t_26cef923e24f71 49
+docs/manage-platform/service-accounts.mdx
+  s_92642171366a17::t_7cbe935fa551e0 1-45
+docs/manage-platform/users.mdx
+  s_92642171366a17::t_f54347d1de89c5 10
+  s_92642171366a17::t_decaba23783e30 42
+  s_92642171366a17::t_8a36a9689bfb35 18
+  s_92642171366a17::t_251bb77c88f1c6 56
+  s_92642171366a17::t_554d52f38978b3 28
+  s_92642171366a17::t_d712d3658637f0 48
+  s_92642171366a17::t_98dcdbeb5af44e 3
+  s_92642171366a17::t_785d75eca722c7 52
+  s_92642171366a17::t_10ad8a0ffb502d 22
+  s_92642171366a17::t_3de67f31ec6ce4 36
+docs/manage-platform/custom-roles.mdx
+  s_92642171366a17::t_cb0f50db4717c4 1-59
+docs/cheatsheets/workflow-metadata.mdx
+  s_92642171366a17::t_905a1590d0d3db 8-10,12-19
+docs/authentication/basic.mdx
+  s_92642171366a17::t_99777801c718d2 41-62,65
+docs/api-reference/authentication.mdx
+  s_92642171366a17::t_26cef923e24f71 32-35
+docs/security/architecture.mdx
+  s_92642171366a17::t_26cef923e24f71 232
+docs/docs.json
+  s_92642171366a17::t_26cef923e24f71 120-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "b8fb47116cc121d45b56d946004e6c30c025ceb1",
+  "prompts": {},
+  "sessions": {
+    "s_92642171366a17": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ca604ce9-e02e-42a0-877a-d5cd267ec3b4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
