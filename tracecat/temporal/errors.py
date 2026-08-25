@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
 from datetime import timedelta
-from typing import Any, Literal
+from typing import Any, Literal, Never
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from temporalio.exceptions import ApplicationError, FailureError
@@ -36,7 +36,7 @@ class TemporalErrorDetails(BaseModel):
     envelope: ErrorEnvelope
 
 
-def application_error_from_envelope(
+def _application_error_from_envelope(
     envelope: ErrorEnvelope,
     *details: Any,
     next_retry_delay: timedelta | None = None,
@@ -76,13 +76,31 @@ def application_error_from_envelope(
     )
 
 
-def wrap_application_error(
+def raise_application_error_from_envelope(
+    envelope: ErrorEnvelope,
+    *details: Any,
+    next_retry_delay: timedelta | None = None,
+) -> Never:
+    """Raise a classified error without serializing the active exception context.
+
+    Temporal serializes exception chains into workflow history. Owning the raise
+    here ensures callers cannot accidentally attach a sensitive caught exception
+    through implicit chaining.
+    """
+    raise _application_error_from_envelope(
+        envelope,
+        *details,
+        next_retry_delay=next_retry_delay,
+    ) from None
+
+
+def raise_wrapped_application_error(
     error: BaseException,
     *,
     fallback: ErrorEnvelope,
     details: Sequence[Any] = (),
-) -> ApplicationError:
-    """Wrap an exception while preserving any existing classification."""
+) -> Never:
+    """Raise a history-safe wrapper while preserving existing classification."""
     envelope = extract_error_envelope(error) or fallback
     if isinstance(error, ApplicationError):
         wrapped_details = tuple(error.details) if not details else tuple(details)
@@ -91,7 +109,7 @@ def wrap_application_error(
         wrapped_details = tuple(details)
         next_retry_delay = None
 
-    return application_error_from_envelope(
+    raise_application_error_from_envelope(
         envelope,
         *wrapped_details,
         next_retry_delay=next_retry_delay,

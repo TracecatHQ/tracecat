@@ -23,9 +23,9 @@ from tracecat.runtime.errors import (
 )
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import (
-    application_error_from_envelope,
     extract_error_envelope,
-    wrap_application_error,
+    raise_application_error_from_envelope,
+    raise_wrapped_application_error,
 )
 
 
@@ -45,6 +45,30 @@ def _platform_envelope() -> ErrorEnvelope:
         message="Tracecat could not execute the workflow",
         retry_disposition=RetryDisposition.RETRYABLE,
     )
+
+
+def _capture_application_error(
+    envelope: ErrorEnvelope,
+    *details: object,
+    next_retry_delay: timedelta | None = None,
+) -> ApplicationError:
+    with pytest.raises(ApplicationError) as exc_info:
+        raise_application_error_from_envelope(
+            envelope,
+            *details,
+            next_retry_delay=next_retry_delay,
+        )
+    return exc_info.value
+
+
+def _capture_wrapped_application_error(
+    error: BaseException,
+    *,
+    fallback: ErrorEnvelope,
+) -> ApplicationError:
+    with pytest.raises(ApplicationError) as exc_info:
+        raise_wrapped_application_error(error, fallback=fallback)
+    return exc_info.value
 
 
 @pytest.mark.anyio
@@ -72,7 +96,7 @@ async def test_action_error_payload_carries_discriminated_envelope() -> None:
         type="ValueError",
         envelope=envelope,
     )
-    error = application_error_from_envelope(envelope, error_info)
+    error = _capture_application_error(envelope, error_info)
     failure = Failure()
     await DataConverter.default.encode_failure(error, failure)
     decoded = await DataConverter.default.decode_failure(failure)
@@ -134,7 +158,7 @@ def test_legacy_action_error_is_extended_without_changing_existing_fields() -> N
     )
     legacy = ActionErrorInfoAdapter.dump_python(error_info, mode="json")
 
-    error = application_error_from_envelope(envelope, error_info)
+    error = _capture_application_error(envelope, error_info)
 
     detail = error.details[0]
     assert {key: detail[key] for key in legacy} == legacy
@@ -153,17 +177,22 @@ def test_temporal_retryability_is_derived_from_envelope(
 ) -> None:
     envelope = _user_envelope(retry_disposition)
 
-    error = application_error_from_envelope(envelope)
+    error = _capture_application_error(envelope)
 
     assert error.non_retryable is expected_non_retryable
-    assert "non_retryable" not in signature(application_error_from_envelope).parameters
-    assert "error_type" not in signature(application_error_from_envelope).parameters
+    assert (
+        "non_retryable"
+        not in signature(raise_application_error_from_envelope).parameters
+    )
+    assert (
+        "error_type" not in signature(raise_application_error_from_envelope).parameters
+    )
     assert error.type == envelope.kind.value
 
 
 def test_non_retryable_envelope_rejects_next_retry_delay() -> None:
     with pytest.raises(ValueError, match="non-retryable"):
-        application_error_from_envelope(
+        raise_application_error_from_envelope(
             _user_envelope(RetryDisposition.NON_RETRYABLE),
             next_retry_delay=timedelta(seconds=1),
         )
@@ -173,7 +202,7 @@ def test_non_action_adapter_preserves_legacy_details_in_order() -> None:
     envelope = _platform_envelope()
     legacy_details = ({"existing": "payload"}, ["second payload"])
 
-    error = application_error_from_envelope(envelope, *legacy_details)
+    error = _capture_application_error(envelope, *legacy_details)
 
     assert error.details[:2] == legacy_details
     assert len(error.details) == 3
@@ -184,7 +213,7 @@ def test_non_action_adapter_preserves_legacy_details_in_order() -> None:
 @pytest.mark.anyio
 async def test_envelope_survives_temporal_failure_serialization() -> None:
     envelope = _platform_envelope()
-    error = application_error_from_envelope(envelope, {"existing": "payload"})
+    error = _capture_application_error(envelope, {"existing": "payload"})
     failure = Failure()
 
     await DataConverter.default.encode_failure(error, failure)
@@ -199,7 +228,7 @@ async def test_envelope_survives_temporal_failure_serialization() -> None:
 @pytest.mark.anyio
 async def test_envelope_survives_wrapped_temporal_failure_serialization() -> None:
     envelope = _user_envelope()
-    original = application_error_from_envelope(envelope)
+    original = _capture_application_error(envelope)
     try:
         raise ApplicationError(
             "Outer wrapper",
@@ -225,12 +254,16 @@ async def test_platform_diagnostics_do_not_enter_temporal_history() -> None:
         retry_disposition=RetryDisposition.RETRYABLE,
         cause=sensitive,
     )
-    error = wrap_application_error(sensitive, fallback=envelope)
+    try:
+        raise sensitive
+    except RuntimeError as caught:
+        error = _capture_wrapped_application_error(caught, fallback=envelope)
     failure = Failure()
 
     await DataConverter.default.encode_failure(error, failure)
 
     serialized_failure = str(failure)
+    assert not failure.HasField("cause")
     assert "secret" not in serialized_failure
     assert "example.invalid" not in serialized_failure
     assert "RuntimeError" in serialized_failure
@@ -295,9 +328,12 @@ def test_payload_key_does_not_collide_without_valid_discriminator() -> None:
 def test_wrapping_preserves_existing_classification() -> None:
     original_envelope = _user_envelope()
     fallback = _platform_envelope()
-    original = application_error_from_envelope(original_envelope, {"legacy": "payload"})
+    original = _capture_application_error(
+        original_envelope,
+        {"legacy": "payload"},
+    )
 
-    wrapped = wrap_application_error(original, fallback=fallback)
+    wrapped = _capture_wrapped_application_error(original, fallback=fallback)
 
     assert wrapped.type == original_envelope.kind.value
     assert wrapped.details == original.details
@@ -312,7 +348,7 @@ def test_existing_detail_classification_is_authoritative() -> None:
         "envelope": original_envelope.model_dump(mode="json"),
     }
 
-    error = application_error_from_envelope(fallback, detail)
+    error = _capture_application_error(fallback, detail)
 
     assert error.message == original_envelope.message
     assert error.non_retryable is True

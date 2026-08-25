@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
 from tracecat.dsl import scheduler as scheduler_module
@@ -29,7 +30,16 @@ from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
 )
-from tracecat.temporal.errors import application_error_from_envelope
+from tracecat.temporal.errors import raise_application_error_from_envelope
+
+
+def _capture_application_error(
+    envelope: ErrorEnvelope,
+    *details: object,
+) -> ApplicationError:
+    with pytest.raises(ApplicationError) as exc_info:
+        raise_application_error_from_envelope(envelope, *details)
+    return exc_info.value
 
 
 def _build_scheduler(
@@ -82,7 +92,7 @@ async def test_scheduler_preserves_classified_action_error() -> None:
         message="The action failed",
         retry_disposition=RetryDisposition.NON_RETRYABLE,
     )
-    error = application_error_from_envelope(
+    error = _capture_application_error(
         envelope,
         ActionErrorInfo(
             ref="task_0",
@@ -109,7 +119,7 @@ async def test_scheduler_preserves_standalone_error_envelope() -> None:
         message="Tracecat could not execute the action",
         retry_disposition=RetryDisposition.RETRYABLE,
     )
-    error = application_error_from_envelope(envelope)
+    error = _capture_application_error(envelope)
 
     await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
 
