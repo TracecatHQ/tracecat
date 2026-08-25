@@ -25,9 +25,9 @@ async def run_python(
     inputs: Annotated[
         dict[str, Any] | None,
         Doc(
-            "Input data passed as function arguments to the main function. "
-            "Keys must match the parameter names in the function signature. "
-            "Missing parameters will receive `None`."
+            "Input data passed as keyword arguments to the main function. "
+            "Keys must match the parameter names in the function signature; "
+            "give a parameter a default value if its key may be missing."
         ),
     ] = None,
     dependencies: Annotated[
@@ -45,8 +45,9 @@ async def run_python(
         bool,
         Doc(
             "Whether to allow network access during script execution. "
-            "Default is False. Set to True when installing PyPI dependencies "
-            "or making external network requests."
+            "Default is False. Set to True when the script makes external "
+            "network requests. Dependency installation runs in a separate "
+            "install phase and does not require it."
         ),
     ] = False,
     env_vars: Annotated[
