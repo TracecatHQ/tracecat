@@ -12,7 +12,6 @@ from temporalio.exceptions import ApplicationError, FailureError
 from tracecat.dsl.types import (
     ActionErrorInfo,
     ActionErrorInfoAdapter,
-    ClassifiedActionErrorInfo,
 )
 from tracecat.runtime.errors import (
     ErrorEnvelope,
@@ -140,14 +139,13 @@ def _serialized_error_details(
     serialized: list[Any] = []
     changed = False
     for detail in details:
-        if isinstance(detail, ClassifiedActionErrorInfo):
-            serialized.append(ActionErrorInfoAdapter.dump_python(detail, mode="json"))
-            changed = True
-        elif isinstance(detail, TemporalErrorDetails):
+        if isinstance(detail, TemporalErrorDetails):
             serialized.append(detail.model_dump(mode="json"))
             changed = True
-        elif isinstance(detail, ActionErrorInfo) and envelope is not None:
-            classified = ClassifiedActionErrorInfo(
+        elif isinstance(detail, ActionErrorInfo) and (
+            detail.envelope is not None or envelope is not None
+        ):
+            classified = ActionErrorInfo(
                 ref=detail.ref,
                 message=detail.message,
                 type=detail.type,
@@ -155,7 +153,7 @@ def _serialized_error_details(
                 attempt=detail.attempt,
                 stream_id=detail.stream_id,
                 children=detail.children,
-                envelope=envelope,
+                envelope=detail.envelope or envelope,
             )
             serialized.append(
                 ActionErrorInfoAdapter.dump_python(classified, mode="json")
@@ -167,7 +165,7 @@ def _serialized_error_details(
 
 
 def _envelope_from_detail(detail: Any) -> ErrorEnvelope | None:
-    if isinstance(detail, ClassifiedActionErrorInfo):
+    if isinstance(detail, ActionErrorInfo):
         return detail.envelope
     if isinstance(detail, TemporalErrorDetails):
         return detail.envelope
@@ -186,9 +184,7 @@ def _envelope_from_detail(detail: Any) -> ErrorEnvelope | None:
         parsed = ActionErrorInfoAdapter.validate_python(detail)
     except ValidationError:
         return None
-    if isinstance(parsed, ClassifiedActionErrorInfo):
-        return parsed.envelope
-    return None
+    return parsed.envelope
 
 
 def _error_chain(error: BaseException) -> Iterator[BaseException]:

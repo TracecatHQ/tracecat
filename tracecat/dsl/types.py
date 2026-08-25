@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
-from pydantic import ConfigDict, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from tracecat.expressions.common import ExprContext
 from tracecat.runtime.errors import ErrorEnvelope
@@ -52,32 +52,26 @@ class Task:
     delay: float = field(default=0.0, compare=False)
 
 
-@dataclass(frozen=True, slots=True)
-class ActionErrorInfo:
+class ActionErrorInfo(BaseModel):
     """Contains information about an action error."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     ref: str
     message: str
     type: str
     expr_context: ExprContext = ExprContext.ACTIONS
     attempt: int = 1
-    stream_id: StreamID = field(default_factory=_root_stream_factory)
-    children: list[ActionErrorInfoVariant] | None = None
+    stream_id: StreamID = Field(default_factory=_root_stream_factory)
+    children: list[ActionErrorInfo] | None = None
+    envelope: ErrorEnvelope | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     def format(self, loc: str = "run_action") -> str:
         locator = f"{self.expr_context}.{self.ref} -> {loc}"
         return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ClassifiedActionErrorInfo(ActionErrorInfo):
-    """Action error carrying the optional runtime classification extension."""
-
-    envelope: ErrorEnvelope
-
-
-type ActionErrorInfoVariant = ClassifiedActionErrorInfo | ActionErrorInfo
-ActionErrorInfoAdapter: TypeAdapter[ActionErrorInfoVariant] = TypeAdapter(
-    ActionErrorInfoVariant,
-    config=ConfigDict(extra="forbid"),
-)
+ActionErrorInfoAdapter: TypeAdapter[ActionErrorInfo] = TypeAdapter(ActionErrorInfo)

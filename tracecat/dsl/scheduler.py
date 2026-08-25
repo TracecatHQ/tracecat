@@ -57,7 +57,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.types import (
         ActionErrorInfo,
         ActionErrorInfoAdapter,
-        ClassifiedActionErrorInfo,
         Task,
         TaskExceptionInfo,
     )
@@ -98,7 +97,7 @@ def _classified_action_error_info(
     *,
     ref: str,
     stream_id: StreamID,
-) -> ClassifiedActionErrorInfo | None:
+) -> ActionErrorInfo | None:
     """Adapt a classified activity failure into the scheduler error shape."""
     envelope = extract_error_envelope(error)
     if envelope is None:
@@ -109,10 +108,10 @@ def _classified_action_error_info(
             parsed = ActionErrorInfoAdapter.validate_python(detail)
         except Exception:
             continue
-        if isinstance(parsed, ClassifiedActionErrorInfo):
+        if parsed.envelope is not None:
             return parsed
 
-    return ClassifiedActionErrorInfo(
+    return ActionErrorInfo(
         ref=ref,
         message=envelope.message,
         type=error.type or error.__class__.__name__,

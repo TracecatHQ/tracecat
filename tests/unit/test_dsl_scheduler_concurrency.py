@@ -21,7 +21,6 @@ from tracecat.dsl.schemas import (
 )
 from tracecat.dsl.types import (
     ActionErrorInfo,
-    ClassifiedActionErrorInfo,
     Task,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -104,7 +103,6 @@ async def test_scheduler_preserves_classified_action_error() -> None:
     await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
 
     details = scheduler.task_exceptions["task_0"].details
-    assert isinstance(details, ClassifiedActionErrorInfo)
     assert details.envelope == envelope
 
 
@@ -124,7 +122,6 @@ async def test_scheduler_preserves_standalone_error_envelope() -> None:
     await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
 
     details = scheduler.task_exceptions["task_0"].details
-    assert isinstance(details, ClassifiedActionErrorInfo)
     assert details.ref == "task_0"
     assert details.envelope == envelope
 

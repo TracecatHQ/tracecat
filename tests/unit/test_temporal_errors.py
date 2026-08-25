@@ -4,6 +4,7 @@ from datetime import timedelta
 from inspect import signature
 
 import pytest
+from pydantic import TypeAdapter
 from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
@@ -12,8 +13,8 @@ from tracecat.dsl.action import FinalizeGatherActivityResult
 from tracecat.dsl.types import (
     ActionErrorInfo,
     ActionErrorInfoAdapter,
-    ClassifiedActionErrorInfo,
 )
+from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.runtime.errors import (
     ErrorEnvelope,
     RetryDisposition,
@@ -27,6 +28,8 @@ from tracecat.temporal.errors import (
     raise_application_error_from_envelope,
     raise_wrapped_application_error,
 )
+from tracecat.workflow.executions.enums import TriggerType
+from tracecat.workflow.executions.types import ErrorHandlerWorkflowInput
 
 
 def _user_envelope(
@@ -90,7 +93,7 @@ async def test_legacy_action_error_payload_is_unchanged_without_envelope() -> No
 @pytest.mark.anyio
 async def test_action_error_payload_carries_discriminated_envelope() -> None:
     envelope = _user_envelope()
-    error_info = ClassifiedActionErrorInfo(
+    error_info = ActionErrorInfo(
         ref="action",
         message="The action failed",
         type="ValueError",
@@ -108,13 +111,12 @@ async def test_action_error_payload_carries_discriminated_envelope() -> None:
     assert extract_error_envelope(decoded) == envelope
     assert isinstance(decoded, ApplicationError)
     parsed = ActionErrorInfoAdapter.validate_python(decoded.details[0])
-    assert isinstance(parsed, ClassifiedActionErrorInfo)
     assert parsed.envelope == envelope
 
 
 def test_aggregate_action_errors_preserve_classified_children() -> None:
     envelope = _platform_envelope()
-    child = ClassifiedActionErrorInfo(
+    child = ActionErrorInfo(
         ref="scatter[0]",
         message=envelope.message,
         type="RuntimeError",
@@ -130,7 +132,7 @@ def test_aggregate_action_errors_preserve_classified_children() -> None:
     assert serialized_finalized["errors"][0]["envelope"] == envelope.model_dump(
         mode="json"
     )
-    assert isinstance(parsed_finalized.errors[0], ClassifiedActionErrorInfo)
+    assert parsed_finalized.errors[0].envelope == envelope
 
     aggregate = ActionErrorInfo(
         ref="gather",
@@ -145,8 +147,35 @@ def test_aggregate_action_errors_preserve_classified_children() -> None:
         mode="json"
     )
     assert parsed_aggregate.children is not None
-    assert isinstance(parsed_aggregate.children[0], ClassifiedActionErrorInfo)
     assert parsed_aggregate.children[0].envelope == envelope
+
+
+def test_error_handler_input_preserves_action_error_envelope() -> None:
+    envelope = _platform_envelope()
+    error_info = ActionErrorInfo(
+        ref="action",
+        message=envelope.message,
+        type="RuntimeError",
+        envelope=envelope,
+    )
+    handler_wf_id = WorkflowUUID.new_uuid4()
+    orig_wf_id = WorkflowUUID.new_uuid4()
+    handler_input = ErrorHandlerWorkflowInput(
+        message="Workflow failed",
+        handler_wf_id=handler_wf_id,
+        orig_wf_id=orig_wf_id,
+        orig_wf_exec_id=generate_exec_id(orig_wf_id),
+        orig_wf_title="Synthetic workflow",
+        trigger_type=TriggerType.MANUAL,
+        errors=[error_info],
+    )
+
+    serialized = TypeAdapter(ErrorHandlerWorkflowInput).dump_python(
+        handler_input,
+        mode="json",
+    )
+
+    assert serialized["errors"][0]["envelope"] == envelope.model_dump(mode="json")
 
 
 def test_legacy_action_error_is_extended_without_changing_existing_fields() -> None:
