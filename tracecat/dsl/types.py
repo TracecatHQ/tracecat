@@ -62,7 +62,7 @@ class ActionErrorInfo:
     expr_context: ExprContext = ExprContext.ACTIONS
     attempt: int = 1
     stream_id: StreamID = field(default_factory=_root_stream_factory)
-    children: list[ActionErrorInfo] | None = None
+    children: list[ActionErrorInfoVariant] | None = None
 
     def format(self, loc: str = "run_action") -> str:
         locator = f"{self.expr_context}.{self.ref} -> {loc}"

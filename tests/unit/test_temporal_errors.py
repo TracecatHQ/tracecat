@@ -8,6 +8,7 @@ from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 
+from tracecat.dsl.action import FinalizeGatherActivityResult
 from tracecat.dsl.types import (
     ActionErrorInfo,
     ActionErrorInfoAdapter,
@@ -20,6 +21,7 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
     TracecatRuntimeError,
 )
+from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import (
     application_error_from_envelope,
     extract_error_envelope,
@@ -84,6 +86,43 @@ async def test_action_error_payload_carries_discriminated_envelope() -> None:
     parsed = ActionErrorInfoAdapter.validate_python(decoded.details[0])
     assert isinstance(parsed, ClassifiedActionErrorInfo)
     assert parsed.envelope == envelope
+
+
+def test_aggregate_action_errors_preserve_classified_children() -> None:
+    envelope = _platform_envelope()
+    child = ClassifiedActionErrorInfo(
+        ref="scatter[0]",
+        message=envelope.message,
+        type="RuntimeError",
+        envelope=envelope,
+    )
+    finalized = FinalizeGatherActivityResult(
+        result=InlineObject(data=[]),
+        errors=[child],
+    )
+
+    serialized_finalized = finalized.model_dump(mode="json")
+    parsed_finalized = FinalizeGatherActivityResult.model_validate(serialized_finalized)
+    assert serialized_finalized["errors"][0]["envelope"] == envelope.model_dump(
+        mode="json"
+    )
+    assert isinstance(parsed_finalized.errors[0], ClassifiedActionErrorInfo)
+
+    aggregate = ActionErrorInfo(
+        ref="gather",
+        message="Gather failed",
+        type="ApplicationError",
+        children=parsed_finalized.errors,
+    )
+    serialized_aggregate = ActionErrorInfoAdapter.dump_python(aggregate, mode="json")
+    parsed_aggregate = ActionErrorInfoAdapter.validate_python(serialized_aggregate)
+
+    assert serialized_aggregate["children"][0]["envelope"] == envelope.model_dump(
+        mode="json"
+    )
+    assert parsed_aggregate.children is not None
+    assert isinstance(parsed_aggregate.children[0], ClassifiedActionErrorInfo)
+    assert parsed_aggregate.children[0].envelope == envelope
 
 
 def test_legacy_action_error_is_extended_without_changing_existing_fields() -> None:

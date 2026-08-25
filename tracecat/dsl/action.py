@@ -36,7 +36,11 @@ from tracecat.dsl.schemas import (
     StreamID,
     TaskResult,
 )
-from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
+from tracecat.dsl.types import (
+    ActionErrorInfo,
+    ActionErrorInfoAdapter,
+    ActionErrorInfoVariant,
+)
 from tracecat.dsl.validation import normalize_trigger_inputs
 from tracecat.exceptions import TracecatExpressionError, TracecatValidationError
 from tracecat.executor.service import get_workspace_variables
@@ -193,7 +197,7 @@ class FinalizeGatherActivityInput(BaseModel):
 class FinalizeGatherActivityResult(BaseModel):
     result: StoredObject
     """Result collection. CollectionObject if externalized, else InlineObject."""
-    errors: list[ActionErrorInfo] = Field(default_factory=list)
+    errors: list[ActionErrorInfoVariant] = Field(default_factory=list)
 
 
 class BuildAgentArgsActivityInput(BaseModel):
@@ -652,7 +656,7 @@ class DSLActivities:
             values = [v for v in values if v is not None]
 
         results: list[Any] = []
-        errors: list[ActionErrorInfo] = []
+        errors: list[ActionErrorInfoVariant] = []
         match input.error_strategy:
             case StreamErrorHandlingStrategy.PARTITION:
                 results, errors = _partition_errors(values)
@@ -859,9 +863,11 @@ def _patch_object(
     current[leaf] = value
 
 
-def _partition_errors(items: list[Any]) -> tuple[list[Any], list[ActionErrorInfo]]:
+def _partition_errors(
+    items: list[Any],
+) -> tuple[list[Any], list[ActionErrorInfoVariant]]:
     results: list[Any] = []
-    errors: list[ActionErrorInfo] = []
+    errors: list[ActionErrorInfoVariant] = []
     for item in items:
         if info := _as_error_info(item):
             errors.append(info)
@@ -882,7 +888,7 @@ def _is_error_info(detail: Any) -> bool:
         return False
 
 
-def _as_error_info(detail: Any) -> ActionErrorInfo | None:
+def _as_error_info(detail: Any) -> ActionErrorInfoVariant | None:
     try:
         return ActionErrorInfoAdapter.validate_python(detail)
     except Exception:
