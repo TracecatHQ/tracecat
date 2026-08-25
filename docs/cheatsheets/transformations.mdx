@@ -135,8 +135,8 @@ local: ${{ FN.to_isoformat(FN.set_timezone(TRIGGER.created_at, "America/New_York
 ```json Result
 {
   "day": "2026-08-24",
-  "parsed": "2026-08-06T06:57:15+02:00",
-  "local": "2026-08-06T00:57:15-04:00"
+  "parsed": "2026-08-10T09:30:00+02:00",
+  "local": "2026-08-10T03:30:00-04:00"
 }
 ```
 </CodeGroup>
@@ -239,7 +239,7 @@ timestamps: ${{ FN.to_isoformat.map(ACTIONS.whois.result.events[*].eventDate) }}
 ```json Result
 {
   "upper_tags": ["AUTH", "AUTH", "CRITICAL"],
-  "timestamps": ["1997-09-15T00:00:00", "2030-01-01T00:00:00"]
+  "timestamps": ["2015-03-20T00:00:00", "2030-01-01T00:00:00"]
 }
 ```
 </CodeGroup>

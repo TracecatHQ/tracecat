@@ -128,7 +128,7 @@ Write each comparison explicitly: `${{ 3 > 2 && 2 > 1 }}` returns `true`.
 
 ## Indexing a filter result
 
-`[0]` after a JSONPath filter is absorbed into the path and applied to each matched value, so with matched dates like `"1997-09-15"` you index into the string itself:
+`[0]` after a JSONPath filter is absorbed into the path and applied to each matched value, so with matched dates like `"2015-03-20"` you index into the string itself:
 
 <CodeGroup>
 ```yaml Expression
@@ -137,7 +137,7 @@ first_date: ${{ ACTIONS.whois.result.events[?(@.eventAction == "registration")].
 
 ```json Result
 {
-  "first_date": ["1"]
+  "first_date": ["2"]
 }
 ```
 </CodeGroup>
@@ -151,7 +151,7 @@ first_date: ${{ FN.at(ACTIONS.whois.result.events[?(@.eventAction == "registrati
 
 ```json Result
 {
-  "first_date": "1997-09-15"
+  "first_date": "2015-03-20"
 }
 ```
 </CodeGroup>
@@ -271,7 +271,7 @@ Expressions do work inside `python_lambda` parameters. Tracecat substitutes the 
 ```
 
 ```python Result
-lambda x: x['epss'] > 0.75
+lambda x: x['epss'] > 0.6
 ```
 </CodeGroup>
 
