@@ -1,0 +1,21 @@
+docs/cheatsheets/transformations.mdx
+  s_af3ffe559c1554::t_85af82d4e815f8 15,225
+docs/cheatsheets/common-mistakes.mdx
+  s_af3ffe559c1554::t_85af82d4e815f8 135,149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "0773a4ed4d0a5968877652c699b9d25a2afaec56",
+  "prompts": {},
+  "sessions": {
+    "s_af3ffe559c1554": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "28e168b2-aff2-4083-8f30-4dec72508581",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
