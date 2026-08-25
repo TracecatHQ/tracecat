@@ -1,0 +1,35 @@
+docs/automations/core-concepts/functions.mdx
+  s_af3ffe559c1554::t_877b0b2ad2c15b 10
+docs/automations/core-actions/transform-actions/python-script.mdx
+  s_af3ffe559c1554::t_877b0b2ad2c15b 18-23,49-50,56-58
+docs/automations/tables.mdx
+  s_af3ffe559c1554::t_877b0b2ad2c15b 119,122
+docs/cheatsheets/common-mistakes.mdx
+  s_af3ffe559c1554::t_877b0b2ad2c15b 29,39,90,204,262,278
+docs/cheatsheets/transformations.mdx
+  s_af3ffe559c1554::t_877b0b2ad2c15b 6,10,212
+docs/automations/core-actions/_manifest.yaml
+  s_af3ffe559c1554::t_877b0b2ad2c15b 147-152,178-179,185-187,630-651,653,674,681-682,701,705-707
+docs/automations/core-actions/memory-actions/tables.mdx
+  s_af3ffe559c1554::t_877b0b2ad2c15b 79-100,102,123,132-133,333,337-339
+docs/automations/core-concepts/expressions.mdx
+  s_af3ffe559c1554::t_877b0b2ad2c15b 31,72
+docs/cheatsheets/workflow-metadata.mdx
+  s_af3ffe559c1554::t_877b0b2ad2c15b 14,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "7324a4f3e290b005f6a3d44f4b38518d65207f45",
+  "prompts": {},
+  "sessions": {
+    "s_af3ffe559c1554": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "28e168b2-aff2-4083-8f30-4dec72508581",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
