@@ -1,0 +1,40 @@
+docs/automations/tables.mdx
+  s_af3ffe559c1554::t_f6f516794d82bc 80
+  s_af3ffe559c1554::t_43d9718d49907e 97-152
+  s_af3ffe559c1554::t_745d66a897254f 79,81
+  s_af3ffe559c1554::t_77365ba6d9affe 153
+docs/automations/core-concepts/functions.mdx
+  s_af3ffe559c1554::t_ad7da245ef4ca6 32-33,38,43
+  s_af3ffe559c1554::t_66346c5ce54bd1 9
+docs/automations/core-concepts/workflow-definition.mdx
+  s_af3ffe559c1554::t_f6f516794d82bc 292
+docs/cheatsheets/functions.mdx
+  s_af3ffe559c1554::t_f6f516794d82bc 90
+  s_af3ffe559c1554::t_d21693add7bcad 69
+  s_af3ffe559c1554::t_a0a8836a33e611 24-25,30,35
+  s_af3ffe559c1554::t_9b25d2bd361651 91
+docs/automations/core-concepts/expressions.mdx
+  s_af3ffe559c1554::t_94beaa006b5c7f 84
+  s_af3ffe559c1554::t_f6f516794d82bc 25
+  s_af3ffe559c1554::t_c502a5856ccdb7 26,29-31,35-52,54,56,60-77,79-83,97-101,104,107,109,111,115-116,121-122,129,212
+  s_af3ffe559c1554::t_01cfef09497dad 33,58,78,106,127,174
+  s_af3ffe559c1554::t_70e11703db97b3 32
+  s_af3ffe559c1554::t_fadf2e48474e78 34
+  s_af3ffe559c1554::t_7bd34468bb7408 59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "91022860e8d712a0f274975b625e24b647d93f94",
+  "prompts": {},
+  "sessions": {
+    "s_af3ffe559c1554": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "28e168b2-aff2-4083-8f30-4dec72508581",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
