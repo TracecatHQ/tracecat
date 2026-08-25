@@ -90,6 +90,8 @@ const CASE_DETAILS_RAIL_WIDTH_CLASS = "w-[24rem]"
 interface CasePanelViewProps {
   caseId: string
   embedded?: boolean
+  /** Show version history in this panel's switcher bar instead of a route header. */
+  showPanelVersionHistory?: boolean
   initialTab?: string | null
   onTabChange?: (tab: string) => void
 }
@@ -98,6 +100,7 @@ interface CasePanelViewProps {
 export function CasePanelView({
   caseId,
   embedded = false,
+  showPanelVersionHistory = false,
   initialTab,
   onTabChange,
 }: CasePanelViewProps) {
@@ -594,7 +597,7 @@ export function CasePanelView({
             </div>
           ) : (
             <div className="min-w-0 flex-1">
-              <div className="mx-auto w-full min-w-0 max-w-4xl px-4 lg:px-6">
+              <div className="mx-auto flex w-full min-w-0 max-w-4xl items-center justify-between gap-2 px-4 lg:px-6">
                 {/* No negative inset: a non-compact tab is min-w-8 around a
                     size-4 icon, so its hit box starts on the title's text edge
                     and the glyph sits 8px inside it. */}
@@ -605,6 +608,13 @@ export function CasePanelView({
                   taskProgress={taskProgress}
                   tasks={caseTasks}
                 />
+                {showPanelVersionHistory ? (
+                  <CaseVersionHistory
+                    workspaceId={workspaceId}
+                    caseId={caseId}
+                    caseLabel={caseData.short_id}
+                  />
+                ) : null}
               </div>
             </div>
           )}
