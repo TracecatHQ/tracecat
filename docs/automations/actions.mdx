@@ -168,6 +168,29 @@ Use `start_delay` to wait a fixed number of seconds before an action starts.
 Use `timeout` to cap how long Tracecat waits for an action attempt to finish.
 Defaults to 300 seconds.
 
+For `ai.agent`, `ai.action`, and `ai.preset_agent`, `timeout` caps the agent's active runtime in seconds. Unset means 1800 seconds (30 minutes).
+
+Tracecat clamps an explicit value between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds (see [Environment variables](/self-hosting/environment-variables)). Tracecat stores the clamped value instead of rejecting the action. A ceiling below 1800 seconds lowers both the default and the floor to the ceiling.
+
+A pause for a tool approval does not count toward the timeout, and the resumed run gets the full timeout again.
+
+```yaml
+- ref: investigate_alert
+  action: ai.agent
+  retry_policy:
+    timeout: 2700
+  args:
+    model:
+      model_name: gpt-4.1
+      model_provider: openai
+    user_prompt: |
+      Investigate this alert:
+
+      ${{ TRIGGER.alert }}
+```
+
+A run that reaches the timeout fails with `Agent execution timed out after 2700s`. The workflow-level `timeout` still bounds the whole run, including approval waits.
+
 ### Max attempts
 
 Use `max_attempts` to control how many times Tracecat retries the action if it fails.

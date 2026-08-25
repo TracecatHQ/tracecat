@@ -192,6 +192,10 @@ PAGES: list[dict[str, Any]] = [
             - Use a JSON schema object when you need named fields.
             - Tracecat parses valid JSON before storing it in the action result.
 
+            ## Timeouts
+
+            `timeout` caps active runtime in seconds. Unset means 1800 seconds, and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds. See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape. A ceiling below 1800 seconds lowers both the default and the floor to the ceiling.
+
             ## Reference
             """
         ).strip(),
@@ -245,6 +249,14 @@ PAGES: list[dict[str, Any]] = [
             Internet access is controlled by the root preset for the shared sandbox process. Subagent presets can define their own tools and MCP integrations, but their internet setting does not grant network access unless the root preset also enables it.
 
             See [MCP integrations](/automations/integrations/mcp-integrations) to learn more.
+
+            ## Timeouts
+
+            The action's `timeout` caps the agent's active runtime in seconds. Unset means 1800 seconds, and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds. A ceiling below 1800 seconds lowers both the default and the floor to the ceiling.
+
+            A pause for a tool approval does not count toward the timeout, and the resumed run gets the full timeout again. With the default timeout, a run that reaches it fails with `Agent execution timed out after 1800s`.
+
+            See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape, and [Environment variables](/self-hosting/environment-variables) for the ceiling.
 
             ## Reference
             """

@@ -229,6 +229,8 @@ Assign a role to a group or directly to a user. Each assignment is either organi
 
 Tracecat scopes service accounts directly rather than through roles, and bounds them two ways: a service account holds only scopes from the allowlist for its kind, and a grantor can assign only scopes they already hold themselves.
 
+See [Roles and permissions](/manage-platform/rbac) for each built-in role's scopes, the assignment rules, and where to manage them.
+
 ## Data security
 
 <Badge stroke color="gray" size="sm" shape="pill">A04</Badge>
@@ -483,7 +485,7 @@ See [Custom registry](/custom-actions/custom-registry) for repository setup, syn
 
 ### Workspace GitOps
 
-Workspace sync exports workflows, agent presets, skills, tables, case tags, case fields, case dropdowns, case durations, and variables to a GitHub or GitLab repository you own. Secrets sync as key names only — values never leave Tracecat.
+Workspace sync exports workflows, agent presets, skills, table schemas without rows, case tags, case fields, case dropdowns and case durations (with the `case_addons` entitlement), and variable key names without values to a GitHub or GitLab repository you own. Secrets sync as key names only. Values never leave Tracecat.
 
 ```mermaid
 flowchart LR
@@ -504,6 +506,8 @@ Every pull targets an explicit commit, so imports are reproducible and rollback 
 <Info>
   A pull reproduces workspace configuration, not action versions. Imported workflows carry no registry lock, so each execution resolves actions against the target workspace's current core and custom registry versions until you publish the workflow there.
 </Info>
+
+See [Git sync](/manage-platform/git-sync) for connecting a repository, exporting a workspace as a pull request, and pulling a commit.
 
 ## Dependencies
 

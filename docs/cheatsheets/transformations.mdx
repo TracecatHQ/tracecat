@@ -12,7 +12,7 @@ Use `FN.merge` to combine an upstream result with new fields. Later objects in t
 - ref: enrich_alert
   action: core.transform.reshape
   args:
-    value: ${{ FN.merge([ACTIONS.get_alert.result, {"triaged": True}]) }}
+    value: '${{ FN.merge([ACTIONS.get_alert.result, {"triaged": True}]) }}'
 ```
 
 ```json Result
@@ -222,7 +222,7 @@ Every `FN` function has a `.map` variant that applies it to each item in a list:
 <CodeGroup>
 ```yaml Expression
 upper_tags: ${{ FN.uppercase.map(TRIGGER.tags) }}
-timestamps: ${{ FN.to_isoformat.map(ACTIONS.whois.result.events[*].eventDate) }}
+timestamps: ${{ FN.to_isoformat.map(ACTIONS.get_domain_record.result.events[*].eventDate) }}
 ```
 
 ```json Result

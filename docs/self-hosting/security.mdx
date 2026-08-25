@@ -1,6 +1,6 @@
 ---
 title: Security
-description: "Harden your self-hosted Tracecat deployment: rotate secrets, lock down network egress, configure SSO and RBAC, and meet common compliance baselines."
+description: "Harden your self-hosted Tracecat deployment: replace default infrastructure credentials, generate and store platform secrets, sandbox executor code, and set up SSO and TLS."
 ---
 
 import GenerateSecrets from "/snippets/generate-secrets.mdx";
@@ -154,6 +154,8 @@ Review that code and pin those dependencies as you would any code with direct ac
 ## Authentication
 
 Docker Compose deployments default to basic email/password authentication. For production, configure [OIDC](/authentication/oidc) or [SAML](/authentication/saml) SSO.
+
+See [Roles and permissions](/manage-platform/rbac) for the roles you assign to users and groups once they can sign in.
 
 ## TLS
 

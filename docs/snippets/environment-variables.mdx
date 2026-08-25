@@ -33,7 +33,7 @@
 | :------- | :------ | :---------- |
 | `TRACECAT__AUTH_SUPERADMIN_EMAIL` | | Email promoted to superadmin when that account is created. Set it before the first user registers; until then, nobody can register. |
 | `TRACECAT__AUTH_TYPES` | `basic` | Comma-separated list of enabled auth methods: `basic`, `oidc`, `saml`. |
-| `TRACECAT__AUTH_ALLOWED_DOMAINS` | | Comma-separated email domains allowed to register (e.g. `example.com,example.org`). Leave blank to allow all. |
+| `TRACECAT__AUTH_ALLOWED_DOMAINS` | | Comma-separated email domains allowed to create an account and to sign in through OIDC, e.g. `example.com,example.org`. Leave blank to allow all. SAML uses the organization's configured domains when set; without them, single-tenant deployments fall back to this list and multi-tenant deployments reject the sign-in. Membership in an organization still comes from an invitation or admin provisioning. |
 | `TRACECAT__AUTH_MIN_PASSWORD_LENGTH` | `12` | Minimum password length for basic auth. |
 
 ### OIDC / OAuth
@@ -74,6 +74,16 @@
 | `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Store large action results in blob storage instead of Temporal history. |
 | `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` | `128000` | Byte threshold above which payloads are externalized to blob storage. |
 | `TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS` | `30` | Retention period in days for workflow artifacts. Objects older than this are automatically deleted via S3 lifecycle rules. Set to `0` to disable. |
+| `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` | `60` | Seconds Temporal waits for a heartbeat from an executor activity before failing it and retrying on a healthy worker. Set to `0` to disable. Read by the `worker` service. The Compose files and the Fargate module do not pass this variable through, so set it on that container directly. To disable heartbeats, set this and `TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL` to `0` together. |
+| `TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL` | `30` | Seconds between heartbeats from executor activities. A value at or above `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` lets Temporal fail the activity between two heartbeats. Set to `0` to disable heartbeats. Read by the `executor` service and not passed through by the Compose files or the Fargate module, so set it on that container directly. `0` alone stops the executor heartbeating while the worker still expects one every `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` seconds, which fails actions that run longer than that. |
+
+### Agents
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT__AGENT_SANDBOX_TIMEOUT` | `3600` | Ceiling in seconds for the `timeout` of `ai.agent`, `ai.action`, and `ai.preset_agent`. Tracecat clamps explicit values between `1800` and this value, and unset means `1800`. A ceiling below `1800` replaces both the floor and the default. |
+| `TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT` | `3660` | Seconds the agent executor worker waits for running agent activities to finish during a planned shutdown. Defaults to `TRACECAT__AGENT_SANDBOX_TIMEOUT` plus `60`. |
+| `TRACECAT__LLM_PROXY_READ_TIMEOUT` | `600` | Seconds the sandbox LLM proxy waits for the next byte from the model gateway before failing the request with `504`. Separate from the agent timeout. |
 
 ### Blob storage
 
