@@ -37,7 +37,7 @@ See [MCP integrations](/automations/integrations/mcp-integrations) to learn more
 
 ## Timeouts
 
-The action's `timeout` caps the agent's active runtime in seconds. Unset means 1800 seconds, and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds.
+The action's `timeout` caps the agent's active runtime in seconds. Unset means 1800 seconds, and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds. A ceiling below 1800 seconds lowers both the default and the floor to the ceiling.
 
 A pause for a tool approval does not count toward the timeout, and the resumed run gets the full timeout again. With the default timeout, a run that reaches it fails with `Agent execution timed out after 1800s`.
 

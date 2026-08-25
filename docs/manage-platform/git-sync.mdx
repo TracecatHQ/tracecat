@@ -42,7 +42,7 @@ The URL form is `git+ssh://git@github.com/example-org/example-repo.git`. An `@br
 
 ## Export as a pull request
 
-A full export writes `tracecat.json` and one directory per resource type: `workflows`, `agent_presets`, `skills`, `tables`, `case_tags`, `case_fields`, `case_dropdowns`, `case_durations`, `variables`, and `secret_metadata`. Each workflow lands at `workflows/<id>/definition.yml`.
+A full export writes `tracecat.json` and one directory per resource type: `workflows`, `agent_presets`, `skills`, `tables`, `case_tags`, `case_fields`, `case_dropdowns`, `case_durations`, `variables`, and `secret_metadata`. The `case_dropdowns` and `case_durations` directories are written only when the organization holds the `case_addons` entitlement. Each workflow lands at `workflows/<id>/definition.yml`.
 
 Secrets export as metadata only: name, environment, type, key names, and tags. A secret file that carries a `value` or `values` key fails validation on import.
 

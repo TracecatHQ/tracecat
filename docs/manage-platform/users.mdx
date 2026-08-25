@@ -17,7 +17,7 @@ A Tracecat account authenticates a person, and an organization membership decide
 
 Self-service registration needs `basic` in `TRACECAT__AUTH_TYPES`. That setting mounts `POST /auth/register`, and without it the sign-up page shows `Sign up unavailable`. OIDC and SAML create the account on the first successful sign-in.
 
-`TRACECAT__AUTH_ALLOWED_DOMAINS` is a comma-separated list of email domains permitted to create an account, and a blank value permits every domain. Tracecat applies the same list on every OIDC and SAML sign-in. An existing basic-auth account signs in with its password regardless of the list.
+`TRACECAT__AUTH_ALLOWED_DOMAINS` is a comma-separated list of email domains permitted to create an account, and a blank value permits every domain. Tracecat applies the same list on every OIDC sign-in. SAML sign-in checks the organization's configured domains first. When none are configured, a single-tenant deployment falls back to this list and a multi-tenant deployment rejects the sign-in. An existing basic-auth account signs in with its password regardless of the list.
 
 The first superadmin bypasses the domain list. A blocked email fails with `400` and the message `Please enter a valid email address.`
 
@@ -29,7 +29,7 @@ Registration and SSO create the account without an organization membership. Unti
 
 ![No organization access screen](/img/manage-platform/users-no-org-access.png)
 
-In a single-tenant deployment, a superadmin account joins the default organization as `organization-owner` at registration. With `TRACECAT__EE_MULTI_TENANT=true`, no account joins an organization at registration.
+In a single-tenant deployment, a superadmin account joins the default organization as `organization-owner` at registration. With `TRACECAT__EE_MULTI_TENANT=true`, no account joins an organization automatically at registration. In both modes, registering through an invitation link joins that invitation's organization.
 
 ### Invitations
 
