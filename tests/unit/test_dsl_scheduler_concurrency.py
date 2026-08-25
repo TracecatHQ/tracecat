@@ -99,6 +99,27 @@ async def test_scheduler_preserves_classified_action_error() -> None:
 
 
 @pytest.mark.anyio
+async def test_scheduler_preserves_standalone_error_envelope() -> None:
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    envelope = ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    error = application_error_from_envelope(envelope)
+
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
+
+    details = scheduler.task_exceptions["task_0"].details
+    assert isinstance(details, ClassifiedActionErrorInfo)
+    assert details.ref == "task_0"
+    assert details.envelope == envelope
+
+
+@pytest.mark.anyio
 async def test_scheduler_respects_max_pending_tasks_cap() -> None:
     max_pending_tasks = 3
     total_tasks = 10
