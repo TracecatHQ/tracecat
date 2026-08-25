@@ -1,0 +1,59 @@
+---
+title: Custom roles and groups
+description: "Create custom roles, scopes, and groups on the Access control page, and assign roles to users and groups organization-wide or per workspace."
+icon: "lock"
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+## Overview
+
+Access control lives in the organization sidebar at `/organization/settings/rbac` with five tabs: Roles, Groups, Group assignments, User assignments, and Scopes. Roles bundle scopes, groups bundle users, and the assignment tabs bind roles to either.
+
+## Turn it on
+
+Custom roles, groups, and scopes require the `rbac_addons` entitlement. A single-tenant deployment turns it on with `TRACECAT__FEATURE_FLAGS=rbac`, and a multi-tenant deployment reads it from the organization's tier.
+
+Without the entitlement the pages are absent rather than locked: Access control redirects to the organization Members page, the workspace Roles and Groups pages redirect to workspace Members, and the Members, Roles, and Groups toggle disappears from the workspace navigation.
+
+## Create a role
+
+Open the Roles tab and select `Create role`. The dialog takes a `Role name` and `Description`, then a permission picker with one row per category: Workflows, Cases, Data, Agents, Secrets, Integrations, Workspace, Organization, and Actions.
+
+Each row sets a level of None, Read, Write, Execute (workflows and agents only), Admin, or Custom for individual scopes. The Actions category takes a namespace selector instead.
+
+![Workspace Editor scopes](/img/manage-platform/rbac-assignment.png)
+
+You can grant only scopes you hold yourself, and Tracecat refuses the rest with `Cannot grant scopes not held by the caller`. Built-in roles have no Edit or Delete in their row menu.
+
+Tracecat refuses deleting a role that is still assigned with `Cannot delete role that is assigned to groups. Remove all group assignments first.`, or the user-assignment equivalent — remove the role's assignments, then delete it.
+
+## Custom scopes
+
+The Scopes tab lists every scope in the organization by name, and Filter by source narrows it to Platform or Custom scopes. Select `Create scope` to add your own: names follow `resource:action` and use only lowercase letters, numbers, colons, underscores, dots, asterisks, and hyphens.
+
+You can delete a custom scope; platform scopes have no Delete action.
+
+## Groups
+
+Open the Groups tab and select `Create group`, which takes a name and a description. Tracecat refuses a duplicate name with `A group with this name already exists`.
+
+`Manage group` opens Members and Roles tabs. Membership is flat — there is no group nesting — and every member inherits the group's roles.
+
+## Assign roles
+
+The Group assignments and User assignments tabs bind a role to a group or a user: pick the group or user, the role, and a scope of Organization-wide or a single workspace.
+
+Effective permissions are the union of direct and group assignments; no assignment overrides another.
+
+## In a workspace
+
+The workspace pages live under Members > Roles and Members > Groups. You create roles and groups only at the organization level, so these pages edit and assign but do not create.
+
+Assignments made here apply only to that workspace, and the picker hides organization-only scopes.
+
+## Related pages
+
+- See [Roles and permissions](/manage-platform/rbac) for the built-in roles and how assignments compute effective permissions.
+- See [Service accounts](/manage-platform/service-accounts) for machine identities that hold scopes directly, with no role.
+- See [Organization audit logs](/audit-logs/organization) for the `rbac_role`, `rbac_group`, `rbac_assignment`, and `rbac_user_assignment` events.

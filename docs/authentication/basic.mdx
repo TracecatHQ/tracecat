@@ -38,6 +38,28 @@ TRACECAT__AUTH_TYPES=basic,oidc
 When you use basic auth, your password must be at least
 `TRACECAT__AUTH_MIN_PASSWORD_LENGTH` characters long. The default minimum is `12`.
 
+## Change password
+
+Password changes go through the API with the session cookie. Sign in with `POST /auth/login`, then send the new password to `PATCH /users/me`:
+
+```bash
+curl https://<host>/api/auth/login \
+  --request POST \
+  --cookie-jar cookies.txt \
+  --data-urlencode "username=user@example.com" \
+  --data-urlencode "password=<CURRENT_PASSWORD>"
+
+curl https://<host>/api/users/me \
+  --request PATCH \
+  --cookie cookies.txt \
+  --header "Content-Type: application/json" \
+  --data '{"password": "<NEW_PASSWORD>"}'
+```
+
+Wrong credentials fail at login with `400` and `LOGIN_BAD_CREDENTIALS`. A password shorter than `TRACECAT__AUTH_MIN_PASSWORD_LENGTH` fails with `400` and the code `UPDATE_USER_INVALID_PASSWORD`.
+
+A superadmin resets another account's password with the same body at `PATCH /users/{user_id}`, and a non-superadmin session gets `403`. Accounts created by OIDC or SAML sign-in hold a generated password and authenticate at the identity provider, so reset those there.
+
 ## Related pages
 
-- See [User management](/manage-platform/users) for who can register, how an account joins an organization, and how to change a password.
+- See [User management](/manage-platform/users) for registration, invitations, and organization membership.
