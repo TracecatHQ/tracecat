@@ -1,0 +1,21 @@
+scripts/generate_ai_docs.py
+  s_af3ffe559c1554::t_fe3f5b06414b0e 143,145,147
+docs/automations/actions.mdx
+  s_af3ffe559c1554::t_fe3f5b06414b0e 96,122,125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "6651aae64ee2bd4521645f3e4250360c94a3681f",
+  "prompts": {},
+  "sessions": {
+    "s_af3ffe559c1554": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "28e168b2-aff2-4083-8f30-4dec72508581",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
