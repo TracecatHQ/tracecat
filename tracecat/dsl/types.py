@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field
 
 from tracecat.expressions.common import ExprContext
 from tracecat.runtime.errors import ErrorEnvelope
@@ -79,6 +79,3 @@ class ActionErrorInfo(BaseModel):
     def format(self, loc: str = "run_action") -> str:
         locator = f"{self.expr_context}.{self.ref} -> {loc}"
         return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
-
-
-ActionErrorInfoAdapter: TypeAdapter[ActionErrorInfo] = TypeAdapter(ActionErrorInfo)

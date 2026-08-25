@@ -11,10 +11,7 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import FinalizeGatherActivityResult
-from tracecat.dsl.types import (
-    ActionErrorInfo,
-    ActionErrorInfoAdapter,
-)
+from tracecat.dsl.types import ActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.runtime.errors import (
     ErrorEnvelope,
@@ -79,7 +76,7 @@ def _capture_wrapped_application_error(
 async def test_legacy_action_error_payload_is_unchanged_without_envelope() -> None:
     error_info = ActionErrorInfo(ref="action", message="Failed", type="ValueError")
 
-    serialized = ActionErrorInfoAdapter.dump_python(error_info, mode="json")
+    serialized = error_info.model_dump(mode="json")
     failure = Failure()
     data_converter = get_data_converter()
     await data_converter.encode_failure(ApplicationError("Failed", error_info), failure)
@@ -110,7 +107,7 @@ async def test_action_error_payload_carries_discriminated_envelope() -> None:
     assert extract_error_envelope(error) == envelope
     assert extract_error_envelope(decoded) == envelope
     assert isinstance(decoded, ApplicationError)
-    parsed = ActionErrorInfoAdapter.validate_python(decoded.details[0])
+    parsed = ActionErrorInfo.model_validate(decoded.details[0])
     assert parsed.envelope == envelope
 
 
@@ -140,8 +137,8 @@ def test_aggregate_action_errors_preserve_classified_children() -> None:
         type="ApplicationError",
         children=parsed_finalized.errors,
     )
-    serialized_aggregate = ActionErrorInfoAdapter.dump_python(aggregate, mode="json")
-    parsed_aggregate = ActionErrorInfoAdapter.validate_python(serialized_aggregate)
+    serialized_aggregate = aggregate.model_dump(mode="json")
+    parsed_aggregate = ActionErrorInfo.model_validate(serialized_aggregate)
 
     assert serialized_aggregate["children"][0]["envelope"] == envelope.model_dump(
         mode="json"
@@ -185,7 +182,7 @@ def test_legacy_action_error_is_extended_without_changing_existing_fields() -> N
         message="The action failed",
         type="ValueError",
     )
-    legacy = ActionErrorInfoAdapter.dump_python(error_info, mode="json")
+    legacy = error_info.model_dump(mode="json")
 
     error = _capture_application_error(envelope, error_info)
 

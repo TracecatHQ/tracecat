@@ -56,7 +56,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.types import (
         ActionErrorInfo,
-        ActionErrorInfoAdapter,
         Task,
         TaskExceptionInfo,
     )
@@ -105,7 +104,7 @@ def _classified_action_error_info(
 
     for detail in error.details:
         try:
-            parsed = ActionErrorInfoAdapter.validate_python(detail)
+            parsed = ActionErrorInfo.model_validate(detail)
         except Exception:
             continue
         if parsed.envelope is not None:
@@ -515,7 +514,7 @@ class DSLScheduler:
                     # it's of shape ActionErrorInfo()
                     try:
                         # This is normal action error
-                        details = ActionErrorInfoAdapter.validate_python(details)
+                        details = ActionErrorInfo.model_validate(details)
                     except Exception as e:
                         self.logger.info(
                             "Failed to parse regular application error details",
@@ -546,7 +545,7 @@ class DSLScheduler:
                     # try get the first element
                     try:
                         val = list(details.values())[0]
-                        details = ActionErrorInfoAdapter.validate_python(val)
+                        details = ActionErrorInfo.model_validate(val)
                     except Exception as e:
                         self.logger.info(
                             "Failed to parse child wf application error details",
@@ -1289,7 +1288,7 @@ class DSLScheduler:
             # Do not pass the full object as some exceptions aren't serializable
             # Access the raw list via get_data() and modify in place
             parent_action_context[gather_ref].get_data()[stream_idx] = InlineObject(
-                data=ActionErrorInfoAdapter.dump_python(err_info.details)
+                data=err_info.details.model_dump()
             )
             self.logger.debug("Set error object as result", task=task)
         else:
@@ -1606,7 +1605,7 @@ class DSLScheduler:
             )
             app_error = ApplicationError(
                 message,
-                {gather_ref: ActionErrorInfoAdapter.dump_python(gather_error)},
+                {gather_ref: gather_error.model_dump()},
                 non_retryable=True,
             )
             self.logger.warning(
