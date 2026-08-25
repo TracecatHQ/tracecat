@@ -98,8 +98,9 @@ async def test_action_error_payload_carries_discriminated_envelope() -> None:
     )
     error = _capture_application_error(envelope, error_info)
     failure = Failure()
-    await DataConverter.default.encode_failure(error, failure)
-    decoded = await DataConverter.default.decode_failure(failure)
+    data_converter = get_data_converter()
+    await data_converter.encode_failure(error, failure)
+    decoded = await data_converter.decode_failure(failure)
 
     assert len(error.details) == 1
     assert error.type == RuntimeErrorKind.ACTION_EXECUTION_FAILED.value
