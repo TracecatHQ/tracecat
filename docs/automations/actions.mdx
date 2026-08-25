@@ -93,7 +93,7 @@ Use `run_if` to execute an action only when a condition evaluates to a truthy va
 
 ```yaml Status and owner check
 - ref: escalate_case
-  action: core.cases.update
+  action: core.cases.update_case
   run_if: ${{ TRIGGER.status == "open" && TRIGGER.owner != None }}
   args:
     case_id: ${{ TRIGGER.case_id }}
@@ -119,9 +119,10 @@ Inside the action inputs, reference the current item with `var.<name>`. For exam
 <CodeGroup>
 ```yaml Send one email per user
 - ref: email_user
-  action: core.email.send
+  action: core.send_email_smtp
   for_each: ${{ for var.user in TRIGGER.users }}
   args:
+    sender: no-reply@example.com
     recipients:
       - ${{ var.user.email }}
     subject: "Tracecat notification"
