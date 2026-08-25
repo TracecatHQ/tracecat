@@ -573,7 +573,7 @@ export function CasePanelView({
         >
           {embedded ? (
             <div className="min-w-0 flex-1">
-              <div className="mx-auto w-full min-w-0 max-w-4xl px-4 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5">
+              <div className="mx-auto flex w-full min-w-0 max-w-4xl items-center justify-between gap-2 px-4 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5">
                 {/* No sidebar toggle to align to here, so the embedded band
                     keeps the body column's geometry and the first tab's 24px
                     hit box starts on the same edge as the case title below. */}
@@ -584,6 +584,11 @@ export function CasePanelView({
                   taskProgress={taskProgress}
                   tasks={caseTasks}
                   compact
+                />
+                <CaseVersionHistory
+                  workspaceId={workspaceId}
+                  caseId={caseId}
+                  caseLabel={caseData.short_id}
                 />
               </div>
             </div>
@@ -652,13 +657,6 @@ export function CasePanelView({
                         caseData={caseData}
                         updateCase={updateCase}
                         compact={embedded}
-                      />
-                    </div>
-                    <div className="mt-1 shrink-0">
-                      <CaseVersionHistory
-                        workspaceId={workspaceId}
-                        caseId={caseId}
-                        caseLabel={caseData.short_id}
                       />
                     </div>
                   </div>

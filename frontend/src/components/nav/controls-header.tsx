@@ -57,6 +57,7 @@ import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { CaseDurationMetrics } from "@/components/cases/case-duration-metrics"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
+import { CaseVersionHistory } from "@/components/cases/case-version-history"
 import {
   CasesViewMode,
   CasesViewToggle,
@@ -1823,6 +1824,29 @@ function CaseStatusControl({
   )
 }
 
+function CaseDetailActions({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const { caseData } = useGetCase({ caseId, workspaceId })
+
+  return (
+    <>
+      <CaseStatusControl caseId={caseId} workspaceId={workspaceId} />
+      {caseData ? (
+        <CaseVersionHistory
+          workspaceId={workspaceId}
+          caseId={caseId}
+          caseLabel={caseData.short_id}
+        />
+      ) : null}
+    </>
+  )
+}
+
 function TableBreadcrumb({
   tableId,
   workspaceId,
@@ -2252,7 +2276,7 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
         {pageConfig.actions
           ? pageConfig.actions
           : caseId && (
-              <CaseStatusControl caseId={caseId} workspaceId={workspaceId} />
+              <CaseDetailActions caseId={caseId} workspaceId={workspaceId} />
             )}
 
         {onToggleChat && (

@@ -3,6 +3,7 @@
 import { Loader2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import type { CaseVersionField, CaseVersionReadMinimal } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { InlineDiffView } from "@/components/diff/inline-diff-view"
 import {
   DropdownMenuItem,
@@ -148,6 +149,7 @@ export function CaseVersionHistory({
   caseId,
   caseLabel,
 }: CaseVersionHistoryProps) {
+  const canRestore = useScopeCheck("case:update") === true
   const [filter, setFilter] = useState<CaseVersionFilter>("all")
   const field = filter === "all" ? null : filter
   const {
@@ -250,6 +252,7 @@ export function CaseVersionHistory({
       listFooter={listFooter}
       renderComparisonDescription={comparisonDescription}
       renderRestoreConfirmationDescription={restoreDescription}
+      restoreDisabled={!canRestore}
       isRestoreDisabled={(entry) => entry.isCurrent === true}
       onRestore={async (versionId) => {
         await restoreCaseVersion({ versionId })

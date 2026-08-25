@@ -11,7 +11,10 @@ import {
 } from "@/client"
 import { CaseVersionHistory } from "@/components/cases/case-version-history"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { client as apiClient } from "@/lib/api"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
+import { ScopeProvider } from "@/providers/scopes"
+import { WorkspaceIdProvider } from "@/providers/workspace-id"
 
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
@@ -68,13 +71,20 @@ beforeAll(() => {
 })
 
 function renderHistory() {
+  jest.spyOn(apiClient, "get").mockResolvedValue({
+    data: { scopes: ["case:read", "case:update"] },
+  })
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   function Providers({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
-        <TooltipProvider>{children}</TooltipProvider>
+        <WorkspaceIdProvider workspaceId={SCOPE.workspaceId}>
+          <ScopeProvider>
+            <TooltipProvider>{children}</TooltipProvider>
+          </ScopeProvider>
+        </WorkspaceIdProvider>
       </QueryClientProvider>
     )
   }
