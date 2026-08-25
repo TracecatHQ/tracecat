@@ -1,0 +1,46 @@
+docs/manage-platform/users.mdx
+  s_af3ffe559c1554::t_10bb23d4bce9e3 30,38,84
+  s_af3ffe559c1554::t_9addef2e13521c 1-29,31-37,39-83,85-103
+docs/docs.json
+  s_af3ffe559c1554::t_758494a804e5a6 115-122
+  s_af3ffe559c1554::t_ce55978af51804 114
+docs/snippets/environment-variables.mdx
+  s_af3ffe559c1554::t_f6b72b07fcd3c3 36
+docs/self-hosting/security.mdx
+  s_af3ffe559c1554::t_f57cfdffc9104a 158
+  s_af3ffe559c1554::t_d5866ffb52748b 3
+  s_af3ffe559c1554::t_c491429455037c 159
+docs/security/architecture.mdx
+  s_af3ffe559c1554::t_f9fcfc0813120c 510
+  s_af3ffe559c1554::t_a3b3c4ec2639a4 232-233
+  s_af3ffe559c1554::t_ef189debab1732 511
+docs/manage-platform/rbac.mdx
+  s_af3ffe559c1554::t_a02da260bd3d00 37
+  s_af3ffe559c1554::t_10bb23d4bce9e3 23-24,29,52
+  s_af3ffe559c1554::t_51e61bf2bb212d 66
+  s_af3ffe559c1554::t_f601add3a1456e 1-22,25-28,30-36,38-51,53-65,67-77
+docs/manage-platform/git-sync.mdx
+  s_af3ffe559c1554::t_10bb23d4bce9e3 21
+  s_af3ffe559c1554::t_6b14a7f281dbce 23
+  s_af3ffe559c1554::t_028a7701d571cd 1-20,22,24-90
+docs/authentication/basic.mdx
+  s_af3ffe559c1554::t_dd23bed48b9d92 40-43
+docs/automations/workflows.mdx
+  s_af3ffe559c1554::t_6d2cbbe28f26ae 167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "8cfeec2f0a963005667b705304f1b3a55ac6707d",
+  "prompts": {},
+  "sessions": {
+    "s_af3ffe559c1554": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "28e168b2-aff2-4083-8f30-4dec72508581",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
