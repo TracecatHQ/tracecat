@@ -353,6 +353,26 @@ def test_payload_key_does_not_collide_without_valid_discriminator() -> None:
     assert extract_error_envelope(error) is None
 
 
+def test_action_error_detail_requires_nested_schema_discriminator() -> None:
+    error = ApplicationError(
+        "Legacy error",
+        {
+            "ref": "action",
+            "message": "Missing discriminator",
+            "type": "ValueError",
+            "envelope": {
+                "owner": "user",
+                "kind": "action.execution.failed",
+                "message": "Missing discriminator",
+                "retry_disposition": "non_retryable",
+                "cause_type": None,
+            },
+        },
+    )
+
+    assert extract_error_envelope(error) is None
+
+
 def test_wrapping_preserves_existing_classification() -> None:
     original_envelope = _user_envelope()
     fallback = _platform_envelope()
