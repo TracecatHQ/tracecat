@@ -5,6 +5,7 @@ import {
   ChevronLeftIcon,
   GitBranchIcon,
   GlobeIcon,
+  HistoryIcon,
   KeyRoundIcon,
   LockIcon,
   LogInIcon,
@@ -45,15 +46,28 @@ export function OrganizationSidebar({
   const canViewServiceAccounts = useScopeCheck("org:service_account:read")
   const canViewMembers = useScopeCheck("org:member:read")
 
-  const navSettings = [
+  const navCustomRegistry = [
     {
-      title: "Custom registry",
+      title: "Repository",
       url: "/organization/settings/custom-registry",
       icon: GitBranchIcon,
-      isActive: pathname?.includes("/organization/settings/custom-registry"),
+      isActive: pathname === "/organization/settings/custom-registry",
       visible: canViewSettings === true,
       locked: !customRegistryEnabled,
     },
+    {
+      title: "Versions",
+      url: "/organization/settings/custom-registry/versions",
+      icon: HistoryIcon,
+      isActive: pathname?.startsWith(
+        "/organization/settings/custom-registry/versions"
+      ),
+      visible: canViewSettings === true,
+      locked: !customRegistryEnabled,
+    },
+  ]
+
+  const navSettings = [
     {
       title: "SAML (SSO)",
       url: "/organization/settings/sso",
@@ -111,16 +125,6 @@ export function OrganizationSidebar({
     // },
   ]
 
-  const navSecrets = [
-    {
-      title: "SSH keys",
-      url: "/organization/ssh-keys",
-      icon: KeyRoundIcon,
-      isActive: pathname?.includes("/organization/ssh-keys"),
-      visible: canViewSettings === true,
-    },
-  ]
-
   const navManage = [
     {
       title: "Members",
@@ -160,7 +164,7 @@ export function OrganizationSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {navSettings.some((item) => item.visible === true) && (
+        {canViewSettings === true && (
           <SidebarGroup>
             <SidebarGroupLabel>Settings</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -188,12 +192,12 @@ export function OrganizationSidebar({
           </SidebarGroup>
         )}
 
-        {navSecrets.some((item) => item.visible === true) && (
+        {navCustomRegistry.some((item) => item.visible === true) && (
           <SidebarGroup>
-            <SidebarGroupLabel>Secrets</SidebarGroupLabel>
+            <SidebarGroupLabel>Custom registry</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {navSecrets
+                {navCustomRegistry
                   .filter((item) => item.visible === true)
                   .map((item) => (
                     <SidebarMenuItem key={item.title}>
@@ -203,6 +207,12 @@ export function OrganizationSidebar({
                           <span>{item.title}</span>
                         </Link>
                       </SidebarMenuButton>
+                      {item.locked ? (
+                        <SidebarMenuBadge>
+                          <LockIcon aria-hidden="true" className="size-3.5" />
+                          <span className="sr-only">Requires upgrade</span>
+                        </SidebarMenuBadge>
+                      ) : null}
                     </SidebarMenuItem>
                   ))}
               </SidebarMenu>

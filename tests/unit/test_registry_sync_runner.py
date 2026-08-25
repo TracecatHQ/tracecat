@@ -585,6 +585,29 @@ async def test_discover_actions_marks_template_load_errors_non_retryable(
 
 
 @pytest.mark.anyio
+async def test_discover_actions_marks_missing_package_non_retryable(mocker) -> None:
+    runner = RegistrySyncRunner()
+    mocker.patch(
+        "tracecat.registry.sync.runner.fetch_actions_from_subprocess",
+        mocker.AsyncMock(
+            side_effect=RegistryError("No module named 'internal-registry'")
+        ),
+    )
+
+    with pytest.raises(ActionDiscoveryError) as exc_info:
+        await runner._discover_unsandboxed_actions(
+            RegistrySyncRequest(
+                repository_id=uuid4(),
+                origin="tracecat_registry",
+                origin_type="builtin",
+            ),
+            None,
+        )
+
+    assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
 async def test_discover_actions_keeps_subprocess_errors_retryable(mocker) -> None:
     runner = RegistrySyncRunner()
     mocker.patch(

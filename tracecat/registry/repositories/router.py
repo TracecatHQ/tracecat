@@ -359,6 +359,14 @@ async def list_repository_commits(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to list commits: {str(e)}",
         ) from e
+    except HTTPException:
+        raise
+    except TracecatCredentialsNotFoundError as e:
+        logger.warning("No registry SSH key configured", origin=repo.origin)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No registry SSH key configured",
+        ) from e
     except Exception as e:
         logger.error("Unexpected error listing commits", exc=e)
         raise HTTPException(

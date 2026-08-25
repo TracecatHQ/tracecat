@@ -24,6 +24,10 @@ export const DefaultQueryClientProvider = ({
           ) {
             return
           }
+          // Queries whose callers render the failure inline opt out here.
+          if (query.meta?.suppressErrorToast === true) {
+            return
+          }
           if (handleGlobalError(error)) {
             return
           }

@@ -19,10 +19,11 @@ export default function CustomRegistrySettingsPage() {
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">
-              Custom registry
+              Repository
             </h2>
-            <p className="text-md text-muted-foreground">
-              View and manage your organization's custom registry settings here.
+            <p className="text-base text-muted-foreground">
+              Connect the Git repository that hosts your organization's custom
+              actions.
             </p>
           </div>
         </div>

@@ -81,7 +81,12 @@ class ActionDiscoveryError(RegistrySyncRunnerError):
         self.non_retryable = non_retryable
 
 
-_NON_RETRYABLE_DISCOVERY_ERROR_PREFIXES = ("Failed to load template action from ",)
+# Deterministic content/configuration failures that retrying cannot fix.
+_NON_RETRYABLE_DISCOVERY_ERROR_PREFIXES = (
+    "Failed to load template action from ",
+    # Wrong `git_repo_package_name` (ModuleNotFoundError in the sync subprocess).
+    "No module named ",
+)
 
 
 def _is_non_retryable_discovery_error(exc: BaseException) -> bool:

@@ -46,6 +46,12 @@ interface CreateSSHKeyDialogProps
     description?: FieldConfig
     environment?: FieldConfig
   }
+  /** Dialog heading. Defaults to "Create new SSH key". */
+  title?: string
+  /** Copy under the heading. */
+  description?: string
+  /** Submit button label. Defaults to "Create SSH key". */
+  submitLabel?: string
 }
 const createSSHKeySchema = z.object({
   name: z.string().default(""),
@@ -69,8 +75,16 @@ export function CreateSSHKeyDialog({
   className,
   handler,
   fieldConfig,
+  title = "Create new SSH key",
+  description = "Create a new SSH key that can be used to authenticate into your private actions registry.",
+  submitLabel = "Create SSH key",
+  open,
+  onOpenChange,
 }: CreateSSHKeyDialogProps) {
-  const [showDialog, setShowDialog] = React.useState(false)
+  // Uncontrolled by default; pass `open` + `onOpenChange` to drive it from a menu item.
+  const [internalOpen, setInternalOpen] = React.useState(false)
+  const showDialog = open ?? internalOpen
+  const setShowDialog = onOpenChange ?? setInternalOpen
 
   const methods = useForm<CreateSSHKeyForm>({
     mode: "onChange",
@@ -110,12 +124,9 @@ export function CreateSSHKeyDialog({
       {children}
       <DialogContent className={className}>
         <DialogHeader>
-          <DialogTitle>Create new SSH key</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <div className="flex text-sm leading-relaxed text-muted-foreground">
-            <span>
-              Create a new SSH key that can be used to authenticate into your
-              private actions registry.
-            </span>
+            <span>{description}</span>
           </div>
         </DialogHeader>
         <Form {...methods}>
@@ -193,7 +204,7 @@ export function CreateSSHKeyDialog({
                 <DialogClose asChild>
                   <Button className="ml-auto space-x-2" type="submit">
                     <KeyRoundIcon className="mr-2 size-4" />
-                    Create SSH key
+                    {submitLabel}
                   </Button>
                 </DialogClose>
               </DialogFooter>
