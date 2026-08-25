@@ -34,9 +34,9 @@ An assignment binds one role to one user or one group, either organization-wide 
 
 A user's effective scopes are the union of their direct assignments and the assignments of every group they belong to. A user with `workspace-viewer` directly and a group assignment of `workspace-editor` in the same workspace holds every `workspace-editor` scope there.
 
-Each user holds at most one direct assignment per workspace and at most one organization-wide direct assignment, and the same limit applies to each group. A second assignment for the same user and workspace returns `409` with `User already has an assignment for this workspace`, and a second assignment for the same group and workspace returns `409` with `Group already has an assignment for this workspace`; change the role on the existing assignment instead.
+Each user holds at most one direct assignment per workspace and at most one organization-wide direct assignment, and the same limit applies to each group. A second assignment for the same user and workspace returns `409` with `User already has an assignment for this workspace`, and a second assignment for the same group and workspace returns `409` with `Group already has an assignment for this workspace`. Change the role on the existing assignment instead.
 
-You can assign a role only when you hold every scope in it. Assigning a role with a scope you lack, or adding a user to a group whose roles carry such a scope, returns `403` with `Cannot grant scopes not held by the caller: <scopes>`; platform superusers are exempt from this ceiling.
+You can assign a role only when you hold every scope in it. Assigning a role with a scope you lack, or adding a user to a group whose roles carry such a scope, returns `403` with `Cannot grant scopes not held by the caller: <scopes>`. Platform superusers are exempt from this rule.
 
 | Page | Route | What it manages |
 | --- | --- | --- |
@@ -53,17 +53,17 @@ A single-tenant deployment reads the entitlement from `TRACECAT__FEATURE_FLAGS=r
 
 ## Organization membership
 
-A role assignment applies only to a user who is a member of the organization, and Tracecat rejects assigning a role or a group to a user without membership with `404` `User not found in organization`. A signed-in user without an organization membership sees `No organization access yet` instead of their workspaces, with any pending invitations listed.
+A role assignment applies only to a user who is a member of the organization, and Tracecat rejects assigning a role or a group to a user without membership with `404` and `User not found in organization`. A signed-in user without an organization membership sees `No organization access yet` instead of their workspaces, with any pending invitations listed.
 
-Registration and sign-in create no membership. On a single-tenant deployment, sign-in enrolls a superuser into the default organization and repairs the organization-wide role of an existing member; an account that holds no membership needs an invitation or provisioning before it can open a workspace.
+Registration and sign-in create no membership. On a single-tenant deployment, sign-in enrolls a superuser into the default organization and repairs the organization-wide role of an existing member. An account that holds no membership needs an invitation or provisioning before it can open a workspace.
 
-An accepted organization invitation creates the membership and an organization-wide assignment of the invited role. An accepted workspace invitation creates the organization membership with `organization-member` when the user has none, then the workspace membership; see [User management](/manage-platform/users) for invitations and provisioning.
+An accepted organization invitation creates the membership and an organization-wide assignment of the invited role. An accepted workspace invitation creates the organization membership with `organization-member` when the user has none, then the workspace membership. See [User management](/manage-platform/users) for invitations and provisioning.
 
 ## Service accounts
 
 A service account holds scopes directly, with no role. An organization service account lives under `/organization/settings/service-accounts` and a workspace service account under `/workspaces/{id}/service-accounts`.
 
-Each kind draws from its own allowlist. A workspace service account can hold the workspace resource scopes for agents, cases, integrations, schedules, secrets, tables, tags, variables, and workflows, `workspace_sync:sync`, `workspace:read`, `workspace:update`, `workspace:delete`, `workspace:member:read`, `workspace:member:invite`, `workspace:member:remove`, and any `action:<name>:execute` scope; an organization service account can additionally hold `org:read`, `org:secret:*`, `org:settings:*`, `org:workspace:read`, `workspace:create`, and `org:rbac:*`.
+Each kind draws from its own allowlist. A workspace service account can hold the workspace resource scopes for agents, cases, integrations, schedules, secrets, tables, tags, variables, and workflows, `workspace_sync:sync`, `workspace:read`, `workspace:update`, `workspace:delete`, `workspace:member:read`, `workspace:member:invite`, `workspace:member:remove`, and any `action:<name>:execute` scope. An organization service account can also hold `org:read`, `org:secret:*`, `org:settings:*`, `org:workspace:read`, `workspace:create`, and `org:rbac:*`.
 
 Requesting a scope outside the allowlist returns `400` with `Unsupported service account scopes requested: <scopes>`. Requesting a scope you do not hold yourself returns `403` with `Cannot assign service account scopes not held by the caller: <scopes>`.
 

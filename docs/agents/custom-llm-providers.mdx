@@ -99,9 +99,9 @@ Edit the source when you rotate credentials, change the base URL, or update stat
 
 ## Troubleshooting
 
-A run that fails with `Model response timed out after 10 minutes without receiving data` (or `Gateway timeout` on a non-streaming request) hit `TRACECAT__LLM_PROXY_READ_TIMEOUT`, the read timeout between the sandbox LLM proxy and the gateway. The variable takes seconds, defaults to `600`, and applies to passthrough and managed routes alike.
+A run that fails with `Model response timed out after 10 minutes without receiving data` (or `Gateway timeout` on a non-streaming request) hit `TRACECAT__LLM_PROXY_READ_TIMEOUT`, the read timeout between the sandbox LLM proxy and the gateway. The variable takes seconds, defaults to `600`, and applies to both passthrough and managed routes.
 
-A run that fails with `Agent execution timed out after 1800s` hit the action's `timeout`, which caps active runtime at 1800 seconds when unset. Explicit values clamp to between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT` (default `3600`); see [Actions](/automations/actions#timeout).
+A run that fails with `Agent execution timed out after 1800s` hit the action's `timeout`, which caps active runtime at 1800 seconds when unset. Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT` (default `3600`). See [Actions](/automations/actions#timeout).
 
 ## Related pages
 

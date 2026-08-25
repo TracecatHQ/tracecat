@@ -194,7 +194,7 @@ PAGES: list[dict[str, Any]] = [
 
             ## Timeouts
 
-            `ai.action` follows the agent timeout policy: `timeout` caps active runtime in seconds, unset means 1800 seconds, and explicit values clamp to between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds. See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape.
+            `timeout` caps active runtime in seconds. Unset means 1800 seconds, and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds. See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape.
 
             ## Reference
             """
@@ -252,7 +252,7 @@ PAGES: list[dict[str, Any]] = [
 
             ## Timeouts
 
-            The action's `timeout` caps the agent's active runtime in seconds. Unset means 1800 seconds, and explicit values clamp to between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds.
+            The action's `timeout` caps the agent's active runtime in seconds. Unset means 1800 seconds, and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds.
 
             A pause for a tool approval does not count toward the timeout, and the resumed run gets the full timeout again. With the default timeout, a run that reaches it fails with `Agent execution timed out after 1800s`.
 

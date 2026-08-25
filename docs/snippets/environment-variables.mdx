@@ -81,7 +81,7 @@
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
-| `TRACECAT__AGENT_SANDBOX_TIMEOUT` | `3600` | Ceiling in seconds for the `timeout` of `ai.agent`, `ai.action`, and `ai.preset_agent`. Explicit values clamp to between `1800` and this value; unset means `1800`. A ceiling below `1800` replaces both the floor and the default. |
+| `TRACECAT__AGENT_SANDBOX_TIMEOUT` | `3600` | Ceiling in seconds for the `timeout` of `ai.agent`, `ai.action`, and `ai.preset_agent`. Tracecat clamps explicit values between `1800` and this value, and unset means `1800`. A ceiling below `1800` replaces both the floor and the default. |
 | `TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT` | `3660` | Seconds the agent executor worker waits for running agent activities to finish during a planned shutdown. Defaults to `TRACECAT__AGENT_SANDBOX_TIMEOUT` plus `60`. |
 | `TRACECAT__LLM_PROXY_READ_TIMEOUT` | `600` | Seconds the sandbox LLM proxy waits for the next byte from the model gateway before failing the request with `504`. Separate from the agent timeout. |
 

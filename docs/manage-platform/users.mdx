@@ -7,7 +7,7 @@ import FirstSuperadmin from "/snippets/first-superadmin.mdx";
 
 ## Overview
 
-A Tracecat account authenticates a person, and an organization membership decides what that account can open. Registration and SSO create accounts, invitations and superadmin provisioning create memberships, and this page covers both halves plus the platform-level controls a superadmin holds.
+A Tracecat account authenticates a person, and an organization membership decides what that account can open. Registration and SSO create accounts. Invitations and superadmin provisioning create memberships.
 
 ## First login
 
@@ -15,9 +15,9 @@ A Tracecat account authenticates a person, and an organization membership decide
 
 ## Registration
 
-Self-service registration runs on basic auth: `POST /auth/register` is mounted when `TRACECAT__AUTH_TYPES` includes `basic`, and the sign-up page shows `Sign up unavailable` otherwise. OIDC and SAML create the account on the first successful sign-in.
+Self-service registration needs `basic` in `TRACECAT__AUTH_TYPES`. That setting mounts `POST /auth/register`, and without it the sign-up page shows `Sign up unavailable`. OIDC and SAML create the account on the first successful sign-in.
 
-`TRACECAT__AUTH_ALLOWED_DOMAINS` is a comma-separated list of email domains permitted to create an account, and a blank value permits every domain. Tracecat applies the same list on every OIDC and SAML sign-in, while an existing basic-auth account signs in with its password regardless of the list.
+`TRACECAT__AUTH_ALLOWED_DOMAINS` is a comma-separated list of email domains permitted to create an account, and a blank value permits every domain. Tracecat applies the same list on every OIDC and SAML sign-in. An existing basic-auth account signs in with its password regardless of the list.
 
 The first superadmin bypasses the domain list. A blocked email fails with `400` and the message `Please enter a valid email address.`
 
@@ -25,7 +25,7 @@ A password must be at least `TRACECAT__AUTH_MIN_PASSWORD_LENGTH` characters long
 
 ## Joining an organization
 
-Registration and SSO create the account without an organization membership. Until an invitation or a superadmin grants one, the user sees `No organization access yet` after sign-in, listing any pending invitations for their email and a `Sign out` button.
+Registration and SSO create the account without an organization membership. Until an invitation or a superadmin grants one, the user sees `No organization access yet` after sign-in. That screen lists any pending invitations for their email and a `Sign out` button.
 
 ![No organization access screen](/img/manage-platform/users-no-org-access.png)
 
@@ -33,25 +33,29 @@ In a single-tenant deployment, a superadmin account joins the default organizati
 
 ### Invitations
 
-Organization owners and admins invite from Organization › Members › `Invite member`, entering an email and the role the account receives on acceptance. Creating an invitation requires the `org:member:invite` scope, and the invitation stays valid for 7 days.
+Organization owners and admins invite from the organization Members page with `Invite member`. The dialog takes an email and the role the account receives on acceptance. Creating an invitation requires the `org:member:invite` scope, and the invitation stays valid for 7 days.
 
 ![Invite member dialog](/img/manage-platform/users-invitations.png)
 
-Delivery is manual: open the pending member's row menu, choose `Copy invitation link`, and send the link yourself. The link has the form `<app URL>/invitations/accept?token=<token>`, and an email that is already a member or already holds a pending invitation is rejected with `400`.
+You send the link yourself. Open the pending member's row menu, choose `Copy invitation link`, and send it to the invitee.
 
-The invitee opens the link and signs in, or signs up with basic auth; a sign-up started from the link accepts the invitation during registration. The signed-in email must match the invitation, and a used, revoked, or expired link shows `Invitation already accepted`, `Invitation revoked`, or `Invitation expired`.
+The link has the form `<app URL>/invitations/accept?token=<token>`. Tracecat rejects an email that is already a member or already holds a pending invitation with `400`.
 
-After acceptance the account holds the invited role organization-wide and lands on `/workspaces`. The same flow is available at `POST /organization/invitations`, `GET /organization/invitations/{invitation_id}/token`, `POST /organization/invitations/accept`, and `DELETE /organization/invitations/{invitation_id}`.
+The invitee opens the link and signs in, or signs up with basic auth. A sign-up started from the link accepts the invitation during registration.
+
+The signed-in email must match the invitation. A used, revoked, or expired link shows `Invitation already accepted`, `Invitation revoked`, or `Invitation expired`.
+
+After acceptance the account holds the invited role organization-wide and lands on `/workspaces`. The API routes are `POST /organization/invitations`, `GET /organization/invitations/{invitation_id}/token`, `POST /organization/invitations/accept`, and `DELETE /organization/invitations/{invitation_id}`.
 
 ### Superadmin provisioning
 
-A superadmin creates accounts from Admin › Users › `Create user` with an email, a password, and a `Grant superuser access` toggle (`POST /admin/users`). In a single-tenant deployment the new account joins the default organization as `organization-member`, or as `organization-owner` when the toggle is set.
+A superadmin creates accounts on the Admin Users page with `Create user` (`POST /admin/users`). The dialog takes an email, a password, and a `Grant superuser access` toggle. In a single-tenant deployment the new account joins the default organization as `organization-member`, or as `organization-owner` when the toggle is set.
 
-In a multi-tenant deployment the new account starts without a membership. The superadmin then invites it from Admin › Organizations › `Organization invitations` (`POST /admin/organizations/{org_id}/invitations`) and copies the link from the same dialog.
+In a multi-tenant deployment the new account starts without a membership. The superadmin then invites it with `Organization invitations` on the Admin Organizations page (`POST /admin/organizations/{org_id}/invitations`) and copies the link from the same dialog.
 
 ### Workspace membership
 
-Workspace admins add existing accounts from the workspace's Members page with `Add member`; the lookup is by email, and an unknown email fails with `Couldn't find a user with this email`. The account receives `workspace-editor` in that workspace (`POST /workspaces/{workspace_id}/memberships`, scope `workspace:member:invite`).
+Workspace admins add existing accounts from the workspace's Members page with `Add member`. The lookup is by email, and an unknown email fails with `Couldn't find a user with this email`. The account receives `workspace-editor` in that workspace (`POST /workspaces/{workspace_id}/memberships`, scope `workspace:member:invite`).
 
 ## Change password
 
@@ -77,13 +81,13 @@ A superadmin resets another account's password with the same body at `PATCH /use
 
 ## Platform administration
 
-A superadmin is an account with `is_superuser` set. Superadmins see an `Admin` entry in the sidebar that opens `/admin` with Organizations, Users, Tiers, Agent, Audit Logs, and Registry pages, and every `/admin` API route returns `403` to other sessions.
+A superadmin is an account with `is_superuser` set. Superadmins see an `Admin` entry in the sidebar that opens `/admin` with Organizations, Users, Tiers, Agent, Audit Logs, and Registry pages. Every `/admin` API route returns `403` to other sessions.
 
-Tiers set an organization's concurrency limits, API rate limits, and entitlements. Create one under Admin › Tiers (`POST /admin/tiers`) and assign it from the organization's `Assign tier` dialog (`PATCH /admin/tiers/organizations/{org_id}`); a tier marked as default applies to every new organization.
+Tiers set an organization's concurrency limits, API rate limits, and entitlements. Create one on the Admin Tiers page (`POST /admin/tiers`) and assign it from the organization's `Assign tier` dialog (`PATCH /admin/tiers/organizations/{org_id}`). A tier marked as default applies to every new organization.
 
 ![Admin tiers page](/img/manage-platform/admin-tiers.png)
 
-The `tracecat-admin` package installs the `tracecat` command. Install it with `pip install tracecat-admin`, point `TRACECAT__API_URL` at your API, and sign in as a superadmin with `tracecat auth login --username <email> --password <password>`; `create-superuser` connects to the database through `TRACECAT__DB_URI` and needs the `tracecat-admin[bootstrap]` extra.
+The `tracecat-admin` package installs the `tracecat` command. Install it with `pip install tracecat-admin`, point `TRACECAT__API_URL` at your API, and sign in as a superadmin with `tracecat auth login --username <email> --password <password>`. `create-superuser` connects to the database through `TRACECAT__DB_URI` and needs the `tracecat-admin[bootstrap]` extra.
 
 | Command | Purpose |
 | :------ | :------ |
