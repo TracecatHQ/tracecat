@@ -1,0 +1,35 @@
+docs/agents/ai-action.mdx
+  s_af3ffe559c1554::t_f2f781e628c0e8 26
+docs/agents/ai-agent.mdx
+  s_af3ffe559c1554::t_daf84219e1178d 40
+docs/agents/custom-llm-providers.mdx
+  s_af3ffe559c1554::t_4ce26c0c67ea5b 104
+docs/automations/actions.mdx
+  s_af3ffe559c1554::t_4e0884c3f60d48 173
+docs/manage-platform/git-sync.mdx
+  s_af3ffe559c1554::t_5ee0ff227c726b 45
+docs/manage-platform/users.mdx
+  s_af3ffe559c1554::t_3b460d7f9ae8f3 20,32
+docs/security/architecture.mdx
+  s_af3ffe559c1554::t_c273f8e537c032 488
+docs/snippets/environment-variables.mdx
+  s_af3ffe559c1554::t_a02df7423f9576 36
+scripts/generate_ai_docs.py
+  s_af3ffe559c1554::t_aa5fb99d8d41a9 197,255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "dca97fc66c84f601cdc77a76f9085d9205b36efe",
+  "prompts": {},
+  "sessions": {
+    "s_af3ffe559c1554": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "28e168b2-aff2-4083-8f30-4dec72508581",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
