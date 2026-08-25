@@ -6,7 +6,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from datetime import timedelta
 from typing import Any, Literal, Never
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from temporalio.exceptions import ApplicationError, FailureError
 
 from tracecat.dsl.types import ActionErrorInfo
@@ -18,6 +18,7 @@ from tracecat.runtime.errors import (
 )
 
 TEMPORAL_ERROR_DETAILS_SCHEMA = "tracecat.temporal_error.v1"
+_ACTION_ERROR_MAP_ADAPTER = TypeAdapter(dict[str, ActionErrorInfo])
 
 
 class TemporalErrorDetails(BaseModel):
@@ -166,7 +167,7 @@ def _serialized_error_details(
 
 def _envelope_from_detail(detail: Any) -> ErrorEnvelope | None:
     if isinstance(detail, ActionErrorInfo):
-        return detail.envelope
+        return detail.envelope or _envelope_from_details(detail.children or ())
     if isinstance(detail, TemporalErrorDetails):
         return detail.envelope
     if not isinstance(detail, Mapping):
@@ -183,10 +184,24 @@ def _envelope_from_detail(detail: Any) -> ErrorEnvelope | None:
     try:
         parsed = ActionErrorInfo.model_validate(detail)
     except ValidationError:
+        try:
+            _ACTION_ERROR_MAP_ADAPTER.validate_python(detail)
+        except ValidationError:
+            return None
+        for action_error in detail.values():
+            if envelope := _envelope_from_detail(action_error):
+                return envelope
         return None
-    if parsed.envelope is None:
+
+    if parsed.envelope is not None:
+        return parse_error_envelope(detail.get("envelope"))
+    if parsed.children is None:
         return None
-    return parse_error_envelope(detail.get("envelope"))
+
+    children = detail.get("children")
+    if not isinstance(children, Sequence):
+        return None
+    return _envelope_from_details(children)
 
 
 def _error_chain(error: BaseException) -> Iterator[BaseException]:

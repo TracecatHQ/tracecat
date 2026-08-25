@@ -146,6 +146,16 @@ def test_aggregate_action_errors_preserve_classified_children() -> None:
     )
     assert parsed_aggregate.children is not None
     assert parsed_aggregate.children[0].envelope == envelope
+    assert (
+        extract_error_envelope(ApplicationError("Gather failed", serialized_aggregate))
+        == envelope
+    )
+    assert (
+        extract_error_envelope(
+            ApplicationError("Gather failed", {"gather": serialized_aggregate})
+        )
+        == envelope
+    )
 
 
 def test_error_handler_input_preserves_action_error_envelope() -> None:
@@ -371,6 +381,33 @@ def test_action_error_detail_requires_nested_schema_discriminator() -> None:
     )
 
     assert extract_error_envelope(error) is None
+
+
+def test_aggregate_action_error_requires_child_schema_discriminator() -> None:
+    child = {
+        "ref": "scatter[0]",
+        "message": "Missing discriminator",
+        "type": "ValueError",
+        "envelope": {
+            "owner": "user",
+            "kind": "action.execution.failed",
+            "message": "Missing discriminator",
+            "retry_disposition": "non_retryable",
+            "cause_type": None,
+        },
+    }
+    aggregate = {
+        "ref": "gather",
+        "message": "Gather failed",
+        "type": "ApplicationError",
+        "children": [child],
+    }
+
+    assert extract_error_envelope(ApplicationError("Gather failed", aggregate)) is None
+    assert (
+        extract_error_envelope(ApplicationError("Gather failed", {"gather": aggregate}))
+        is None
+    )
 
 
 def test_wrapping_preserves_existing_classification() -> None:
