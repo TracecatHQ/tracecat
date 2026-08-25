@@ -14,8 +14,7 @@ packages, or call Tracecat APIs from an isolated Python 3.12 sandbox.
 ### Script contract
 
 Tracecat calls `main` if your script defines it; otherwise it calls
-the first non-private function, so a script with a single
-`def run(...)` works.
+the first non-private function.
 
 Name the entrypoint `main` whenever your script contains more than
 one function, counting functions imported with
@@ -23,8 +22,7 @@ one function, counting functions imported with
 scripts without one.
 
 Keep top-level `import` and `def` statements at the same indentation
-inside the `script:` block scalar. YAML strips the shared leading
-indentation, so these lines reach Python at column 0.
+inside the `script:` block scalar.
 
 Tracecat passes `inputs` to the entrypoint as keyword arguments, so
 keys must match the function's parameter names. Give a parameter a
@@ -46,16 +44,14 @@ become strings, an `Enum` becomes its value, a dataclass becomes an
 object, and `bytes` decodes as UTF-8 text.
 
 Any other object becomes its `repr()` string, such as
-`"<MyClass object at 0x...>"`, so return plain values. Tracecat
-raises `Output not JSON-serializable` only when serialization
-itself fails.
+`"<MyClass object at 0x...>"`. Tracecat raises
+`Output not JSON-serializable` only when serialization itself fails.
 
 ### Import Python packages
 
 Add pinned package specifications to `dependencies`, then import them
 in your script. Tracecat installs them in a separate phase that does
-not need `allow_network: true`, and caches installed packages
-between runs.
+not need `allow_network: true`.
 
 ```yaml
 - ref: parse_timestamp
@@ -78,8 +74,8 @@ between runs.
 
 ### Import Tracecat SDK
 
-The Tracecat SDK is already available in the Python sandbox. Import
-`ctx` from `tracecat_registry`; do not add the SDK to `dependencies`.
+Import `ctx` from `tracecat_registry`; do not add the SDK to
+`dependencies`.
 Use clients such as `ctx.cases`, `ctx.tables`, `ctx.variables`, and
 `ctx.workflows`. Each client also provides an async variant under
 `.aio`, such as `ctx.cases.aio`.
@@ -87,10 +83,8 @@ Use clients such as `ctx.cases`, `ctx.tables`, `ctx.variables`, and
 SDK calls use the workflow's internal authenticated execution context
 and do not require `allow_network: true`.
 
-Use `ctx.tables.insert_rows` to write multiple rows in one request.
-For large inputs, transform the records first and split them into
-bounded batches. The destination table must already contain matching
-columns.
+`ctx.tables.insert_rows` writes multiple rows. The destination table
+must already contain matching columns.
 
 <Tabs>
   <Tab title="Synchronous">

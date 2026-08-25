@@ -22,7 +22,7 @@ prompt: ${{ FN.format("Investigate alert {0} with severity {1}", TRIGGER.alert_i
 </CodeGroup>
 
 Time manipulation for alert search windows.
-`FN.to_isoformat` keeps microseconds by default; pass `"seconds"` as the second argument to truncate for APIs that expect second precision:
+`FN.to_isoformat` keeps microseconds by default; pass `"seconds"` as the second argument to truncate:
 
 <CodeGroup>
 ```yaml Expression

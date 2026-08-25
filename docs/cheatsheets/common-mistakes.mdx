@@ -36,7 +36,7 @@ Each Python form below fails with `Error parsing expression`:
 | `[FN.uppercase(t) for t in TRIGGER.tags]` | `FN.uppercase.map(TRIGGER.tags)` |
 | `not not x` | `bool(x)`, or `not (not x)` |
 
-Never nest `${{ }}` inside `${{ }}`: `${{ FN.length(${{ TRIGGER.tags }}) }}` fails with `No terminal matches '$' in the current parser context`. Write `${{ FN.length(TRIGGER.tags) }}`.
+Nesting `${{ }}` inside `${{ }}` does not parse: `${{ FN.length(${{ TRIGGER.tags }}) }}` fails with `No terminal matches '$' in the current parser context`. Write `${{ FN.length(TRIGGER.tags) }}`.
 
 Inside a JSONPath filter the casing inverts: use `true` and `false`. An uppercase literal matches nothing and returns an empty list instead of raising:
 
@@ -74,7 +74,7 @@ Inside a longer string, `None` becomes the literal text `None`. The template `"A
 
 ## Bracket keys
 
-Quoted keys work everywhere brackets do: `TRIGGER["data"]` and `VARS.cfg["epss"]` both resolve. Unquoted keys work in some contexts and fail in others, so always quote:
+Quoted keys work everywhere brackets do: `TRIGGER["data"]` and `VARS.cfg["epss"]` both resolve. Unquoted keys work in some contexts and fail in others:
 
 <CodeGroup>
 ```yaml Expression
@@ -89,7 +89,7 @@ Failed to parse expression: Unexpected token Token('FN_NAME_WITH_TRANSFORM', 'ep
 
 The first segment after `SECRETS` or `VARS` must use dot syntax: `VARS["cfg"]` fails with `Expected one of: * ATTRIBUTE_PATH`. Write `VARS.cfg` first, then brackets for anything deeper.
 
-Missing keys behave differently by context. `${{ TRIGGER["nope"] }}` returns `null`, while the same lookup on `VARS` raises:
+`${{ TRIGGER["nope"] }}` returns `null`, while the same lookup on `VARS` raises:
 
 <CodeGroup>
 ```yaml Expression
@@ -104,7 +104,7 @@ Key 'nope' not found for mapping access
 ```
 </CodeGroup>
 
-Hyphenated keys in payloads are reachable with quoted brackets: `${{ TRIGGER["my-key"] }}` works. A hyphenated secret or variable name is not reachable at all: `SECRETS.my-secret.API_KEY` fails to parse, no bracket form exists for those contexts, and the only fix is renaming the secret or variable with underscores.
+Hyphenated keys in payloads are reachable with quoted brackets: `${{ TRIGGER["my-key"] }}` works. A hyphenated secret or variable name is not reachable at all: `SECRETS.my-secret.API_KEY` fails to parse, and the only fix is renaming the secret or variable with underscores.
 
 When the text after the hyphen starts with a context keyword, the expression parses as arithmetic: `${{ VARS.my-var.k }}` evaluates as `VARS.my` minus `var.k` and fails with `unsupported operand type(s) for -: 'NoneType' and 'NoneType'`.
 
@@ -142,7 +142,7 @@ first_date: ${{ ACTIONS.whois.result.events[?(@.eventAction == "registration")].
 ```
 </CodeGroup>
 
-Moving the index before the field also fails: `events[?(...)][0].eventDate` raises `Error trying to process rule "actions": 0`. Take the first element with `FN.at` instead:
+Moving the index before the field also fails: `events[?(...)][0].eventDate` raises `Error trying to process rule "actions": 0`. `FN.at` takes the first element:
 
 <CodeGroup>
 ```yaml Expression
@@ -195,7 +195,7 @@ mapping values are not allowed here
 ```
 </CodeGroup>
 
-A ` #` fails silently: YAML treats it as a comment, so `title: ${{ FN.format("Alert #{0}", TRIGGER.alert_id) }}` truncates to the literal text `${{ FN.format("Alert`, which passes through unevaluated. Wrap the whole value in single quotes whenever the expression contains `:`, `#`, or quotes:
+A ` #` fails silently: `title: ${{ FN.format("Alert #{0}", TRIGGER.alert_id) }}` truncates to the literal text `${{ FN.format("Alert`, which passes through unevaluated. Wrap the whole value in single quotes whenever the expression contains `:`, `#`, or quotes:
 
 ```yaml
 message: '${{ FN.format("Alert: {0}", TRIGGER.alert_id) }}'
@@ -218,7 +218,7 @@ Failed to parse expression: Unexpected token Token('PARTIAL_JSONPATH_EXPR', '.ho
 ```
 </CodeGroup>
 
-Use the accessor function instead: `${{ FN.get_hour(FN.now()) }}` returns the hour.
+The accessor function `${{ FN.get_hour(FN.now()) }}` returns the hour.
 
 ## VARS key depth
 
@@ -259,7 +259,7 @@ Compare aware with aware: `${{ FN.to_datetime(TRIGGER.created_at) < FN.utcnow() 
 
 ## Expressions in python_lambda
 
-Expressions work inside `python_lambda` parameters. Tracecat substitutes the value as text before the lambda compiles, so write the expression as the Python literal it should become:
+Expressions work inside `python_lambda` parameters. Write the expression as the Python literal it should become:
 
 <CodeGroup>
 ```yaml Expression
@@ -277,7 +277,7 @@ lambda x: x['epss'] > 0.6
 
 Numbers, booleans, `None`, lists, and objects substitute as valid literals without quotes. Strings need single quotes around the expression: `'${{ VARS.cfg.severity }}'` becomes `'High'`, while the unquoted form becomes the bare name `High` and fails at call time with `NameError: name 'High' is not defined`.
 
-A string value containing an apostrophe breaks the lambda with `Invalid syntax in expression: unterminated string literal`. When interpolated data can contain quotes, move the logic to `core.script.run_python`, which receives values through `inputs` instead of text substitution.
+A string value containing an apostrophe breaks the lambda with `Invalid syntax in expression: unterminated string literal`. `core.script.run_python` accepts values that contain quotes through `inputs`.
 
 ## Related pages
 

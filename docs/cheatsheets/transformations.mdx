@@ -3,17 +3,6 @@ title: "Transformations"
 description: "Recipes for common data transformations in Tracecat workflows: merging results, joining lists to table rows, date windows, filters, branch rejoins, and deduplicated writes."
 ---
 
-## When to use a Python script
-
-Use [core.script.run_python](/automations/core-actions/transform-actions/python-script) instead of expressions when:
-
-- The transform reaches into a filter result deeper than `FN.at` allows: `x[?(...)][0].field` errors, and `x[?(...)].field[0]` silently returns the wrong value.
-- The same subexpression appears more than once.
-- An interpolated string may contain a quote, which breaks `python_lambda` text substitution.
-- The shape is polymorphic: sometimes a scalar, sometimes a list.
-
-A script costs a sandbox start per call. Keep expressions for everything else on this page: single-field extraction, ternaries, filters, and short `FN.` chains.
-
 ## Add a field to an upstream result
 
 Use `FN.merge` to combine an upstream result with new fields. Later objects in the list win on key conflicts:
@@ -37,7 +26,7 @@ Use `FN.merge` to combine an upstream result with new fields. Later objects in t
 
 ## Join a list of IDs to table rows
 
-Look up one row per ID with `for_each`. The action runs once per item and its result is the list of rows in input order:
+Look up one row per ID with `for_each`:
 
 ```yaml
 - ref: get_hosts
@@ -49,7 +38,7 @@ Look up one row per ID with `for_each`. The action runs once per item and its re
     value: ${{ var.host_id }}
 ```
 
-Then build an ID-to-row mapping with `FN.zip_map`:
+`for_each` returns one result per item, in input order. Build an ID-to-row mapping with `FN.zip_map`:
 
 <CodeGroup>
 ```yaml Expression
@@ -75,7 +64,7 @@ host: ${{ ACTIONS.build_host_map.result["h-2"] }}
 
 ## Dates and time windows
 
-Current time as an ISO string. Pass `"seconds"` to drop microseconds, which trip up strict API parsers:
+Current time as an ISO string. Pass `"seconds"` to drop microseconds:
 
 <CodeGroup>
 ```yaml Expression
@@ -107,7 +96,7 @@ end_time: ${{ FN.to_isoformat(FN.now(), "seconds") }}
 ```
 </CodeGroup>
 
-Midnight N days ago is cleaner as a Python script:
+Midnight N days ago as a Python script:
 
 ```yaml
 - ref: window_start
@@ -143,7 +132,7 @@ local: ${{ FN.to_isoformat(FN.set_timezone(TRIGGER.created_at, "America/New_York
 
 ## Filter a list and count matches
 
-A JSONPath filter returns the matching items as a list. When nothing matches it returns an empty list, never `None`, so no null guard is needed:
+A JSONPath filter returns the matching items as a list. When nothing matches it returns an empty list, never `None`:
 
 <CodeGroup>
 ```yaml Expression
@@ -177,11 +166,11 @@ first_high_id: ${{ FN.at(TRIGGER.alerts[?(@.severity == "high")].id, 0) }}
 ```
 </CodeGroup>
 
-Always use `FN.at` to index into a filter result. Appending `[0]` to the path indexes into each matched value instead; see [Common mistakes](/cheatsheets/common-mistakes#indexing-a-filter-result).
+`FN.at` indexes into a filter result; appending `[0]` to the path indexes into each matched value instead. See [Common mistakes](/cheatsheets/common-mistakes#indexing-a-filter-result).
 
 ## Rejoin mutually exclusive branches
 
-When `run_if` sends a workflow down one of two branches, rejoin them with `join_strategy: any` on the downstream action. The default `all` requires every upstream branch to complete, so a join with one skipped branch and one that ran is unreachable and the run fails:
+When `run_if` sends a workflow down one of two branches, rejoin them with `join_strategy: any` on the downstream action. With the default `all`, a join with one skipped branch and one that ran is unreachable and the run fails:
 
 ```yaml
 - ref: block_ip
@@ -209,11 +198,11 @@ When `run_if` sends a workflow down one of two branches, rejoin them with `join_
       outcome: ${{ ACTIONS.block_ip.result || ACTIONS.log_only.result }}
 ```
 
-Referencing only the skipped branch's result silently yields `null`, so use `||` to read whichever branch actually ran. Skip propagates to a downstream action only when all of its dependencies were skipped.
+Referencing only the skipped branch's result silently yields `null`; `||` reads whichever branch ran.
 
 ## Insert rows without duplicates
 
-Give the table a unique index, then insert with `upsert: true` so repeated values update the existing row instead of appending a duplicate:
+Give the table a unique index, then insert with `upsert: true`:
 
 ```yaml
 - ref: store_iocs
@@ -244,9 +233,9 @@ timestamps: ${{ FN.to_isoformat.map(ACTIONS.whois.result.events[*].eventDate) }}
 ```
 </CodeGroup>
 
-Scalar arguments broadcast across the list, so `${{ FN.prefix.map(TRIGGER.tags, "tag-") }}` prefixes every tag. Two lists of unequal length silently truncate to the shorter one: `${{ FN.add.map([1, 2, 3], [10, 20]) }}` returns `[11, 22]` and drops the `3`, so check lengths before mapping over multiple lists.
+Scalar arguments broadcast across the list, so `${{ FN.prefix.map(TRIGGER.tags, "tag-") }}` prefixes every tag. Two lists of unequal length silently truncate to the shorter one: `${{ FN.add.map([1, 2, 3], [10, 20]) }}` returns `[11, 22]`.
 
-When the per-item logic needs more than one function call, use `core.transform.map` with a `python_lambda`, and move to `core.script.run_python` once the logic outgrows a single lambda:
+`core.transform.map` applies a `python_lambda` to each item:
 
 ```yaml
 - ref: normalize_hostnames

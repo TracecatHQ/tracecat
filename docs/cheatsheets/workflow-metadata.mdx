@@ -13,10 +13,10 @@ description: "Quick reference for the ENV fields available in Tracecat expressio
 | `${{ ENV.workflow.execution_id }}` | Unique ID of this workflow execution |
 | `${{ ENV.workflow.run_id }}` | UUID of this execution's current run attempt |
 | `${{ ENV.workflow.trigger_type }}` | `manual`, `scheduled`, `webhook`, or `case` |
-| `${{ ENV.workflow.logical_time }}` | Logical timestamp of the current action; `FN.now()` returns it. Set when action inputs are built, so a `run_if` evaluated before any action has run sees `None` |
+| `${{ ENV.workflow.logical_time }}` | Logical timestamp of the current action; `FN.now()` returns it. A `run_if` evaluated before any action has run sees `None` |
 | `${{ ENV.environment }}` | The [Workflow environment](/automations/workflows#environments) the run executes in |
 
-An action invoked as an agent tool runs with an empty `ENV` context, so every `ENV.*` expression resolves to `None` there.
+Every `ENV.*` expression resolves to `None` in an action invoked as an agent tool.
 
 ## Examples
 

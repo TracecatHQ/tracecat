@@ -99,12 +99,6 @@ Create a table with a `SELECT` column:
           - it
 ```
 
-## Reading rows
-
-- Use `lookup` or `is_in` when you already know the column and value you need.
-- Use `search_rows` when you need broader text search or paginated results.
-- Use `download` when you want to export rows as JSON, NDJSON, CSV, or Markdown.
-
 ## FAQ
 
 <AccordionGroup>
@@ -119,8 +113,6 @@ Create a table with a `SELECT` column:
         table: asset_inventory
         rows_data: ${{ var.batch }}
     ```
-
-    Keep each `var.batch` within your chosen batch size.
   </Accordion>
 </AccordionGroup>
 
@@ -330,8 +322,7 @@ The table to add the column to.
 Update a table column's name, type, nullability, default, index, or options.
 
 Set `update: {is_index: true}` to create the table's unique index on
-the column; `core.table.insert_row` with `upsert: true` uses it to
-deduplicate writes. A table can have one single-column unique index:
+the column. A table can have one single-column unique index:
 creation fails if the column already contains duplicate values, and a
 second `is_index: true` call raises `Table cannot have multiple
 unique indexes`.

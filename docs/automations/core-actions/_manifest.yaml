@@ -26,8 +26,6 @@ pages:
 
       ## Authentication
 
-      Authenticate requests with an API key or a managed OAuth access token.
-
       ### API keys
 
       Store API keys and static tokens as
@@ -65,16 +63,13 @@ pages:
           `poll_condition` receives a response with `data`, `status_code`, and
           `headers`. The action stops polling when the lambda returns `True`.
 
-          Prefer `!=` over a single success check when the API has exactly one
-          nonterminal state. Default a missing status to that state so a transient
-          response does not stop polling:
+          When the API has exactly one nonterminal state, `!=` against it stops
+          on every terminal state, and the `.get` default treats a missing
+          `status` as that state:
 
           ```python
           lambda response: response["data"].get("status", "processing") != "processing"
           ```
-
-          This stops on failures and cancellations that a positive
-          `status == "completed"` check would miss.
 
           If the API also uses nonterminal states such as `queued` or `pending`,
           list its terminal states with `in`:
@@ -83,8 +78,8 @@ pages:
           lambda response: response["data"].get("status") in ["completed", "failed", "cancelled"]
           ```
 
-          Keep `poll_max_attempts` above `0` to prevent indefinite polling if the
-          condition never matches.
+          With `poll_max_attempts: 0`, polling never stops if the condition never
+          matches.
 
           Stop on an HTTP status code:
 
@@ -104,8 +99,7 @@ pages:
           <Tip>
             For large lists, request a bounded page and process each batch in a
             [While loop](/automations/core-actions/workflow-actions/while-loops)
-            until the API returns no next cursor or no items. This avoids returning
-            the full dataset at once.
+            until the API returns no next cursor or no items.
           </Tip>
         examples:
           - http-paginate-results
@@ -143,8 +137,7 @@ pages:
           ### Script contract
 
           Tracecat calls `main` if your script defines it; otherwise it calls
-          the first non-private function, so a script with a single
-          `def run(...)` works.
+          the first non-private function.
 
           Name the entrypoint `main` whenever your script contains more than
           one function, counting functions imported with
@@ -152,8 +145,7 @@ pages:
           scripts without one.
 
           Keep top-level `import` and `def` statements at the same indentation
-          inside the `script:` block scalar. YAML strips the shared leading
-          indentation, so these lines reach Python at column 0.
+          inside the `script:` block scalar.
 
           Tracecat passes `inputs` to the entrypoint as keyword arguments, so
           keys must match the function's parameter names. Give a parameter a
@@ -175,16 +167,14 @@ pages:
           object, and `bytes` decodes as UTF-8 text.
 
           Any other object becomes its `repr()` string, such as
-          `"<MyClass object at 0x...>"`, so return plain values. Tracecat
-          raises `Output not JSON-serializable` only when serialization
-          itself fails.
+          `"<MyClass object at 0x...>"`. Tracecat raises
+          `Output not JSON-serializable` only when serialization itself fails.
 
           ### Import Python packages
 
           Add pinned package specifications to `dependencies`, then import them
           in your script. Tracecat installs them in a separate phase that does
-          not need `allow_network: true`, and caches installed packages
-          between runs.
+          not need `allow_network: true`.
 
           ```yaml
           - ref: parse_timestamp
@@ -207,8 +197,8 @@ pages:
 
           ### Import Tracecat SDK
 
-          The Tracecat SDK is already available in the Python sandbox. Import
-          `ctx` from `tracecat_registry`; do not add the SDK to `dependencies`.
+          Import `ctx` from `tracecat_registry`; do not add the SDK to
+          `dependencies`.
           Use clients such as `ctx.cases`, `ctx.tables`, `ctx.variables`, and
           `ctx.workflows`. Each client also provides an async variant under
           `.aio`, such as `ctx.cases.aio`.
@@ -216,10 +206,8 @@ pages:
           SDK calls use the workflow's internal authenticated execution context
           and do not require `allow_network: true`.
 
-          Use `ctx.tables.insert_rows` to write multiple rows in one request.
-          For large inputs, transform the records first and split them into
-          bounded batches. The destination table must already contain matching
-          columns.
+          `ctx.tables.insert_rows` writes multiple rows. The destination table
+          must already contain matching columns.
 
           <Tabs>
             <Tab title="Synchronous">
@@ -380,8 +368,6 @@ pages:
       <AccordionGroup>
         <Accordion title="Why does inline lambda not work inside expressions?">
           Python lambda functions are not part of the expression language; pass them as strings to `core.transform.apply`, `core.transform.filter`, or `core.transform.map`.
-
-          Use `FN.*` for short inline transforms, and use `core.transform.*` when you need Python-style per-item logic.
 
           ```yaml
           - ref: extract_ids
@@ -650,12 +636,6 @@ pages:
                 - it
       ```
 
-      ## Reading rows
-
-      - Use `lookup` or `is_in` when you already know the column and value you need.
-      - Use `search_rows` when you need broader text search or paginated results.
-      - Use `download` when you want to export rows as JSON, NDJSON, CSV, or Markdown.
-
       ## FAQ
 
       <AccordionGroup>
@@ -670,8 +650,6 @@ pages:
               table: asset_inventory
               rows_data: ${{ var.batch }}
           ```
-
-          Keep each `var.batch` within your chosen batch size.
         </Accordion>
       </AccordionGroup>
     actions:
@@ -698,8 +676,7 @@ pages:
       - id: core.table.update_column
         info: |
           Set `update: {is_index: true}` to create the table's unique index on
-          the column; `core.table.insert_row` with `upsert: true` uses it to
-          deduplicate writes. A table can have one single-column unique index:
+          the column. A table can have one single-column unique index:
           creation fails if the column already contains duplicate values, and a
           second `is_index: true` call raises `Table cannot have multiple
           unique indexes`.
