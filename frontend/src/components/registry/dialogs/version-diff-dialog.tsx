@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { useRegistryVersionDiff } from "@/lib/hooks"
+import { useRegistryVersionDiff } from "@/hooks/use-registry-versions"
 
 type RegistryVersionRead =
   tracecat__registry__repositories__schemas__RegistryVersionRead
@@ -75,11 +75,11 @@ function VersionDiffContent({
   const [compareToId, setCompareToId] = useState<string | null>(
     initialCompareId
   )
-  const { diff, diffIsLoading } = useRegistryVersionDiff(
+  const { diff, diffIsLoading } = useRegistryVersionDiff({
     repositoryId,
     baseId,
-    compareToId
-  )
+    compareToId,
+  })
 
   return (
     <DiffView

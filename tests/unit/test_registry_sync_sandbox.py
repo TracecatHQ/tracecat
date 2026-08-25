@@ -11,12 +11,16 @@ from uuid import uuid4
 
 import pytest
 
-from tracecat.exceptions import RegistryError
+from tracecat.exceptions import RegistryError, RegistrySyncContentError
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
 )
 from tracecat.registry.sync.sandbox import _PACKAGING_SCRIPT, RegistrySyncSandbox
-from tracecat.registry.sync.schemas import SyncResultError, SyncResultSuccess
+from tracecat.registry.sync.schemas import (
+    SyncErrorCode,
+    SyncResultError,
+    SyncResultSuccess,
+)
 from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.types import (
     SandboxConfig,
@@ -650,3 +654,53 @@ async def test_registry_discovery_preserves_structured_registry_errors(
             organization_id=None,
             timeout_seconds=45,
         )
+
+
+@pytest.mark.anyio
+async def test_registry_discovery_raises_typed_content_error(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    site_packages = tmp_path / "sandbox-install" / "cache" / "site-packages"
+    site_packages.mkdir(parents=True)
+    trusted_tracecat = tmp_path / "trusted" / "tracecat"
+    trusted_registry = tmp_path / "trusted" / "tracecat_registry"
+    trusted_tracecat.mkdir(parents=True)
+    trusted_registry.mkdir()
+    executor = mocker.Mock(
+        execute=mocker.AsyncMock(
+            return_value=SandboxResult(
+                success=True,
+                output=SyncResultError(
+                    error="No module named 'internal_registry'",
+                    error_code=SyncErrorCode.PACKAGE_NOT_FOUND,
+                ).model_dump(mode="json"),
+            )
+        )
+    )
+    mocker.patch(
+        "tracecat.registry.sync.sandbox.NsjailExecutor",
+        return_value=executor,
+    )
+    mocker.patch(
+        "tracecat.registry.sync.sandbox._host_site_packages_paths",
+        return_value=[],
+    )
+    mocker.patch(
+        "tracecat.registry.sync.sandbox._trusted_runtime_package_paths",
+        return_value=[trusted_tracecat, trusted_registry],
+    )
+
+    with pytest.raises(RegistrySyncContentError) as exc_info:
+        await RegistrySyncSandbox().discover_actions(
+            site_packages=site_packages,
+            origin="tracecat_registry",
+            package_name="tracecat_registry",
+            repository_id=uuid4(),
+            commit_sha=None,
+            validate=True,
+            organization_id=None,
+            timeout_seconds=45,
+        )
+
+    assert exc_info.value.code == SyncErrorCode.PACKAGE_NOT_FOUND

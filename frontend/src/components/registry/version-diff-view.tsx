@@ -5,6 +5,7 @@ import type {
   VersionDiff,
 } from "@/client"
 import { Spinner } from "@/components/loading/spinner"
+import { shortVersion } from "@/components/registry/utils"
 import { Badge } from "@/components/ui/badge"
 import {
   Select,
@@ -13,11 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-
-/** Shorten a version string if it looks like a full commit SHA. */
-export function shortVersion(version: string): string {
-  return /^[0-9a-f]{40}$/i.test(version) ? version.substring(0, 12) : version
-}
 
 /** Props for {@link DiffView}. */
 export interface DiffViewProps {

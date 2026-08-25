@@ -31,11 +31,7 @@ export const DefaultQueryClientProvider = ({
           if (handleGlobalError(error)) {
             return
           }
-          const errorMessage = query.meta?.errorMessage
-          showFallbackErrorToast(
-            error,
-            typeof errorMessage === "string" ? errorMessage : undefined
-          )
+          showFallbackErrorToast(error, query.meta?.errorMessage)
         },
       }),
       defaultOptions: {

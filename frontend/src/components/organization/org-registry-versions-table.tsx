@@ -21,7 +21,7 @@ import type {
 } from "@/client"
 import { DataTablePagination } from "@/components/data-table/pagination"
 import { Spinner } from "@/components/loading/spinner"
-import { shortVersion } from "@/components/registry/version-diff-view"
+import { shortCommitSha, shortVersion } from "@/components/registry/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -187,10 +187,8 @@ function VersionTableRow({
   const showDelete = version !== null && !row.isCurrent && canDelete
   const hasMenu = showSync || showPromote || showCompare || showDelete
   const suffix = version ? getVersionSuffix(version) : null
-  const label =
-    commit?.sha.substring(0, 7) ??
-    version?.commit_sha?.substring(0, 7) ??
-    shortVersion(version?.version ?? "")
+  const sha = commit?.sha ?? version?.commit_sha
+  const label = sha ? shortCommitSha(sha) : shortVersion(version?.version ?? "")
 
   return (
     <TableRow>

@@ -22,8 +22,10 @@ import {
 } from "@/components/organization/org-registry-versions-table"
 import { SyncRepositoryDialog } from "@/components/registry/dialogs/repository-sync-dialog"
 import { VersionDiffDialog } from "@/components/registry/dialogs/version-diff-dialog"
-import { getCustomRegistryRepository } from "@/components/registry/utils"
-import { shortVersion } from "@/components/registry/version-diff-view"
+import {
+  getCustomRegistryRepository,
+  shortVersion,
+} from "@/components/registry/utils"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -44,12 +46,13 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
+import { useRegistryVersions } from "@/hooks/use-registry-versions"
 import { getApiErrorDetail } from "@/lib/errors"
 import { getRelativeTime } from "@/lib/event-history"
+import { getRepoRef } from "@/lib/git"
 import {
   useOrgGitSettings,
   useRegistryRepositories,
-  useRegistryVersions,
   useRepositoryCommits,
 } from "@/lib/hooks"
 
@@ -87,16 +90,6 @@ export function OrgRegistryVersionsShell({
       </div>
     </div>
   )
-}
-
-/** Branch from a `git+ssh://…/repo.git@ref` origin, or null when absent. */
-function parseOriginRef(origin: string): string | null {
-  const lastSegment = origin.split("/").pop() ?? ""
-  const at = lastSegment.indexOf("@")
-  if (at === -1) {
-    return null
-  }
-  return lastSegment.slice(at + 1) || null
 }
 
 /** Normalise an API error detail into a sentence with terminal punctuation. */
@@ -193,11 +186,14 @@ export function OrgRegistryVersions() {
   const repo = getCustomRegistryRepository(repos)
   const isConnected = Boolean(gitSettings?.git_repo_url) && repo !== null
   const repositoryId = canRead === true && isConnected && repo ? repo.id : null
-  const branch = repo ? (parseOriginRef(repo.origin) ?? DEFAULT_BRANCH) : null
+  // The origin's `@ref` suffix selects the branch; the backend defaults to main.
+  const branch = repo
+    ? (getRepoRef(repo.origin) ?? DEFAULT_BRANCH)
+    : DEFAULT_BRANCH
 
   const { commits, commitsIsLoading, commitsError } = useRepositoryCommits(
     repositoryId,
-    { branch: branch ?? DEFAULT_BRANCH }
+    { branch }
   )
   const {
     versions,

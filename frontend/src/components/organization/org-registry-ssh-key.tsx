@@ -32,6 +32,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { toast } from "@/components/ui/use-toast"
 import { getApiErrorDetail } from "@/lib/errors"
 import { useOrgSecrets } from "@/lib/hooks"
 
@@ -73,14 +74,27 @@ export function OrgRegistrySshKeySection() {
   )
   const registryKey = sshKeys.find(isRegistryKey) ?? null
 
+  // The backend makes SSH key secrets write-once, so replacing is
+  // delete-then-create. Rethrow so the dialog stays open for a retry.
   async function handleCreate(params: SecretCreate) {
+    let removedExisting = false
     try {
       if (registryKey) {
         await deleteSecretById(registryKey)
+        removedExisting = true
       }
       await createSecret(params)
     } catch (error) {
       console.error("Failed to save SSH key", error)
+      if (removedExisting) {
+        toast({
+          title: "SSH key removed but the new key was not saved",
+          description:
+            "Add an SSH key so Tracecat can sync the repository again.",
+          variant: "destructive",
+        })
+      }
+      throw error
     }
   }
 
@@ -125,22 +139,7 @@ export function OrgRegistrySshKeySection() {
     body = (
       <div className="flex items-center gap-3 px-3 py-2.5">
         <KeyRoundIcon className="size-4 shrink-0 text-muted-foreground" />
-        <p className="flex-1 text-sm text-muted-foreground">No SSH key added</p>
-        {showAdd && (
-          <CreateSSHKeyDialog
-            handler={handleCreate}
-            title="Add SSH key"
-            description="Paste the private key. Tracecat uses it to clone the custom registry repository."
-            submitLabel="Add SSH key"
-            fieldConfig={sshKeyFieldConfig}
-          >
-            <CreateSSHKeyDialogTrigger asChild>
-              <Button type="button" variant="outline" size="sm">
-                Add SSH key
-              </Button>
-            </CreateSSHKeyDialogTrigger>
-          </CreateSSHKeyDialog>
-        )}
+        <p className="text-sm text-muted-foreground">No SSH key added</p>
       </div>
     )
   } else {
@@ -209,7 +208,24 @@ export function OrgRegistrySshKeySection() {
   return (
     <div className="space-y-2">
       <div className="space-y-1">
-        <p className="text-sm font-medium leading-none">SSH key</p>
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm font-medium leading-none">SSH key</p>
+          {showAdd && (
+            <CreateSSHKeyDialog
+              handler={handleCreate}
+              title="Add SSH key"
+              description="Paste the private key. Tracecat uses it to clone the custom registry repository."
+              submitLabel="Add SSH key"
+              fieldConfig={sshKeyFieldConfig}
+            >
+              <CreateSSHKeyDialogTrigger asChild>
+                <Button type="button" variant="outline" size="sm">
+                  Add SSH key
+                </Button>
+              </CreateSSHKeyDialogTrigger>
+            </CreateSSHKeyDialog>
+          )}
+        </div>
         <p className="text-sm text-muted-foreground">
           Tracecat uses this key to clone the repository. Add the public key to
           the repository as a read-only deploy key.

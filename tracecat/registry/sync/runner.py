@@ -33,7 +33,7 @@ import aiofiles
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.exceptions import RegistryError
+from tracecat.exceptions import RegistrySyncContentError
 from tracecat.git.utils import parse_git_url
 from tracecat.logger import logger
 from tracecat.registry.artifact_keys import get_artifact_s3_key
@@ -81,21 +81,9 @@ class ActionDiscoveryError(RegistrySyncRunnerError):
         self.non_retryable = non_retryable
 
 
-# Deterministic content/configuration failures that retrying cannot fix.
-_NON_RETRYABLE_DISCOVERY_ERROR_PREFIXES = (
-    "Failed to load template action from ",
-    # Wrong `git_repo_package_name` (ModuleNotFoundError in the sync subprocess).
-    "No module named ",
-)
-
-
 def _is_non_retryable_discovery_error(exc: BaseException) -> bool:
-    if not isinstance(exc, RegistryError):
-        return False
-    message = str(exc)
-    return any(
-        message.startswith(prefix) for prefix in _NON_RETRYABLE_DISCOVERY_ERROR_PREFIXES
-    )
+    """Content/configuration failures carry a typed code; retrying cannot fix them."""
+    return isinstance(exc, RegistrySyncContentError)
 
 
 def _build_validation_failure_message(

@@ -8,6 +8,7 @@ import type {
   tracecat__registry__repositories__schemas__RegistrySyncResponse,
 } from "@/client"
 import { Spinner } from "@/components/loading/spinner"
+import { shortCommitSha } from "@/components/registry/utils"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,15 +27,14 @@ export interface SyncRepositoryDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   selectedRepo: RegistryRepositoryReadMinimal | null
-  setSelectedRepo?: (repo: RegistryRepositoryReadMinimal | null) => void
   syncRepo: (
     params: RegistryRepositoriesSyncRegistryRepositoryData
   ) => Promise<tracecat__registry__repositories__schemas__RegistrySyncResponse>
   syncRepoIsPending: boolean
   /** Sync this commit instead of the remote HEAD. */
   targetCommit?: GitCommitInfo | null
-  /** SHA of the current version; defaults to the repository's last synced SHA. */
-  currentCommitSha?: string | null
+  /** SHA of the current version, or null when nothing has been synced. */
+  currentCommitSha: string | null
 }
 
 /** Confirmation dialog for syncing a registry repository from its remote. */
@@ -42,14 +42,12 @@ export function SyncRepositoryDialog({
   open,
   onOpenChange,
   selectedRepo,
-  setSelectedRepo,
   syncRepo,
   syncRepoIsPending,
   targetCommit,
   currentCommitSha,
 }: SyncRepositoryDialogProps) {
-  const shortSha = targetCommit?.sha.substring(0, 7)
-  const currentSha = currentCommitSha ?? selectedRepo?.commit_sha
+  const shortSha = targetCommit ? shortCommitSha(targetCommit.sha) : null
 
   const handleSync = async () => {
     if (!selectedRepo) {
@@ -92,8 +90,6 @@ export function SyncRepositoryDialog({
       })
     } catch (error) {
       console.error("Error syncing repository", error)
-    } finally {
-      setSelectedRepo?.(null)
     }
   }
 
@@ -125,11 +121,11 @@ export function SyncRepositoryDialog({
                   </span>
                 </span>
               )}
-              {currentSha && (
+              {currentCommitSha && (
                 <span className="flex flex-wrap items-start gap-2 text-sm text-muted-foreground">
                   <span>Current SHA:</span>
                   <span className="rounded bg-secondary px-2 py-1 font-mono text-xs text-secondary-foreground break-all whitespace-normal">
-                    {currentSha}
+                    {currentCommitSha}
                   </span>
                 </span>
               )}

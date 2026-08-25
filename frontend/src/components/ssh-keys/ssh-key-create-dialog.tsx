@@ -12,7 +12,6 @@ import { SshPrivateKeyField } from "@/components/ssh-keys/ssh-private-key-field"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -40,7 +39,8 @@ interface CreateSSHKeyDialogProps
   extends DialogProps,
     React.HTMLAttributes<HTMLDivElement> {
   children?: React.ReactNode
-  handler: (params: SecretCreate) => void
+  /** Saves the key. The dialog closes only after this resolves. */
+  handler: (params: SecretCreate) => void | Promise<void>
   fieldConfig?: {
     name?: FieldConfig
     description?: FieldConfig
@@ -96,21 +96,28 @@ export function CreateSSHKeyDialog({
       private_key: "",
     },
   })
-  const { control, register } = methods
+  const {
+    control,
+    register,
+    formState: { isSubmitting },
+  } = methods
 
   const onSubmit = async (values: CreateSSHKeyForm) => {
     const { private_key, ...rest } = values
+    const secret: SecretCreate = {
+      type: "ssh_key",
+      keys: [{ key: "PRIVATE_KEY", value: private_key }],
+      ...rest,
+    }
     try {
-      const secret: SecretCreate = {
-        type: "ssh_key",
-        keys: [{ key: "PRIVATE_KEY", value: private_key }],
-        ...rest,
-      }
       await handler(secret)
     } catch (error) {
+      // Keep the dialog open so the user can retry.
       console.error(error)
+      return
     }
     methods.reset()
+    setShowDialog(false)
   }
   const onValidationFailed = () => {
     console.error("Form validation failed")
@@ -201,12 +208,14 @@ export function CreateSSHKeyDialog({
                 name="private_key"
               />
               <DialogFooter>
-                <DialogClose asChild>
-                  <Button className="ml-auto space-x-2" type="submit">
-                    <KeyRoundIcon className="mr-2 size-4" />
-                    {submitLabel}
-                  </Button>
-                </DialogClose>
+                <Button
+                  className="ml-auto space-x-2"
+                  type="submit"
+                  disabled={isSubmitting}
+                >
+                  <KeyRoundIcon className="mr-2 size-4" />
+                  {submitLabel}
+                </Button>
               </DialogFooter>
             </div>
           </form>
