@@ -5,16 +5,18 @@ description: "Quick reference for the ENV fields available in Tracecat expressio
 
 ## Fields
 
-| Expression | Description |
+Wrap a field in `${{ ... }}` to use it in an expression.
+
+| Field | Description |
 | --- | --- |
-| `${{ ENV.workflow.start_time }}` | Wall-clock time the run started |
-| `${{ ENV.workflow.time_anchor }}` | Anchor timestamp Tracecat uses for deterministic replay |
-| `${{ ENV.workflow.dispatch_type }}` | `push` when the caller supplied the workflow definition, `pull` when the run fetched the committed definition |
-| `${{ ENV.workflow.execution_id }}` | Unique ID of this workflow execution |
-| `${{ ENV.workflow.run_id }}` | UUID of this execution's current run attempt |
-| `${{ ENV.workflow.trigger_type }}` | `manual`, `scheduled`, `webhook`, or `case` |
-| `${{ ENV.workflow.logical_time }}` | Logical timestamp of the current action; `FN.now()` returns it. A `run_if` evaluated before any action has run sees `None` |
-| `${{ ENV.environment }}` | The [Workflow environment](/automations/workflows#environments) the run executes in |
+| `ENV.workflow.start_time` | Wall-clock time the run started |
+| `ENV.workflow.time_anchor` | Anchor timestamp Tracecat uses for deterministic replay |
+| `ENV.workflow.dispatch_type` | `push` when the caller supplied the workflow definition, `pull` when the run fetched the committed definition |
+| `ENV.workflow.execution_id` | Unique ID of this workflow execution |
+| `ENV.workflow.run_id` | UUID of this execution's current run attempt |
+| `ENV.workflow.trigger_type` | `manual`, `scheduled`, `webhook`, or `case` |
+| `ENV.workflow.logical_time` | Logical timestamp of the current action; `FN.now()` returns it. A `run_if` evaluated before any action has run sees `None` |
+| `ENV.environment` | The [Workflow environment](/automations/workflows#environments) the run executes in |
 
 Every `ENV.*` expression resolves to `None` in an action invoked as an agent tool.
 

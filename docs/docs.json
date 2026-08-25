@@ -117,6 +117,8 @@
             "pages": [
               "manage-platform/users",
               "manage-platform/rbac",
+              "manage-platform/custom-roles",
+              "manage-platform/service-accounts",
               "manage-platform/git-sync"
             ]
           },

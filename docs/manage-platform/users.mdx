@@ -1,6 +1,6 @@
 ---
 title: User management
-description: "Bootstrap the first superadmin, control who can register, invite users into an organization, change passwords, and administer a self-hosted Tracecat platform."
+description: "Bootstrap the first superadmin, control who can register, and invite users into an organization."
 ---
 
 import FirstSuperadmin from "/snippets/first-superadmin.mdx";
@@ -15,11 +15,11 @@ A Tracecat account authenticates a person, and an organization membership decide
 
 ## Registration
 
-Self-service registration needs `basic` in `TRACECAT__AUTH_TYPES`. That setting mounts `POST /auth/register`, and without it the sign-up page shows `Sign up unavailable`. OIDC and SAML create the account on the first successful sign-in.
+Self-service registration needs `basic` in `TRACECAT__AUTH_TYPES`. Without it the sign-up page shows `Sign up unavailable`. OIDC and SAML create the account on the first successful sign-in.
 
 `TRACECAT__AUTH_ALLOWED_DOMAINS` is a comma-separated list of email domains permitted to create an account, and a blank value permits every domain. Tracecat applies the same list on every OIDC sign-in. SAML sign-in checks the organization's configured domains first. When none are configured, a single-tenant deployment falls back to this list and a multi-tenant deployment rejects the sign-in. An existing basic-auth account signs in with its password regardless of the list.
 
-The first superadmin bypasses the domain list. A blocked email fails with `400` and the message `Please enter a valid email address.`
+The first superadmin bypasses the domain list. A blocked email fails with the message `Please enter a valid email address.`
 
 A password must be at least `TRACECAT__AUTH_MIN_PASSWORD_LENGTH` characters long, default `12`.
 
@@ -33,75 +33,26 @@ In a single-tenant deployment, a superadmin account joins the default organizati
 
 ### Invitations
 
-Organization owners and admins invite from the organization Members page with `Invite member`. The dialog takes an email and the role the account receives on acceptance. Creating an invitation requires the `org:member:invite` scope, and the invitation stays valid for 7 days.
+Organization owners and admins invite from the organization Members page with `Invite member`. The dialog takes an email and the role the account receives on acceptance. The invitation stays valid for 7 days.
 
 ![Invite member dialog](/img/manage-platform/users-invitations.png)
 
 You send the link yourself. Open the pending member's row menu, choose `Copy invitation link`, and send it to the invitee.
 
-The link has the form `<app URL>/invitations/accept?token=<token>`. Tracecat rejects an email that is already a member or already holds a pending invitation with `400`.
+The link has the form `<app URL>/invitations/accept?token=<token>`. Tracecat rejects an email that is already a member or already holds a pending invitation.
 
 The invitee opens the link and signs in, or signs up with basic auth. A sign-up started from the link accepts the invitation during registration.
 
 The signed-in email must match the invitation. A used, revoked, or expired link shows `Invitation already accepted`, `Invitation revoked`, or `Invitation expired`.
 
-After acceptance the account holds the invited role organization-wide and lands on `/workspaces`. The API routes are `POST /organization/invitations`, `GET /organization/invitations/{invitation_id}/token`, `POST /organization/invitations/accept`, and `DELETE /organization/invitations/{invitation_id}`.
-
-### Superadmin provisioning
-
-A superadmin creates accounts on the Admin Users page with `Create user` (`POST /admin/users`). The dialog takes an email, a password, and a `Grant superuser access` toggle. In a single-tenant deployment the new account joins the default organization as `organization-member`, or as `organization-owner` when the toggle is set.
-
-In a multi-tenant deployment the new account starts without a membership. The superadmin then invites it with `Organization invitations` on the Admin Organizations page (`POST /admin/organizations/{org_id}/invitations`) and copies the link from the same dialog.
+After acceptance the account holds the invited role organization-wide and lands on `/workspaces`.
 
 ### Workspace membership
 
-Workspace admins add existing accounts from the workspace's Members page with `Add member`. The lookup is by email, and an unknown email fails with `Couldn't find a user with this email`. The account receives `workspace-editor` in that workspace (`POST /workspaces/{workspace_id}/memberships`, scope `workspace:member:invite`).
-
-## Change password
-
-Password changes go through the API with the session cookie. Sign in with `POST /auth/login`, then send the new password to `PATCH /users/me`:
-
-```bash
-curl https://<host>/api/auth/login \
-  --request POST \
-  --cookie-jar cookies.txt \
-  --data-urlencode "username=user@example.com" \
-  --data-urlencode "password=<CURRENT_PASSWORD>"
-
-curl https://<host>/api/users/me \
-  --request PATCH \
-  --cookie cookies.txt \
-  --header "Content-Type: application/json" \
-  --data '{"password": "<NEW_PASSWORD>"}'
-```
-
-Wrong credentials fail at login with `400` and `LOGIN_BAD_CREDENTIALS`. A password shorter than `TRACECAT__AUTH_MIN_PASSWORD_LENGTH` fails with `400` and the code `UPDATE_USER_INVALID_PASSWORD`.
-
-A superadmin resets another account's password with the same body at `PATCH /users/{user_id}`, and a non-superadmin session gets `403`. Accounts created by OIDC or SAML sign-in hold a generated password and authenticate at the identity provider, so reset those there.
-
-## Platform administration
-
-A superadmin is an account with `is_superuser` set. Superadmins see an `Admin` entry in the sidebar that opens `/admin` with Organizations, Users, Tiers, Agent, Audit Logs, and Registry pages. Every `/admin` API route returns `403` to other sessions.
-
-Tiers set an organization's concurrency limits, API rate limits, and entitlements. Create one on the Admin Tiers page (`POST /admin/tiers`) and assign it from the organization's `Assign tier` dialog (`PATCH /admin/tiers/organizations/{org_id}`). A tier marked as default applies to every new organization.
-
-![Admin tiers page](/img/manage-platform/admin-tiers.png)
-
-The `tracecat-admin` package installs the `tracecat` command. Install it with `pip install tracecat-admin`, point `TRACECAT__API_URL` at your API, and sign in as a superadmin with `tracecat auth login --username <email> --password <password>`. `create-superuser` connects to the database through `TRACECAT__DB_URI` and needs the `tracecat-admin[bootstrap]` extra.
-
-| Command | Purpose |
-| :------ | :------ |
-| `tracecat admin list-users` | List every account. |
-| `tracecat admin get-user <user-id>` | Show one account. |
-| `tracecat admin promote-user --email <email>` | Grant superadmin. |
-| `tracecat admin demote-user --email <email>` | Remove superadmin. |
-| `tracecat admin create-superuser --email <email> [--create]` | Promote an existing account in the database, or create one with a prompted password when `--create` is set. |
-| `tracecat orgs list`, `create`, `get`, `update`, `delete` | Manage organizations. |
-| `tracecat tiers list`, `get`, `create`, `update`, `delete` | Manage tiers. |
-| `tracecat tiers org get`, `update` | Show or change an organization's tier assignment and overrides. |
+Workspace admins add existing accounts from the workspace's Members page with `Add member`. The lookup is by email, and an unknown email fails with `Couldn't find a user with this email`. The account receives `workspace-editor` in that workspace.
 
 ## Related pages
 
-- See [Basic](/authentication/basic) for enabling email-and-password sign-in and the minimum password length.
+- See [Basic](/authentication/basic) for email-and-password sign-in, the minimum password length, and changing a password.
 - See [Roles and permissions](/manage-platform/rbac) for what each built-in role can do and how organization membership gates workspace access.
 - See [Environment variables](/self-hosting/environment-variables) for `TRACECAT__AUTH_SUPERADMIN_EMAIL`, `TRACECAT__AUTH_ALLOWED_DOMAINS`, and `TRACECAT__AUTH_MIN_PASSWORD_LENGTH`.
