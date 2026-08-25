@@ -182,7 +182,13 @@ def _envelope_from_detail(detail: Any) -> ErrorEnvelope | None:
         except ValidationError:
             return None
 
-    return parse_error_envelope(detail.get("envelope"))
+    try:
+        parsed = ActionErrorInfoAdapter.validate_python(detail)
+    except ValidationError:
+        return None
+    if isinstance(parsed, ClassifiedActionErrorInfo):
+        return parsed.envelope
+    return None
 
 
 def _error_chain(error: BaseException) -> Iterator[BaseException]:

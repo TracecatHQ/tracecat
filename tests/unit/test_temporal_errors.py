@@ -274,6 +274,7 @@ async def test_platform_diagnostics_do_not_enter_temporal_history() -> None:
     [
         {"legacy": "payload"},
         {"schema": "tracecat.error.v1"},
+        _user_envelope().model_dump(mode="json"),
         {"envelope": {"schema": "not-tracecat.error.v1"}},
         {
             "envelope": {
@@ -341,20 +342,22 @@ def test_wrapping_preserves_existing_classification() -> None:
     assert extract_error_envelope(wrapped) != fallback
 
 
-def test_existing_detail_classification_is_authoritative() -> None:
-    original_envelope = _user_envelope()
+def test_ambiguous_nested_envelope_does_not_override_fallback() -> None:
+    nested_envelope = _user_envelope()
     fallback = _platform_envelope()
     detail = {
-        "envelope": original_envelope.model_dump(mode="json"),
+        "envelope": nested_envelope.model_dump(mode="json"),
+        "arbitrary": "outer field",
     }
 
     error = _capture_application_error(fallback, detail)
 
-    assert error.message == original_envelope.message
-    assert error.non_retryable is True
-    assert error.type == original_envelope.kind.value
-    assert error.details == (detail,)
-    assert extract_error_envelope(error) == original_envelope
+    assert error.message == fallback.message
+    assert error.non_retryable is False
+    assert error.type == fallback.kind.value
+    assert error.details[0] == detail
+    assert error.details[1]["schema"] == "tracecat.temporal_error.v1"
+    assert extract_error_envelope(error) == fallback
 
 
 def test_exception_chain_preserves_runtime_envelope() -> None:
