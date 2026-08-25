@@ -55,7 +55,7 @@ A single-tenant deployment reads the entitlement from `TRACECAT__FEATURE_FLAGS=r
 
 A role assignment applies only to a user who is a member of the organization, and Tracecat rejects assigning a role or a group to a user without membership with `404` and `User not found in organization`. A signed-in user without an organization membership sees `No organization access yet` instead of their workspaces, with any pending invitations listed.
 
-Registration and sign-in create no membership. On a single-tenant deployment, registration or sign-in enrolls a superuser into the default organization and repairs the organization-wide role of an existing member. An account that holds no membership needs an invitation or provisioning before it can open a workspace.
+Registration and sign-in without an invitation create no membership. On a single-tenant deployment, registration or sign-in enrolls a superuser into the default organization and repairs the organization-wide role of an existing member. An account that holds no membership needs an invitation or provisioning before it can open a workspace.
 
 An accepted organization invitation creates the membership and an organization-wide assignment of the invited role. An accepted workspace invitation creates the organization membership with `organization-member` when the user has none, then the workspace membership. See [User management](/manage-platform/users) for invitations and provisioning.
 

@@ -74,8 +74,8 @@
 | `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Store large action results in blob storage instead of Temporal history. |
 | `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` | `128000` | Byte threshold above which payloads are externalized to blob storage. |
 | `TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS` | `30` | Retention period in days for workflow artifacts. Objects older than this are automatically deleted via S3 lifecycle rules. Set to `0` to disable. |
-| `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` | `60` | Seconds Temporal waits for a heartbeat from an executor activity before failing it and retrying on a healthy worker. Set to `0` to disable. |
-| `TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL` | `30` | Seconds between heartbeats from executor activities. A value at or above `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` lets Temporal fail the activity between two heartbeats. Set to `0` to disable heartbeats. |
+| `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` | `60` | Seconds Temporal waits for a heartbeat from an executor activity before failing it and retrying on a healthy worker. Set to `0` to disable. Read by the `worker` service. The Compose files and the Fargate module do not pass this variable through, so set it on that container directly. To disable heartbeats, set this and `TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL` to `0` together. |
+| `TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL` | `30` | Seconds between heartbeats from executor activities. A value at or above `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` lets Temporal fail the activity between two heartbeats. Set to `0` to disable heartbeats. Read by the `executor` service and not passed through by the Compose files or the Fargate module, so set it on that container directly. `0` alone stops the executor heartbeating while the worker still expects one every `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` seconds, which fails actions that run longer than that. |
 
 ### Agents
 
