@@ -1,0 +1,54 @@
+docs/automations/core-actions/request-actions/ssh.mdx
+  s_af3ffe559c1554::t_851a8a1225d83a 31,33,37,39-49
+docs/automations/core-actions/transform-actions/python-script.mdx
+  s_af3ffe559c1554::t_1fa7efb68b710c 20-24
+  s_af3ffe559c1554::t_14e9ba4874d5aa 44,49-52
+  s_af3ffe559c1554::t_851a8a1225d83a 16-19,25-43,45-48,53,57,194,218
+  s_af3ffe559c1554::t_d555db65059518 58-59
+docs/automations/core-actions/memory-actions/tables.mdx
+  s_af3ffe559c1554::t_851a8a1225d83a 5-6,145-153,164,267-286,288-442,444-451
+  s_af3ffe559c1554::t_1fa7efb68b710c 19,36-51,54-57,67-68
+  s_af3ffe559c1554::t_14e9ba4874d5aa 100,287,443
+  s_af3ffe559c1554::t_0fde2086562a83 452
+docs/automations/core-actions/_examples.yaml
+  s_af3ffe559c1554::t_c18453133d7c4d 774-793
+  s_af3ffe559c1554::t_9c190178f73dc2 704-712
+  s_af3ffe559c1554::t_1dc812119ce446 745-773,794-835
+  s_af3ffe559c1554::t_fd651bd114e0f3 836
+docs/automations/core-actions/transform-actions/data-transforms.mdx
+  s_af3ffe559c1554::t_14e9ba4874d5aa 449,463
+  s_af3ffe559c1554::t_851a8a1225d83a 444-448,450-462,464-475
+docs/automations/core-actions/case-actions/cases.mdx
+  s_af3ffe559c1554::t_851a8a1225d83a 1450-1474
+docs/automations/core-actions/workflow-actions/run-subflow.mdx
+  s_af3ffe559c1554::t_851a8a1225d83a 113-121
+docs/automations/core-actions/request-actions/http.mdx
+  s_af3ffe559c1554::t_851a8a1225d83a 86-93
+docs/automations/core-actions/_manifest.yaml
+  s_af3ffe559c1554::t_d555db65059518 187-188
+  s_af3ffe559c1554::t_c8f408f5fa12e6 145-148,154-172,174-177,186
+  s_af3ffe559c1554::t_2f521cde27e0c0 378-382,384-396,398-409
+  s_af3ffe559c1554::t_aeb3b2a07ea9da 547-551
+  s_af3ffe559c1554::t_616dac299d8a9d 558-570,572-587,604-605,610-618,621-651,653-691
+  s_af3ffe559c1554::t_6ab4d0def4aeaa 149-153,571,588-603,606-609,619-620
+  s_af3ffe559c1554::t_c18453133d7c4d 173,178-181,383,397,652,713,730
+  s_af3ffe559c1554::t_c79d00be15dad4 711-712,714-729
+  s_af3ffe559c1554::t_d0cfa74a4e66d6 1-17
+  s_af3ffe559c1554::t_e32b0534b3c267 182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "e002e42d9aadfae3171d316044b4d40ad6c11e3b",
+  "prompts": {},
+  "sessions": {
+    "s_af3ffe559c1554": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "28e168b2-aff2-4083-8f30-4dec72508581",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
