@@ -34,6 +34,7 @@ import {
 } from "@/components/cases/case-panels"
 import { CaseTagPicker } from "@/components/cases/case-tag-picker"
 import { getCaseTaskProgress } from "@/components/cases/case-task-status"
+import { CaseVersionHistory } from "@/components/cases/case-version-history"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { AlertNotification } from "@/components/notifications"
@@ -645,12 +646,21 @@ export function CasePanelView({
                   from the description editor's sticky toolbar padding — see
                   `cases/editor.css`. */}
                 <div className="flex flex-col">
-                  <div className="py-1.5 first:pt-0 last:pb-0">
-                    <CasePanelSummary
-                      caseData={caseData}
-                      updateCase={updateCase}
-                      compact={embedded}
-                    />
+                  <div className="flex items-start gap-2 py-1.5 first:pt-0 last:pb-0">
+                    <div className="min-w-0 flex-1">
+                      <CasePanelSummary
+                        caseData={caseData}
+                        updateCase={updateCase}
+                        compact={embedded}
+                      />
+                    </div>
+                    <div className="mt-1 shrink-0">
+                      <CaseVersionHistory
+                        workspaceId={workspaceId}
+                        caseId={caseId}
+                        caseLabel={caseData.short_id}
+                      />
+                    </div>
                   </div>
                   <div className="flex items-start justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
                     <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-2.5">

@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.cases.enums import CaseVersionDiffOperation
 from tracecat.cases.service import CasesService
-from tracecat.cases.versions.diff import compute_case_version_diff
 from tracecat.cases.versions.service import CaseVersionsService
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.pagination import PageParams
@@ -25,71 +22,6 @@ def _role_with_scopes(*scopes: str) -> Role:
         service_id="tracecat-api",
         scopes=frozenset(scopes),
     )
-
-
-@pytest.mark.parametrize(
-    ("predecessor", "selected"),
-    [
-        ("Login from unknown host", "Login from new host"),
-        ("First line\nSecond line", "First line\nUpdated second line"),
-        ("", "New content"),
-        ("Old content", ""),
-        ("Same content", "Same content"),
-        ("", ""),
-    ],
-)
-def test_case_version_diff_reconstructs_exact_content(
-    predecessor: str,
-    selected: str,
-) -> None:
-    """Diff segments losslessly reconstruct both source snapshots."""
-    diff = compute_case_version_diff(predecessor, selected)
-
-    reconstructed_predecessor = "".join(
-        segment.text
-        for segment in diff.segments
-        if segment.operation != CaseVersionDiffOperation.INSERT
-    )
-    reconstructed_selected = "".join(
-        segment.text
-        for segment in diff.segments
-        if segment.operation != CaseVersionDiffOperation.DELETE
-    )
-
-    assert diff.granularity == "word"
-    assert diff.changed == (predecessor != selected)
-    assert reconstructed_predecessor == predecessor
-    assert reconstructed_selected == selected
-
-
-def test_case_version_diff_returns_renderable_replacement_segments() -> None:
-    """A word replacement is ordered as equal, delete, insert, equal."""
-    diff = compute_case_version_diff(
-        "Login from unknown host",
-        "Login from new host",
-    )
-
-    assert [(segment.operation, segment.text) for segment in diff.segments] == [
-        (CaseVersionDiffOperation.EQUAL, "Login from "),
-        (CaseVersionDiffOperation.DELETE, "unknown"),
-        (CaseVersionDiffOperation.INSERT, "new"),
-        (CaseVersionDiffOperation.EQUAL, " host"),
-    ]
-
-
-def test_case_version_diff_falls_back_when_token_budget_is_exceeded() -> None:
-    """Large comparisons use an exact coarse diff without SequenceMatcher."""
-    predecessor = "shared old " * 501
-    selected = "shared new " * 501
-
-    with patch("tracecat.cases.versions.diff.SequenceMatcher") as matcher:
-        diff = compute_case_version_diff(predecessor, selected)
-
-    matcher.assert_not_called()
-    assert [(segment.operation, segment.text) for segment in diff.segments] == [
-        (CaseVersionDiffOperation.DELETE, predecessor),
-        (CaseVersionDiffOperation.INSERT, selected),
-    ]
 
 
 @pytest.mark.anyio

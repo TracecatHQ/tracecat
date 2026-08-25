@@ -80,7 +80,7 @@ async def compare_case_version(
     case_id: uuid.UUID,
     version_id: uuid.UUID,
 ) -> CaseVersionCompareRead:
-    """Compare a case field version with its immediate predecessor."""
+    """Return a case field version and its immediate predecessor."""
     service = CasesService(session, role)
     comparison = await service.versions.compare_with_predecessor(
         case_id=case_id,

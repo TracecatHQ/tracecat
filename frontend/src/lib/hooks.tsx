@@ -3943,7 +3943,7 @@ export function useUpdateCase({
     mutationFn: async (params: CaseUpdate) =>
       await casesUpdateCase({ caseId, workspaceId, requestBody: params }),
 
-    onSuccess: () => {
+    onSuccess: (_, params) => {
       queryClient.invalidateQueries({
         queryKey: ["cases", workspaceId],
       })
@@ -3953,6 +3953,11 @@ export function useUpdateCase({
         exact: false,
       })
       invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
+      if (params.summary !== undefined || params.description !== undefined) {
+        queryClient.invalidateQueries({
+          queryKey: ["case-versions", workspaceId, caseId],
+        })
+      }
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {

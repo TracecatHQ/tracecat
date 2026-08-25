@@ -65,6 +65,9 @@ jest.mock("@/components/cases/case-panel-content", () => ({
 jest.mock("@/components/cases/case-panel-summary", () => ({
   CasePanelSummary: () => <div />,
 }))
+jest.mock("@/components/cases/case-version-history", () => ({
+  CaseVersionHistory: () => <div />,
+}))
 jest.mock("@/components/cases/case-comments-section", () => ({
   CommentSection: () => <div />,
 }))

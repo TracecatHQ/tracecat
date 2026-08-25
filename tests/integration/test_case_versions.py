@@ -26,7 +26,6 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.schemas import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
-from tracecat.cases.versions.diff import compute_case_version_diff
 from tracecat.db.models import Case, CaseEvent, CaseVersion, User, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import PageParams
@@ -328,34 +327,15 @@ async def test_case_version_history_pagination_filter_and_compare(
     assert baseline is not None
     assert baseline.selected.content == "Summary v1"
     assert baseline.predecessor is None
-    assert baseline.diff is None
 
-    with patch(
-        "tracecat.cases.versions.service.asyncio.to_thread",
-        new=AsyncMock(wraps=asyncio.to_thread),
-    ) as mock_to_thread:
-        comparison = await service.versions.compare_with_predecessor(
-            case_id=case.id,
-            version_id=summary_versions[1].id,
-        )
-    mock_to_thread.assert_awaited_once_with(
-        compute_case_version_diff,
-        "Summary v1",
-        "Summary v2",
+    comparison = await service.versions.compare_with_predecessor(
+        case_id=case.id,
+        version_id=summary_versions[1].id,
     )
     assert comparison is not None
     assert comparison.selected.content == "Summary v2"
     assert comparison.predecessor is not None
     assert comparison.predecessor.content == "Summary v1"
-    assert comparison.diff is not None
-    assert comparison.diff.changed is True
-    assert [
-        (segment.operation, segment.text) for segment in comparison.diff.segments
-    ] == [
-        ("equal", "Summary "),
-        ("delete", "v1"),
-        ("insert", "v2"),
-    ]
 
     other_case = await service.create_case(
         CaseCreate(
