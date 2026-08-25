@@ -5,6 +5,7 @@ import {
   type DiffSegment,
   MAX_PROSE_DIFF_CHARS,
   normalizeDiffInput,
+  PROSE_DIFF_TIMEOUT_MS,
   resolveDiffMode,
   splitSegmentsIntoParagraphs,
   type UnifiedDiffRow,
@@ -19,6 +20,14 @@ const mockDiffWords = jest.fn(
     options: { timeout: number }
   ): Change[] | undefined => actualDiff.diffWords(oldStr, newStr, options)
 )
+const mockDiffWordsWithSpace = jest.fn(
+  (
+    oldStr: string,
+    newStr: string,
+    options: { timeout: number }
+  ): Change[] | undefined =>
+    actualDiff.diffWordsWithSpace(oldStr, newStr, options)
+)
 
 jest.mock("diff", () => {
   const actual = jest.requireActual<typeof import("diff")>("diff")
@@ -27,6 +36,11 @@ jest.mock("diff", () => {
     ...actual,
     diffWords: (oldStr: string, newStr: string, options: { timeout: number }) =>
       mockDiffWords(oldStr, newStr, options),
+    diffWordsWithSpace: (
+      oldStr: string,
+      newStr: string,
+      options: { timeout: number }
+    ) => mockDiffWordsWithSpace(oldStr, newStr, options),
   }
 })
 
@@ -282,6 +296,22 @@ describe("computeUnifiedDiff", () => {
       { kind: "unchanged", value: "key: " },
       { kind: "added", value: "beta" },
     ])
+    expect(mockDiffWordsWithSpace).toHaveBeenCalledWith(
+      "key: alpha",
+      "key: beta",
+      { timeout: PROSE_DIFF_TIMEOUT_MS }
+    )
+  })
+
+  it("keeps whole-line segments when word highlighting times out", () => {
+    mockDiffWordsWithSpace.mockReturnValueOnce(undefined)
+    const result = computeUnifiedDiff("shared alpha", "shared beta")
+    const removed = result.rows.find((row) => row.kind === "removed")
+    const added = result.rows.find((row) => row.kind === "added")
+    expect(removed?.segments).toEqual([
+      { kind: "removed", value: "shared alpha" },
+    ])
+    expect(added?.segments).toEqual([{ kind: "added", value: "shared beta" }])
   })
 
   it("keeps whitespace when highlighting, since indentation is semantic", () => {

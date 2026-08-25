@@ -75,7 +75,7 @@ export interface UnifiedDiffResult {
  */
 export const MAX_PROSE_DIFF_CHARS = 20_000
 
-/** Abort budget handed to `diffWords`; jsdiff returns `undefined` on abort. */
+/** Abort budget for jsdiff word comparisons; they return `undefined` on abort. */
 export const PROSE_DIFF_TIMEOUT_MS = 250
 
 const DEFAULT_CONTEXT_LINES = 3
@@ -365,7 +365,12 @@ function highlightPair(
     return
   }
 
-  const changes = diffWordsWithSpace(removedLine, addedLine)
+  const changes = diffWordsWithSpace(removedLine, addedLine, {
+    timeout: PROSE_DIFF_TIMEOUT_MS,
+  })
+  if (!changes) {
+    return
+  }
   const removedSegments: DiffSegment[] = []
   const addedSegments: DiffSegment[] = []
   for (const change of changes) {
