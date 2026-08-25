@@ -368,6 +368,22 @@ def test_wrapping_preserves_existing_classification() -> None:
     assert extract_error_envelope(wrapped) != fallback
 
 
+def test_wrapping_unclassified_application_error_drops_original_details() -> None:
+    fallback = _platform_envelope()
+    original = ApplicationError(
+        "Raw platform failure",
+        {"diagnostic": "postgresql://user:secret@example.invalid/database"},
+    )
+
+    wrapped = _capture_wrapped_application_error(original, fallback=fallback)
+
+    assert len(wrapped.details) == 1
+    assert wrapped.details[0]["schema"] == "tracecat.temporal_error.v1"
+    assert "secret" not in str(wrapped.details)
+    assert "example.invalid" not in str(wrapped.details)
+    assert extract_error_envelope(wrapped) == fallback
+
+
 def test_ambiguous_nested_envelope_does_not_override_fallback() -> None:
     nested_envelope = _user_envelope()
     fallback = _platform_envelope()

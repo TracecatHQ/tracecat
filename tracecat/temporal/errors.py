@@ -97,9 +97,14 @@ def raise_wrapped_application_error(
     details: Sequence[Any] = (),
 ) -> Never:
     """Raise a history-safe wrapper while preserving existing classification."""
-    envelope = extract_error_envelope(error) or fallback
+    existing_envelope = extract_error_envelope(error)
+    envelope = existing_envelope or fallback
     if isinstance(error, ApplicationError):
-        wrapped_details = tuple(error.details) if not details else tuple(details)
+        wrapped_details = (
+            tuple(error.details)
+            if existing_envelope is not None and not details
+            else tuple(details)
+        )
         next_retry_delay = error.next_retry_delay
     else:
         wrapped_details = tuple(details)
