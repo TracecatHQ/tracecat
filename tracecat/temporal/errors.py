@@ -47,16 +47,13 @@ def _application_error_from_envelope(
     """
     existing_envelope = _envelope_from_details(details)
     resolved_envelope = existing_envelope or envelope
-    serialized_details = _serialized_error_details(
+    transported_details, embedded = _serialized_error_details(
         details,
         envelope=None if existing_envelope is not None else envelope,
     )
-    transported_details = (
-        serialized_details if serialized_details is not None else tuple(details)
-    )
-    if existing_envelope is None and serialized_details is None:
+    if existing_envelope is None and not embedded:
         adapter = TemporalErrorDetails(envelope=envelope)
-        transported_details = (*details, adapter.model_dump(mode="json"))
+        transported_details = (*transported_details, adapter.model_dump(mode="json"))
 
     non_retryable = (
         resolved_envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
@@ -147,13 +144,14 @@ def _envelope_from_details(details: Sequence[Any]) -> ErrorEnvelope | None:
 
 def _serialized_error_details(
     details: Sequence[Any], envelope: ErrorEnvelope | None
-) -> tuple[Any, ...] | None:
+) -> tuple[tuple[Any, ...], bool]:
+    """Serialize details for transport, reporting whether an envelope is embedded."""
     serialized: list[Any] = []
-    changed = False
+    embedded = False
     for detail in details:
         if isinstance(detail, TemporalErrorDetails):
             serialized.append(detail.model_dump(mode="json"))
-            changed = True
+            embedded = True
         elif isinstance(detail, ActionErrorInfo) and (
             detail.envelope is not None or envelope is not None
         ):
@@ -168,10 +166,10 @@ def _serialized_error_details(
                 envelope=detail.envelope or envelope,
             )
             serialized.append(classified.model_dump(mode="json"))
-            changed = True
+            embedded = True
         else:
             serialized.append(detail)
-    return tuple(serialized) if changed else None
+    return tuple(serialized), embedded
 
 
 def _envelope_from_detail(detail: Any) -> ErrorEnvelope | None:
