@@ -1,0 +1,19 @@
+docs/manage-platform/custom-roles.mdx
+  s_92642171366a17::t_a27c713f88c2cc 15,25,37-39,45,51,57,59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "5df0df70074ce68942aa5608ebc8c2679e05c7d2",
+  "prompts": {},
+  "sessions": {
+    "s_92642171366a17": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ca604ce9-e02e-42a0-877a-d5cd267ec3b4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
