@@ -1,0 +1,38 @@
+docs/cheatsheets/transformations.mdx
+  s_af3ffe559c1554::t_d5c9bb7d9d9b6e 1-2,4-7,9,12,14,16-39,41-68,70,74-77,79-109,111-125,127-145,147-179,181-183,185-211,213-215,217-226,228-246,248-260,262-265
+  s_af3ffe559c1554::t_f6f516794d82bc 110,184,212
+  s_af3ffe559c1554::t_5d3640363c24d9 3,8,10-11,13,15,40,69,78,126,146,180,216,227,247,261
+  s_af3ffe559c1554::t_2ae1e1d5e1a72a 71-73
+docs/docs.json
+  s_af3ffe559c1554::t_e651930aaadf0c 42,274-277
+docs/automations/core-concepts/workflow-metadata.mdx
+  s_af3ffe559c1554::t_f6f516794d82bc 26,32,48
+  s_af3ffe559c1554::t_5410274b5bf221 44
+  s_af3ffe559c1554::t_5a7ef0ec8997d9 1-25,27-31,33-43,45-47,49-50
+docs/cheatsheets/workflow-metadata.mdx
+  s_af3ffe559c1554::t_89f22f5e631056 1-2,4-15,17-40
+  s_af3ffe559c1554::t_f6f516794d82bc 3,16
+docs/cheatsheets/common-mistakes.mdx
+  s_af3ffe559c1554::t_521e549d3b74ee 31-36
+  s_af3ffe559c1554::t_e5ea1421491920 1-5,7-26,28-30,38-40,53-56,58-74,76-158,160-164,166-182,184-205,207-222,224-241,243-288
+  s_af3ffe559c1554::t_4a130cdb8b7e7d 6,27,57,75,159,165,183,206,223,242
+  s_af3ffe559c1554::t_aaf15b991157d1 42-52
+  s_af3ffe559c1554::t_f6f516794d82bc 37
+  s_af3ffe559c1554::t_7cc831fa73d59a 41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "c10fd1cefe8b480f1a5ac265f8e9b3a227c57e4c",
+  "prompts": {},
+  "sessions": {
+    "s_af3ffe559c1554": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "28e168b2-aff2-4083-8f30-4dec72508581",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
