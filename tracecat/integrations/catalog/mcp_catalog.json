@@ -69,14 +69,14 @@
       "name": "Datadog",
       "description": "Query Datadog metrics, logs, traces, monitors, and incidents",
       "category": "SIEM / Datalake",
-      "icon": "https://www.google.com/s2/favicons?domain=docs.datadoghq.com&sz=128"
+      "icon": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/datadog.svg"
     },
     {
       "slug": "sentry-mcp",
       "name": "Sentry",
       "description": "Search issues, events, and releases on Sentry",
       "category": "SIEM / Datalake",
-      "icon": "https://cdn.simpleicons.org/sentry"
+      "icon": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/sentry.svg"
     },
     {
       "slug": "clickhouse-mcp",
@@ -104,7 +104,7 @@
       "name": "Jamf",
       "description": "Manage Apple devices across Jamf Pro, Protect, and Security Cloud",
       "category": "Endpoint",
-      "icon": "https://www.google.com/s2/favicons?domain=jamf.com&sz=128"
+      "icon": "https://media.jamf.com/images/icons/jamf-logo-dark.svg"
     },
     {
       "slug": "iru-mcp",
@@ -190,7 +190,7 @@
       "name": "AWS",
       "description": "Call any of 15,000+ AWS APIs via the official AWS MCP server",
       "category": "Cloud",
-      "icon": "https://www.google.com/s2/favicons?domain=docs.aws.amazon.com&sz=128"
+      "icon": "https://upload.wikimedia.org/wikipedia/commons/9/93/Amazon_Web_Services_Logo.svg"
     },
     {
       "slug": "cloudflare-mcp",
@@ -233,7 +233,7 @@
       "name": "Freshservice",
       "description": "Create and manage Freshservice tickets, service requests, and ITSM records",
       "category": "Ticketing",
-      "icon": "https://www.google.com/s2/favicons?domain=freshservice.com&sz=128"
+      "icon": "https://www.freshworks.com/beta/icons/template-2026/freshservice-logo-icon.svg"
     },
     {
       "slug": "servicenow-mcp",
@@ -296,7 +296,7 @@
       "name": "Semgrep",
       "description": "Run SAST scans and review findings with Semgrep",
       "category": "AppSec",
-      "icon": "https://www.google.com/s2/favicons?domain=semgrep.dev&sz=128"
+      "icon": "https://raw.githubusercontent.com/semgrep/semgrep/develop/images/semgrep-logo-light.svg"
     },
     {
       "slug": "snyk-mcp",
@@ -324,7 +324,7 @@
       "name": "Oneleet",
       "description": "Manage compliance controls, evidence, policies, monitors, and pentest findings in Oneleet",
       "category": "Compliance",
-      "icon": "https://www.google.com/s2/favicons?domain=oneleet.com&sz=128"
+      "icon": "https://app.oneleet.com/logo.svg"
     },
     {
       "slug": "grafana-mcp",
@@ -352,7 +352,7 @@
       "name": "GitHub",
       "description": "Read repos, issues, PRs, and code search on GitHub",
       "category": "Source Control",
-      "icon": "https://www.google.com/s2/favicons?domain=github.com&sz=128"
+      "icon": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/github.svg"
     },
     {
       "slug": "gitlab-mcp",
