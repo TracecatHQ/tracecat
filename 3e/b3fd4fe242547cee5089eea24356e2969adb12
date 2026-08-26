@@ -1,0 +1,37 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/list_files.yml
+  s_8f29d88c44f5c5::t_336cbef576648d 35
+docs/tools/google_drive.mdx
+  s_8f29d88c44f5c5::t_f51eea0c1e46b2 263
+docs/tools/google_forms.mdx
+  s_8f29d88c44f5c5::t_f51eea0c1e46b2 73,75-83,114-119,126,128,357-363,365
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/forms/create_form.yml
+  s_8f29d88c44f5c5::t_10bb951f0527c8 27-31,33-37,46-60,72
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/watches/create_watch.yml
+  s_8f29d88c44f5c5::t_8ce62508c13a12 33-39,41-44,58-59,62,64-69
+packages/tracecat-registry/tracecat_registry/templates/tools/google_docs/batch_update_document.yml
+  s_8f29d88c44f5c5::t_336cbef576648d 31-32,36-37
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/batch_update_values.yml
+  s_8f29d88c44f5c5::t_336cbef576648d 31-32
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/forms/set_publish_settings.yml
+  s_8f29d88c44f5c5::t_64801db2c60b17 31-35,37-38,52-53,56,58-65
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/search_messages.yml
+  s_8f29d88c44f5c5::t_336cbef576648d 34
+docs/tools/gmail.mdx
+  s_8f29d88c44f5c5::t_f51eea0c1e46b2 994
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "3eb3fd4fe242547cee5089eea24356e2969adb12",
+  "prompts": {},
+  "sessions": {
+    "s_8f29d88c44f5c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1b681ec-4d90-4916-a9d8-8cea401db9bc",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
