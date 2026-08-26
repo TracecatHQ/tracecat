@@ -1,0 +1,54 @@
+frontend/src/hooks/use-comment-mentions.ts
+  s_bac81b01e1fea9::t_c4c410dbacdf36 8,15-16,18,29-30,33-35,37-42,46,48,50-51,73-74,85-88,91-92,99,102-103,124,130-132,134-137,145,156-157,159,163,166,168-169,178-204,207-214,219,230,241,245,250-258,268,315,390-396,399-400,402,407-408
+frontend/src/hooks/use-comment-workflows.ts
+  s_bac81b01e1fea9::t_1120e37db38456 1-92
+frontend/tests/case-comments-section.test.tsx
+  s_bac81b01e1fea9::t_090c49ca34ca5f 667,669-673,676,678-682,689,691
+  s_bac81b01e1fea9::t_2dd1b2bbab33d4 666,674
+  s_bac81b01e1fea9::t_f0a8b31a1f7b0f 421-436,625,631-640,642-650,652-665,668,675,685-687,694,701-707,709-733,735,738-741,744-784,786-879
+  s_bac81b01e1fea9::t_b1014cd1974ed2 697-698
+  s_bac81b01e1fea9::t_8923c9b92c1a0c 677
+frontend/src/components/builder/canvas/canvas-toolbar.tsx
+  s_bac81b01e1fea9::t_c4a025b2f777d4 7,70,475
+frontend/src/components/cases/case-comments-section.tsx
+  s_bac81b01e1fea9::t_5f095dc7e57c48 20
+  s_bac81b01e1fea9::t_650e07a121a6c6 23,34,60,615-616,618-639,641-645,647-650,701-702,718,740-746,761,803,805,855,862,864-866
+  s_bac81b01e1fea9::t_3c5096b3b47735 640,646
+  s_bac81b01e1fea9::t_090c49ca34ca5f 617,683,835,838,863
+  s_bac81b01e1fea9::t_4d048c01ecd208 651-652
+frontend/src/lib/comment-mentions.ts
+  s_bac81b01e1fea9::t_348187c257150a 4-10,13-18,23,42-47,49-50,54,70-76,88-93,217-225,229,232-238,242-243,248,254,257,261-282,291,293-295,300-301,303-318,323-327,330-333,335-337,341-343,348
+  s_bac81b01e1fea9::t_8338cc0cf90169 319-322
+frontend/src/components/cases/case-comment-agent.tsx
+  s_bac81b01e1fea9::t_c4a025b2f777d4 7,28
+frontend/tests/comment-mentions.test.ts
+  s_bac81b01e1fea9::t_25f0cbfec7040a 391
+  s_bac81b01e1fea9::t_b2111d46a9e34c 7,9-10,20-21,25-26,32-48,95-125,241,243,247,252,256,260-263,267,271-310,320-321,333-334,341-390,392
+frontend/AGENTS.md
+  s_bac81b01e1fea9::t_c4a025b2f777d4 61-64
+frontend/src/components/cases/comment-mention-overlay.tsx
+  s_bac81b01e1fea9::t_56d6ddc2edcd33 18-20
+  s_bac81b01e1fea9::t_56603804901a73 51
+  s_bac81b01e1fea9::t_c4a025b2f777d4 49
+docs/automations/triggers/comment-triggers.mdx
+  s_bac81b01e1fea9::t_22e96468bbba97 9,13-22,31-36,48-50,74-77
+frontend/src/components/cases/comment-mention-popover.tsx
+  s_bac81b01e1fea9::t_b1014cd1974ed2 15
+  s_bac81b01e1fea9::t_c39a835984182c 7-11,16-19,21,23-26,28,30,40-41,47,59,90,95,102,112,116,119-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "96ffdcc05c1b30dde82e6852464b3bb49f92447a",
+  "prompts": {},
+  "sessions": {
+    "s_bac81b01e1fea9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1c7fd306-cb48-43d2-9e6c-a72861fd2d1f",
+        "model": "claude-fable-5"
+      },
+      "human_author": null
+    }
+  }
+}
