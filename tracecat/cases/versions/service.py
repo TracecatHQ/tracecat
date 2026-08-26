@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import datetime
 from typing import cast
@@ -14,7 +13,6 @@ from sqlalchemy.orm import aliased
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.cases.enums import CaseVersionField
-from tracecat.cases.versions.diff import compute_case_version_diff
 from tracecat.cases.versions.schemas import (
     CaseVersionActorRead,
     CaseVersionCompareRead,
@@ -260,17 +258,7 @@ class CaseVersionsService(BaseWorkspaceService):
             if predecessor_version is not None
             else None
         )
-        diff = (
-            await asyncio.to_thread(
-                compute_case_version_diff,
-                predecessor_read.content,
-                selected_read.content,
-            )
-            if predecessor_read is not None
-            else None
-        )
         return CaseVersionCompareRead(
             selected=selected_read,
             predecessor=predecessor_read,
-            diff=diff,
         )

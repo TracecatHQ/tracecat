@@ -10245,7 +10245,7 @@ export const casesListCaseVersions = (
 
 /**
  * Compare Case Version
- * Compare a case field version with its immediate predecessor.
+ * Return a case field version and its immediate predecessor.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.versionId

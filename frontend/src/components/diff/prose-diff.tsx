@@ -29,7 +29,7 @@ export function ProseDiff({ segments, className }: ProseDiffProps) {
       {paragraphs.map((paragraph) => (
         <p key={paragraph.key} className="whitespace-pre-wrap break-words">
           {paragraph.segments.map((segment, index) =>
-            renderProseSegment(segment, index)
+            renderProseSegment(segment, index, paragraph.segments[index + 1])
           )}
         </p>
       ))}
@@ -39,19 +39,21 @@ export function ProseDiff({ segments, className }: ProseDiffProps) {
 
 /**
  * Render one prose segment. Unchanged text stays a bare text node; added and
- * removed text use `<ins>`/`<del>` for semantics. `box-decoration-clone` keeps
- * rounded corners on each line fragment when a highlight wraps, and
- * `no-underline` on `<ins>` stops the browser default underline from fighting
- * the highlight. `<del>` keeps its default strikethrough: strikethrough is
- * prose-only.
+ * removed text use `<ins>`/`<del>` for semantics. Additions receive the strong
+ * diff highlight; deletions are explicitly struck through and muted. A small
+ * gap separates an adjacent delete/insert replacement pair.
  */
-function renderProseSegment(segment: DiffSegment, index: number) {
+function renderProseSegment(
+  segment: DiffSegment,
+  index: number,
+  nextSegment?: DiffSegment
+) {
   if (segment.kind === "added") {
     return (
       <ins
         key={index}
         data-diff="added"
-        className="rounded-sm bg-diff-added-emphasis box-decoration-clone text-diff-added-foreground no-underline"
+        className="rounded-sm bg-[hsl(var(--diff-added-emphasis))] px-0.5 py-px box-decoration-clone text-[hsl(var(--diff-added-foreground))] no-underline"
       >
         {segment.value}
       </ins>
@@ -62,7 +64,10 @@ function renderProseSegment(segment: DiffSegment, index: number) {
       <del
         key={index}
         data-diff="removed"
-        className="rounded-sm bg-diff-removed-emphasis box-decoration-clone text-diff-removed-foreground"
+        className={cn(
+          "text-muted-foreground line-through decoration-muted-foreground",
+          nextSegment?.kind === "added" && "mr-1"
+        )}
       >
         {segment.value}
       </del>
