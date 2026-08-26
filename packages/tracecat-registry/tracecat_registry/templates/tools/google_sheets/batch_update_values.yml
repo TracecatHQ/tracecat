@@ -28,6 +28,8 @@ definition:
       type: str
       description: Spreadsheet ID to update.
     updates:
+      # Generic: each entry is a ValueRange with an optional majorDimension, and the
+      # vendor rejects an explicit null on it, so a literal map cannot omit it.
       type: list[dict[str, Any]]
       description: List of updates with range, values, and optional major_dimension per entry.
     value_input_option:

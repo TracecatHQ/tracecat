@@ -30,16 +30,18 @@ definition:
     form_id:
       type: str
       description: Required. ID of the Form to watch.
-    watch:
-      # Generic: the vendor documents a free-form Watch resource as this body field.
-      type: dict[str, Any]
+    event_type:
+      type: str
       description: >-
-        Required. The watch object. No ID should be set on this object; use `watch_id`
-        instead. Settable fields: eventType (which event type to watch for, SCHEMA or
-        RESPONSES) and target.topic.topicName (a fully qualified Pub/Sub topic name to
-        publish the events to). The topic must grant publish privileges to
-        serviceAccount:forms-notifications@system.gserviceaccount.com. See
-        https://developers.google.com/workspace/forms/api/reference/rest/v1/forms.watches#Watch.
+        Required. Which event type to watch for. `SCHEMA` (the schema, or form contents,
+        changed) or `RESPONSES` (a form response was submitted).
+    topic_name:
+      type: str
+      description: >-
+        Required. A fully qualified Pub/Sub topic name to publish the events to. This
+        topic must be owned by the calling project and already exist in Pub/Sub, and it
+        must grant publish privileges to
+        serviceAccount:forms-notifications@system.gserviceaccount.com.
     watch_id:
       type: str | None
       description: >-
@@ -53,12 +55,18 @@ definition:
       args:
         inputs:
           form_id: ${{ inputs.form_id }}
-          watch: ${{ inputs.watch }}
+          event_type: ${{ inputs.event_type }}
+          topic_name: ${{ inputs.topic_name }}
           watch_id: ${{ inputs.watch_id }}
         script: |
-          def main(form_id, watch, watch_id):
+          def main(form_id, event_type, topic_name, watch_id):
               # Values inside `body` are not pruned, and Forms rejects a null watchId.
-              body = {"watch": watch}
+              body = {
+                  "watch": {
+                      "eventType": event_type,
+                      "target": {"topic": {"topicName": topic_name}},
+                  }
+              }
               if watch_id is not None:
                   body["watchId"] = watch_id
               return {"formId": form_id, "body": body}

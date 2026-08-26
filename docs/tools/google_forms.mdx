@@ -70,9 +70,17 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="body" type="object" required>
+<ParamField path="title" type="string" required>
 
-The Form resource to create, documented at https://developers.google.com/workspace/forms/api/reference/rest/v1/forms. Only `info.title` and `info.documentTitle` are settable on create; the form description, items and settings are disallowed here and must be added with a subsequent batchUpdate call.
+Required. The title of the form which is visible to responders.
+
+</ParamField>
+
+<ParamField path="document_title" type="string | null">
+
+The title of the document which is visible in Drive. If `title` is empty, `document_title` may appear in its place in the Google Forms UI and be visible to responders. It can be set on create but cannot be modified by a batchUpdate request.
+
+Default: `null`.
 
 </ParamField>
 
@@ -103,15 +111,21 @@ Optional secrets:
 
 ### Input fields
 
+<ParamField path="event_type" type="string" required>
+
+Required. Which event type to watch for. `SCHEMA` (the schema, or form contents, changed) or `RESPONSES` (a form response was submitted).
+
+</ParamField>
+
 <ParamField path="form_id" type="string" required>
 
 Required. ID of the Form to watch.
 
 </ParamField>
 
-<ParamField path="watch" type="object" required>
+<ParamField path="topic_name" type="string" required>
 
-Required. The watch object. No ID should be set on this object; use `watch_id` instead. Settable fields: eventType (which event type to watch for, SCHEMA or RESPONSES) and target.topic.topicName (a fully qualified Pub/Sub topic name to publish the events to). The topic must grant publish privileges to serviceAccount:forms-notifications@system.gserviceaccount.com. See https://developers.google.com/workspace/forms/api/reference/rest/v1/forms.watches#Watch.
+Required. A fully qualified Pub/Sub topic name to publish the events to. This topic must be owned by the calling project and already exist in Pub/Sub, and it must grant publish privileges to serviceAccount:forms-notifications@system.gserviceaccount.com.
 
 </ParamField>
 
@@ -340,9 +354,15 @@ Required. The ID of the form. You can get the id from `Form.form_id` field.
 
 </ParamField>
 
-<ParamField path="publish_settings" type="object" required>
+<ParamField path="is_accepting_responses" type="boolean" required>
 
-Required. The desired publish settings to apply to the form. Documented fields: publishState.isPublished, publishState.isAcceptingResponses. See https://developers.google.com/workspace/forms/api/reference/rest/v1/forms#PublishSettings.
+Required. Whether the form accepts responses. If `is_published` is set to `false`, this field is forced to `false`.
+
+</ParamField>
+
+<ParamField path="is_published" type="boolean" required>
+
+Required. Whether the form is published and visible to others.
 
 </ParamField>
 

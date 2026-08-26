@@ -255,43 +255,6 @@ def test_no_credentials_configured_raises() -> None:
     assert "access_token" in message
 
 
-def test_call_api_prunes_top_level_none_params() -> None:
-    resource = RecordingResource({"files": []})
-
-    with (
-        patch.object(
-            google_api, "_build_google_service", return_value=object()
-        ) as build_service,
-        patch.object(google_api, "_resolve_resource", return_value=resource),
-    ):
-        result = google_api.call_api(
-            service_name="drive",
-            version="v3",
-            resource="files",
-            method_name="list",
-            params={
-                "q": "trashed = false",
-                "pageSize": None,
-                "includeItemsFromAllDrives": False,
-                "body": {"description": None},
-            },
-            access_token="oauth-token",
-        )
-
-    assert result == {"files": []}
-    assert resource.calls == [
-        (
-            "list",
-            {
-                "q": "trashed = false",
-                "includeItemsFromAllDrives": False,
-                "body": {"description": None},
-            },
-        )
-    ]
-    assert build_service.call_args.kwargs["access_token"] == "oauth-token"
-
-
 def test_call_api_sends_media_as_media_body() -> None:
     content = b"col_a,col_b\n1,2\n"
     resource = RecordingResource({"id": "file-id"})

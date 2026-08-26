@@ -28,9 +28,13 @@ definition:
       type: str
       description: ID of the document to update.
     requests:
+      # Generic: the vendor's Request body is a discriminated union of ~40 request
+      # kinds, so there is no single field set to name.
       type: list[dict[str, Any]]
       description: List of Docs API request objects to apply.
     write_control:
+      # Generic: WriteControl is a one-of (requiredRevisionId | targetRevisionId) and
+      # the vendor rejects an explicit null on either field.
       type: dict[str, Any] | None
       description: Optional write control configuration (e.g., requiredRevisionId).
       default: null

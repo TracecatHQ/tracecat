@@ -31,7 +31,7 @@ definition:
       description: Gmail search query (e.g., 'from:suspicious@evil.com has:attachment')
     max_results:
       type: int
-      description: Maximum number of results to return
+      description: Maximum number of results to return. The maximum allowed value for this field is 500.
       default: 10
     user_id:
       type: str

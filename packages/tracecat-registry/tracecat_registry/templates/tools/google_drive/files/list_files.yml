@@ -32,7 +32,7 @@ definition:
       default: ""
     max_results:
       type: int
-      description: Maximum number of results
+      description: Maximum number of results. The maximum value is 1000; values above 1000 will be coerced to 1000.
       default: 10
     order_by:
       type: str
