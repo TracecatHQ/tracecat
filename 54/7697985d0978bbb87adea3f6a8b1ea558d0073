@@ -1,0 +1,31 @@
+frontend/src/lib/csp.ts
+  s_c07dbd23596171::t_40fc33b61f5a61 1-85
+docs/snippets/environment-variables.mdx
+  s_c07dbd23596171::t_3c5b979d20df89 86-87
+frontend/src/components/executions/external-object-result.tsx
+  s_c07dbd23596171::t_656aac78edf616 30-32
+frontend/src/lib/csp.test.ts
+  s_c07dbd23596171::t_5578aab31dc871 1-200
+frontend/src/middleware.ts
+  s_c07dbd23596171::t_8f4618d0900ac7 2,4-17
+frontend/next.config.mjs
+  s_c07dbd23596171::t_231a64c7fc54bc 17-18
+deployments/fargate/modules/ecs/locals.tf
+  s_c07dbd23596171::t_6c79110b174df7 286-295
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "547697985d0978bbb87adea3f6a8b1ea558d0073",
+  "prompts": {},
+  "sessions": {
+    "s_c07dbd23596171": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a3dc2954-b580-4795-8a78-c26d438fb35d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
