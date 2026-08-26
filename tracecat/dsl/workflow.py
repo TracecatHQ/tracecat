@@ -1954,52 +1954,49 @@ class DSLWorkflow:
             "Error running workflow, running error handler",
             type=error.__class__.__name__,
         )
-        handler_wf_id = await self._get_error_handler_workflow_id(args)
-        if handler_wf_id is None:
-            self.logger.warning("No error handler workflow ID found, raising error")
-            if stamp_terminal_owner:
-                self._upsert_terminal_error_owner(error)
-            raise error
-
-        if error.details:
-            err_info_map = error.details[0]
-            self.logger.info("Raising error info", err_info_data=err_info_map)
-            if not isinstance(err_info_map, dict):
-                self.logger.error(
-                    "Unexpected error info object",
-                    err_info_map=err_info_map,
-                    type=type(err_info_map).__name__,
-                )
-                errors = [
-                    ActionErrorInfo(
-                        ref="N/A",
-                        message=(
-                            "Unexpected error info object of type "
-                            f"{type(err_info_map).__name__}: {err_info_map}"
-                        ),
-                        type=type(err_info_map).__name__,
-                    )
-                ]
-            else:
-                errors = [
-                    ActionErrorInfo.model_validate(data)
-                    for data in err_info_map.values()
-                ]
-        else:
-            errors = None
-
-        trigger_type = get_trigger_type(workflow.info())
         try:
-            err_run_args = await self._prepare_error_handler_workflow(
-                message=error.message,
-                handler_wf_id=handler_wf_id,
-                orig_wf_id=args.wf_id,
-                orig_wf_exec_id=self.wf_exec_id,
-                orig_dsl=self.dsl,
-                trigger_type=TriggerType(trigger_type),
-                errors=errors,
-            )
-            await self._run_error_handler_workflow(err_run_args)
+            handler_wf_id = await self._get_error_handler_workflow_id(args)
+            if handler_wf_id is None:
+                self.logger.warning("No error handler workflow ID found, raising error")
+            else:
+                if error.details:
+                    err_info_map = error.details[0]
+                    self.logger.info("Raising error info", err_info_data=err_info_map)
+                    if not isinstance(err_info_map, dict):
+                        self.logger.error(
+                            "Unexpected error info object",
+                            err_info_map=err_info_map,
+                            type=type(err_info_map).__name__,
+                        )
+                        errors = [
+                            ActionErrorInfo(
+                                ref="N/A",
+                                message=(
+                                    "Unexpected error info object of type "
+                                    f"{type(err_info_map).__name__}: {err_info_map}"
+                                ),
+                                type=type(err_info_map).__name__,
+                            )
+                        ]
+                    else:
+                        errors = [
+                            ActionErrorInfo.model_validate(data)
+                            for data in err_info_map.values()
+                        ]
+                else:
+                    errors = None
+
+                trigger_type = get_trigger_type(workflow.info())
+                err_run_args = await self._prepare_error_handler_workflow(
+                    message=error.message,
+                    handler_wf_id=handler_wf_id,
+                    orig_wf_id=args.wf_id,
+                    orig_wf_exec_id=self.wf_exec_id,
+                    orig_dsl=self.dsl,
+                    trigger_type=TriggerType(trigger_type),
+                    errors=errors,
+                )
+                await self._run_error_handler_workflow(err_run_args)
         except Exception as handler_error:
             if stamp_terminal_owner:
                 self._upsert_terminal_error_owner(handler_error)
