@@ -1306,6 +1306,12 @@ class IntegrationService(BaseWorkspaceService):
                 )
                 if endpoint and (hostname := urlparse(endpoint).hostname)
             )
+            # Only client_id is needed to build a client, so a required secret
+            # left out would fail at token exchange; refuse before any
+            # registration parsing, discovery, or DCR.
+            self._validate_required_oauth_client_credentials(
+                params=params, catalog_spec=catalog_spec
+            )
 
         registration = self._mcp_oauth_client_registration_from_credentials(
             params=params,
@@ -1521,6 +1527,60 @@ class IntegrationService(BaseWorkspaceService):
         ]
         if missing:
             raise ValueError(f"Missing required header values: {', '.join(missing)}")
+
+    @classmethod
+    def _validate_required_oauth_client_credentials(
+        cls, *, params: MCPHttpIntegrationCreate, catalog_spec: MCPConnectionSpec
+    ) -> None:
+        """Reject a connect that omits OAuth client values the row marks required.
+
+        Building a client only needs ``client_id``, so a missing secret would
+        otherwise surface as a failed token exchange after the redirect and
+        leave an unusable row. Declared and supplied keys match under the same
+        lenient rule as the client parser (``client_id`` == ``clientId`` ==
+        ``oauth_client_id``). Public-client rows that do not require a secret
+        are unaffected.
+        """
+        required_keys = [
+            credential.key
+            for credential in catalog_spec.credentials
+            if credential.target == "oauth_client" and credential.required
+        ]
+        if not required_keys:
+            return
+        supplied: dict[str, str] = {}
+        raw_credentials = cls._mcp_oauth_client_credentials_payload(
+            params=params, catalog_spec=catalog_spec
+        )
+        if raw_credentials:
+            try:
+                parsed = orjson.loads(raw_credentials)
+            except orjson.JSONDecodeError as exc:
+                raise ValueError(
+                    "OAuth client credentials must be a JSON object"
+                ) from exc
+            if not isinstance(parsed, dict):
+                raise ValueError("OAuth client credentials must be a JSON object")
+            supplied = {
+                key: value
+                for key, value in parsed.items()
+                if isinstance(key, str) and isinstance(value, str)
+            }
+        missing = [
+            key
+            for key in required_keys
+            if not any(
+                cls._oauth_client_key_matches(
+                    supplied_key, re.sub(r"[^a-z0-9]+", "", key.lower())
+                )
+                and value.strip()
+                for supplied_key, value in supplied.items()
+            )
+        ]
+        if missing:
+            raise ValueError(
+                f"Missing required OAuth client values: {', '.join(missing)}"
+            )
 
     @classmethod
     def _mcp_oauth_client_registration_from_credentials(

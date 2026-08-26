@@ -308,19 +308,23 @@ def _patch_mcp_oauth_client(
 def _pinned_oauth_client_spec(
     *,
     with_header: bool = False,
+    client_required: bool = True,
+    secret_required: bool = True,
     oauth_authorize_params: dict[str, str] | None = None,
 ) -> MCPConnectionSpec:
     """Catalog OAuth spec with pinned endpoints and a user-created OAuth client.
 
     ``with_header`` adds a required ``http_header`` credential, the shape a
     row like Google SecOps uses (OAuth client plus ``x-goog-user-project``).
+    ``client_required=False`` models a row where bringing a client is optional
+    (DCR remains available); ``secret_required=False`` a public-client row.
     """
     credentials: list[dict[str, object]] = [
         {
             "key": "client_id",
             "label": "Client ID",
             "description": "OAuth client id",
-            "required": True,
+            "required": client_required,
             "secret": False,
             "type": "string",
             "target": "oauth_client",
@@ -329,7 +333,7 @@ def _pinned_oauth_client_spec(
             "key": "client_secret",
             "label": "Client secret",
             "description": "OAuth client secret",
-            "required": True,
+            "required": client_required and secret_required,
             "secret": True,
             "type": "string",
             "target": "oauth_client",
@@ -6873,7 +6877,7 @@ class TestMCPProviderOAuth:
         session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Headers typed on a header-less oauth_client row survive a DCR connect."""
+        """Headers typed on an optional-client, header-less row survive a DCR connect."""
         await _seed_service_user(session, integration_service)
 
         endpoints = integration_service_module.MCPOAuthDiscoveryEndpoints(
@@ -6920,7 +6924,9 @@ class TestMCPProviderOAuth:
                 auth_type=MCPAuthType.OAUTH2,
                 custom_credentials=SecretStr('{"X-Trace": "abc"}'),
             ),
-            resolved_catalog=_resolved_catalog(_pinned_oauth_client_spec()),
+            resolved_catalog=_resolved_catalog(
+                _pinned_oauth_client_spec(client_required=False)
+            ),
         )
 
         assert result.mcp_integration is not None
@@ -7014,13 +7020,162 @@ class TestMCPProviderOAuth:
                 )
         assert await integration_service.list_mcp_integrations() == []
 
+    async def test_connect_rejects_missing_required_client_secret(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A required client_secret left out is refused before any network call."""
+        await _seed_service_user(session, integration_service)
+
+        async def fail(**kwargs: object) -> None:
+            raise AssertionError(f"must not reach the network: {kwargs}")
+
+        monkeypatch.setattr(integration_service, "_discover_mcp_oauth_endpoints", fail)
+        monkeypatch.setattr(
+            integration_service, "_perform_mcp_dynamic_registration", fail
+        )
+        _patch_mcp_oauth_client(monkeypatch)
+
+        with pytest.raises(
+            ValueError, match="Missing required OAuth client values: client_secret"
+        ):
+            await integration_service.connect_mcp_oauth_discovery(
+                params=MCPHttpIntegrationCreate(
+                    name="SecOps MCP",
+                    server_uri="https://mcp.example.test/mcp",
+                    auth_type=MCPAuthType.OAUTH2,
+                    oauth_client_credentials=SecretStr('{"client_id": "x"}'),
+                    custom_credentials=SecretStr('{"x-goog-user-project": "proj"}'),
+                ),
+                resolved_catalog=_resolved_catalog(
+                    _pinned_oauth_client_spec(with_header=True)
+                ),
+            )
+        assert await integration_service.list_mcp_integrations() == []
+
+    async def test_connect_rejects_absent_required_oauth_client(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """No client JSON at all lists every required OAuth client key."""
+        await _seed_service_user(session, integration_service)
+
+        async def fail(**kwargs: object) -> None:
+            raise AssertionError(f"must not reach the network: {kwargs}")
+
+        monkeypatch.setattr(integration_service, "_discover_mcp_oauth_endpoints", fail)
+        monkeypatch.setattr(
+            integration_service, "_perform_mcp_dynamic_registration", fail
+        )
+        _patch_mcp_oauth_client(monkeypatch)
+
+        with pytest.raises(
+            ValueError,
+            match="Missing required OAuth client values: client_id, client_secret",
+        ):
+            await integration_service.connect_mcp_oauth_discovery(
+                params=MCPHttpIntegrationCreate(
+                    name="SecOps MCP",
+                    server_uri="https://mcp.example.test/mcp",
+                    auth_type=MCPAuthType.OAUTH2,
+                    custom_credentials=SecretStr('{"x-goog-user-project": "proj"}'),
+                ),
+                resolved_catalog=_resolved_catalog(
+                    _pinned_oauth_client_spec(with_header=True)
+                ),
+            )
+        assert await integration_service.list_mcp_integrations() == []
+
+    async def test_public_client_row_accepts_client_id_only(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Rows that do not require a secret still register a public client."""
+        await _seed_service_user(session, integration_service)
+
+        async def fail(**kwargs: object) -> None:
+            raise AssertionError(f"must not reach the network: {kwargs}")
+
+        monkeypatch.setattr(integration_service, "_discover_mcp_oauth_endpoints", fail)
+        monkeypatch.setattr(
+            integration_service, "_perform_mcp_dynamic_registration", fail
+        )
+        _patch_mcp_oauth_client(monkeypatch)
+
+        result = await integration_service.connect_mcp_oauth_discovery(
+            params=MCPHttpIntegrationCreate(
+                name="Public Client MCP",
+                server_uri="https://mcp.example.test/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_client_credentials=SecretStr('{"clientId": "public-client"}'),
+            ),
+            resolved_catalog=_resolved_catalog(
+                _pinned_oauth_client_spec(secret_required=False)
+            ),
+        )
+
+        assert result.oauth_connect is not None
+        assert result.mcp_integration is not None
+        oauth_integration = await integration_service.session.get(
+            OAuthIntegration, result.mcp_integration.oauth_integration_id
+        )
+        assert oauth_integration is not None
+        provider_config = integration_service.get_provider_config(
+            integration=oauth_integration
+        )
+        assert provider_config is not None
+        assert provider_config.client_id == "public-client"
+        assert provider_config.client_secret is None
+
+    async def test_legacy_overload_rejects_missing_required_client_secret(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The custom_credentials client overload is held to the same rule."""
+        await _seed_service_user(session, integration_service)
+
+        async def fail(**kwargs: object) -> None:
+            raise AssertionError(f"must not reach the network: {kwargs}")
+
+        monkeypatch.setattr(integration_service, "_discover_mcp_oauth_endpoints", fail)
+        monkeypatch.setattr(
+            integration_service, "_perform_mcp_dynamic_registration", fail
+        )
+        _patch_mcp_oauth_client(monkeypatch)
+
+        with pytest.raises(
+            ValueError, match="Missing required OAuth client values: client_secret"
+        ):
+            await integration_service.connect_mcp_oauth_discovery(
+                params=MCPHttpIntegrationCreate(
+                    name="Legacy Client MCP",
+                    server_uri="https://mcp.example.test/mcp",
+                    auth_type=MCPAuthType.OAUTH2,
+                    custom_credentials=SecretStr('{"client_id": "x"}'),
+                ),
+                resolved_catalog=_resolved_catalog(_pinned_oauth_client_spec()),
+            )
+        assert await integration_service.list_mcp_integrations() == []
+
     async def test_header_row_custom_credentials_fall_through_to_dcr(
         self,
         integration_service: IntegrationService,
         session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Headers-only input on a mixed row is not mistaken for an OAuth client."""
+        """Headers-only input on a mixed row is not mistaken for an OAuth client.
+
+        The row leaves the client optional, so the connect proceeds to DCR
+        rather than being refused for a missing required client.
+        """
         await _seed_service_user(session, integration_service)
 
         async def fake_discover(
@@ -7051,7 +7206,7 @@ class TestMCPProviderOAuth:
                     custom_credentials=SecretStr('{"x-goog-user-project": "proj"}'),
                 ),
                 resolved_catalog=_resolved_catalog(
-                    _pinned_oauth_client_spec(with_header=True)
+                    _pinned_oauth_client_spec(with_header=True, client_required=False)
                 ),
             )
 
