@@ -1,0 +1,30 @@
+tracecat/agent/skill/service.py
+  s_c07dbd23596171::t_31f36ca7bcbf6f 959-962
+  s_c07dbd23596171::t_e446b83bb698f6 2342-2345
+  s_c07dbd23596171::t_c3928c8b216586 2372,2376
+  s_c07dbd23596171::t_305bb31bfdaa9a 869-882
+  s_c07dbd23596171::t_0e5a38f5a96e00 2472-2521
+tests/unit/test_skill_service.py
+  s_c07dbd23596171::t_fa71bd9fec7f3e 63
+  s_c07dbd23596171::t_546eb150f70f1e 1680-1685
+  s_c07dbd23596171::t_43ed220fcff60d 1355-1357,1359-1453,1455
+  s_c07dbd23596171::t_7d81862307923d 47
+  s_c07dbd23596171::t_e4b740bb050c8f 1358
+  s_c07dbd23596171::t_ee9644cfb93756 1454
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d5f176ddf873abedb2e531d8618d08bbab60504e",
+  "prompts": {},
+  "sessions": {
+    "s_c07dbd23596171": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a3dc2954-b580-4795-8a78-c26d438fb35d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
