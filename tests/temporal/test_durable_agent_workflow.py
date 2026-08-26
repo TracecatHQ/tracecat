@@ -2942,6 +2942,7 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
             mock_record_approval_requests,
             mock_apply_approval_decisions,
             mock_emit_session_done,
+            create_mock_finalize_turn_activity(),
         ],
         workflows=[DurableAgentWorkflow],
         workflow_runner=UnsandboxedWorkflowRunner(),
