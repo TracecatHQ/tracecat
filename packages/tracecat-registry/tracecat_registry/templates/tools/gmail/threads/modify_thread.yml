@@ -1,0 +1,78 @@
+type: action
+definition:
+  title: Modify thread
+  description: >-
+    Modifies the labels applied to the thread. This applies to all messages in the
+    thread.
+  display_group: Gmail
+  doc_url: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/modify
+  namespace: tools.gmail
+  name: modify_thread
+  secrets:
+    - type: oauth
+      provider_id: google_gmail
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_gmail
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    id:
+      type: str
+      description: The ID of the thread to modify.
+    add_label_ids:
+      type: list[str] | None
+      description: >-
+        A list of IDs of labels to add to this thread. You can add up to 100 labels with
+        each update.
+      default: null
+    remove_label_ids:
+      type: list[str] | None
+      description: >-
+        A list of IDs of labels to remove from this thread. You can remove up to 100
+        labels with each update.
+      default: null
+    user_id:
+      type: str
+      description: >-
+        The user's email address. The special value `me` can be used to indicate the
+        authenticated user.
+      default: me
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          add_label_ids: ${{ inputs.add_label_ids }}
+          remove_label_ids: ${{ inputs.remove_label_ids }}
+        script: |
+          def main(add_label_ids=None, remove_label_ids=None):
+              body = {}
+              if add_label_ids is not None:
+                  body["addLabelIds"] = add_label_ids
+              if remove_label_ids is not None:
+                  body["removeLabelIds"] = remove_label_ids
+              return body
+    - ref: modify_thread
+      action: tools.google_api.call_api
+      args:
+        service_name: gmail
+        version: v1
+        resource: users.threads
+        method_name: modify
+        access_token: ${{ SECRETS.google_gmail_oauth.GOOGLE_GMAIL_USER_TOKEN || SECRETS.google_gmail_oauth.GOOGLE_GMAIL_SERVICE_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/gmail.modify"]
+        params:
+          userId: ${{ inputs.user_id }}
+          id: ${{ inputs.id }}
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.modify_thread.result }}

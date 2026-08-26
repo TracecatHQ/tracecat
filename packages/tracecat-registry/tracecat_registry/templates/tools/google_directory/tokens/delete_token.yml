@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Delete OAuth token
+  description: >-
+    Deletes all access tokens issued by a user for an application, revoking that
+    application's access to the user's data.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/tokens/delete
+  namespace: tools.google_directory
+  name: delete_token
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    user_key:
+      type: str
+      description: >-
+        Identifies the user in the API request. The value can be the user's
+        primary email address, alias email address, or unique user ID.
+    client_id:
+      type: str
+      description: The Client ID of the application the token is issued to.
+  steps:
+    - ref: delete_token
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: tokens
+        method_name: delete
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.user.security"]
+        params:
+          userKey: ${{ inputs.user_key }}
+          clientId: ${{ inputs.client_id }}
+  returns: ${{ steps.delete_token.result }}

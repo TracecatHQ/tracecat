@@ -9,7 +9,19 @@ definition:
   secrets:
     - type: oauth
       provider_id: google_docs
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_docs
       grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
       optional: true
   expects:
     document_id:
@@ -27,24 +39,26 @@ definition:
       action: core.script.run_python
       args:
         inputs:
+          document_id: ${{ inputs.document_id }}
           requests: ${{ inputs.requests }}
           write_control: ${{ inputs.write_control }}
         script: |
-          def main(requests, write_control):
+          def main(document_id, requests, write_control):
               if not requests:
                   raise ValueError("At least one request is required.")
 
-              payload = {"requests": requests}
+              body = {"requests": requests}
               if write_control:
-                  payload["writeControl"] = write_control
-              return payload
+                  body["writeControl"] = write_control
+              return {"documentId": document_id, "body": body}
     - ref: batch_update_document
-      action: core.http_request
+      action: tools.google_api.call_api
       args:
-        url: https://docs.googleapis.com/v1/documents/${{ FN.url_encode(inputs.document_id) }}:batchUpdate
-        method: POST
-        headers:
-          Authorization: Bearer ${{ SECRETS.google_docs_oauth.GOOGLE_DOCS_SERVICE_TOKEN }}
-          Content-Type: application/json
-        payload: ${{ steps.build_payload.result }}
-  returns: ${{ steps.batch_update_document.result.data }}
+        service_name: docs
+        version: v1
+        resource: documents
+        method_name: batchUpdate
+        access_token: ${{ SECRETS.google_docs_oauth.GOOGLE_DOCS_USER_TOKEN || SECRETS.google_docs_oauth.GOOGLE_DOCS_SERVICE_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/documents"]
+        params: ${{ steps.build_payload.result }}
+  returns: ${{ steps.batch_update_document.result }}

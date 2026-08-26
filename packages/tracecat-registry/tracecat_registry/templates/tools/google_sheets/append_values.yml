@@ -9,7 +9,19 @@ definition:
   secrets:
     - type: oauth
       provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
       grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
       optional: true
   expects:
     spreadsheet_id:
@@ -42,6 +54,7 @@ definition:
       action: core.script.run_python
       args:
         inputs:
+          spreadsheet_id: ${{ inputs.spreadsheet_id }}
           value_input_option: ${{ inputs.value_input_option }}
           insert_data_option: ${{ inputs.insert_data_option }}
           include_values_in_response: ${{ inputs.include_values_in_response }}
@@ -50,6 +63,7 @@ definition:
           range: ${{ inputs.range }}
         script: |
           def main(
+              spreadsheet_id,
               value_input_option,
               insert_data_option,
               include_values_in_response,
@@ -57,25 +71,30 @@ definition:
               values,
               range,
           ):
-              params = {"valueInputOption": value_input_option}
+              params = {
+                  "spreadsheetId": spreadsheet_id,
+                  "range": range,
+                  "valueInputOption": value_input_option,
+              }
               if insert_data_option:
                   params["insertDataOption"] = insert_data_option
               if include_values_in_response:
                   params["includeValuesInResponse"] = True
 
-              payload = {"range": range, "values": values}
+              body = {"range": range, "values": values}
               if major_dimension:
-                  payload["majorDimension"] = major_dimension
+                  body["majorDimension"] = major_dimension
 
-              return {"params": params, "payload": payload}
+              params["body"] = body
+              return params
     - ref: append_values
-      action: core.http_request
+      action: tools.google_api.call_api
       args:
-        url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}/values/${{ FN.url_encode(inputs.range) }}:append
-        method: POST
-        headers:
-          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
-          Content-Type: application/json
-        params: ${{ steps.build_append_request.result.params }}
-        payload: ${{ steps.build_append_request.result.payload }}
-  returns: ${{ steps.append_values.result.data }}
+        service_name: sheets
+        version: v4
+        resource: spreadsheets.values
+        method_name: append
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        params: ${{ steps.build_append_request.result }}
+  returns: ${{ steps.append_values.result }}

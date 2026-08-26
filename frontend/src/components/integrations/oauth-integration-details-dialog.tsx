@@ -88,10 +88,8 @@ export function OAuthIntegrationDetailsDialog({
   const hasConnection = isConnected || needsReauth
   const isExpired = integration?.is_expired ?? false
 
-  const serviceAccountProviders = ["google", "google_sheets", "google_docs"]
-  const isServiceAccountProvider = serviceAccountProviders.includes(
-    provider?.metadata.id ?? ""
-  )
+  const isServiceAccountProvider =
+    provider?.metadata.service_account_json ?? false
   const clientIdLabel = isServiceAccountProvider
     ? "Service account email"
     : "Client ID"

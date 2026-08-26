@@ -1,0 +1,58 @@
+type: action
+definition:
+  title: Search developer metadata
+  description: >-
+    Returns all developer metadata matching the specified DataFilter. If the provided DataFilter
+    represents a DeveloperMetadataLookup object, this will return all DeveloperMetadata entries
+    selected by it. If the DataFilter represents a location in a spreadsheet, this will return all
+    developer metadata associated with locations intersecting that region.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.developerMetadata/search
+  namespace: tools.google_sheets
+  name: search_developer_metadata
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: The ID of the spreadsheet to retrieve metadata from.
+    data_filters:
+      # Generic: the vendor's body is a discriminated union. Each `DataFilter` sets exactly one of
+      # `a1Range`, `gridRange` or `developerMetadataLookup`.
+      type: list[dict[str, Any]]
+      description: >-
+        The data filters describing the criteria used to determine which DeveloperMetadata entries
+        to return. DeveloperMetadata matching any of the specified filters are included in the
+        response. Each entry sets exactly one of `a1Range`, `gridRange` or
+        `developerMetadataLookup`. See
+        https://developers.google.com/workspace/sheets/api/reference/rest/v4/DataFilter
+  steps:
+    - ref: search_developer_metadata
+      action: tools.google_api.call_api
+      args:
+        service_name: sheets
+        version: v4
+        resource: spreadsheets.developerMetadata
+        method_name: search
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        params:
+          spreadsheetId: ${{ inputs.spreadsheet_id }}
+          body:
+            dataFilters: ${{ inputs.data_filters }}
+  returns: ${{ steps.search_developer_metadata.result }}

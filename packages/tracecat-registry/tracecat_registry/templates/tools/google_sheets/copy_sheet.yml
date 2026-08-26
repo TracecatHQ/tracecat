@@ -9,7 +9,19 @@ definition:
   secrets:
     - type: oauth
       provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
       grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
       optional: true
   expects:
     spreadsheet_id:
@@ -23,13 +35,17 @@ definition:
       description: Destination spreadsheet ID.
   steps:
     - ref: copy_sheet
-      action: core.http_request
+      action: tools.google_api.call_api
       args:
-        url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}/sheets/${{ inputs.sheet_id }}:copyTo
-        method: POST
-        headers:
-          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
-          Content-Type: application/json
-        payload:
-          destinationSpreadsheetId: ${{ inputs.destination_spreadsheet_id }}
-  returns: ${{ steps.copy_sheet.result.data }}
+        service_name: sheets
+        version: v4
+        resource: spreadsheets.sheets
+        method_name: copyTo
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        params:
+          spreadsheetId: ${{ inputs.spreadsheet_id }}
+          sheetId: ${{ inputs.sheet_id }}
+          body:
+            destinationSpreadsheetId: ${{ inputs.destination_spreadsheet_id }}
+  returns: ${{ steps.copy_sheet.result }}

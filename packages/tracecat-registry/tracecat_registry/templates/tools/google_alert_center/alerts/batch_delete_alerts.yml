@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: Batch delete alerts
+  description: Performs batch delete operation on alerts.
+  display_group: Google Workspace Alert Center
+  doc_url: https://developers.google.com/workspace/admin/alertcenter/reference/rest/v1beta1/alerts/batchDelete
+  namespace: tools.google_alert_center
+  name: batch_delete_alerts
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    alert_ids:
+      type: list[str]
+      description: The list of alert IDs to delete. Sent as the request body's `alertId` field.
+    customer_id:
+      type: str | None
+      description: >-
+        The unique identifier of the Google Workspace account of the customer the alerts are
+        associated with. The `customerId` must have the initial "C" stripped (for example,
+        `046psxkn`). Inferred from the caller identity if not provided.
+      default: null
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          alert_ids: ${{ inputs.alert_ids }}
+          customer_id: ${{ inputs.customer_id }}
+        script: |
+          def main(alert_ids, customer_id):
+              # Values nested inside `body` are not null-pruned, so omit an unset
+              # `customerId` here rather than sending an explicit null.
+              body = {"alertId": alert_ids}
+              if customer_id is not None:
+                  body["customerId"] = customer_id
+              return body
+    - ref: batch_delete_alerts
+      action: tools.google_api.call_api
+      args:
+        service_name: alertcenter
+        version: v1beta1
+        resource: alerts
+        method_name: batchDelete
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/apps.alerts"]
+        params:
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.batch_delete_alerts.result }}

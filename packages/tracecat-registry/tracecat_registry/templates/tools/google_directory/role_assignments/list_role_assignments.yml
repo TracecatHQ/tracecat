@@ -1,0 +1,73 @@
+type: action
+definition:
+  title: List role assignments
+  description: Fetches a paginated collection of all role assignments.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/roleAssignments/list
+  namespace: tools.google_directory
+  name: list_role_assignments
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    customer:
+      type: str
+      description: >-
+        The unique ID for the customer's Google Workspace account. In case of a
+        multi-domain account, to fetch all groups for a customer, use this field
+        instead of `domain`. You can also use the `my_customer` alias to
+        represent your account's `customerId`.
+      default: my_customer
+    role_id:
+      type: str | None
+      description: >-
+        Immutable ID of a role. If included in the request, returns only role
+        assignments containing this role ID.
+      default: null
+    user_key:
+      type: str | None
+      description: >-
+        The primary email address, alias email address, or unique user or group
+        ID. If included in the request, returns role assignments only for this
+        user or group.
+      default: null
+    include_indirect_role_assignments:
+      type: bool | None
+      description: >-
+        When set to `true`, fetches indirect role assignments (i.e. role
+        assignment via a group) as well as direct ones. Defaults to `false`. You
+        must specify `userKey` or the indirect role assignments will not be
+        included.
+      default: null
+    max_results:
+      type: int | None
+      description: Maximum number of results to return.
+      default: null
+    page_token:
+      type: str | None
+      description: Token to specify the next page in the list.
+      default: null
+  steps:
+    - ref: list_role_assignments
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: roleAssignments
+        method_name: list
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly"]
+        params:
+          customer: ${{ inputs.customer }}
+          roleId: ${{ inputs.role_id }}
+          userKey: ${{ inputs.user_key }}
+          includeIndirectRoleAssignments: ${{ inputs.include_indirect_role_assignments }}
+          maxResults: ${{ inputs.max_results }}
+          pageToken: ${{ inputs.page_token }}
+  returns: ${{ steps.list_role_assignments.result }}

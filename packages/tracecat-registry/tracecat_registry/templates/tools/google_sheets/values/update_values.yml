@@ -1,0 +1,105 @@
+type: action
+definition:
+  title: Update values
+  description: Sets values in a range of a spreadsheet. The caller must specify the spreadsheet ID, range, and a valueInputOption.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/update
+  namespace: tools.google_sheets
+  name: update_values
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: The ID of the spreadsheet to update.
+    range:
+      type: str
+      description: The A1 notation of the values to update.
+    values:
+      type: list[list[str | int | float | bool | None]]
+      description: >-
+        The data to be written. This is an array of arrays, the outer array representing all the
+        data and each inner array representing a major dimension. Each item in the inner array
+        corresponds with one cell. Supported value types are bool, string, and double. Null values
+        will be skipped. To set a cell to an empty value, set the string value to an empty string.
+    value_input_option:
+      type: str
+      description: >-
+        How the input data should be interpreted. `RAW` stores the values as-is; `USER_ENTERED`
+        parses the values as if the user typed them into the UI.
+    major_dimension:
+      type: str | None
+      description: >-
+        The major dimension of the values. One of `ROWS` or `COLUMNS`. With
+        `range=A1:B2,majorDimension=ROWS` then `[[1,2],[3,4]]` will set `A1=1,B1=2,A2=3,B2=4`. With
+        `range=A1:B2,majorDimension=COLUMNS` then `[[1,2],[3,4]]` will set `A1=1,B1=3,A2=2,B2=4`.
+        When writing, if this field is not set, it defaults to `ROWS`.
+      default: null
+    include_values_in_response:
+      type: bool | None
+      description: >-
+        Determines if the update response should include the values of the cells that were updated.
+        By default, responses do not include the updated values. If the range to write was larger
+        than the range actually written, the response includes all values in the requested range
+        (excluding trailing empty rows and columns).
+      default: null
+    response_value_render_option:
+      type: str | None
+      description: >-
+        Determines how values in the response should be rendered. One of `FORMATTED_VALUE`,
+        `UNFORMATTED_VALUE` or `FORMULA`. The default render option is `FORMATTED_VALUE`.
+      default: null
+    response_date_time_render_option:
+      type: str | None
+      description: >-
+        Determines how dates, times, and durations in the response should be rendered. One of
+        `SERIAL_NUMBER` or `FORMATTED_STRING`. This is ignored if response_value_render_option is
+        `FORMATTED_VALUE`. The default dateTime render option is `SERIAL_NUMBER`.
+      default: null
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          range: ${{ inputs.range }}
+          values: ${{ inputs.values }}
+          major_dimension: ${{ inputs.major_dimension }}
+        script: |
+          def main(range, values, major_dimension):
+              body = {"range": range, "values": values}
+              if major_dimension is not None:
+                  body["majorDimension"] = major_dimension
+              return body
+    - ref: update_values
+      action: tools.google_api.call_api
+      args:
+        service_name: sheets
+        version: v4
+        resource: spreadsheets.values
+        method_name: update
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        params:
+          spreadsheetId: ${{ inputs.spreadsheet_id }}
+          range: ${{ inputs.range }}
+          valueInputOption: ${{ inputs.value_input_option }}
+          includeValuesInResponse: ${{ inputs.include_values_in_response }}
+          responseValueRenderOption: ${{ inputs.response_value_render_option }}
+          responseDateTimeRenderOption: ${{ inputs.response_date_time_render_option }}
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.update_values.result }}

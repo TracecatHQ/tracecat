@@ -1,0 +1,103 @@
+type: action
+definition:
+  title: List Drive files
+  description: List and search files in Google Drive
+  display_group: Google Drive
+  doc_url: https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
+  namespace: tools.google_drive
+  name: list_files
+  secrets:
+    - type: oauth
+      provider_id: google_drive
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_drive
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    query:
+      type: str
+      description: 'Search query (e.g., ''name contains "report"'')'
+      default: ""
+    max_results:
+      type: int
+      description: Maximum number of results
+      default: 10
+    order_by:
+      type: str
+      description: Sort order
+      default: "modifiedTime desc"
+    fields:
+      type: str
+      description: 'Fields to return (e.g., ''files(id,name,mimeType)'' or ''*'' for all)'
+      default: "*"
+    include_shared_drives:
+      type: bool
+      description: Include files from Shared Drives (sets supportsAllDrives and includeItemsFromAllDrives).
+      default: false
+    drive_id:
+      type: str
+      description: Optional Shared Drive ID to scope the search to a single Shared Drive. Implies include_shared_drives.
+      default: ""
+    page_token:
+      type: str | None
+      description: The token for continuing a previous list request on the next page. This should be set to the value of nextPageToken from the previous response.
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          query: ${{ inputs.query }}
+          max_results: ${{ inputs.max_results }}
+          order_by: ${{ inputs.order_by }}
+          fields: ${{ inputs.fields }}
+          include_shared_drives: ${{ inputs.include_shared_drives }}
+          drive_id: ${{ inputs.drive_id }}
+          page_token: ${{ inputs.page_token }}
+        script: |
+          def main(
+              query,
+              max_results,
+              order_by,
+              fields,
+              include_shared_drives,
+              drive_id,
+              page_token,
+          ):
+              params = {
+                  "pageSize": max_results,
+                  "orderBy": order_by,
+                  "fields": fields,
+                  "supportsAllDrives": True,
+              }
+              if query:
+                  params["q"] = query
+              if include_shared_drives or drive_id:
+                  params["includeItemsFromAllDrives"] = True
+              if drive_id:
+                  params["corpora"] = "drive"
+                  params["driveId"] = drive_id
+              if page_token:
+                  params["pageToken"] = page_token
+              return params
+    - ref: list_files
+      action: tools.google_api.call_api
+      args:
+        service_name: drive
+        version: v3
+        resource: files
+        method_name: list
+        access_token: ${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/drive.readonly"]
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_files.result }}

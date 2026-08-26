@@ -1,13 +1,15 @@
 """Google API authentication and SDK helpers via Google Auth Python library."""
 
+import base64
+import io
 from collections.abc import Callable
-from typing import Annotated, Any, Protocol, cast
+from typing import Annotated, Any, Protocol, TypedDict, cast
 
 import orjson
 from google.oauth2.credentials import Credentials as OAuthCredentials
 from google.oauth2 import service_account
 from googleapiclient.discovery import Resource, build
-from googleapiclient.http import HttpRequest
+from googleapiclient.http import HttpRequest, MediaIoBaseUpload
 from pydantic import Field
 
 from tracecat_registry import (
@@ -31,9 +33,20 @@ class GoogleAPIResource(Protocol):
     def __getattr__(self, name: str) -> GoogleAPIRequestBuilder: ...
 
 
+class GoogleMediaUpload(TypedDict):
+    """File payload for Google API upload methods."""
+
+    content_base64: str
+    """Base64-encoded file content."""
+
+    mime_type: str
+    """MIME type of the content."""
+
+
 google_api_optional_secret = RegistrySecret(
     name="google_api",
     keys=["GOOGLE_API_CREDENTIALS"],
+    optional_keys=["GOOGLE_API_SUBJECT"],
     optional=True,
 )
 """Google API service account credentials.
@@ -41,8 +54,12 @@ google_api_optional_secret = RegistrySecret(
 - name: `google_api`
 - keys:
     - `GOOGLE_API_CREDENTIALS` (JSON string)
+- optional_keys:
+    - `GOOGLE_API_SUBJECT` (user email)
 
 Note: `GOOGLE_API_CREDENTIALS` should be a JSON string of the service account credentials.
+`GOOGLE_API_SUBJECT` is the optional domain-wide delegation subject (a user email) applied
+when minting a token from that JSON.
 """
 
 google_oauth_secret = RegistryOAuthSecret(
@@ -69,32 +86,64 @@ def _load_service_account_info() -> dict[str, Any]:
     return creds
 
 
+def _pop_embedded_subject(info: dict[str, Any]) -> str | None:
+    """Remove the Tracecat-specific `subject` key from service account JSON.
+
+    Mirrors `GoogleServiceAccountOAuthProvider._extract_subject`: `subject` is not
+    part of Google's key schema, so it is always popped before the info dict
+    reaches the SDK.
+    """
+    subject = info.pop("subject", None)
+    if subject is None:
+        return None
+    return str(subject).strip() or None
+
+
 def _get_service_account_credentials(
     scopes: list[str] | None = None,
     subject: str | None = None,
 ) -> service_account.Credentials:
+    info = _load_service_account_info()
+    embedded_subject = _pop_embedded_subject(info)
     credentials = service_account.Credentials.from_service_account_info(
-        _load_service_account_info(),
+        info,
         scopes=scopes or DEFAULT_SCOPES,
     )
-    if subject:
-        credentials = credentials.with_subject(subject)
+    delegated_subject = (
+        subject or secrets.get_or_default("GOOGLE_API_SUBJECT") or embedded_subject
+    )
+    if delegated_subject:
+        credentials = credentials.with_subject(delegated_subject)
     return credentials
 
 
 def _get_google_credentials(
     scopes: list[str] | None = None,
     subject: str | None = None,
+    *,
+    access_token: str | None = None,
 ) -> GoogleCredentials:
+    """Resolve Google credentials from the first configured source.
+
+    Precedence:
+    1. `access_token` from a Tracecat OAuth integration, used as-is.
+    2. `GOOGLE_API_CREDENTIALS` service account JSON, when `scopes` or `subject`
+       are given.
+    3. `GOOGLE_SERVICE_TOKEN` from the `google` service account integration.
+    4. `GOOGLE_API_CREDENTIALS` service account JSON.
+    """
+    if access_token:
+        return OAuthCredentials(token=access_token)
+
     has_service_account_credentials = bool(
         secrets.get_or_default("GOOGLE_API_CREDENTIALS")
     )
-    if (scopes is not None or subject is not None) and has_service_account_credentials:
+    has_overrides = scopes is not None or subject is not None
+
+    if has_overrides and has_service_account_credentials:
         return _get_service_account_credentials(scopes=scopes, subject=subject)
 
-    if (
-        scopes is not None or subject is not None
-    ) and not has_service_account_credentials:
+    if has_overrides:
         raise SecretNotFoundError(
             "`scopes` and `subject` require `GOOGLE_API_CREDENTIALS` service "
             "account JSON because OAuth service tokens cannot apply per-call "
@@ -108,8 +157,9 @@ def _get_google_credentials(
         return _get_service_account_credentials(scopes=scopes, subject=subject)
 
     raise SecretNotFoundError(
-        "Google API calls require either `GOOGLE_SERVICE_TOKEN` from the `google` "
-        "OAuth integration or `GOOGLE_API_CREDENTIALS` service account JSON."
+        "Google API calls require an `access_token` from a Google OAuth "
+        "integration, `GOOGLE_API_CREDENTIALS` service account JSON, or "
+        "`GOOGLE_SERVICE_TOKEN` from the `google` service account integration."
     )
 
 
@@ -135,6 +185,25 @@ def _get_value_by_path(data: dict[str, Any], path: str) -> Any | None:
     return current
 
 
+def _prune_none_params(params: GoogleAPIParams | None) -> GoogleAPIParams:
+    """Drop top-level `None` values from a Google API method's parameters.
+
+    `googleapiclient` stringifies every query parameter it is handed, so a `None`
+    kwarg is sent as the literal string `"None"` (see
+    `googleapiclient.discovery._cast`). Values nested inside `body` are left
+    untouched: a JSON `null` in a request body is meaningful to the API.
+    """
+    return {key: value for key, value in (params or {}).items() if value is not None}
+
+
+def _build_media_upload(media: GoogleMediaUpload) -> MediaIoBaseUpload:
+    return MediaIoBaseUpload(
+        io.BytesIO(base64.b64decode(media["content_base64"])),
+        mimetype=media["mime_type"],
+        resumable=False,
+    )
+
+
 class _DiscoveryCache:
     """Process-local cache for runtime-fetched discovery documents.
 
@@ -142,8 +211,9 @@ class _DiscoveryCache:
     document is fetched over the network instead of read from the copy bundled
     with the client library. Those documents are large (the Security Command
     Center v2 document is ~420 KB) and would otherwise be re-downloaded on every
-    single call. Executor workers are reused across actions, so caching per
-    process means each worker fetches a given document at most once.
+    single call. The default executor backend runs each action in a fresh
+    subprocess, so this only saves a fetch on backends that reuse a process
+    across actions.
 
     Implements the `get`/`set` interface `googleapiclient.discovery.build`
     expects from a cache object.
@@ -168,8 +238,11 @@ def _build_google_service(
     scopes: list[str] | None = None,
     subject: str | None = None,
     static_discovery: bool | None = None,
+    access_token: str | None = None,
 ) -> Resource:
-    credentials = _get_google_credentials(scopes=scopes, subject=subject)
+    credentials = _get_google_credentials(
+        scopes=scopes, subject=subject, access_token=access_token
+    )
     # `googleapiclient` consults the cache *before* it decides whether to use a
     # bundled document, so a cached runtime-fetched document would otherwise
     # shadow the bundled one for every later call in this worker. Only enable
@@ -220,6 +293,18 @@ def call_api(
         GoogleAPIParams | None,
         Field(..., description="Parameters for the Google API method."),
     ] = None,
+    access_token: Annotated[
+        str | None,
+        Field(
+            ...,
+            description=(
+                "OAuth access token from a Tracecat OAuth integration, e.g. "
+                "`${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || "
+                "SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}`. When "
+                "set it is used as-is and `scopes`/`subject` are ignored."
+            ),
+        ),
+    ] = None,
     scopes: Annotated[
         list[str] | None,
         Field(
@@ -230,7 +315,23 @@ def call_api(
     subject: Annotated[
         str | None,
         Field(
-            ..., description="Optional service account domain-wide delegation subject."
+            ...,
+            description=(
+                "Optional domain-wide delegation subject (user email) applied "
+                "when minting from `GOOGLE_API_CREDENTIALS`. Defaults to the "
+                "`GOOGLE_API_SUBJECT` secret key, then the `subject` key inside "
+                "the JSON."
+            ),
+        ),
+    ] = None,
+    media: Annotated[
+        GoogleMediaUpload | None,
+        Field(
+            ...,
+            description=(
+                "File content for upload methods (e.g. Drive `files.create`). "
+                "Sent as `media_body`."
+            ),
         ),
     ] = None,
     static_discovery: Annotated[
@@ -247,15 +348,25 @@ def call_api(
         ),
     ] = None,
 ) -> GoogleAPIResult:
-    params = params or {}
+    """Call a Google API method.
+
+    Top-level `None` values in `params` are dropped; values nested inside `body`
+    are sent as-is.
+    """
+    method_params = _prune_none_params(params)
+    if media is not None:
+        method_params["media_body"] = _build_media_upload(media)
     service = _build_google_service(
         service_name=service_name,
         version=version,
         scopes=scopes,
         subject=subject,
         static_discovery=static_discovery,
+        access_token=access_token,
     )
-    request = getattr(_resolve_resource(service, resource), method_name)(**params)
+    request = getattr(_resolve_resource(service, resource), method_name)(
+        **method_params
+    )
     return request.execute()
 
 
@@ -291,6 +402,18 @@ def call_paginated_api(
         GoogleAPIParams | None,
         Field(..., description="Parameters for the Google API method."),
     ] = None,
+    access_token: Annotated[
+        str | None,
+        Field(
+            ...,
+            description=(
+                "OAuth access token from a Tracecat OAuth integration, e.g. "
+                "`${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || "
+                "SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}`. When "
+                "set it is used as-is and `scopes`/`subject` are ignored."
+            ),
+        ),
+    ] = None,
     scopes: Annotated[
         list[str] | None,
         Field(
@@ -301,7 +424,13 @@ def call_paginated_api(
     subject: Annotated[
         str | None,
         Field(
-            ..., description="Optional service account domain-wide delegation subject."
+            ...,
+            description=(
+                "Optional domain-wide delegation subject (user email) applied "
+                "when minting from `GOOGLE_API_CREDENTIALS`. Defaults to the "
+                "`GOOGLE_API_SUBJECT` secret key, then the `subject` key inside "
+                "the JSON."
+            ),
         ),
     ] = None,
     page_token_param: Annotated[
@@ -340,12 +469,17 @@ def call_paginated_api(
         ),
     ] = None,
 ) -> list[GoogleAPIResponse]:
+    """Call a paginated Google API method and return every page fetched.
+
+    Top-level `None` values in `params` are dropped; values nested inside `body`
+    are sent as-is.
+    """
     if not page_token_param:
         raise ValueError("Page token request parameter cannot be empty.")
     if not next_page_token_path:
         raise ValueError("Next page token response path cannot be empty.")
 
-    request_params = dict(params or {})
+    request_params = _prune_none_params(params)
     pages: list[GoogleAPIResponse] = []
     service = _build_google_service(
         service_name=service_name,
@@ -353,6 +487,7 @@ def call_paginated_api(
         scopes=scopes,
         subject=subject,
         static_discovery=static_discovery,
+        access_token=access_token,
     )
     target_resource = _resolve_resource(service, resource)
 

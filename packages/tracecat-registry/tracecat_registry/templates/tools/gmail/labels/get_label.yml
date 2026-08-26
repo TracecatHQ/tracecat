@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Get label
+  description: Gets the specified label.
+  display_group: Gmail
+  doc_url: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels/get
+  namespace: tools.gmail
+  name: get_label
+  secrets:
+    - type: oauth
+      provider_id: google_gmail
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_gmail
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    id:
+      type: str
+      description: The ID of the label to retrieve.
+    user_id:
+      type: str
+      description: >-
+        The user's email address. The special value `me` can be used to indicate the
+        authenticated user.
+      default: me
+  steps:
+    - ref: get_label
+      action: tools.google_api.call_api
+      args:
+        service_name: gmail
+        version: v1
+        resource: users.labels
+        method_name: get
+        access_token: ${{ SECRETS.google_gmail_oauth.GOOGLE_GMAIL_USER_TOKEN || SECRETS.google_gmail_oauth.GOOGLE_GMAIL_SERVICE_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/gmail.labels"]
+        params:
+          userId: ${{ inputs.user_id }}
+          id: ${{ inputs.id }}
+  returns: ${{ steps.get_label.result }}

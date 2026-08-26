@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Get ChromeOS device command
+  description: Gets command data a specific command issued to the device.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/customer.devices.chromeos.commands/get
+  namespace: tools.google_directory
+  name: get_chromeos_device_command
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    customer_id:
+      type: str
+      description: Immutable. ID of the Google Workspace account.
+      default: my_customer
+    device_id:
+      type: str
+      description: Immutable. ID of Chrome OS Device.
+    command_id:
+      type: int
+      description: Immutable. ID of Chrome OS Device Command.
+  steps:
+    - ref: get_command
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: customer.devices.chromeos.commands
+        method_name: get
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly"]
+        params:
+          customerId: ${{ inputs.customer_id }}
+          deviceId: ${{ inputs.device_id }}
+          commandId: ${{ inputs.command_id }}
+  returns: ${{ steps.get_command.result }}

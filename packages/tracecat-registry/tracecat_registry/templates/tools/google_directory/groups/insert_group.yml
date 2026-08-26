@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Insert group
+  description: Creates a group.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/groups/insert
+  namespace: tools.google_directory
+  name: insert_group
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    body:
+      # Generic: the vendor rejects `null` on optional body fields, and a literal map cannot omit
+      # an unset optional because values inside a request body are not null-pruned.
+      type: dict[str, Any]
+      description: >-
+        Group resource to create. See
+        https://developers.google.com/workspace/admin/directory/reference/rest/v1/groups for the
+        full field list. Writable fields: `email` (required), `name`, `description` (maximum
+        length is 4,096 characters).
+  steps:
+    - ref: insert_group
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: groups
+        method_name: insert
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.group"]
+        params:
+          body: ${{ inputs.body }}
+  returns: ${{ steps.insert_group.result }}

@@ -1,0 +1,71 @@
+type: action
+definition:
+  title: Set publish settings
+  description: Updates the publish settings of a form.
+  display_group: Google Forms
+  doc_url: https://developers.google.com/workspace/forms/api/reference/rest/v1/forms/setPublishSettings
+  namespace: tools.google_forms
+  name: set_publish_settings
+  secrets:
+    - type: oauth
+      provider_id: google_forms
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_forms
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    form_id:
+      type: str
+      description: >-
+        Required. The ID of the form. You can get the id from `Form.form_id` field.
+    publish_settings:
+      # Generic: the vendor documents PublishSettings as a nested object, and the fields
+      # it carries are governed by `update_mask` rather than by a flat field set.
+      type: dict[str, Any]
+      description: >-
+        Required. The desired publish settings to apply to the form. Documented fields:
+        publishState.isPublished, publishState.isAcceptingResponses. See
+        https://developers.google.com/workspace/forms/api/reference/rest/v1/forms#PublishSettings.
+    update_mask:
+      type: str | None
+      description: >-
+        Optional. The `publishSettings` fields to update. This field mask accepts the
+        following values: `publishState` updates or replaces all `publishState`
+        settings; `*` updates or replaces all `publishSettings` fields.
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          form_id: ${{ inputs.form_id }}
+          publish_settings: ${{ inputs.publish_settings }}
+          update_mask: ${{ inputs.update_mask }}
+        script: |
+          def main(form_id, publish_settings, update_mask):
+              # Values inside `body` are not pruned, and Forms rejects a null updateMask.
+              body = {"publishSettings": publish_settings}
+              if update_mask is not None:
+                  body["updateMask"] = update_mask
+              return {"formId": form_id, "body": body}
+    - ref: set_publish_settings
+      action: tools.google_api.call_api
+      args:
+        service_name: forms
+        version: v1
+        resource: forms
+        method_name: setPublishSettings
+        access_token: ${{ SECRETS.google_forms_oauth.GOOGLE_FORMS_USER_TOKEN || SECRETS.google_forms_oauth.GOOGLE_FORMS_SERVICE_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/forms.body"]
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.set_publish_settings.result }}

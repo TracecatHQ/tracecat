@@ -257,6 +257,10 @@ class ProviderMetadata(BaseModel):
         default=True,
         description="Whether this provider is available for use",
     )
+    service_account_json: bool = Field(
+        default=False,
+        description="Whether the client secret is a service account JSON key instead of an OAuth client secret",
+    )
     api_docs_url: str | None = Field(
         default=None, description="URL to API documentation"
     )

@@ -1,0 +1,56 @@
+type: action
+definition:
+  title: Batch clear values by data filter
+  description: >-
+    Clears one or more ranges of values from a spreadsheet. The caller must specify the spreadsheet
+    ID and one or more DataFilters. Ranges matching any of the specified data filters will be
+    cleared. Only values are cleared -- all other properties of the cell (such as formatting, data
+    validation, etc.) are kept.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchClearByDataFilter
+  namespace: tools.google_sheets
+  name: batch_clear_values_by_data_filter
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: The ID of the spreadsheet to update.
+    data_filters:
+      # Generic: the vendor's body is a discriminated union. Each `DataFilter` sets exactly one of
+      # `a1Range`, `gridRange` or `developerMetadataLookup`.
+      type: list[dict[str, Any]]
+      description: >-
+        The DataFilters used to determine which ranges to clear. Each entry sets exactly one of
+        `a1Range`, `gridRange` or `developerMetadataLookup`. See
+        https://developers.google.com/workspace/sheets/api/reference/rest/v4/DataFilter
+  steps:
+    - ref: batch_clear_values_by_data_filter
+      action: tools.google_api.call_api
+      args:
+        service_name: sheets
+        version: v4
+        resource: spreadsheets.values
+        method_name: batchClearByDataFilter
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        params:
+          spreadsheetId: ${{ inputs.spreadsheet_id }}
+          body:
+            dataFilters: ${{ inputs.data_filters }}
+  returns: ${{ steps.batch_clear_values_by_data_filter.result }}
