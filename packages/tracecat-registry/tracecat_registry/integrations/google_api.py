@@ -130,6 +130,10 @@ def _get_google_credentials(
     2. `GOOGLE_API_CREDENTIALS` service account JSON, when `scopes` or `subject`
        are given.
     3. `GOOGLE_SERVICE_TOKEN` from the `google` service account integration.
+       `scopes` are advisory here: a minted token already carries the scopes
+       its integration was configured with. A `subject` is a per-call
+       delegation override that a minted token cannot apply, so it still
+       requires the JSON.
     4. `GOOGLE_API_CREDENTIALS` service account JSON.
     """
     if access_token:
@@ -143,11 +147,11 @@ def _get_google_credentials(
     if has_overrides and has_service_account_credentials:
         return _get_service_account_credentials(scopes=scopes, subject=subject)
 
-    if has_overrides:
+    if subject is not None:
         raise SecretNotFoundError(
-            "`scopes` and `subject` require `GOOGLE_API_CREDENTIALS` service "
-            "account JSON because OAuth service tokens cannot apply per-call "
-            "service account overrides."
+            "`subject` requires `GOOGLE_API_CREDENTIALS` service account JSON "
+            "because OAuth service tokens cannot apply a per-call delegation "
+            "subject."
         )
 
     if token := secrets.get_or_default(google_oauth_secret.token_name):

@@ -198,10 +198,32 @@ def test_service_token_precedes_json_without_overrides(
     assert service_account_stub == []
 
 
-def test_overrides_without_json_raise() -> None:
+def test_subject_without_json_raises() -> None:
     with registry_secrets_sandbox({"GOOGLE_SERVICE_TOKEN": "service-token"}):
         with pytest.raises(SecretNotFoundError):
             google_api._get_google_credentials(subject="input@example.com")
+
+
+def test_scopes_only_fall_back_to_service_token(
+    service_account_stub: list[StubServiceAccountCredentials],
+) -> None:
+    """Templates always pass scopes; a lone `google` integration must still work."""
+    with registry_secrets_sandbox({"GOOGLE_SERVICE_TOKEN": "service-token"}):
+        credentials = google_api._get_google_credentials(
+            scopes=["https://www.googleapis.com/auth/drive"]
+        )
+
+    assert isinstance(credentials, OAuthCredentials)
+    assert credentials.token == "service-token"
+    assert service_account_stub == []
+
+
+def test_scopes_only_without_any_credentials_raises() -> None:
+    with registry_secrets_sandbox({}):
+        with pytest.raises(SecretNotFoundError):
+            google_api._get_google_credentials(
+                scopes=["https://www.googleapis.com/auth/drive"]
+            )
 
 
 def test_no_credentials_configured_raises() -> None:
