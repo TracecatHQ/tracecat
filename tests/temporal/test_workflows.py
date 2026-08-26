@@ -1393,6 +1393,7 @@ async def test_single_child_workflow_alias(
 
 
 @pytest.mark.anyio
+@pytest.mark.serial
 async def test_child_workflow_alias_not_found_surfaces_detail(
     test_role: Role,
     temporal_client: Client,
