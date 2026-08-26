@@ -5,6 +5,7 @@ import base64
 import hashlib
 import os
 import uuid
+from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -2497,6 +2498,103 @@ class TestSkillService:
             "file_count": 2,
             "max_file_count": 1,
         }
+
+    async def test_prepare_draft_download_enforces_transfer_file_limit(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A bulk download is capped like uploads: over the limit is rejected."""
+
+        created = await skill_service.upload_skill(
+            SkillUpload(
+                name="bounded-download",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(
+                            b"---\nname: bounded-download\n---\n\n# Bounded\n"
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                    SkillUploadFile(
+                        path="scripts/helper.py",
+                        content_base64=base64.b64encode(b"print('ok')\n").decode(),
+                        content_type="text/x-python; charset=utf-8",
+                    ),
+                ],
+            )
+        )
+
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 1)
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.prepare_draft_download(skill_id=created.id)
+        assert exc_info.value.detail == {
+            "code": "skill_transfer_file_count_limit_exceeded",
+            "file_count": 2,
+            "max_file_count": 1,
+        }
+
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 2)
+        prepared = await skill_service.prepare_draft_download(skill_id=created.id)
+        assert prepared is not None
+        assert len(prepared.files) == 2
+
+    async def test_patch_draft_cancellation_deletes_published_objects(
+        self,
+        skill_service: SkillService,
+        svc_workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cancellation mid-materialization still removes published objects."""
+
+        created = await skill_service.create_skill(SkillCreate(name="cancelled-patch"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        cancelled_object = PublishedBlobObject(
+            bucket="skills-bucket", key="skills/cancelled/object"
+        )
+
+        async def cancel_after_publishing(
+            operations: Sequence[Any],
+            *,
+            published: list[PublishedBlobObject] | None = None,
+        ) -> dict[int, SkillBlob]:
+            del operations
+            assert published is not None
+            published.append(cancelled_object)
+            raise asyncio.CancelledError()
+
+        deleted: list[tuple[str, str]] = []
+
+        async def fake_delete_file(*, key: str, bucket: str) -> None:
+            deleted.append((key, bucket))
+
+        monkeypatch.setattr(
+            skill_service,
+            "_materialize_patch_operation_blobs",
+            cancel_after_publishing,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftUpsertTextFileOp(
+                            path="references/note.txt",
+                            content="cancelled",
+                        )
+                    ],
+                ),
+            )
+
+        assert deleted == [(cancelled_object.key, cancelled_object.bucket)]
+        await skill_service.session.refresh(svc_workspace)
 
     async def test_publish_requires_root_skill_md(
         self,

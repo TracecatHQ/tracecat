@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import mimetypes
@@ -807,8 +808,18 @@ class SkillService(BaseWorkspaceService):
         Call this before the SQL rollback. The uncommitted rows still hold the
         workspace/digest uniqueness claim, so no concurrent writer can have
         published the same key yet and the delete cannot remove another
-        transaction's object.
+        transaction's object. The deletes are shielded so a cancellation
+        arriving mid-cleanup cannot abort it partway.
         """
+
+        if not published:
+            return
+        await asyncio.shield(self._delete_blob_objects(published))
+
+    async def _delete_blob_objects(
+        self, published: Sequence[PublishedBlobObject]
+    ) -> None:
+        """Delete each object, logging instead of raising on failure."""
 
         for obj in published:
             try:
@@ -1644,7 +1655,9 @@ class SkillService(BaseWorkspaceService):
                 await self.session.rollback()
                 if not _is_skill_slug_unique_violation(exc):
                     raise
-            except Exception:
+            except BaseException:
+                # BaseException so a CancelledError from the MCP tool timeout
+                # still deletes the published objects before rolling back.
                 if not committing:
                     await self._delete_published_blob_objects_best_effort(published)
                 await self.session.rollback()
@@ -2057,6 +2070,9 @@ class SkillService(BaseWorkspaceService):
                 for draft_file, blob_row in rows
             ]
         )
+        # A bulk download is one synchronous transfer, so it is bounded by the
+        # same per-transfer file cap as uploads and completions.
+        self._validate_skill_transfer_file_count(len(rows))
         expires_at = datetime.now(UTC) + timedelta(seconds=url_expiry_seconds)
         files = [
             SkillDownloadPreparedFile(
@@ -2514,7 +2530,9 @@ class SkillService(BaseWorkspaceService):
                 self.session.add(skill)
             committing = True
             await self.session.commit()
-        except Exception:
+        except BaseException:
+            # BaseException so a CancelledError from the MCP tool timeout
+            # still deletes the published objects before rolling back.
             if not committing:
                 await self._delete_published_blob_objects_best_effort(published)
             await self.session.rollback()
