@@ -1,0 +1,220 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/members/delete_member.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,42
+  s_0855f338158bca::t_d631ac767d00e0 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/undelete_user.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,37
+  s_0855f338158bca::t_10f70ea2c49ef0 10-11
+docs/tools/google_reports.mdx
+  s_0855f338158bca::t_86322641a07f41 19,67,143,231
+tracecat/integrations/providers/__init__.py
+  s_0855f338158bca::t_1568f1f1afb190 7
+  s_0855f338158bca::t_02d16a54145888 56
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/role_assignments/insert_role_assignment.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,75
+  s_0855f338158bca::t_aafa0fcee192e2 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/patch_user.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,47
+  s_0855f338158bca::t_9a8ae50a0e5b01 10-11
+tracecat/integrations/providers/google/admin.py
+  s_0855f338158bca::t_0c2e2063c086bf 24
+  s_0855f338158bca::t_fd3eb8e67797c0 1,3-8,13-17,23,25-26,41-46,52-79,96,98
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/list_user_aliases.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,36
+  s_0855f338158bca::t_6cbfc801832467 10-11
+tests/unit/test_google_providers.py
+  s_0855f338158bca::t_1c58f365d14a83 92-100
+  s_0855f338158bca::t_1d3493a5bf9677 23
+  s_0855f338158bca::t_c18791706723f6 9-12
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/patch_chromeos_device.yml
+  s_0855f338158bca::t_7853cd080a429f 15-16,63
+  s_0855f338158bca::t_360d62467017fa 13-14
+tests/unit/test_google_templates_contract.py
+  s_0855f338158bca::t_cf848c9e3f5565 10-12
+  s_0855f338158bca::t_e8d400203aa944 78-79,85-89
+  s_0855f338158bca::t_834bc3f60354c7 90
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/privileges/list_privileges.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,39
+  s_0855f338158bca::t_13694288979710 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/tokens/get_token.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,39
+  s_0855f338158bca::t_44da43e4ef8122 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/role_assignments/get_role_assignment.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,42
+  s_0855f338158bca::t_74b1032f5e47a9 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/members/patch_member.yml
+  s_0855f338158bca::t_7853cd080a429f 14-15,71
+  s_0855f338158bca::t_9277fefa571eaf 12-13
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/mobile_devices/list_mobile_devices.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,75
+  s_0855f338158bca::t_c52730f82074ed 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/role_assignments/list_role_assignments.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,68
+  s_0855f338158bca::t_01839d0c4de97e 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/make_user_admin.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,39
+  s_0855f338158bca::t_5c3d6595a44c04 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/mobile_devices/action_mobile_device.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,47
+  s_0855f338158bca::t_57179d5dced0ce 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_reports/usage/get_user_usage_report.yml
+  s_0855f338158bca::t_7853cd080a429f 14-15,86
+  s_0855f338158bca::t_ead8d0e5bd053e 12-13
+docs/tools/google_directory.mdx
+  s_0855f338158bca::t_86322641a07f41 19,65,95,125,149,179,211,241,273,305,329,353,383,423,461,487,519,543,573,613,643,675,707,739,787,811,865,897,949,981,1005,1051,1075,1165,1191,1273,1329,1403,1427,1469,1495,1561,1603,1627,1733,1757,1787,1825,1871,1901,1947,1985,2015,2053,2077,2101
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/mobile_devices/delete_mobile_device.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,41
+  s_0855f338158bca::t_3a40cd002e9fe2 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/groups/insert_group.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,40
+  s_0855f338158bca::t_ab3e4971d84363 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/insert_user.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,48
+  s_0855f338158bca::t_04ab08e9547078 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/domains/get_domain.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,42
+  s_0855f338158bca::t_8d2a40d8467cbf 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/roles/list_roles.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,47
+  s_0855f338158bca::t_230c0856c49e56 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/get_chromeos_device_command.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,41
+  s_0855f338158bca::t_8f410b1d784fd1 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/asps/get_asp.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,39
+  s_0855f338158bca::t_ca8f6ee11e1421 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/customers/get_customer.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,37
+  s_0855f338158bca::t_3aa889e1e2fe61 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/verification_codes/invalidate_verification_codes.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,35
+  s_0855f338158bca::t_9d4f66ea8284e5 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/members/has_member.yml
+  s_0855f338158bca::t_7853cd080a429f 15-16,44
+  s_0855f338158bca::t_46610996c62276 13-14
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/role_assignments/delete_role_assignment.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,38
+  s_0855f338158bca::t_e8375f07a1ba19 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/orgunits/list_orgunits.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,49
+  s_0855f338158bca::t_a67313653145af 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/asps/delete_asp.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,39
+  s_0855f338158bca::t_a59eb01988dbc7 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/roles/get_role.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,42
+  s_0855f338158bca::t_be0e17ffc522de 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/members/insert_member.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,77
+  s_0855f338158bca::t_496a0a3c52a9df 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/orgunits/get_orgunit.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,42
+  s_0855f338158bca::t_bedfcac8b3b9de 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/delete_user.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,36
+  s_0855f338158bca::t_8bf23f2702cc1c 10-11
+docs/automations/core-concepts/secrets.mdx
+  s_0855f338158bca::t_044d4cb06171a0 105,107-112
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/issue_chromeos_device_command.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,76
+  s_0855f338158bca::t_cb5061d3f5eed5 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/groups/delete_group.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,36
+  s_0855f338158bca::t_a0ffdc8fdf6395 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/asps/list_asps.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,35
+  s_0855f338158bca::t_eba3a3cd821dbd 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/list_users.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,96
+  s_0855f338158bca::t_9ff47e35788c4a 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_reports/usage/get_customer_usage_report.yml
+  s_0855f338158bca::t_7853cd080a429f 14-15,56
+  s_0855f338158bca::t_43dde128c037d8 12-13
+packages/tracecat-registry/tracecat_registry/templates/tools/google_reports/usage/get_entity_usage_report.yml
+  s_0855f338158bca::t_7853cd080a429f 14-15,77
+  s_0855f338158bca::t_2aee03f04f8be3 12-13
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/groups/patch_group.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,45
+  s_0855f338158bca::t_612533565d66b1 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/members/list_members.yml
+  s_0855f338158bca::t_7853cd080a429f 13-14,55
+  s_0855f338158bca::t_5b7f32aec53487 11-12
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/verification_codes/list_verification_codes.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,35
+  s_0855f338158bca::t_2468ee697b0e3e 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/groups/get_group.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,36
+  s_0855f338158bca::t_63739b6ec061b4 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/sign_out_user.yml
+  s_0855f338158bca::t_7853cd080a429f 14-15,38
+  s_0855f338158bca::t_d529eb30af3dc8 12-13
+packages/tracecat-registry/tracecat_registry/templates/tools/google_reports/activities/list_activities.yml
+  s_0855f338158bca::t_7853cd080a429f 16-17,120
+  s_0855f338158bca::t_95e4214834ab89 14-15
+tracecat/integrations/providers/google/__init__.py
+  s_0855f338158bca::t_bf8e2cdaf252e8 3
+  s_0855f338158bca::t_3e34507f7e01f9 18
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/orgunits/patch_orgunit.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,51
+  s_0855f338158bca::t_5f52a199edee34 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/tokens/delete_token.yml
+  s_0855f338158bca::t_7853cd080a429f 14-15,41
+  s_0855f338158bca::t_34e2a3fa31915b 12-13
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/domains/list_domains.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,39
+  s_0855f338158bca::t_f1421f54a0295b 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/batch_change_chromeos_device_status.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,80
+  s_0855f338158bca::t_68337cb7d53f91 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/get_user.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,54
+  s_0855f338158bca::t_24c33c5f696f80 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/orgunits/insert_orgunit.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,46
+  s_0855f338158bca::t_e92ae2493e10e5 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/orgunits/delete_orgunit.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,42
+  s_0855f338158bca::t_a46f696b97f2f4 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/two_step_verification/turn_off_two_step_verification.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,35
+  s_0855f338158bca::t_db8f7ecfced4bc 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/get_chromeos_device.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,51
+  s_0855f338158bca::t_f1be6bf6e2d607 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/groups/list_groups.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,77
+  s_0855f338158bca::t_886f249fb619c0 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/mobile_devices/get_mobile_device.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,49
+  s_0855f338158bca::t_e399ac75fe8bbd 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/verification_codes/generate_verification_codes.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,35
+  s_0855f338158bca::t_5895f0d6a71d80 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/move_chromeos_devices_to_ou.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,41
+  s_0855f338158bca::t_b5575baee94357 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/tokens/list_tokens.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,35
+  s_0855f338158bca::t_a9672dcefd0f75 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/members/get_member.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,42
+  s_0855f338158bca::t_fd037aaf94083c 10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/list_chromeos_devices.yml
+  s_0855f338158bca::t_7853cd080a429f 12-13,88
+  s_0855f338158bca::t_d218aee188e5b2 10-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "7e01dc43313250856ff13f9c7bb93a617f42575a",
+  "prompts": {},
+  "sessions": {
+    "s_0855f338158bca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0461c8f1-d32d-4956-9627-d4e029e7efaf",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
