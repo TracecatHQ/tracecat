@@ -2,7 +2,7 @@ import type {
   AgentPresetCreate,
   AgentPresetSkillBindingRead,
   AgentPresetVersionRead,
-  AnyAttachedSubagentRef,
+  CompatibleAttachedSubagentRef,
 } from "@/client"
 import {
   agentPresetPayloadToDocumentInput,
@@ -73,7 +73,7 @@ const SHARED_EXECUTION = {
 }
 
 /** The subagents the draft form knows about: slugs only, unresolved. */
-const DRAFT_SUBAGENTS: AnyAttachedSubagentRef[] = [
+const DRAFT_SUBAGENTS: CompatibleAttachedSubagentRef[] = [
   {
     preset: "triage",
     preset_version: 2,
@@ -94,7 +94,7 @@ const DRAFT_SUBAGENTS: AnyAttachedSubagentRef[] = [
  * The same subagents as stored on a saved version: resolved UUIDs attached, and
  * in a different order.
  */
-const VERSION_SUBAGENTS: AnyAttachedSubagentRef[] = [
+const VERSION_SUBAGENTS: CompatibleAttachedSubagentRef[] = [
   {
     ...DRAFT_SUBAGENTS[1],
     preset_id: "33333333-3333-3333-3333-333333333333",

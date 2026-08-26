@@ -3,7 +3,7 @@ import type {
   AgentPresetCreate,
   AgentPresetSkillBindingRead,
   AgentPresetVersionRead,
-  AnyAttachedSubagentRef,
+  CompatibleAttachedSubagentRef,
   OutputType,
 } from "@/client"
 
@@ -197,7 +197,7 @@ function normalizeToolApprovals(
  * sorting by the label the user actually sees.
  */
 function normalizeSubagents(
-  subagents: readonly AnyAttachedSubagentRef[] | null | undefined
+  subagents: readonly CompatibleAttachedSubagentRef[] | null | undefined
 ): AgentPresetSubagentEntry[] {
   if (!subagents) {
     return []

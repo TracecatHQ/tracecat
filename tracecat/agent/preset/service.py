@@ -49,6 +49,7 @@ from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
+    AuthoredAgentsConfig,
     HeadAttachedSubagentRef,
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
@@ -1095,14 +1096,19 @@ class AgentPresetService(BaseWorkspaceService):
 
     async def _resolve_preset_subagent_configs(
         self,
-        agents: AgentSubagentsConfig | dict[str, Any] | None,
+        agents: AuthoredAgentsConfig | AgentSubagentsConfig | dict[str, Any] | None,
         *,
         parent_preset_id: uuid.UUID,
         parent_slug: str,
         allow_skipped: bool = False,
     ) -> dict[str, Any]:
         """Resolve and validate a preset's subagent configuration."""
-        config = AgentSubagentsConfig.model_validate({} if agents is None else agents)
+        config_input = (
+            agents.model_dump(mode="json")
+            if isinstance(agents, AuthoredAgentsConfig)
+            else ({} if agents is None else agents)
+        )
+        config = AgentSubagentsConfig.model_validate(config_input)
         # Persisted refs (e.g. restored historical configs) already carry preset
         # ids; validate them before resolution, which would otherwise surface an
         # soft-deleted child as a generic version-not-found error.

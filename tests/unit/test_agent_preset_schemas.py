@@ -104,6 +104,44 @@ def test_agent_preset_create_accepts_skill_binding_without_version() -> None:
     assert payload.skills[0].model_dump(mode="json") == {"skill_id": str(skill_id)}
 
 
+def test_agent_preset_update_accepts_legacy_subagent_version_selector() -> None:
+    payload = AgentPresetUpdate.model_validate(
+        {
+            "agents": {
+                "enabled": True,
+                "subagents": [{"preset": "analyst", "preset_version": 3}],
+            }
+        }
+    )
+
+    assert payload.agents is not None
+    assert payload.agents.model_dump(mode="json") == {
+        "enabled": True,
+        "subagents": [
+            {
+                "preset": "analyst",
+                "name": None,
+                "description": None,
+                "max_turns": None,
+            }
+        ],
+    }
+
+
+def test_agent_preset_update_rejects_internal_head_subagent_state() -> None:
+    with pytest.raises(ValidationError):
+        AgentPresetUpdate.model_validate(
+            {
+                "agents": {
+                    "enabled": True,
+                    "subagents": [
+                        {"preset": "analyst", "preset_id": str(uuid.uuid4())}
+                    ],
+                }
+            }
+        )
+
+
 def test_agent_preset_create_ignores_legacy_skill_version_id() -> None:
     skill_id = uuid.uuid4()
 

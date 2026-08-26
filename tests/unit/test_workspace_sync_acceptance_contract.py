@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -29,7 +29,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.support.fake_vcs import FakeVcsServer
 from tracecat import config
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.agent.subagents import (
+    AttachedSubagentRef,
+    AuthoredAgentsConfig,
+    ResolvedAgentsConfig,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
@@ -1699,6 +1703,52 @@ async def test_import_accepts_stale_subagent_version_selector(
     imported_subagent = parent.agents["subagents"][0]
     assert imported_subagent["preset_version"] == 2
     assert imported_subagent["preset_version_id"] == str(child.current_version_id)
+
+
+@pytest.mark.anyio
+async def test_subagent_edge_replacement_rejects_authored_state_before_delete(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _versioned_subagent_git_tree(),
+        commit_sha="4" * 40,
+    )
+    assert diagnostics == []
+    importer = WorkspaceResourceImportService(session=session, role=svc_role)
+    await importer.import_non_workflow_resources(snapshot.spec)
+    parent = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-triage-parent",
+        )
+    )
+    assert parent is not None
+    original_child_id = await session.scalar(
+        select(AgentPresetSubagent.child_preset_id).where(
+            AgentPresetSubagent.parent_preset_id == parent.id
+        )
+    )
+    assert original_child_id is not None
+    authored_config = AuthoredAgentsConfig(
+        enabled=True,
+        subagents=[AttachedSubagentRef(preset="qa-evidence-child")],
+    )
+
+    with pytest.raises(ValidationError):
+        await AGENT_PRESET_RESOURCE_ADAPTER._replace_head_subagent_bindings(
+            importer,
+            parent,
+            cast(Any, authored_config),
+        )
+
+    remaining_child_id = await session.scalar(
+        select(AgentPresetSubagent.child_preset_id).where(
+            AgentPresetSubagent.parent_preset_id == parent.id
+        )
+    )
+    assert remaining_child_id == original_child_id
 
 
 @pytest.mark.anyio

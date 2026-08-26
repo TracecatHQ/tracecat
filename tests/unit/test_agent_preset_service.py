@@ -39,6 +39,7 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
+    AuthoredAgentsConfig,
     HeadAttachedSubagentRef,
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
@@ -2477,7 +2478,7 @@ class TestAgentPresetService:
         )
         await agent_preset_service.update_preset(
             parent,
-            AgentPresetUpdate(agents=AgentSubagentsConfig()),
+            AgentPresetUpdate(agents=AuthoredAgentsConfig()),
         )
         version_without_child = (
             await agent_preset_service.get_current_version_for_preset(parent)
@@ -2532,7 +2533,7 @@ class TestAgentPresetService:
         )
         await agent_preset_service.update_preset(
             parent,
-            AgentPresetUpdate(agents=AgentSubagentsConfig()),
+            AgentPresetUpdate(agents=AuthoredAgentsConfig()),
         )
         # Simulate the migrated state: slug-only legacy JSON alongside the
         # backfilled edges, then move the slug to a different preset.
@@ -3055,7 +3056,7 @@ class TestAgentPresetService:
         )
         parent_v1 = await agent_preset_service.get_current_version_for_preset(parent)
         await agent_preset_service.update_preset(
-            parent, AgentPresetUpdate(agents=AgentSubagentsConfig())
+            parent, AgentPresetUpdate(agents=AuthoredAgentsConfig())
         )
 
         await agent_preset_service.delete_preset(child)
@@ -3510,7 +3511,7 @@ class TestAgentPresetService:
 
         await agent_preset_service.update_preset(
             parent,
-            AgentPresetUpdate(agents=AgentSubagentsConfig()),
+            AgentPresetUpdate(agents=AuthoredAgentsConfig()),
         )
         disabled_version = await agent_preset_service.get_current_version_for_preset(
             parent
@@ -3884,7 +3885,7 @@ class TestAgentPresetService:
 
         await agent_preset_service.update_preset(
             parent,
-            AgentPresetUpdate(agents=AgentSubagentsConfig()),
+            AgentPresetUpdate(agents=AuthoredAgentsConfig()),
         )
         restored = await agent_preset_service.restore_version(parent, parent_version)
         restored_head_edges = (
@@ -4579,7 +4580,7 @@ class TestAgentPresetService:
         await agent_preset_service.update_preset(
             fresh_parent,
             AgentPresetUpdate(
-                agents=AgentSubagentsConfig.model_validate(
+                agents=AuthoredAgentsConfig.model_validate(
                     {
                         "enabled": True,
                         "subagents": [{"preset": requested_child.slug}],
@@ -4838,7 +4839,7 @@ class TestAgentPresetService:
             await agent_preset_service.update_preset(
                 parent,
                 AgentPresetUpdate(
-                    agents=AgentSubagentsConfig.model_validate(
+                    agents=AuthoredAgentsConfig.model_validate(
                         {
                             "enabled": True,
                             "subagents": [{"preset": child.slug}],
@@ -4911,7 +4912,7 @@ class TestAgentPresetService:
             await agent_preset_service.update_preset(
                 parent,
                 AgentPresetUpdate(
-                    agents=AgentSubagentsConfig.model_validate(
+                    agents=AuthoredAgentsConfig.model_validate(
                         {
                             "enabled": True,
                             "subagents": [{"preset": child.slug}],
@@ -4968,7 +4969,7 @@ class TestAgentPresetService:
             await agent_preset_service.update_preset(
                 parent,
                 AgentPresetUpdate(
-                    agents=AgentSubagentsConfig.model_validate(
+                    agents=AuthoredAgentsConfig.model_validate(
                         {
                             "enabled": True,
                             "subagents": [{"preset": child.slug}],

@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
+from tracecat.agent.subagents import (
+    AgentSubagentsConfig,
+    AuthoredAgentsConfig,
+    has_manual_tool_approvals,
+)
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
@@ -107,7 +111,7 @@ class AgentPresetExecutionConfigWrite(Schema):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
-    agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
+    agents: AuthoredAgentsConfig = Field(default_factory=AuthoredAgentsConfig)
     retries: int = Field(default=3, ge=0)
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
@@ -149,7 +153,7 @@ class AgentPresetUpdate(BaseModel):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
-    agents: AgentSubagentsConfig | None = Field(default=None)
+    agents: AuthoredAgentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
     enable_thinking: bool | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)

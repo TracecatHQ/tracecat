@@ -2352,7 +2352,7 @@ export const $AgentPresetCreate = {
       title: "Mcp Integrations",
     },
     agents: {
-      $ref: "#/components/schemas/AgentSubagentsConfig-Input",
+      $ref: "#/components/schemas/AuthoredAgentsConfig",
     },
     retries: {
       type: "integer",
@@ -2642,7 +2642,7 @@ export const $AgentPresetRead = {
       title: "Mcp Integrations",
     },
     agents: {
-      $ref: "#/components/schemas/AgentSubagentsConfig-Output",
+      $ref: "#/components/schemas/AgentSubagentsConfig",
     },
     retries: {
       type: "integer",
@@ -3180,7 +3180,7 @@ export const $AgentPresetUpdate = {
     agents: {
       anyOf: [
         {
-          $ref: "#/components/schemas/AgentSubagentsConfig-Input",
+          $ref: "#/components/schemas/AuthoredAgentsConfig",
         },
         {
           type: "null",
@@ -3447,7 +3447,7 @@ export const $AgentPresetVersionRead = {
       title: "Mcp Integrations",
     },
     agents: {
-      $ref: "#/components/schemas/AgentSubagentsConfig-Output",
+      $ref: "#/components/schemas/AgentSubagentsConfig",
     },
     retries: {
       type: "integer",
@@ -4595,7 +4595,7 @@ export const $AgentSettingsUpdate = {
   title: "AgentSettingsUpdate",
 } as const
 
-export const $AgentSubagentsConfig_Input = {
+export const $AgentSubagentsConfig = {
   properties: {
     enabled: {
       type: "boolean",
@@ -4604,7 +4604,7 @@ export const $AgentSubagentsConfig_Input = {
     },
     subagents: {
       items: {
-        $ref: "#/components/schemas/AnyAttachedSubagentRef",
+        $ref: "#/components/schemas/CompatibleAttachedSubagentRef",
       },
       type: "array",
       title: "Subagents",
@@ -4613,30 +4613,10 @@ export const $AgentSubagentsConfig_Input = {
   additionalProperties: false,
   type: "object",
   title: "AgentSubagentsConfig",
-  description:
-    "User-facing agents toggle and optional preset-backed subagents.",
-} as const
+  description: `Mixed-version compatibility parser for authored and persisted refs.
 
-export const $AgentSubagentsConfig_Output = {
-  properties: {
-    enabled: {
-      type: "boolean",
-      title: "Enabled",
-      default: false,
-    },
-    subagents: {
-      items: {
-        $ref: "#/components/schemas/AnyAttachedSubagentRef",
-      },
-      type: "array",
-      title: "Subagents",
-    },
-  },
-  additionalProperties: false,
-  type: "object",
-  title: "AgentSubagentsConfig",
-  description:
-    "User-facing agents toggle and optional preset-backed subagents.",
+New state-specific boundaries should use :class:\`AuthoredAgentsConfig\`,
+:class:\`HeadAgentsConfig\`, or :class:\`ResolvedAgentsConfig\` instead.`,
 } as const
 
 export const $AgentTagRead = {
@@ -4704,20 +4684,6 @@ export const $AlertArtifact = {
   required: ["id", "title"],
   title: "AlertArtifact",
   description: "Alert artifact stub. Extend when alert surfaces are wired.",
-} as const
-
-export const $AnyAttachedSubagentRef = {
-  anyOf: [
-    {
-      $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
-    },
-    {
-      $ref: "#/components/schemas/HeadAttachedSubagentRef",
-    },
-    {
-      $ref: "#/components/schemas/AttachedSubagentRef",
-    },
-  ],
 } as const
 
 export const $AppSettingsRead = {
@@ -5822,6 +5788,28 @@ export const $AuthDiscoveryMethod = {
   enum: ["basic", "oidc", "saml"],
   title: "AuthDiscoveryMethod",
   description: "Authentication method hint for client-side routing.",
+} as const
+
+export const $AuthoredAgentsConfig = {
+  properties: {
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: false,
+    },
+    subagents: {
+      items: {
+        $ref: "#/components/schemas/AttachedSubagentRef",
+      },
+      type: "array",
+      title: "Subagents",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "AuthoredAgentsConfig",
+  description:
+    "User-authored subagent refs that have not resolved to ResourceHeads.",
 } as const
 
 export const $AwsAssumeRoleAccessRead = {
@@ -11325,6 +11313,20 @@ export const $CommitInfo = {
   type: "object",
   required: ["status", "sha", "ref", "base_ref"],
   title: "CommitInfo",
+} as const
+
+export const $CompatibleAttachedSubagentRef = {
+  anyOf: [
+    {
+      $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
+    },
+    {
+      $ref: "#/components/schemas/HeadAttachedSubagentRef",
+    },
+    {
+      $ref: "#/components/schemas/AttachedSubagentRef",
+    },
+  ],
 } as const
 
 export const $ContinueRunRequest = {

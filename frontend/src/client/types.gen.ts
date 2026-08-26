@@ -640,7 +640,7 @@ export type AgentPresetCreate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
-  agents?: AgentSubagentsConfig_Input
+  agents?: AuthoredAgentsConfig
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -690,7 +690,7 @@ export type AgentPresetRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
-  agents?: AgentSubagentsConfig_Output
+  agents?: AgentSubagentsConfig
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -794,7 +794,7 @@ export type AgentPresetUpdate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
-  agents?: AgentSubagentsConfig_Input | null
+  agents?: AuthoredAgentsConfig | null
   retries?: number | null
   enable_thinking?: boolean | null
   enable_internet_access?: boolean | null
@@ -835,7 +835,7 @@ export type AgentPresetVersionRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
-  agents?: AgentSubagentsConfig_Output
+  agents?: AgentSubagentsConfig
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -1122,19 +1122,14 @@ export type AgentSettingsUpdate = {
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * Mixed-version compatibility parser for authored and persisted refs.
+ *
+ * New state-specific boundaries should use :class:`AuthoredAgentsConfig`,
+ * :class:`HeadAgentsConfig`, or :class:`ResolvedAgentsConfig` instead.
  */
-export type AgentSubagentsConfig_Input = {
+export type AgentSubagentsConfig = {
   enabled?: boolean
-  subagents?: Array<AnyAttachedSubagentRef>
-}
-
-/**
- * User-facing agents toggle and optional preset-backed subagents.
- */
-export type AgentSubagentsConfig_Output = {
-  enabled?: boolean
-  subagents?: Array<AnyAttachedSubagentRef>
+  subagents?: Array<CompatibleAttachedSubagentRef>
 }
 
 /**
@@ -1156,11 +1151,6 @@ export type AlertArtifact = {
   scope?: ArtifactScope | null
   type?: "alert"
 }
-
-export type AnyAttachedSubagentRef =
-  | ResolvedAttachedSubagentRef
-  | HeadAttachedSubagentRef
-  | AttachedSubagentRef
 
 /**
  * Settings for the app.
@@ -1512,6 +1502,14 @@ export type AuthDiscoverResponse = {
  * Authentication method hint for client-side routing.
  */
 export type AuthDiscoveryMethod = "basic" | "oidc" | "saml"
+
+/**
+ * User-authored subagent refs that have not resolved to ResourceHeads.
+ */
+export type AuthoredAgentsConfig = {
+  enabled?: boolean
+  subagents?: Array<AttachedSubagentRef>
+}
 
 /**
  * Workspace-scoped AWS AssumeRole details shown in the credentials UI.
@@ -3212,6 +3210,11 @@ export type CommitInfo = {
   pr_reused?: boolean
   message?: string
 }
+
+export type CompatibleAttachedSubagentRef =
+  | ResolvedAttachedSubagentRef
+  | HeadAttachedSubagentRef
+  | AttachedSubagentRef
 
 /**
  * Payload to continue a CE run after collecting approvals.
