@@ -228,7 +228,14 @@ jobs:
             TRACECAT_TEST_API_MODE=inprocess \
             TRACECAT__CONTEXT_COMPRESSION_ENABLED=true \
             TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB=0 \
-            uv run pytest tests/temporal -m "not live_secret and not requires_api" -n auto -ra -o faulthandler_timeout=300
+            uv run pytest tests/temporal -m "not live_secret and not requires_api and not serial" -n auto -ra -o faulthandler_timeout=300
+
+            # Some Temporal failure-path regressions exercise worker shutdown
+            # behavior that is not safe inside a long-lived xdist process.
+            TRACECAT_TEST_API_MODE=inprocess \
+            TRACECAT__CONTEXT_COMPRESSION_ENABLED=true \
+            TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB=0 \
+            uv run pytest tests/temporal -m "serial and not live_secret and not requires_api" -ra -o faulthandler_timeout=300
 
             # API-backed temporal tests start a local API process against the
             # test DB. Run them serially to avoid startup races under xdist,
