@@ -2579,7 +2579,7 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
 async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
     svc_role: Role,
     temporal_client: Client,
-    monkeypatch: pytest.MonkeyPatch,
+    agent_worker_factory,
     mock_session_id: uuid.UUID,
     agent_config_with_approvals: AgentConfig,
 ) -> None:
@@ -2658,19 +2658,8 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         ),
     ]
 
-    monkeypatch.setattr(config, "TRACECAT__AGENT_EXECUTOR_QUEUE", queue)
-    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_QUEUE", queue)
-
-    # Every activity registered by this regression is async, so it does not
-    # need the shared activity executor. Keeping that executor alive while the
-    # suspended history is replayed can strand an xdist worker in AnyIO test
-    # teardown after the test call itself has passed.
-    async with Worker(
-        client=temporal_client,
-        task_queue=queue,
-        activities=activities,
-        workflows=[DurableAgentWorkflow],
-        workflow_runner=UnsandboxedWorkflowRunner(),
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
     ):
         wf_handle = await temporal_client.start_workflow(
             DurableAgentWorkflow.run,
