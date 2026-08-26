@@ -1,0 +1,16 @@
+tests/unit/test_mcp_server.py
+  h_5f9670feebc95f 10380-10383,10476-10479,10520-10552
+tracecat/mcp/server.py
+  h_5f9670feebc95f 8577,8612-8614
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "68dfe3775818c34f76be3814aa9393b45e00530e",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
