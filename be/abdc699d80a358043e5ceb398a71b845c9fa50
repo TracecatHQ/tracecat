@@ -1,0 +1,45 @@
+frontend/src/components/cases/case-link-rows-dialog.tsx
+  s_ca70cedb5d591c::t_4a03e09eb4d778 192-197
+  s_ca70cedb5d591c::t_731533adecd970 25,168-171,175,182-183,186-191,198-214,344-379
+  s_ca70cedb5d591c::t_0be529d67afafd 380
+frontend/src/hooks/use-case-rows.ts
+  s_ca70cedb5d591c::t_3a30ed7dc08ce3 38-63,149-155,159,163,165-181
+frontend/src/lib/cases/case-rows.ts
+  s_ca70cedb5d591c::t_407923480ab506 4-10
+frontend/tests/use-case-rows.test.tsx
+  s_ca70cedb5d591c::t_7fe2bfbf6e948d 15,50-65,130,132-134,138-155,157-158,160-165
+frontend/src/components/cases/case-linked-rows-section.tsx
+  s_ca70cedb5d591c::t_41e2269b5f0238 160-161,171
+  s_ca70cedb5d591c::t_eff99cd1ede933 94,98-114
+  s_ca70cedb5d591c::t_1af466e1bc2fdb 265,286-296
+  s_ca70cedb5d591c::t_78e5f80c041a1d 245
+  s_ca70cedb5d591c::t_f64fdd0d6d7d29 6
+  s_ca70cedb5d591c::t_b0276c631e974e 42-45,53-54
+frontend/tests/case-linked-rows-section.test.tsx
+  s_ca70cedb5d591c::t_bf0c6ed2bf560b 305-351
+  s_ca70cedb5d591c::t_2dcc273754c3a0 32-35,40,45,49
+  s_ca70cedb5d591c::t_aea1a930600395 98-100
+  s_ca70cedb5d591c::t_894c5cc0a3d227 8
+  s_ca70cedb5d591c::t_e8c76d32cd07e5 145
+frontend/tests/case-rows.test.ts
+  s_ca70cedb5d591c::t_8361efcc3b044b 81-90
+frontend/tests/case-link-rows-dialog.test.tsx
+  s_ca70cedb5d591c::t_b2c4de16bb4bc1 11,23,25,360-396
+  s_ca70cedb5d591c::t_e14c9c6a6ee4c0 397-398
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "beabdc699d80a358043e5ceb398a71b845c9fa50",
+  "prompts": {},
+  "sessions": {
+    "s_ca70cedb5d591c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "007cd624-4ad9-4928-b97a-6193bb1d46fe",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
