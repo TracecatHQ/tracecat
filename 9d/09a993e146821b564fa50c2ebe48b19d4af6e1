@@ -1,0 +1,21 @@
+packages/tracecat-registry/tracecat_registry/integrations/google_api.py
+  s_8f29d88c44f5c5::t_66a0a28e346ec3 133-136,150,152-154
+tests/unit/test_google_api_credentials.py
+  s_8f29d88c44f5c5::t_82716e00b0f9be 201,207-228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "9d09a993e146821b564fa50c2ebe48b19d4af6e1",
+  "prompts": {},
+  "sessions": {
+    "s_8f29d88c44f5c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1b681ec-4d90-4916-a9d8-8cea401db9bc",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
