@@ -144,9 +144,30 @@ function renderSection() {
   return render(<CaseLinkedRowsSection caseId="case-1" workspaceId="ws-1" />)
 }
 
+const grantedScopes = new Set<string>()
+
+/** Replaces the granted scopes the mocked `useScopeCheck` answers from. */
+function grantScopes(...scopes: string[]) {
+  grantedScopes.clear()
+  for (const scope of scopes) {
+    grantedScopes.add(scope)
+  }
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
-  mockUseScopeCheck.mockReturnValue(true)
+  grantScopes("case:update", "table:read")
+  // Mirrors the real hook: `all` requires every scope, otherwise any one.
+  mockUseScopeCheck.mockImplementation((scope, scopes, options) => {
+    const required = [...(scope ? [scope] : []), ...(scopes ?? [])]
+    if (required.length === 0) {
+      return true
+    }
+    if (required.length === 1 || options?.all) {
+      return required.every((name) => grantedScopes.has(name))
+    }
+    return required.some((name) => grantedScopes.has(name))
+  })
   setLinkedTables(SUMMARY)
   mockUseGetTable.mockImplementation(({ tableId }) => ({
     table: { id: tableId, name: tableId, columns: [] },
@@ -340,13 +361,18 @@ describe("CaseLinkedRowsSection", () => {
 
   describe("without case:update", () => {
     beforeEach(() => {
-      mockUseScopeCheck.mockReturnValue(false)
+      grantScopes("table:read")
     })
 
-    it("checks for the case:update scope", () => {
+    it("checks for the case:update and table:read scopes", () => {
       renderSection()
 
       expect(mockUseScopeCheck).toHaveBeenCalledWith("case:update")
+      expect(mockUseScopeCheck).toHaveBeenCalledWith(
+        "case:update",
+        ["table:read"],
+        { all: true }
+      )
     })
 
     it("leaves the grids read-only and drops every mutation control", () => {
@@ -371,6 +397,44 @@ describe("CaseLinkedRowsSection", () => {
       ).not.toBeInTheDocument()
       expect(
         screen.queryByRole("button", { name: "Unlink" })
+      ).not.toBeInTheDocument()
+    })
+
+    it("shows a read-only empty state when nothing is linked", () => {
+      setLinkedTables([])
+      renderSection()
+
+      expect(screen.getByText("No linked rows")).toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Link table" })
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  describe("with case:update but without table:read", () => {
+    beforeEach(() => {
+      grantScopes("case:update")
+    })
+
+    it("keeps unlinking but drops the controls that open the link dialog", async () => {
+      const user = userEvent.setup()
+      renderSection()
+
+      const grids = screen.getAllByTestId("rows-grid")
+      expect(grids).toHaveLength(2)
+      for (const grid of grids) {
+        expect(grid).toHaveAttribute("data-selectable", "true")
+      }
+
+      await user.click(screen.getByTestId("row-r1"))
+      expect(screen.getByText("1 selected")).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "Unlink" })).toBeInTheDocument()
+
+      expect(
+        screen.queryByRole("button", { name: "Link table" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Add rows" })
       ).not.toBeInTheDocument()
     })
 

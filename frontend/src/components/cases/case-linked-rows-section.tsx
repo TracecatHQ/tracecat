@@ -41,9 +41,10 @@ export interface CaseLinkedRowsSectionProps {
  * beneath them that opens the link dialog. The action bar doubles as the
  * empty state.
  *
- * Every mutation here is guarded by `case:update` on the API, so the link,
- * add, select, and unlink controls only render with that scope. Without it
- * the grids stay, read-only, and the empty state is plain text.
+ * Every mutation here is guarded by `case:update` on the API, so the select
+ * and unlink controls only render with that scope. The link and add controls
+ * additionally need `table:read`. Without those the grids stay read-only and
+ * the empty state is plain text.
  */
 export function CaseLinkedRowsSection({
   caseId,
@@ -53,6 +54,9 @@ export function CaseLinkedRowsSection({
     useCaseLinkedTables({ caseId, workspaceId })
   // Scopes still loading reads as "not permitted", so controls never flash.
   const canUpdate = useScopeCheck("case:update") === true
+  // The link dialog lists tables, loads a schema and pages rows behind `table:read`.
+  const canLink =
+    useScopeCheck("case:update", ["table:read"], { all: true }) === true
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [linkDialogTableId, setLinkDialogTableId] = useState<string>()
 
@@ -93,15 +97,16 @@ export function CaseLinkedRowsSection({
             tableName={linkedTable.table_name ?? null}
             rowCount={linkedTable.row_count}
             canUpdate={canUpdate}
+            canLink={canLink}
             onAddRows={() => openDialog(linkedTable.table_id)}
           />
         ))}
-        {canUpdate && (
+        {canLink && (
           <div className={CASE_PANEL_ACTION_BOX_CLASS}>
             <LinkTableRow onClick={() => openDialog()} />
           </div>
         )}
-        {!canUpdate && linkedTables.length === 0 && (
+        {!canLink && linkedTables.length === 0 && (
           <div className={CASE_PANEL_ACTION_BOX_CLASS}>
             <p
               className={cn(
@@ -158,8 +163,13 @@ interface CaseLinkedTableSectionProps {
   tableId: string
   tableName: string | null
   rowCount: number
-  /** Whether the viewer holds `case:update`; gates every mutation control. */
+  /** Whether the viewer holds `case:update`; gates row selection and unlink. */
   canUpdate: boolean
+  /**
+   * Whether the viewer holds both `case:update` and `table:read`; gates the
+   * add button, since the link dialog reads tables.
+   */
+  canLink: boolean
   onAddRows: () => void
 }
 
@@ -170,6 +180,7 @@ function CaseLinkedTableSection({
   tableName,
   rowCount,
   canUpdate,
+  canLink,
   onAddRows,
 }: CaseLinkedTableSectionProps) {
   const [selectedRowIds, setSelectedRowIds] =
@@ -308,7 +319,7 @@ function CaseLinkedTableSection({
               </Button>
             </>
           )}
-          {canUpdate && (
+          {canLink && (
             <Button
               variant="ghost"
               size="sm"
