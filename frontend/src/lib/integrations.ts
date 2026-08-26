@@ -29,6 +29,11 @@ export function isMcpProvider(providerId: string): boolean {
   return providerId.endsWith("_mcp") && !providerId.startsWith("custom_")
 }
 
+/** Whether a provider ID belongs to a workspace-defined custom OAuth provider. */
+export function isCustomOAuthProvider(providerId: string): boolean {
+  return providerId.startsWith("custom_")
+}
+
 /**
  * IDs for stdio integrations waiting on background verification.
  */

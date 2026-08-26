@@ -32,10 +32,12 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   useConnectProvider,
+  useDeleteProvider,
   useDisconnectProvider,
   useTestProvider,
 } from "@/hooks/use-integration-actions"
 import { useIntegrationProvider } from "@/lib/hooks"
+import { isCustomOAuthProvider } from "@/lib/integrations"
 import { formatRelative } from "@/lib/time"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -45,6 +47,7 @@ interface OAuthIntegrationDetailsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   canUpdate?: boolean
+  canDelete?: boolean
 }
 
 function maskValue(value?: string | null) {
@@ -61,9 +64,11 @@ export function OAuthIntegrationDetailsDialog({
   open,
   onOpenChange,
   canUpdate = false,
+  canDelete = false,
 }: OAuthIntegrationDetailsDialogProps) {
   const workspaceId = useWorkspaceId()
   const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
   const {
     provider,
@@ -81,12 +86,15 @@ export function OAuthIntegrationDetailsDialog({
   const reauthorizeMutation = useConnectProvider(workspaceId)
   const testMutation = useTestProvider(workspaceId)
   const disconnectMutation = useDisconnectProvider(workspaceId)
+  const deleteMutation = useDeleteProvider(workspaceId)
 
   const providerName = provider?.metadata.name || providerId
   const isConnected = integration?.status === "connected"
   const needsReauth = integration?.status === "reauth_required"
   const hasConnection = isConnected || needsReauth
   const isExpired = integration?.is_expired ?? false
+  const isCustomProvider = isCustomOAuthProvider(providerId)
+  const showDelete = canDelete && isCustomProvider
 
   const isServiceAccountProvider =
     provider?.metadata.service_account_json ?? false
@@ -125,7 +133,8 @@ export function OAuthIntegrationDetailsDialog({
   const anyActionPending =
     reauthorizeMutation.isPending ||
     testMutation.isPending ||
-    disconnectMutation.isPending
+    disconnectMutation.isPending ||
+    deleteMutation.isPending
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -269,6 +278,18 @@ export function OAuthIntegrationDetailsDialog({
                               <Trash2 className="mr-2 size-4" />
                               Disconnect
                             </DropdownMenuItem>
+                            {showDelete ? (
+                              <DropdownMenuItem
+                                className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                                onSelect={(event) => {
+                                  event.preventDefault()
+                                  setConfirmDeleteOpen(true)
+                                }}
+                              >
+                                <Trash2 className="mr-2 size-4" />
+                                Delete provider
+                              </DropdownMenuItem>
+                            ) : null}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       ) : null}
@@ -403,6 +424,27 @@ export function OAuthIntegrationDetailsDialog({
           onConfirm={async () => {
             await disconnectMutation.mutateAsync({ providerId, grantType })
             setConfirmDisconnectOpen(false)
+            onOpenChange(false)
+          }}
+        />
+
+        <ConfirmDestructiveDialog
+          open={confirmDeleteOpen}
+          onOpenChange={setConfirmDeleteOpen}
+          confirmPhrase={providerName}
+          title="Delete custom provider"
+          description={
+            <>
+              Are you sure you want to delete{" "}
+              <span className="font-medium">{providerName}</span>? This removes
+              the provider definition and any stored credentials or connections.
+            </>
+          }
+          confirmLabel="Delete"
+          isPending={deleteMutation.isPending}
+          onConfirm={async () => {
+            await deleteMutation.mutateAsync({ providerId, grantType })
+            setConfirmDeleteOpen(false)
             onOpenChange(false)
           }}
         />
