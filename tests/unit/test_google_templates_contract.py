@@ -7,7 +7,9 @@ silently in a single YAML file:
 - every declared secret is optional, or the `||` chain never evaluates;
 - every `call_api` step passes `scopes`, which is what places the
   `GOOGLE_API_CREDENTIALS` key ahead of the generic `GOOGLE_SERVICE_TOKEN`;
-- `google_admin` is the credential of the Admin SDK namespaces only.
+- `google_admin` is the credential of the Admin SDK namespaces only, as a user
+  OAuth token first for Directory and Reports and as the service account only
+  for Alert Center.
 """
 
 from pathlib import Path
@@ -73,11 +75,18 @@ def test_google_template_credential_chain(path: Path) -> None:
         s.provider_id for s in secrets if isinstance(s, RegistryOAuthSecret)
     }
     namespace = path.relative_to(TEMPLATES).parts[0]
-    if namespace in ADMIN_SDK_NAMESPACES:
+    if namespace == "google_alert_center":
+        # Alert Center needs a service account with domain-wide delegation.
         assert oauth_providers == {"google_admin"}
         assert (
             access_token
             == "${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}"
+        )
+    elif namespace in ADMIN_SDK_NAMESPACES:
+        assert oauth_providers == {"google_admin"}
+        assert access_token == (
+            "${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN"
+            " || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}"
         )
     else:
         assert "google_admin" not in oauth_providers, (

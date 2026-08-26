@@ -9,6 +9,10 @@ definition:
   secrets:
     - type: oauth
       provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
       grant_type: client_credentials
       optional: true
     - name: google_api
@@ -28,7 +32,7 @@ definition:
         version: directory_v1
         resource: verificationCodes
         method_name: list
-        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/admin.directory.user.security"]
         params:
           userKey: ${{ inputs.user_key }}

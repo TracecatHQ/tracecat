@@ -4,6 +4,7 @@ from tracecat.integrations.providers.base import BaseOAuthProvider
 from tracecat.integrations.providers.github.mcp import GitHubMCPProvider
 from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
 from tracecat.integrations.providers.google import (
+    GoogleAdminACProvider,
     GoogleAdminCCProvider,
     GoogleDocsACProvider,
     GoogleDocsCCProvider,
@@ -52,6 +53,7 @@ from tracecat.integrations.schemas import ProviderKey
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     GitHubOAuthProvider,
     GitHubMCPProvider,
+    GoogleAdminACProvider,
     GoogleAdminCCProvider,
     GoogleDocsACProvider,
     GoogleDocsCCProvider,

@@ -9,6 +9,10 @@ definition:
   secrets:
     - type: oauth
       provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
       grant_type: client_credentials
       optional: true
     - name: google_api
@@ -29,7 +33,7 @@ definition:
         version: directory_v1
         resource: groups
         method_name: delete
-        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/admin.directory.group"]
         params:
           groupKey: ${{ inputs.group_key }}
