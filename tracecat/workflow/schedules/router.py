@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
@@ -29,7 +31,19 @@ async def list_schedules(
 ) -> list[ScheduleRead]:
     service = WorkflowSchedulesService(session, role=role)
     schedules = await service.list_schedules(workflow_id=workflow_id)
-    return ScheduleRead.list_adapter().validate_python(schedules)
+
+    run_times = await asyncio.gather(
+        *(service.get_schedule_run_times(s.id) for s in schedules)
+    )
+
+    result = []
+    for s, (last_run, next_run) in zip(schedules, run_times, strict=True):
+        read_obj = ScheduleRead.model_validate(s)
+        read_obj.last_run_at = last_run
+        read_obj.next_run_at = next_run
+        result.append(read_obj)
+
+    return result
 
 
 @router.post("", response_model=ScheduleRead)
@@ -68,7 +82,11 @@ async def get_schedule(
     service = WorkflowSchedulesService(session, role=role)
     try:
         schedule = await service.get_schedule(schedule_id)
-        return ScheduleRead.model_validate(schedule)
+        last_run, next_run = await service.get_schedule_run_times(schedule.id)
+        read_obj = ScheduleRead.model_validate(schedule)
+        read_obj.last_run_at = last_run
+        read_obj.next_run_at = next_run
+        return read_obj
     except TracecatNotFoundError as e:
         logger.error("Error getting schedule", error=e)
         raise HTTPException(
@@ -89,7 +107,11 @@ async def update_schedule(
     service = WorkflowSchedulesService(session, role=role)
     try:
         schedule = await service.update_schedule(schedule_id, params)
-        return ScheduleRead.model_validate(schedule)
+        last_run, next_run = await service.get_schedule_run_times(schedule.id)
+        read_obj = ScheduleRead.model_validate(schedule)
+        read_obj.last_run_at = last_run
+        read_obj.next_run_at = next_run
+        return read_obj
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -131,4 +153,17 @@ async def search_schedules(
     statement = select(Schedule).where(Schedule.workspace_id == role.workspace_id)
     results = await session.execute(statement)
     schedules = results.scalars().all()
-    return ScheduleRead.list_adapter().validate_python(schedules)
+
+    service = WorkflowSchedulesService(session, role=role)
+    run_times = await asyncio.gather(
+        *(service.get_schedule_run_times(s.id) for s in schedules)
+    )
+
+    result = []
+    for s, (last_run, next_run) in zip(schedules, run_times, strict=True):
+        read_obj = ScheduleRead.model_validate(s)
+        read_obj.last_run_at = last_run
+        read_obj.next_run_at = next_run
+        result.append(read_obj)
+
+    return result
