@@ -27,8 +27,10 @@ from tracecat_ee.agent.workflows.durable import (
     _apply_configured_timeout,
     _approved_user_mcp_tool_name,
     _build_approved_tool_run_input,
+    _start_registry_tool_call,
 )
 
+from tracecat import config
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
 from tracecat.agent.executor.schemas import ApprovedToolCall
@@ -40,6 +42,7 @@ from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import _serializer
+from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
@@ -904,6 +907,47 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         == f"{WorkflowUUID.from_uuid(workflow_id).short()}/{ExecutionUUID.from_uuid(execution_id).short()}"
     )
     assert result.run_context.logical_time == logical_time
+
+
+def test_approved_registry_tool_failures_are_not_retried() -> None:
+    role = Role(
+        type="user",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )
+    registry_lock = RegistryLock(
+        origins={"tracecat_registry": "test-version"},
+        actions={"core.http_request": "tracecat_registry"},
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.uuid4",
+            side_effect=[uuid.uuid4(), uuid.uuid4(), uuid.uuid4()],
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.start_activity"
+        ) as start_activity_mock,
+    ):
+        _start_registry_tool_call(
+            ApprovedToolCall(
+                tool_call_id="call_123",
+                tool_name="core__http_request",
+                args={"url": "https://example.com", "method": "GET"},
+            ),
+            registry_lock=registry_lock,
+            service_role=role,
+            logical_time=datetime(2026, 3, 18, tzinfo=UTC),
+        )
+
+    retry_policy = start_activity_mock.call_args.kwargs["retry_policy"]
+    assert retry_policy == RETRY_POLICIES["activity:fail_fast"]
+    assert retry_policy.maximum_attempts == 1
+    assert start_activity_mock.call_args.kwargs["task_queue"] == (
+        config.TRACECAT__EXECUTOR_QUEUE
+    )
 
 
 def test_build_approved_tool_run_input_strips_proxy_metadata() -> None:
