@@ -1,0 +1,99 @@
+frontend/src/components/cases/case-linked-rows-section.tsx
+  s_9f770a5de2b8e7::t_a06934b20ac3d3 13
+  s_9f770a5de2b8e7::t_65c31fb0fc6b22 3-12,14-29,34-38,43-50,53,55-59,63-70,74-96,100-109,111-123,127-138,141-147,152-169,171-175,177-208,210-269,271-279,282-298
+frontend/tests/ag-grid-selection.test.ts
+  s_9f770a5de2b8e7::t_14931c9b90dfa4 1-76
+frontend/tests/use-case-rows-pagination.test.tsx
+  s_9f770a5de2b8e7::t_3ba57809598a1b 7
+  s_9f770a5de2b8e7::t_7373e635341c21 76-80
+  s_9f770a5de2b8e7::t_65bfafdd683e98 169,171
+  s_9f770a5de2b8e7::t_64e964801c736a 1-6,8-75,81-168,170,172-226
+frontend/tests/case-link-rows-dialog.test.tsx
+  s_9f770a5de2b8e7::t_ca73ea56231a82 1-176,181-373
+  s_9f770a5de2b8e7::t_3ba57809598a1b 177-180
+frontend/src/client/types.gen.ts
+  s_9f770a5de2b8e7::t_4227ddde2f365e 2379-2389,2503-2527,13388-13391,13406-13412,13421-13436,19439-19453,19469-19498
+frontend/tests/case-linked-rows-section.test.tsx
+  s_9f770a5de2b8e7::t_ca73ea56231a82 1-313
+frontend/src/components/tables/table-rows-grid.tsx
+  s_9f770a5de2b8e7::t_19dadd04104d2e 19
+  s_9f770a5de2b8e7::t_32290058d29853 1-18,20-204
+frontend/src/components/cases/case-task-fields.tsx
+  s_9f770a5de2b8e7::t_5cd7bb4d764892 21-32
+frontend/src/hooks/use-case-rows.ts
+  s_9f770a5de2b8e7::t_bddf1098603962 1-131
+tracecat/cases/rows/router.py
+  s_8ea841d5e47921::t_e8079f462539a2 53-56
+  s_8ea841d5e47921::t_0d94cea4eda8db 17-21,48-51,66,74-90,135-179
+  s_8ea841d5e47921::t_a39696eee7a44f 180-181
+frontend/tests/use-case-rows.test.tsx
+  s_9f770a5de2b8e7::t_64e964801c736a 1-180
+frontend/src/components/tables/ag-grid-column-defs.tsx
+  s_9f770a5de2b8e7::t_f7603d02217117 1-11,19-143
+  s_9f770a5de2b8e7::t_19dadd04104d2e 12-18
+frontend/src/lib/cases/case-rows.ts
+  s_9f770a5de2b8e7::t_c86dda8e32deca 1-26
+frontend/src/components/tables/ag-grid-table.tsx
+  s_9f770a5de2b8e7::t_96c40b8aa91e36 15,19-23,34,52-53,68,71,74,81,95,109,119,136,154,167,179,192-193,195,205-216,224-238
+tests/unit/test_route_scope_guards.py
+  s_8ea841d5e47921::t_0d94cea4eda8db 551-556
+tracecat/cases/rows/service.py
+  s_8ea841d5e47921::t_0d94cea4eda8db 18-19,96,98-105,108,128-129,131-132,139,142-175,256-344,378-420
+  s_8ea841d5e47921::t_3e2b2858831dc1 76,130
+  s_8ea841d5e47921::t_8034a2781e217a 58-75,77-87,191,204,206
+  s_8ea841d5e47921::t_af8a4a92be7a21 176,421
+tracecat/cases/rows/schemas.py
+  s_8ea841d5e47921::t_e8079f462539a2 51,65
+  s_8ea841d5e47921::t_0d94cea4eda8db 5,12-13,32-37,39-40,43,45-50,53-54,57-64,66-72
+  s_8ea841d5e47921::t_66c0e50ca68e1e 52
+tests/unit/api/test_api_case_rows.py
+  s_8ea841d5e47921::t_21660db7fc0a8b 15-22,229-356,358-365,367-426
+  s_8ea841d5e47921::t_601d780e9a56fd 357,366
+frontend/src/client/schemas.gen.ts
+  s_9f770a5de2b8e7::t_4227ddde2f365e 8745-8775,9125-9200
+  s_9f770a5de2b8e7::t_8bf0236e598fd1 9201
+frontend/src/components/tables/ag-grid-selection.ts
+  s_9f770a5de2b8e7::t_1fe28226c280bf 1-7,18-61
+  s_9f770a5de2b8e7::t_19dadd04104d2e 8-17
+frontend/tests/case-rows.test.ts
+  s_9f770a5de2b8e7::t_19dadd04104d2e 8,13,70-72,85-87
+  s_9f770a5de2b8e7::t_beb0b39f7ed542 1-7,9-12,14-69,73-84,88-94
+frontend/src/client/services.gen.ts
+  s_9f770a5de2b8e7::t_4227ddde2f365e 315-318,347-348,10308-10310,10317,10335,10370-10394,10416-10471
+tests/unit/test_case_table_rows_service.py
+  s_8ea841d5e47921::t_3e2b2858831dc1 568
+  s_8ea841d5e47921::t_21660db7fc0a8b 11,20-21,86-116,477-567,569-946
+frontend/src/hooks/pagination/use-case-rows-pagination.tsx
+  s_9f770a5de2b8e7::t_bddf1098603962 1-2,4-50
+  s_9f770a5de2b8e7::t_65c31fb0fc6b22 3
+docs/automations/cases.mdx
+  s_9f770a5de2b8e7::t_5cd7bb4d764892 165-166
+frontend/src/components/cases/case-attachments-section.tsx
+  s_9f770a5de2b8e7::t_5cd7bb4d764892 31,68,79
+frontend/src/components/cases/case-link-rows-dialog.tsx
+  s_9f770a5de2b8e7::t_65c31fb0fc6b22 1-341
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "2d4588f364c2680f1a2d83bb692f66c7767a5c5f",
+  "prompts": {},
+  "sessions": {
+    "s_8ea841d5e47921": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03e5a-74d0-71d3-a7ac-67bbd66be8d6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_9f770a5de2b8e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "63c8d18a-ad51-47ae-a092-3084ae50a199",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
