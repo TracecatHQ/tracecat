@@ -15,7 +15,9 @@ import { cn } from "@/lib/utils"
  *
  * Mentions are tinted but keep the surrounding font weight on purpose. Bolding
  * them would change glyph widths, which shifts every following character and
- * desynchronises the native caret from the text the user sees.
+ * desynchronises the native caret from the text the user sees. The same goes
+ * for padding, so the highlight is widened with a ring (a box-shadow spread)
+ * that takes no layout space.
  *
  * The composer auto-grows and pins `overflow-y: hidden`, so the textarea never
  * scrolls and this layer needs no scroll synchronisation.
@@ -44,8 +46,9 @@ export function CommentMentionOverlay({
         segment.mention ? (
           <span
             key={segment.start}
+            data-mention-kind={segment.mention.kind}
             data-mention-target={segment.mention.targetId}
-            className="rounded-sm bg-primary/10 text-primary"
+            className="bg-primary/10 text-primary ring-2 ring-primary/10"
           >
             {segment.text}
           </span>

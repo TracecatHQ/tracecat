@@ -2112,6 +2112,10 @@ class CaseCommentsService(BaseWorkspaceService):
         )
         if (workflow := result.scalar_one_or_none()) is None:
             raise TracecatValidationError("Workflow not found")
+        # Publishing sets the version; the trigger consumer fails the comment
+        # when the workflow has no definition, so reject drafts up front.
+        if workflow.version is None:
+            raise TracecatValidationError("Workflow is not published")
         return workflow
 
     async def _audit_workflow_execution_event(

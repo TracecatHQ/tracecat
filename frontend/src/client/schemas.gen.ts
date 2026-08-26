@@ -6793,7 +6793,6 @@ export const $CaseCommentCreate = {
     content: {
       type: "string",
       maxLength: 25000,
-      minLength: 1,
       title: "Content",
     },
     parent_id: {

@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  BotIcon,
   ChevronLeftIcon,
   GitBranchIcon,
   GlobeIcon,
@@ -9,6 +8,7 @@ import {
   LockIcon,
   LogInIcon,
   LogsIcon,
+  MousePointerClickIcon,
   Settings2,
   UsersIcon,
 } from "lucide-react"
@@ -89,7 +89,7 @@ export function OrganizationSidebar({
     {
       title: "Agent",
       url: "/organization/settings/agent",
-      icon: BotIcon,
+      icon: MousePointerClickIcon,
       isActive: pathname?.includes("/organization/settings/agent"),
       visible: canViewSettings === true,
       locked: false,
