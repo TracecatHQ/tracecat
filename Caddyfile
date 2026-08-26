@@ -1,10 +1,12 @@
 {$BASE_DOMAIN} {
 	bind {$ADDRESS} # Binds to all available network interfaces if not specified
 
-	# MinIO S3 API proxy for presigned URLs
+	# MinIO S3 API proxy for presigned URLs.
+	# Presigned URLs are signed against the internal MinIO endpoint, so forward
+	# that host upstream or SigV4 signatures fail.
 	handle_path /s3/* {
 		reverse_proxy http://minio:9000 {
-			header_up Host {host}
+			header_up Host {upstream_hostport}
 			header_up -Server
 		}
 	}
