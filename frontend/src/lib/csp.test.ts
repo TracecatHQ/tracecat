@@ -80,6 +80,10 @@ describe("parseOrigins", () => {
     ])
   })
 
+  it("keeps a wildcard over a public suffix, which is not guarded against", () => {
+    expect(parseOrigins("https://*.com")).toEqual(["https://*.com"])
+  })
+
   it("keeps an explicit port", () => {
     expect(parseOrigins("https://minio.local:9000")).toEqual([
       "https://minio.local:9000",
