@@ -49,6 +49,19 @@ _STORAGE_CLIENT_CONFIG = AioConfig(
 )
 
 
+# AWS S3 (no custom endpoint) additionally pins SigV4 and virtual-host
+# addressing. Left to its defaults, botocore presigns against the legacy global
+# `<bucket>.s3.amazonaws.com` host using the deprecated SigV2, while the
+# deployment CSP only allows the regional `<bucket>.s3.<region>.amazonaws.com`
+# origin, so the browser would block every presigned request.
+_AWS_STORAGE_CLIENT_CONFIG = _STORAGE_CLIENT_CONFIG.merge(
+    AioConfig(
+        signature_version="s3v4",
+        s3={"addressing_style": "virtual"},
+    )
+)
+
+
 @dataclass
 class _StorageClientEntry:
     context: AbstractAsyncContextManager[S3Client] | None = field(
@@ -91,7 +104,7 @@ def _create_storage_client_context() -> AbstractAsyncContextManager[S3Client]:
             ),
         )
     # AWS S3 configuration - use AWS credentials from environment or default credential chain
-    return session.client("s3", config=_STORAGE_CLIENT_CONFIG)
+    return session.client("s3", config=_AWS_STORAGE_CLIENT_CONFIG)
 
 
 async def _get_storage_client() -> S3Client:
@@ -346,6 +359,15 @@ async def configure_bucket_lifecycle(
             raise
 
 
+def _rewrite_presigned_endpoint(url: str) -> str:
+    """Swap the internal storage endpoint prefix for the browser-reachable one."""
+    internal = config.TRACECAT__BLOB_STORAGE_ENDPOINT
+    public = config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT
+    if not internal or not public or not url.startswith(internal):
+        return url
+    return f"{public}{url[len(internal) :]}"
+
+
 async def generate_presigned_download_url(
     key: str,
     bucket: str,
@@ -390,14 +412,7 @@ async def generate_presigned_download_url(
                 Params=params,
                 ExpiresIn=expiry,
             )
-            if (
-                config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT is not None
-                and config.TRACECAT__BLOB_STORAGE_ENDPOINT
-            ):
-                url = url.replace(
-                    config.TRACECAT__BLOB_STORAGE_ENDPOINT,
-                    config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT,
-                )
+            url = _rewrite_presigned_endpoint(url)
             return url
         except ClientError as e:
             logger.error(
@@ -446,14 +461,7 @@ async def generate_presigned_upload_url(
                 Params=params,
                 ExpiresIn=expiry,
             )
-            if (
-                config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT is not None
-                and config.TRACECAT__BLOB_STORAGE_ENDPOINT
-            ):
-                url = url.replace(
-                    config.TRACECAT__BLOB_STORAGE_ENDPOINT,
-                    config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT,
-                )
+            url = _rewrite_presigned_endpoint(url)
             logger.debug(
                 "Generated presigned upload URL",
                 key=key,

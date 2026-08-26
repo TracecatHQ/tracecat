@@ -116,7 +116,7 @@ class TestS3Operations:
             async with get_storage_client() as client:
                 assert client is mock_client
             mock_session.client.assert_called_once_with(
-                "s3", config=blob_module._STORAGE_CLIENT_CONFIG
+                "s3", config=blob_module._AWS_STORAGE_CLIENT_CONFIG
             )
 
     @pytest.mark.anyio
@@ -143,7 +143,7 @@ class TestS3Operations:
 
             mock_session_cls.assert_called_once()
             mock_session.client.assert_called_once_with(
-                "s3", config=blob_module._STORAGE_CLIENT_CONFIG
+                "s3", config=blob_module._AWS_STORAGE_CLIENT_CONFIG
             )
             mock_session.client.return_value.__aenter__.assert_awaited_once()
 
@@ -177,7 +177,7 @@ class TestS3Operations:
 
             mock_session_cls.assert_called_once()
             mock_session.client.assert_called_once_with(
-                "s3", config=blob_module._STORAGE_CLIENT_CONFIG
+                "s3", config=blob_module._AWS_STORAGE_CLIENT_CONFIG
             )
             mock_session.client.return_value.__aenter__.assert_awaited_once()
 
@@ -522,6 +522,36 @@ class TestS3Operations:
         )
 
     @pytest.mark.anyio
+    async def test_presigned_aws_url_uses_regional_sigv4_host(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """AWS presigning must produce the regional host the deployment CSP allows."""
+        monkeypatch.setattr(blob_module.config, "TRACECAT__BLOB_STORAGE_ENDPOINT", "")
+        monkeypatch.setattr(
+            blob_module.config, "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT", None
+        )
+        monkeypatch.setenv("AWS_DEFAULT_REGION", "us-west-2")
+        monkeypatch.setenv("AWS_REGION", "us-west-2")
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+        monkeypatch.delenv("AWS_SESSION_TOKEN", raising=False)
+        monkeypatch.delenv("AWS_PROFILE", raising=False)
+
+        await blob_module.close_storage_client_cache()
+        try:
+            url = await generate_presigned_upload_url(
+                key="attachments/test.txt",
+                bucket="example-bucket",
+                expiry=60,
+            )
+        finally:
+            await blob_module.close_storage_client_cache()
+
+        parsed = urlparse(url)
+        assert parsed.hostname == "example-bucket.s3.us-west-2.amazonaws.com"
+        assert "X-Amz-Algorithm=AWS4-HMAC-SHA256" in parsed.query
+
+    @pytest.mark.anyio
     async def test_presigned_upload_checksum_rejects_changed_bytes(
         self,
         minio_bucket: str,
@@ -673,6 +703,62 @@ class TestS3Operations:
             },
             ExpiresIn=short_expiry,
         )
+
+
+class TestRewritePresignedEndpoint:
+    """The internal-to-public endpoint swap is a prefix rewrite, not a substring one."""
+
+    @pytest.mark.parametrize(
+        ("internal", "public", "url", "expected"),
+        [
+            pytest.param(
+                "http://minio:9000",
+                "http://localhost/s3",
+                "http://minio:9000/bucket/key.txt?Signature=abc",
+                "http://localhost/s3/bucket/key.txt?Signature=abc",
+                id="rewrites_matching_prefix",
+            ),
+            pytest.param(
+                "http://minio:9000",
+                "http://localhost/s3",
+                "https://s3.amazonaws.com/bucket/key.txt?next=http://minio:9000/x",
+                "https://s3.amazonaws.com/bucket/key.txt?next=http://minio:9000/x",
+                id="ignores_endpoint_outside_prefix",
+            ),
+            pytest.param(
+                None,
+                "http://localhost/s3",
+                "http://minio:9000/bucket/key.txt",
+                "http://minio:9000/bucket/key.txt",
+                id="internal_endpoint_unset",
+            ),
+            pytest.param(
+                "http://minio:9000",
+                None,
+                "http://minio:9000/bucket/key.txt",
+                "http://minio:9000/bucket/key.txt",
+                id="public_endpoint_unset",
+            ),
+        ],
+    )
+    def test_rewrite_presigned_endpoint(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        internal: str | None,
+        public: str | None,
+        url: str,
+        expected: str,
+    ) -> None:
+        monkeypatch.setattr(
+            blob_module.config, "TRACECAT__BLOB_STORAGE_ENDPOINT", internal
+        )
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT",
+            public,
+        )
+
+        assert blob_module._rewrite_presigned_endpoint(url) == expected
 
 
 class TestEdgeCases:
