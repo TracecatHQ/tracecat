@@ -109,7 +109,11 @@ def raise_wrapped_application_error(
             if details_envelope is not None and not details
             else tuple(details)
         )
-        next_retry_delay = error.next_retry_delay
+        next_retry_delay = (
+            error.next_retry_delay
+            if envelope.retry_disposition is RetryDisposition.RETRYABLE
+            else None
+        )
     else:
         wrapped_details = tuple(details)
         next_retry_delay = None
