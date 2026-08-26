@@ -300,3 +300,15 @@ def test_media_accepts_wrapped_base64_and_rejects_garbage() -> None:
         google_api._build_media_upload(
             {"content_base64": "not*base64!", "mime_type": "text/plain"}
         )
+
+
+def test_media_accepts_url_safe_unpadded_base64() -> None:
+    """Gmail attachment `data` is URL-safe Base64 without padding."""
+    content = bytes(range(256)) * 3 + b"\x00"
+    url_safe = base64.urlsafe_b64encode(content).decode().rstrip("=")
+    assert "-" in url_safe and "_" in url_safe and not url_safe.endswith("=")
+
+    media_body = google_api._build_media_upload(
+        {"content_base64": url_safe, "mime_type": "application/octet-stream"}
+    )
+    assert media_body.getbytes(0, len(content)) == content

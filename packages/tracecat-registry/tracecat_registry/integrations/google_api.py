@@ -37,7 +37,7 @@ class GoogleMediaUpload(TypedDict):
     """File payload for Google API upload methods."""
 
     content_base64: str
-    """Base64-encoded file content."""
+    """Base64-encoded file content; standard or URL-safe alphabet, padding optional."""
 
     mime_type: str
     """MIME type of the content."""
@@ -211,11 +211,15 @@ def _prune_none_params(params: GoogleAPIParams | None) -> GoogleAPIParams:
     return {key: value for key, value in (params or {}).items() if value is not None}
 
 
+_URL_SAFE_TO_STANDARD = str.maketrans("-_", "+/")
+
+
 def _build_media_upload(media: GoogleMediaUpload) -> MediaIoBaseUpload:
-    # Line-wrapped Base64 (the GNU `base64` default) is valid input; strip the
-    # whitespace, then reject anything outside the alphabet instead of silently
-    # uploading corrupted content.
-    encoded = "".join(media["content_base64"].split())
+    # Accept the standard and URL-safe alphabets (Gmail attachment `data` is
+    # URL-safe and unpadded), with or without line wrapping, then reject anything
+    # else instead of silently uploading corrupted content.
+    encoded = "".join(media["content_base64"].split()).translate(_URL_SAFE_TO_STANDARD)
+    encoded += "=" * (-len(encoded) % 4)
     return MediaIoBaseUpload(
         io.BytesIO(base64.b64decode(encoded, validate=True)),
         mimetype=media["mime_type"],

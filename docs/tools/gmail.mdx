@@ -8,7 +8,7 @@ description: "Reference for the Tracecat Gmail integration: registered actions, 
 
 Action ID: `tools.gmail.batch_delete_messages`
 
-Deletes many messages by message ID. Provides no guarantees that messages were not already deleted or even existed at all.
+Deletes many messages by message ID. Provides no guarantees that messages were not already deleted or even existed at all. Requires the `https://mail.google.com/` scope, which is not in the Gmail provider defaults: add it to the integration's scopes before connecting, or delegate it to the service account.
 
 Reference: [https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/batchDelete](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/batchDelete)
 
@@ -284,7 +284,7 @@ Default: `"me"`.
 
 Action ID: `tools.gmail.delete_message`
 
-Immediately and permanently deletes the specified message. This operation cannot be undone. Prefer messages.trash instead.
+Immediately and permanently deletes the specified message. This operation cannot be undone. Prefer messages.trash instead. Requires the `https://mail.google.com/` scope, which is not in the Gmail provider defaults: add it to the integration's scopes before connecting, or delegate it to the service account.
 
 Reference: [https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/delete](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/delete)
 
@@ -317,7 +317,7 @@ Default: `"me"`.
 
 Action ID: `tools.gmail.delete_thread`
 
-Immediately and permanently deletes the specified thread. Any messages that belong to the thread are also deleted. This operation cannot be undone. Prefer threads.trash instead.
+Immediately and permanently deletes the specified thread. Any messages that belong to the thread are also deleted. This operation cannot be undone. Prefer threads.trash instead. Requires the `https://mail.google.com/` scope, which is not in the Gmail provider defaults: add it to the integration's scopes before connecting, or delegate it to the service account.
 
 Reference: [https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/delete](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/delete)
 
