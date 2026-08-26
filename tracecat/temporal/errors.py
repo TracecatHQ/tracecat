@@ -198,7 +198,10 @@ def _envelopes_from_detail(detail: Any) -> tuple[ErrorEnvelope, ...]:
         if detail.envelope is not None:
             _append_unique_envelope(nested_envelopes, detail.envelope)
         for child in detail.children or ():
-            for envelope in _envelopes_from_detail(child):
+            child_envelopes = _envelopes_from_detail(child)
+            if not child_envelopes:
+                return ()
+            for envelope in child_envelopes:
                 _append_unique_envelope(nested_envelopes, envelope)
         return tuple(nested_envelopes)
     if isinstance(detail, TemporalErrorDetails):
@@ -229,7 +232,10 @@ def _envelopes_from_detail(detail: Any) -> tuple[ErrorEnvelope, ...]:
             if not isinstance(children, Sequence):
                 return ()
             for child in children:
-                for envelope in _envelopes_from_detail(child):
+                child_envelopes = _envelopes_from_detail(child)
+                if not child_envelopes:
+                    return ()
+                for envelope in child_envelopes:
                     _append_unique_envelope(raw_envelopes, envelope)
         return tuple(raw_envelopes)
 
