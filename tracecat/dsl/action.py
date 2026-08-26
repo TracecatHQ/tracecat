@@ -76,12 +76,17 @@ from tracecat.storage.object import (
 from tracecat.storage.utils import is_retryable_storage_transport_error
 from tracecat.temporal.errors import (
     extract_error_envelope,
+    extract_error_envelopes_from_details,
     raise_application_error_from_envelope,
 )
 from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
 
 _thread_local = threading.local()
+
+
+class SubflowDefinitionNotFoundError(UserError):
+    """A requested child workflow definition could not be resolved."""
 
 
 def _close_asyncio_runner(runner: asyncio.Runner) -> None:
@@ -835,7 +840,9 @@ class DSLActivities:
             if envelope.owner is RuntimeErrorOwner.PLATFORM:
                 logger.error(
                     "Platform error preparing child workflow",
-                    error=error,
+                    error_type=type(error).__name__,
+                    error_kind=envelope.kind.value,
+                    retry_disposition=envelope.retry_disposition.value,
                     ref=input.task.ref,
                 )
             _raise_classified_subflow_application_error(
@@ -855,10 +862,17 @@ def _subflow_error_envelope(error: Exception) -> ErrorEnvelope:
         if isinstance(error, ApplicationError) and error.non_retryable
         else RetryDisposition.RETRYABLE
     )
-    if isinstance(error, ApplicationError) and UserError.matches(error):
+    if isinstance(error, SubflowDefinitionNotFoundError):
         return ErrorEnvelope.user(
             kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
             message=error.message or "The child workflow could not be prepared",
+            retry_disposition=retry_disposition,
+            cause=error,
+        )
+    if isinstance(error, ApplicationError) and UserError.matches(error):
+        return ErrorEnvelope.user(
+            kind=RuntimeErrorKind.WORKFLOW_SUBFLOW_INPUT_INVALID,
+            message=error.message or "The child workflow inputs are invalid",
             retry_disposition=retry_disposition,
             cause=error,
         )
@@ -879,8 +893,16 @@ def _raise_classified_subflow_application_error(
     """Raise a history-safe classified failure for subflow preparation."""
     if isinstance(error, ApplicationError):
         error_type = error.type or type(error).__name__
-        legacy_details = tuple(error.details)
-        next_retry_delay = error.next_retry_delay
+        legacy_details = (
+            tuple(error.details)
+            if extract_error_envelopes_from_details(error.details)
+            else ()
+        )
+        next_retry_delay = (
+            error.next_retry_delay
+            if envelope.retry_disposition is RetryDisposition.RETRYABLE
+            else None
+        )
     else:
         error_type = type(error).__name__
         legacy_details = ()
@@ -1176,7 +1198,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
                 use_committed=input.use_committed,
             )
             if resolved_id is None:
-                raise UserError(f"Workflow alias '{workflow_alias}' not found")
+                raise SubflowDefinitionNotFoundError(
+                    f"Workflow alias '{workflow_alias}' not found"
+                )
             wf_id = WorkflowUUID.new(resolved_id)
     elif workflow_id := val_args.workflow_id:
         wf_id = WorkflowUUID.new(workflow_id)
@@ -1189,7 +1213,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
             wf_id, version=evaluated_args.get("version")
         )
         if not defn:
-            raise UserError(f"Workflow definition not found for {wf_id.short()}")
+            raise SubflowDefinitionNotFoundError(
+                f"Workflow definition not found for {wf_id.short()}"
+            )
     dsl = DSLInput(**defn.content)
     registry_lock = (
         RegistryLock.model_validate(defn.registry_lock) if defn.registry_lock else None
