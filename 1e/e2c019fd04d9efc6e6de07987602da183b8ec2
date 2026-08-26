@@ -1,0 +1,69 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/upload_file.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/create_folder.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/list_files.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+tracecat/integrations/providers/google/sheets.py
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 40
+tracecat/integrations/providers/google/docs.py
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 38
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/get_message.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/search_messages.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+tracecat/integrations/providers/__init__.py
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 9,18,57,66
+packages/tracecat-registry/tracecat_registry/integrations/google_api.py
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 138-141,272-363,373-380,391,401,404-405,411,423-430,453,467,470-471,479
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/get_attachment.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/get_thread.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/permissions/update_permission.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/labels/list_labels.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/get_file.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/permissions/add_permission.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/permissions/get_file_permissions.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/permanently_delete_file.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27,45-46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/permissions/revoke_permission.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27,49-50
+tests/unit/test_google_providers.py
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 76-86
+tests/unit/test_google_templates_contract.py
+  s_8f29d88c44f5c5::t_673d1ed946219e 1-14,16-53,57-76
+  s_8f29d88c44f5c5::t_e3f84d32300a19 15
+  s_8f29d88c44f5c5::t_fa9d449c1f243f 54-56
+docs/tools/google_api.mdx
+  s_8f29d88c44f5c5::t_44048a3fc696d5 74,179
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/delete_file.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/get_message_headers.yml
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 26-27
+tracecat/integrations/providers/google/__init__.py
+  s_8f29d88c44f5c5::t_0feb152fd7b62f 9,14,21,30
+packages/tracecat-registry/tracecat_registry/templates/tools/google_alert_center/feedback/create_alert_feedback.yml
+  s_8f29d88c44f5c5::t_e8c649775de963 51-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "1ee2c019fd04d9efc6e6de07987602da183b8ec2",
+  "prompts": {},
+  "sessions": {
+    "s_8f29d88c44f5c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1b681ec-4d90-4916-a9d8-8cea401db9bc",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
