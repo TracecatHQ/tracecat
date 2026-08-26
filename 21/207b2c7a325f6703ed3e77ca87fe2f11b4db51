@@ -1,0 +1,19 @@
+docs/automations/core-concepts/secrets.mdx
+  s_0855f338158bca::t_c525104d7ea4b7 94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "21207b2c7a325f6703ed3e77ca87fe2f11b4db51",
+  "prompts": {},
+  "sessions": {
+    "s_0855f338158bca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0461c8f1-d32d-4956-9627-d4e029e7efaf",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
