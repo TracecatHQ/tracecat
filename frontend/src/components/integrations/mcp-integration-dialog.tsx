@@ -822,6 +822,28 @@ export function MCPIntegrationDialog({
                 : undefined,
             custom_credentials: customCredentialsForCreate,
           }
+          if (values.auth_type === "OAUTH2" && catalogEntry) {
+            // Rows like Google SecOps need required headers alongside OAuth
+            // whichever setup is chosen, including an existing integration;
+            // they live in the separate headers editor.
+            const spec = catalogSpecForOption(
+              catalogEntry,
+              values.connection_option_id
+            )
+            if (spec?.server_type === "http" && spec.auth_type === "OAUTH2") {
+              const missingHeaders = missingRequiredHttpHeaderCredentials(
+                spec,
+                customCredentialsForCreate ?? ""
+              )
+              if (missingHeaders.length > 0) {
+                form.setError("custom_credentials", {
+                  type: "manual",
+                  message: `Missing required values: ${missingHeaders.join(", ")}`,
+                })
+                return
+              }
+            }
+          }
           if (
             values.auth_type === "OAUTH2" &&
             values.oauth_setup === "oauth_client"
@@ -854,19 +876,6 @@ export function MCPIntegrationDialog({
               form.setError("oauth_client_credentials", {
                 type: "manual",
                 message: `Missing required values: ${missingCredentials.join(", ")}`,
-              })
-              return
-            }
-            // Rows like Google SecOps also need required headers alongside
-            // the OAuth client; those live in the separate headers editor.
-            const missingHeaders = missingRequiredHttpHeaderCredentials(
-              spec,
-              customCredentialsForCreate ?? ""
-            )
-            if (missingHeaders.length > 0) {
-              form.setError("custom_credentials", {
-                type: "manual",
-                message: `Missing required values: ${missingHeaders.join(", ")}`,
               })
               return
             }

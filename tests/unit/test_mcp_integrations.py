@@ -6935,6 +6935,44 @@ class TestMCPProviderOAuth:
         assert provider_config is not None
         assert provider_config.client_id == "dcr-client"
 
+    async def test_connect_existing_integration_rejects_missing_required_headers(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """The existing-integration shortcut still enforces required headers.
+
+        Selecting an existing OAuth integration returns before discovery, so
+        the header check must run ahead of that shortcut or a catalog row is
+        committed without a header its server requires.
+        """
+        await _seed_service_user(session, integration_service)
+        resolved_catalog = _resolved_catalog(
+            _pinned_oauth_client_spec(with_header=True)
+        )
+
+        for headers in (None, '{"x-goog-user-project": ""}', '{"other": "x"}'):
+            with pytest.raises(
+                ValueError, match="Missing required header values: x-goog-user-project"
+            ):
+                await integration_service.connect_mcp_oauth_discovery(
+                    params=MCPHttpIntegrationCreate(
+                        name="SecOps MCP",
+                        server_uri="https://mcp.example.test/mcp",
+                        auth_type=MCPAuthType.OAUTH2,
+                        oauth_integration_id=oauth_integration.id,
+                        custom_credentials=(
+                            SecretStr(headers) if headers is not None else None
+                        ),
+                    ),
+                    resolved_catalog=resolved_catalog,
+                )
+
+        # Nothing was committed on the rejected path.
+        rows = (await session.execute(select(MCPIntegration))).scalars().all()
+        assert rows == []
+
     async def test_connect_rejects_missing_required_headers_before_network(
         self,
         integration_service: IntegrationService,
@@ -7161,7 +7199,7 @@ class TestMCPProviderOAuth:
         assert query["state"] == [captured["state"]]
         assert captured["scope"] == "read"
         assert captured["resource"] != "evil"
-        assert str(captured["resource"]).startswith("https://mcp.example.test")
+        assert urlparse(str(captured["resource"])).hostname == "mcp.example.test"
         # Named authlib parameters are dropped rather than forwarded.
         assert "code_verifier" not in captured
         assert "url" not in captured

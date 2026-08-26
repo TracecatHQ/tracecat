@@ -1270,6 +1270,15 @@ class IntegrationService(BaseWorkspaceService):
         # Resolve the catalog binding once per request and thread it onward.
         if resolved_catalog is None:
             resolved_catalog = self._resolve_catalog_connection_for_create(params)
+        catalog_spec = resolved_catalog.spec if resolved_catalog else None
+        if catalog_spec is not None:
+            # Fail before any discovery, registration, or row insert so a row
+            # that cannot connect is never half-created. This runs ahead of the
+            # existing-integration shortcut below, which would otherwise commit
+            # a row without the headers the catalog marks required.
+            self._validate_required_catalog_headers(
+                params=params, catalog_spec=catalog_spec
+            )
         if params.oauth_integration_id is not None:
             return PlatformMCPCatalogConnectResult(
                 mcp_integration=await self.create_mcp_integration(
@@ -1278,7 +1287,6 @@ class IntegrationService(BaseWorkspaceService):
                 created=True,
             )
 
-        catalog_spec = resolved_catalog.spec if resolved_catalog else None
         scopes: list[str] | None = None
         allowed_endpoint_hosts: frozenset[str] = frozenset()
         oauth_resource: str | None = None
@@ -1297,11 +1305,6 @@ class IntegrationService(BaseWorkspaceService):
                     catalog_spec.oauth_token_endpoint,
                 )
                 if endpoint and (hostname := urlparse(endpoint).hostname)
-            )
-            # Fail before any discovery or registration call so a row that
-            # cannot connect is never half-created.
-            self._validate_required_catalog_headers(
-                params=params, catalog_spec=catalog_spec
             )
 
         registration = self._mcp_oauth_client_registration_from_credentials(
