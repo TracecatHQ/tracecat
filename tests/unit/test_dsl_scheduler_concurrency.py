@@ -179,6 +179,38 @@ async def test_scheduler_preserves_standalone_error_envelope() -> None:
 
 
 @pytest.mark.anyio
+async def test_scheduler_rejects_defaulted_unversioned_envelope() -> None:
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    invalid_envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="Invalid unversioned classification",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    fallback_envelope = ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    invalid_detail = ActionErrorInfo(
+        ref="forged_action",
+        message=invalid_envelope.message,
+        type="UserError",
+        envelope=invalid_envelope,
+    ).model_dump(mode="json")
+    invalid_detail["envelope"].pop("schema")
+    error = _capture_application_error(fallback_envelope, invalid_detail)
+
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
+
+    details = scheduler.task_exceptions["task_0"].details
+    assert details.ref == "task_0"
+    assert details.envelope == fallback_envelope
+
+
+@pytest.mark.anyio
 async def test_scheduler_respects_max_pending_tasks_cap() -> None:
     max_pending_tasks = 3
     total_tasks = 10

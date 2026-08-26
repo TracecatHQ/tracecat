@@ -283,6 +283,38 @@ def test_legacy_workflow_error_shape_is_unchanged() -> None:
     assert extract_error_envelope(error) is None
 
 
+def test_mixed_workflow_errors_do_not_promote_partial_classification() -> None:
+    user_envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    user_detail = _classified_error_info(user_envelope, ref="user_action")
+    legacy_detail = ActionErrorInfo(
+        ref="legacy_action",
+        message="Legacy failure",
+        type="RuntimeError",
+    )
+    error = _capture_workflow_application_error(
+        {
+            "user_action": TaskExceptionInfo(
+                exception=_capture_application_error(user_envelope, user_detail),
+                details=user_detail,
+            ),
+            "legacy_action": TaskExceptionInfo(
+                exception=ApplicationError("Legacy failure", non_retryable=True),
+                details=legacy_detail,
+            ),
+        }
+    )
+
+    assert error.message.startswith("Workflow failed with 2 error(s)")
+    assert extract_error_envelopes(error) == ()
+    with patch("tracecat.dsl.workflow.workflow.patched") as patched_mock:
+        assert DSLWorkflow._has_user_error_cause(error) is False
+    patched_mock.assert_not_called()
+
+
 def test_terminal_platform_owner_wins_for_alert_attribution() -> None:
     user_envelope = ErrorEnvelope.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,

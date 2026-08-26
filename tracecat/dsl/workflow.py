@@ -186,15 +186,12 @@ def _raise_workflow_application_error(
 ) -> Never:
     """Raise the terminal workflow error without changing legacy payloads."""
     n_exceptions = len(task_exceptions)
-    primary_envelope = next(
-        (
-            envelope
-            for info in task_exceptions.values()
-            if (envelope := extract_error_envelope(info.exception)) is not None
-        ),
-        None,
+    envelopes = tuple(
+        extract_error_envelope(info.exception) for info in task_exceptions.values()
     )
-    if primary_envelope is not None:
+    if envelopes and all(envelope is not None for envelope in envelopes):
+        primary_envelope = envelopes[0]
+        assert primary_envelope is not None
         error_details = {
             ref: info.details.model_dump(mode="json")
             for ref, info in task_exceptions.items()
