@@ -1271,11 +1271,18 @@ class IntegrationService(BaseWorkspaceService):
         if resolved_catalog is None:
             resolved_catalog = self._resolve_catalog_connection_for_create(params)
         catalog_spec = resolved_catalog.spec if resolved_catalog else None
-        if catalog_spec is not None:
+        # The reconnect fallback for an existing row synthesizes params without
+        # the row's stored headers or client, so the required-field checks
+        # below would refuse a row that is already fully configured.
+        check_required_fields = (
+            catalog_spec is not None and existing_mcp_integration is None
+        )
+        if catalog_spec is not None and check_required_fields:
             # Fail before any discovery, registration, or row insert so a row
-            # that cannot connect is never half-created. This runs ahead of the
-            # existing-integration shortcut below, which would otherwise commit
-            # a row without the headers the catalog marks required.
+            # that cannot connect is never half-created. The authoritative
+            # check lives in create_mcp_integration, which the shortcut below
+            # also passes through; this early call only keeps the discovery
+            # path from doing network work first.
             self._validate_required_catalog_headers(
                 params=params, catalog_spec=catalog_spec
             )
@@ -1309,9 +1316,10 @@ class IntegrationService(BaseWorkspaceService):
             # Only client_id is needed to build a client, so a required secret
             # left out would fail at token exchange; refuse before any
             # registration parsing, discovery, or DCR.
-            self._validate_required_oauth_client_credentials(
-                params=params, catalog_spec=catalog_spec
-            )
+            if check_required_fields:
+                self._validate_required_oauth_client_credentials(
+                    params=params, catalog_spec=catalog_spec
+                )
 
         registration = self._mcp_oauth_client_registration_from_credentials(
             params=params,
@@ -1490,10 +1498,25 @@ class IntegrationService(BaseWorkspaceService):
     def _validate_required_catalog_headers(
         *, params: MCPHttpIntegrationCreate, catalog_spec: MCPConnectionSpec
     ) -> None:
-        """Reject a connect that omits headers the catalog row marks required.
+        """Reject a create/connect that omits headers the catalog row marks required."""
+        IntegrationService._validate_required_headers(
+            raw_headers=(
+                params.custom_credentials.get_secret_value()
+                if params.custom_credentials is not None
+                else ""
+            ),
+            catalog_spec=catalog_spec,
+        )
 
-        Header names are compared case-insensitively, matching how they are
-        sent. Raises ``ValueError`` listing every missing or blank key.
+    @staticmethod
+    def _validate_required_headers(
+        *, raw_headers: str, catalog_spec: MCPConnectionSpec
+    ) -> None:
+        """Check a headers JSON string against the row's required headers.
+
+        Shared by create and update. Header names are compared
+        case-insensitively, matching how they are sent. Raises ``ValueError``
+        listing every missing or blank key.
         """
         required_keys = [
             credential.key
@@ -1503,11 +1526,7 @@ class IntegrationService(BaseWorkspaceService):
         if not required_keys:
             return
         supplied: dict[str, str] = {}
-        raw_headers = (
-            params.custom_credentials.get_secret_value().strip()
-            if params.custom_credentials is not None
-            else ""
-        )
+        raw_headers = raw_headers.strip()
         if raw_headers:
             try:
                 parsed = orjson.loads(raw_headers)
@@ -2923,6 +2942,34 @@ class IntegrationService(BaseWorkspaceService):
             ) from exc
 
     @staticmethod
+    def _bound_catalog_spec_for_update(
+        *,
+        catalog_slug: str,
+        server_type: MCPServerType,
+        auth_type: MCPAuthType | None = None,
+        server_uri: str | None = None,
+    ) -> MCPConnectionSpec | None:
+        """Recipe a catalog-bound row is held to on update, if one still applies.
+
+        Returns ``None`` when the entry no longer exists or no recipe matches
+        the target connection, so a stale binding never blocks an edit.
+        """
+        entry = get_platform_mcp_catalog_entry_by_slug(
+            catalog_slug, include_private=True
+        )
+        if entry is None:
+            return None
+        try:
+            return resolve_catalog_connection(
+                entry,
+                server_type=server_type,
+                auth_type=auth_type,
+                server_uri=server_uri,
+            ).spec
+        except CatalogConnectionError:
+            return None
+
+    @staticmethod
     def _resolve_catalog_connection_for_create(
         params: MCPIntegrationCreate,
     ) -> ResolvedCatalogConnection | None:
@@ -3013,11 +3060,14 @@ class IntegrationService(BaseWorkspaceService):
         *,
         params: MCPIntegrationCreate,
         resolved_catalog: ResolvedCatalogConnection | None = None,
+        require_catalog_headers: bool = True,
     ) -> MCPIntegration:
         """Create a new MCP integration.
 
         ``resolved_catalog`` lets a caller that already bound the request to a
         catalog recipe pass it through, so one request resolves the catalog once.
+        ``require_catalog_headers`` is switched off only by catalog Connect,
+        which creates a placeholder row the user finishes in the edit dialog.
         """
         if resolved_catalog is None:
             resolved_catalog = self._resolve_catalog_connection_for_create(params)
@@ -3025,6 +3075,12 @@ class IntegrationService(BaseWorkspaceService):
             self._validate_catalog_url_credentials(
                 params=params, spec=resolved_catalog.spec
             )
+            # Authoritative required-header check: the direct POST and the
+            # OAuth shortcut both land here.
+            if require_catalog_headers and isinstance(params, MCPHttpIntegrationCreate):
+                self._validate_required_catalog_headers(
+                    params=params, catalog_spec=resolved_catalog.spec
+                )
             await self.require_entitlement(Entitlement.AGENT_ADDONS)
         catalog_row = resolved_catalog.entry if resolved_catalog else None
         slug = await self._generate_mcp_integration_slug(
@@ -3284,7 +3340,11 @@ class IntegrationService(BaseWorkspaceService):
             params = self._catalog_connect_create_params(catalog=catalog, spec=spec)
             return PlatformMCPCatalogConnectResult(
                 mcp_integration=await self.create_mcp_integration(
-                    params=params, resolved_catalog=connection
+                    params=params,
+                    resolved_catalog=connection,
+                    # Placeholder row: headers are filled in the edit dialog,
+                    # where update_mcp_integration holds them to the recipe.
+                    require_catalog_headers=False,
                 ),
                 created=True,
             )
@@ -4472,6 +4532,20 @@ class IntegrationService(BaseWorkspaceService):
                     auth_type=target_auth_type,
                     server_uri=target_server_uri,
                 )
+            # Explicitly setting headers (including clearing them with "")
+            # must keep every header the bound recipe marks required.
+            if params.custom_credentials is not None and mcp_integration.catalog_slug:
+                bound_spec = self._bound_catalog_spec_for_update(
+                    catalog_slug=mcp_integration.catalog_slug,
+                    server_type="http",
+                    auth_type=target_auth_type,
+                    server_uri=target_server_uri,
+                )
+                if bound_spec is not None:
+                    self._validate_required_headers(
+                        raw_headers=params.custom_credentials.get_secret_value(),
+                        catalog_spec=bound_spec,
+                    )
 
             # Validate OAuth integration if auth_type is, or remains, oauth2.
             if target_auth_type == MCPAuthType.OAUTH2 and target_oauth_integration_id:

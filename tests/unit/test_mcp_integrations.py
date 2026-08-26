@@ -7020,6 +7020,204 @@ class TestMCPProviderOAuth:
                 )
         assert await integration_service.list_mcp_integrations() == []
 
+    async def test_create_rejects_missing_required_headers(
+        self, integration_service: IntegrationService
+    ) -> None:
+        """POST /mcp-integrations is held to the row's required headers."""
+        custom_spec = _MCP_CONNECTION_SPEC_ADAPTER.validate_python(
+            {
+                "kind": "http_custom",
+                "server_type": "http",
+                "auth_type": "CUSTOM",
+                "requires_config": True,
+                "config_fields": [],
+                "credentials": [
+                    {
+                        "key": "Authorization",
+                        "label": "API token",
+                        "description": "Bearer token",
+                        "required": True,
+                        "secret": True,
+                        "type": "string",
+                        "target": "http_header",
+                    }
+                ],
+                "server_uri": "https://mcp.example.test/mcp",
+            }
+        )
+
+        with pytest.raises(
+            ValueError, match="Missing required header values: Authorization"
+        ):
+            await integration_service.create_mcp_integration(
+                params=MCPHttpIntegrationCreate(
+                    name="Header MCP",
+                    server_uri="https://mcp.example.test/mcp",
+                    auth_type=MCPAuthType.CUSTOM,
+                ),
+                resolved_catalog=_resolved_catalog(custom_spec),
+            )
+        assert await integration_service.list_mcp_integrations() == []
+
+    async def test_oauth_shortcut_rejects_missing_required_headers(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Linking an existing OAuth integration still requires catalog headers."""
+        params = MCPHttpIntegrationCreate(
+            name="SecOps MCP",
+            server_uri="https://mcp.example.test/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+        )
+        resolved_catalog = _resolved_catalog(
+            _pinned_oauth_client_spec(with_header=True)
+        )
+
+        with pytest.raises(
+            ValueError, match="Missing required header values: x-goog-user-project"
+        ):
+            await integration_service.connect_mcp_oauth_discovery(
+                params=params, resolved_catalog=resolved_catalog
+            )
+        # create_mcp_integration is the authoritative check on its own.
+        with pytest.raises(
+            ValueError, match="Missing required header values: x-goog-user-project"
+        ):
+            await integration_service.create_mcp_integration(
+                params=params, resolved_catalog=resolved_catalog
+            )
+        assert await integration_service.list_mcp_integrations() == []
+
+    async def test_update_holds_bound_row_to_required_headers(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Clearing required headers on a catalog-bound row is refused."""
+        catalog = _catalog_entry(
+            slug="secops-mcp",
+            name="SecOps MCP",
+            description="SecOps",
+            connection_spec=_pinned_oauth_client_spec(with_header=True),
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="SecOps MCP",
+                catalog_slug=catalog.slug,
+                server_uri="https://mcp.example.test/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+                custom_credentials=SecretStr('{"x-goog-user-project": "proj"}'),
+            )
+        )
+        original_headers = mcp_integration.encrypted_headers
+        assert original_headers is not None
+
+        with pytest.raises(
+            ValueError, match="Missing required header values: x-goog-user-project"
+        ):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=mcp_integration.id,
+                params=MCPIntegrationUpdate(custom_credentials=SecretStr("")),
+            )
+        await integration_service.session.refresh(mcp_integration)
+        assert mcp_integration.encrypted_headers == original_headers
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=mcp_integration.id,
+            params=MCPIntegrationUpdate(
+                custom_credentials=SecretStr('{"x-goog-user-project": "proj-2"}')
+            ),
+        )
+        assert updated is not None
+        assert integration_service._decrypt_mcp_custom_headers(updated) == {
+            "x-goog-user-project": "proj-2"
+        }
+
+    async def test_existing_row_reconnect_skips_required_field_checks(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A configured row that lost its OAuth link can reconnect from the card."""
+        await _seed_service_user(session, integration_service)
+        catalog = _catalog_entry(
+            slug="secops-mcp",
+            name="SecOps MCP",
+            description="SecOps",
+            connection_spec=_pinned_oauth_client_spec(with_header=True),
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        encrypted_headers = integration_service._encrypt_token(
+            '{"x-goog-user-project": "proj"}'
+        )
+        mcp_integration = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="SecOps MCP",
+            slug=catalog.slug,
+            catalog_slug=catalog.slug,
+            server_type="http",
+            server_uri="https://mcp.example.test/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=None,
+            encrypted_headers=encrypted_headers,
+        )
+        session.add(mcp_integration)
+        await session.commit()
+
+        endpoints = integration_service_module.MCPOAuthDiscoveryEndpoints(
+            authorization_endpoint="https://auth.example.test/oauth/authorize",
+            token_endpoint="https://auth.example.test/oauth/token",
+            token_methods=["none"],
+            registration_endpoint="https://auth.example.test/oauth/register",
+            resource="https://mcp.example.test/mcp",
+        )
+
+        async def fake_discover(
+            *,
+            server_uri: str,
+            oauth_resource: str | None = None,
+            allowed_endpoint_hosts: frozenset[str] = frozenset(),
+        ) -> integration_service_module.MCPOAuthDiscoveryEndpoints:
+            _ = server_uri, oauth_resource, allowed_endpoint_hosts
+            return endpoints
+
+        async def fake_register(
+            *,
+            registration_endpoint: str,
+            client_name: str,
+            token_auth_method: str | None,
+            requested_scopes: list[str],
+        ) -> integration_service_module.MCPOAuthRegistrationResult:
+            _ = registration_endpoint, client_name, token_auth_method, requested_scopes
+            return integration_service_module.MCPOAuthRegistrationResult(
+                client_id="dcr-client", client_secret=None, auth_method="none"
+            )
+
+        monkeypatch.setattr(
+            integration_service, "_discover_mcp_oauth_endpoints", fake_discover
+        )
+        monkeypatch.setattr(
+            integration_service, "_perform_mcp_dynamic_registration", fake_register
+        )
+        _patch_mcp_oauth_client(monkeypatch)
+
+        result = await integration_service.connect_platform_mcp_catalog(
+            catalog_slug=catalog.slug
+        )
+
+        assert result.oauth_connect is not None
+        assert result.mcp_integration is not None
+        assert result.mcp_integration.id == mcp_integration.id
+        await session.refresh(mcp_integration)
+        assert mcp_integration.oauth_integration_id is not None
+        assert mcp_integration.encrypted_headers == encrypted_headers
+
     async def test_connect_rejects_missing_required_client_secret(
         self,
         integration_service: IntegrationService,

@@ -724,6 +724,32 @@ export function MCPIntegrationDialog({
     }
   }
 
+  /**
+   * Block submission when the catalog spec marks headers required that the
+   * headers JSON leaves blank, surfacing the gap on the headers field. Shared
+   * by the create and edit branches; no spec means nothing to enforce.
+   */
+  function requiredHeadersPresent(
+    spec: MCPConnectionSpec | null,
+    headersJson: string
+  ): boolean {
+    if (!spec) {
+      return true
+    }
+    const missingHeaders = missingRequiredHttpHeaderCredentials(
+      spec,
+      headersJson
+    )
+    if (missingHeaders.length === 0) {
+      return true
+    }
+    form.setError("custom_credentials", {
+      type: "manual",
+      message: `Missing required values: ${missingHeaders.join(", ")}`,
+    })
+    return false
+  }
+
   const onSubmit = async (values: MCPIntegrationFormValues) => {
     let hookHandledError = false
     try {
@@ -790,6 +816,15 @@ export function MCPIntegrationDialog({
                     : null,
                 custom_credentials: customCredentialsForUpdate,
               }
+        // The server re-checks required headers; this keeps the error on the
+        // field instead of a toast when a catalog row's headers are edited.
+        if (
+          values.server_type === "http" &&
+          customCredentialsWasEdited &&
+          !requiredHeadersPresent(selectedCatalogSpec, trimmedCustomCredentials)
+        ) {
+          return
+        }
         hookHandledError = true
         await updateMcpIntegration({
           mcpIntegrationId,
@@ -831,15 +866,9 @@ export function MCPIntegrationDialog({
               values.connection_option_id
             )
             if (spec?.server_type === "http" && spec.auth_type === "OAUTH2") {
-              const missingHeaders = missingRequiredHttpHeaderCredentials(
-                spec,
-                customCredentialsForCreate ?? ""
-              )
-              if (missingHeaders.length > 0) {
-                form.setError("custom_credentials", {
-                  type: "manual",
-                  message: `Missing required values: ${missingHeaders.join(", ")}`,
-                })
+              if (
+                !requiredHeadersPresent(spec, customCredentialsForCreate ?? "")
+              ) {
                 return
               }
             }
