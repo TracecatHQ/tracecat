@@ -18,6 +18,7 @@ from tracecat.dsl.schemas import (
     ActionStatement,
     ExecutionContext,
     RunContext,
+    StreamID,
 )
 from tracecat.dsl.types import (
     ActionErrorInfo,
@@ -106,6 +107,36 @@ async def test_scheduler_preserves_classified_action_error() -> None:
     await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
 
     details = scheduler.task_exceptions["task_0"].details
+    assert details.envelope == envelope
+
+
+@pytest.mark.anyio
+async def test_scheduler_rebinds_classified_action_error_to_current_stream() -> None:
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    stream_id = StreamID.new("task_0", 2)
+    envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    error = _capture_application_error(
+        envelope,
+        ActionErrorInfo(
+            ref="legacy_ref",
+            message=envelope.message,
+            type="ValueError",
+            envelope=envelope,
+        ),
+    )
+
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=stream_id), error)
+
+    details = scheduler.stream_exceptions[stream_id].details
+    assert details.ref == "task_0"
+    assert details.stream_id == stream_id
     assert details.envelope == envelope
 
 
