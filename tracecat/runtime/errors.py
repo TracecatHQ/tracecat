@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -89,11 +89,6 @@ class ErrorEnvelope(BaseModel):
     message: str
     retry_disposition: RetryDisposition
     cause_type: str | None = None
-
-    def model_post_init(self, context: Any, /) -> None:
-        """Keep the wire discriminator during exclude-unset serialization."""
-        del context
-        self.__pydantic_fields_set__.add("schema_")
 
     @classmethod
     def user(

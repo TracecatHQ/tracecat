@@ -18,13 +18,11 @@ from tracecat.dsl.schemas import (
     ActionStatement,
     ExecutionContext,
     RunContext,
-    StreamID,
 )
 from tracecat.dsl.types import (
     ActionErrorInfo,
     Task,
 )
-from tracecat.expressions.common import ExprContext
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.runtime.errors import (
     ErrorEnvelope,
@@ -106,42 +104,6 @@ async def test_scheduler_preserves_classified_action_error() -> None:
 
     details = scheduler.task_exceptions["task_0"].details
     assert details.envelope == envelope
-
-
-@pytest.mark.anyio
-async def test_scheduler_preserves_classified_mapped_child_error() -> None:
-    async def executor(_: ActionStatement) -> None:
-        return None
-
-    scheduler = _build_scheduler(total_tasks=1, executor=executor)
-    envelope = ErrorEnvelope.user(
-        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-        message="The child action failed",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-    )
-    nested = ActionErrorInfo(
-        ref="nested_action",
-        message="Nested context",
-        type="ValueError",
-    )
-    child = ActionErrorInfo(
-        ref="child_action",
-        message="The child action failed",
-        type="ValueError",
-        expr_context=ExprContext.TRIGGER,
-        attempt=3,
-        stream_id=StreamID.new("scatter", 2),
-        children=[nested],
-        envelope=envelope,
-    )
-    error = _capture_application_error(
-        envelope,
-        {child.ref: child.model_dump(mode="json")},
-    )
-
-    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
-
-    assert scheduler.task_exceptions["task_0"].details == child
 
 
 @pytest.mark.anyio
