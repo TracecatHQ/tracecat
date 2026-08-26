@@ -1,0 +1,388 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/list_files.yml
+  s_8f29d88c44f5c5::t_695386481eb197 1-103
+tracecat/integrations/providers/google/__init__.py
+  s_8f29d88c44f5c5::t_3b9512e4da8df2 3-12,14-15,18-20,22-27,29,31-34
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/permissions/revoke_permission.yml
+  s_8f29d88c44f5c5::t_a27b32943e8fff 1-55
+frontend/src/components/integrations/oauth-integration-details-dialog.tsx
+  s_8f29d88c44f5c5::t_10fa85d1902093 91-92
+tracecat/integrations/schemas.py
+  s_8f29d88c44f5c5::t_92d65845014502 260-263
+tracecat/integrations/providers/google/service_account.py
+  s_8f29d88c44f5c5::t_39a9c51c9b983c 9,18-22,27-32,35-48
+  s_8f29d88c44f5c5::t_8d227ac12ca4be 147-148
+  s_8f29d88c44f5c5::t_e52dc530d9b65a 56,58,60
+  s_8f29d88c44f5c5::t_3aeebb5ee07c12 49
+tracecat/integrations/providers/google/sheets.py
+  s_8f29d88c44f5c5::t_93323c274c8651 1,5-9,15-20,27-39,41,45,47-49
+tracecat/integrations/providers/google/slides.py
+  s_8f29d88c44f5c5::t_cb2b64a74becb8 1-49
+  s_8f29d88c44f5c5::t_b8db2fcfaaa5c1 50-51
+frontend/src/components/provider-config-form.tsx
+  s_8f29d88c44f5c5::t_4fb921eef9b23c 123
+  s_8f29d88c44f5c5::t_c6041e39c72161 132
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/delete_file.yml
+  s_8f29d88c44f5c5::t_0219c9cfe6426a 1-50
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/permanently_delete_file.yml
+  s_8f29d88c44f5c5::t_dcbe1506aead2e 1-51
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/permissions/get_file_permissions.yml
+  s_8f29d88c44f5c5::t_6b2b8b44eafdb5 1-58
+tracecat/integrations/providers/google/gmail.py
+  s_8f29d88c44f5c5::t_cf4a1898cd9d9f 1,3,5-12,15-18,21-22,31-32,35,41-42,45-58,64-65
+  s_8f29d88c44f5c5::t_7c844e7b786f25 38-40,59-63
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/upload_file.yml
+  s_8f29d88c44f5c5::t_095fe7fee74148 1-77
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/get_file.yml
+  s_8f29d88c44f5c5::t_5bbd6b57c02806 1-48
+tracecat/integrations/providers/google/common.py
+  s_8f29d88c44f5c5::t_739ee1b3ab0bd5 1-93
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/create_folder.yml
+  s_8f29d88c44f5c5::t_8401b9ebc553b5 1-69
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/permissions/add_permission.yml
+  s_8f29d88c44f5c5::t_02d279d827d742 1-64
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/permissions/update_permission.yml
+  s_8f29d88c44f5c5::t_c1b7e76e23d78d 1-57
+tracecat/integrations/providers/google/forms.py
+  s_8f29d88c44f5c5::t_2bf858ea74645a 1-53
+tracecat/integrations/providers/google/admin.py
+  s_8f29d88c44f5c5::t_b2c446a0cb8597 1-56
+tracecat/integrations/providers/google/drive.py
+  s_8f29d88c44f5c5::t_0d2b0e29d2c8ea 1-12,15-18,21-22,31,34,37-38,41-57
+tracecat/integrations/providers/google/docs.py
+  s_8f29d88c44f5c5::t_f5242e5ca07706 1,5-9,15-18,25-37,39,43,45-47
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/activity/query_activity.yml
+  s_8f29d88c44f5c5::t_5ec5636f42f39c 1-109
+tracecat/integrations/providers/__init__.py
+  s_8f29d88c44f5c5::t_d3142db8b14d69 7-8,10-15,17,19-20
+  s_8f29d88c44f5c5::t_d4959c0ac502b2 55-56,59-61,63,65,67-68
+tests/unit/test_google_providers.py
+  s_8f29d88c44f5c5::t_09308f8792f602 1-3,5-9,13-95
+  s_8f29d88c44f5c5::t_2a94f2e518bd4f 96-133
+  s_8f29d88c44f5c5::t_8769d5ca26789b 4,10-12
+docs/automations/core-concepts/secrets.mdx
+  s_8f29d88c44f5c5::t_1a0d13e598ceee 92-186
+docs/docs.json
+  s_8f29d88c44f5c5::t_769c01d2ba60c9 205,207,210,212,217
+docs/snippets/registry-secrets-and-oauth.mdx
+  s_8f29d88c44f5c5::t_b276c7ae24921a 65
+docs/tools/gmail.mdx
+  s_8f29d88c44f5c5::t_9924c05d5605ad 7-389,392-879,881-885,889,892-894,898,900,904,906-916,922,928,930-932,934,938,941-943,947,949,953,955,957-1004,1016,1018,1020-1022,1026,1029-1031,1035,1037,1041,1043-1130,1138,1144,1146,1148-1150,1154,1157-1159,1163,1165,1169,1171,1173-1198,1204,1210,1212,1214-1216,1220,1223-1225,1229-1234,1237,1243,1245,1247-1249,1253,1256-1258,1262,1264,1268,1270,1272,1276,1278-1363,1371
+docs/tools/google_alert_center.mdx
+  s_8f29d88c44f5c5::t_0483a3b9c05522 1-324
+docs/tools/google_api.mdx
+  s_8f29d88c44f5c5::t_5addbea56e6b11 11,20,48-63,90,100,109,137-144,195
+docs/tools/google_directory.mdx
+  s_8f29d88c44f5c5::t_a3f433d2866b4a 1-2069
+docs/tools/google_docs.mdx
+  s_8f29d88c44f5c5::t_b8755c04eb92b4 19,21-22,58,60-61,85,87-88
+docs/tools/google_drive.mdx
+  s_8f29d88c44f5c5::t_11f6128a7e7c62 11-13,17,20-22,66-68,72,75-77,107-109,113,116-118,140-142,146,149-151,173-175,179,182-184,202-217,222-224,228,231-233,237-244,253-260,277-284,297-299,303,306-308,318-384,389-391,395,398-400,420-422,426,429-431,465-467,471,474-476
+docs/tools/google_forms.mdx
+  s_8f29d88c44f5c5::t_718dabfd06563c 1-355
+docs/tools/google_reports.mdx
+  s_8f29d88c44f5c5::t_6b019582f4c656 1-325
+docs/tools/google_sheets.mdx
+  s_8f29d88c44f5c5::t_0151699e11e778 19,21-22,92,94-95,111-141,154,156-157,197-306,319,321-322,372-463,476,478-479,513,515-516,534-564,577,579-580,605-804
+docs/tools/google_slides.mdx
+  s_8f29d88c44f5c5::t_1a5ac0e75eb689 1-174
+packages/tracecat-registry/tracecat_registry/integrations/google_api.py
+  s_8f29d88c44f5c5::t_feb5b0dee92978 3-4,6,12,36-45,49,57-58,61-62,89-101,106-107,109,112-116,123-124,126-137,141-143,146,160-162,188-206,214-216,241,243-245,296-307,318-334,351-358,365-368,405-416,427-433,472-476,482,490
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/drafts/create_draft.yml
+  s_8f29d88c44f5c5::t_55f7f780e2f726 1-137
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/drafts/delete_draft.yml
+  s_8f29d88c44f5c5::t_a44c34afee491f 1-49
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/drafts/get_draft.yml
+  s_8f29d88c44f5c5::t_7c66cbd7eb2344 1-59
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/drafts/list_drafts.yml
+  s_8f29d88c44f5c5::t_8ef7f76c598b6c 1-69
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/drafts/send_draft.yml
+  s_8f29d88c44f5c5::t_634ad059ffd4be 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/drafts/update_draft.yml
+  s_8f29d88c44f5c5::t_ee17cb67d0e98a 1-141
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/history/list_history.yml
+  s_8f29d88c44f5c5::t_32d71c30a74f96 1-82
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/labels/create_label.yml
+  s_8f29d88c44f5c5::t_0b57ee92af1a95 1-59
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/labels/delete_label.yml
+  s_8f29d88c44f5c5::t_b779a3046e46aa 1-51
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/labels/get_label.yml
+  s_8f29d88c44f5c5::t_747b48c923eee3 1-49
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/labels/list_labels.yml
+  s_8f29d88c44f5c5::t_7afc541d098d61 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/labels/patch_label.yml
+  s_8f29d88c44f5c5::t_a6d75e6de5377b 1-63
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/batch_delete_messages.yml
+  s_8f29d88c44f5c5::t_2b3091a87cf616 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/batch_modify_messages.yml
+  s_8f29d88c44f5c5::t_29e152078481f8 1-72
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/delete_message.yml
+  s_8f29d88c44f5c5::t_4ef7750bc03c60 1-51
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/get_attachment.yml
+  s_8f29d88c44f5c5::t_a7b721a55099c6 1-51
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/get_message.yml
+  s_8f29d88c44f5c5::t_eac235f703e79d 1-54
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/get_message_headers.yml
+  s_8f29d88c44f5c5::t_c18461852249f3 1-55
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/modify_message.yml
+  s_8f29d88c44f5c5::t_e8c563f0d0e5eb 1-76
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/search_messages.yml
+  s_8f29d88c44f5c5::t_25d8c5b1251927 1-57
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/send_message.yml
+  s_8f29d88c44f5c5::t_53364f954d79c2 1-138
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/trash_message.yml
+  s_8f29d88c44f5c5::t_affc1fa720a94f 1-49
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/untrash_message.yml
+  s_8f29d88c44f5c5::t_0a9b2303940b27 1-49
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/delete_thread.yml
+  s_8f29d88c44f5c5::t_8048c58f032c89 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/get_thread.yml
+  s_8f29d88c44f5c5::t_5b32eb5e933b15 1-53
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/list_threads.yml
+  s_8f29d88c44f5c5::t_b7b5d547ce81ac 1-74
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/modify_thread.yml
+  s_8f29d88c44f5c5::t_3f29923fc81fda 1-78
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/trash_thread.yml
+  s_8f29d88c44f5c5::t_6bff3260f35c96 1-51
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/untrash_thread.yml
+  s_8f29d88c44f5c5::t_bef1701ff3219a 1-51
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/users/get_profile.yml
+  s_8f29d88c44f5c5::t_b9c5a85e3b58a6 1-45
+packages/tracecat-registry/tracecat_registry/templates/tools/google_alert_center/alerts/batch_delete_alerts.yml
+  s_8f29d88c44f5c5::t_4a810750b2abf0 1-55
+packages/tracecat-registry/tracecat_registry/templates/tools/google_alert_center/alerts/batch_undelete_alerts.yml
+  s_8f29d88c44f5c5::t_8ace8e5349bee7 1-55
+packages/tracecat-registry/tracecat_registry/templates/tools/google_alert_center/alerts/delete_alert.yml
+  s_8f29d88c44f5c5::t_9898b7e15447a2 1-46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_alert_center/alerts/get_alert.yml
+  s_8f29d88c44f5c5::t_220b58f63a6e7d 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_alert_center/alerts/get_alert_metadata.yml
+  s_8f29d88c44f5c5::t_d58e4e4ae3c395 1-44
+packages/tracecat-registry/tracecat_registry/templates/tools/google_alert_center/alerts/list_alerts.yml
+  s_8f29d88c44f5c5::t_5749ed9982d1db 1-69
+packages/tracecat-registry/tracecat_registry/templates/tools/google_alert_center/alerts/undelete_alert.yml
+  s_8f29d88c44f5c5::t_022b42f4e4ca26 1-60
+packages/tracecat-registry/tracecat_registry/templates/tools/google_alert_center/feedback/create_alert_feedback.yml
+  s_8f29d88c44f5c5::t_58e80cd59c3dfe 1-62
+packages/tracecat-registry/tracecat_registry/templates/tools/google_alert_center/feedback/list_alert_feedback.yml
+  s_8f29d88c44f5c5::t_d3da4c90510959 1-51
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/asps/delete_asp.yml
+  s_8f29d88c44f5c5::t_2952341af80543 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/asps/get_asp.yml
+  s_8f29d88c44f5c5::t_b7c6b8a723281b 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/asps/list_asps.yml
+  s_8f29d88c44f5c5::t_31544510179ac1 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/batch_change_chromeos_device_status.yml
+  s_8f29d88c44f5c5::t_b46a796a0b3fdf 1-81
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/get_chromeos_device.yml
+  s_8f29d88c44f5c5::t_b019b88dd00b07 1-53
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/get_chromeos_device_command.yml
+  s_8f29d88c44f5c5::t_d3fffe400ee1e5 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/issue_chromeos_device_command.yml
+  s_8f29d88c44f5c5::t_8742b9ab94dbc9 1-78
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/list_chromeos_devices.yml
+  s_8f29d88c44f5c5::t_c965c148a0d24a 1-96
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/move_chromeos_devices_to_ou.yml
+  s_8f29d88c44f5c5::t_08692b863d4a7a 1-44
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/chromeos_devices/patch_chromeos_device.yml
+  s_8f29d88c44f5c5::t_87e74e88054ab0 1-66
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/customers/get_customer.yml
+  s_8f29d88c44f5c5::t_773ea28f205bb2 1-37
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/domains/get_domain.yml
+  s_8f29d88c44f5c5::t_e719f6c155a6c6 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/domains/list_domains.yml
+  s_8f29d88c44f5c5::t_5b101992e9d9b7 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/groups/delete_group.yml
+  s_8f29d88c44f5c5::t_45b036c29a92e2 1-36
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/groups/get_group.yml
+  s_8f29d88c44f5c5::t_7cd58e6458f464 1-36
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/groups/insert_group.yml
+  s_8f29d88c44f5c5::t_41f2915e760eaf 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/groups/list_groups.yml
+  s_8f29d88c44f5c5::t_5c58e6d4af620f 1-84
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/groups/patch_group.yml
+  s_8f29d88c44f5c5::t_9db988df75157e 1-46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/members/delete_member.yml
+  s_8f29d88c44f5c5::t_e0bc8b7e424968 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/members/get_member.yml
+  s_8f29d88c44f5c5::t_65a08b72d2a82c 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/members/has_member.yml
+  s_8f29d88c44f5c5::t_906ebd412254a8 1-45
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/members/insert_member.yml
+  s_8f29d88c44f5c5::t_4009bac65944a6 1-78
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/members/list_members.yml
+  s_8f29d88c44f5c5::t_1d957ab16096a9 1-59
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/members/patch_member.yml
+  s_8f29d88c44f5c5::t_331ee0ad92c26e 1-73
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/mobile_devices/action_mobile_device.yml
+  s_8f29d88c44f5c5::t_0d98ca2e5e01f4 1-50
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/mobile_devices/delete_mobile_device.yml
+  s_8f29d88c44f5c5::t_212a8fde1b0c30 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/mobile_devices/get_mobile_device.yml
+  s_8f29d88c44f5c5::t_fdd24c4a2ed895 1-51
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/mobile_devices/list_mobile_devices.yml
+  s_8f29d88c44f5c5::t_1501f216cfb0ed 1-81
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/orgunits/delete_orgunit.yml
+  s_8f29d88c44f5c5::t_8b683a7de1e665 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/orgunits/get_orgunit.yml
+  s_8f29d88c44f5c5::t_3c31e787c6e418 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/orgunits/insert_orgunit.yml
+  s_8f29d88c44f5c5::t_446d0190ba0966 1-47
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/orgunits/list_orgunits.yml
+  s_8f29d88c44f5c5::t_02514ace113915 1-51
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/orgunits/patch_orgunit.yml
+  s_8f29d88c44f5c5::t_34acd672c3adbb 1-53
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/privileges/list_privileges.yml
+  s_8f29d88c44f5c5::t_da619a1dd0d38c 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/role_assignments/delete_role_assignment.yml
+  s_8f29d88c44f5c5::t_6b6f80f6303a14 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/role_assignments/get_role_assignment.yml
+  s_8f29d88c44f5c5::t_faeb07a55466d9 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/role_assignments/insert_role_assignment.yml
+  s_8f29d88c44f5c5::t_6def863dacf1e6 1-84
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/role_assignments/list_role_assignments.yml
+  s_8f29d88c44f5c5::t_5fc714e446f4d2 1-73
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/roles/get_role.yml
+  s_8f29d88c44f5c5::t_9f7d353767e68d 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/roles/list_roles.yml
+  s_8f29d88c44f5c5::t_03f4b902060d5c 1-49
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/tokens/delete_token.yml
+  s_8f29d88c44f5c5::t_9a406d72c0e0fa 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/tokens/get_token.yml
+  s_8f29d88c44f5c5::t_8dfa95930b7b3a 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/tokens/list_tokens.yml
+  s_8f29d88c44f5c5::t_2765984972a7c0 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/two_step_verification/turn_off_two_step_verification.yml
+  s_8f29d88c44f5c5::t_16f055354a6165 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/delete_user.yml
+  s_8f29d88c44f5c5::t_1ed11169a6d77c 1-36
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/get_user.yml
+  s_8f29d88c44f5c5::t_f45960eefa79a8 1-57
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/insert_user.yml
+  s_8f29d88c44f5c5::t_6ebcec6039bbea 1-49
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/list_user_aliases.yml
+  s_8f29d88c44f5c5::t_3a2f64794b8f4e 1-36
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/list_users.yml
+  s_8f29d88c44f5c5::t_41caaec25246ae 1-106
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/make_user_admin.yml
+  s_8f29d88c44f5c5::t_639eefca1b0e10 1-41
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/patch_user.yml
+  s_8f29d88c44f5c5::t_4b426cdf030cd8 1-48
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/sign_out_user.yml
+  s_8f29d88c44f5c5::t_9827258b2357d7 1-38
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/users/undelete_user.yml
+  s_8f29d88c44f5c5::t_3ed277b0e8c517 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/verification_codes/generate_verification_codes.yml
+  s_8f29d88c44f5c5::t_2a8110cad6f33f 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/verification_codes/invalidate_verification_codes.yml
+  s_8f29d88c44f5c5::t_161a80b13e378b 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/verification_codes/list_verification_codes.yml
+  s_8f29d88c44f5c5::t_186b33be461f55 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/google_docs/batch_update_document.yml
+  s_8f29d88c44f5c5::t_56a42806b15ab4 10-13,18-25,42,46,50,52-53,55,57-64
+packages/tracecat-registry/tracecat_registry/templates/tools/google_docs/create_document.yml
+  s_8f29d88c44f5c5::t_e11eca51f84386 10-13,18-25,39,41-42,44,46-53
+packages/tracecat-registry/tracecat_registry/templates/tools/google_docs/get_document.yml
+  s_8f29d88c44f5c5::t_3e5bc0fa80d075 10-13,18-25,39,42-43,48,50-55,57
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/forms/batch_update_form.yml
+  s_8f29d88c44f5c5::t_ea3ec4376862c1 1-80
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/forms/create_form.yml
+  s_8f29d88c44f5c5::t_8c0bca0b4ecb5f 1-56
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/forms/get_form.yml
+  s_8f29d88c44f5c5::t_7da6a8671285d5 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/forms/set_publish_settings.yml
+  s_8f29d88c44f5c5::t_82da00998878eb 1-71
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/responses/get_response.yml
+  s_8f29d88c44f5c5::t_8994e7ecba8063 1-46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/responses/list_responses.yml
+  s_8f29d88c44f5c5::t_06176455473fbf 1-66
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/watches/create_watch.yml
+  s_8f29d88c44f5c5::t_cfb4001a563cf3 1-79
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/watches/delete_watch.yml
+  s_8f29d88c44f5c5::t_969933befaeffa 1-46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/watches/list_watches.yml
+  s_8f29d88c44f5c5::t_6b1e7a42565c5d 1-44
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/watches/renew_watch.yml
+  s_8f29d88c44f5c5::t_00b89be50b6585 1-49
+packages/tracecat-registry/tracecat_registry/templates/tools/google_reports/activities/list_activities.yml
+  s_8f29d88c44f5c5::t_775fccb06920b2 1-131
+packages/tracecat-registry/tracecat_registry/templates/tools/google_reports/usage/get_customer_usage_report.yml
+  s_8f29d88c44f5c5::t_d57c6af4cbc6b4 1-59
+packages/tracecat-registry/tracecat_registry/templates/tools/google_reports/usage/get_entity_usage_report.yml
+  s_8f29d88c44f5c5::t_0ea764118efd4a 1-84
+packages/tracecat-registry/tracecat_registry/templates/tools/google_reports/usage/get_user_usage_report.yml
+  s_8f29d88c44f5c5::t_0afee91ef79bef 1-94
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/append_values.yml
+  s_8f29d88c44f5c5::t_62264d3415d995 10-13,18-25,57,66,74-78,84,86,88-89,91,93-100
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/batch_clear_values.yml
+  s_8f29d88c44f5c5::t_b32aa8b58f5f47 10-13,18-25,35,37-47
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/batch_get_values.yml
+  s_8f29d88c44f5c5::t_5d23dd3c138ff2 10-13,18-25,50,57,63,72,74-79,81
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/batch_update_values.yml
+  s_8f29d88c44f5c5::t_0dfb9c6cf07fe0 10-13,18-25,54,62,95,97,99-106
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/copy_sheet.yml
+  s_8f29d88c44f5c5::t_721d5f36dba704 10-13,18-25,38,40-51
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/create_spreadsheet.yml
+  s_8f29d88c44f5c5::t_42e3c7d9fa84a5 10-13,18-25,48,50,52-59
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/developer_metadata/get_developer_metadata.yml
+  s_8f29d88c44f5c5::t_c44a0a6c65a8b6 1-48
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/developer_metadata/search_developer_metadata.yml
+  s_8f29d88c44f5c5::t_82e65908469c1d 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/get_spreadsheet.yml
+  s_8f29d88c44f5c5::t_2a5723021dcdee 10-13,18-25,43,47-48,55,57-62,64
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/spreadsheets/batch_update_spreadsheet.yml
+  s_8f29d88c44f5c5::t_fe82ca3753d6d9 1-95
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/spreadsheets/get_spreadsheet_by_data_filter.yml
+  s_8f29d88c44f5c5::t_1974b865aff3c2 1-72
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/values/batch_clear_values_by_data_filter.yml
+  s_8f29d88c44f5c5::t_774b17eaf0396d 1-56
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/values/batch_get_values_by_data_filter.yml
+  s_8f29d88c44f5c5::t_e6f95fc83f586a 1-99
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/values/batch_update_values_by_data_filter.yml
+  s_8f29d88c44f5c5::t_1786a886343ef6 1-105
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/values/clear_values.yml
+  s_8f29d88c44f5c5::t_c8dcf1b8170b0e 1-51
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/values/get_values.yml
+  s_8f29d88c44f5c5::t_56b29e916b9ec7 1-70
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/values/update_values.yml
+  s_8f29d88c44f5c5::t_e71498e42e725c 1-105
+packages/tracecat-registry/tracecat_registry/templates/tools/google_slides/pages/get_page.yml
+  s_8f29d88c44f5c5::t_dcbaa6e549688b 1-46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_slides/pages/get_page_thumbnail.yml
+  s_8f29d88c44f5c5::t_c7282101ef6277 1-67
+packages/tracecat-registry/tracecat_registry/templates/tools/google_slides/presentations/batch_update_presentation.yml
+  s_8f29d88c44f5c5::t_fd451ea537b512 1-73
+packages/tracecat-registry/tracecat_registry/templates/tools/google_slides/presentations/create_presentation.yml
+  s_8f29d88c44f5c5::t_1c5bf8c99fc9dc 1-54
+packages/tracecat-registry/tracecat_registry/templates/tools/google_slides/presentations/get_presentation.yml
+  s_8f29d88c44f5c5::t_020db202d3fd16 1-42
+tests/unit/test_google_api_credentials.py
+  s_8f29d88c44f5c5::t_792f5ba189e5bd 1,3-6,8-37,40-41,44-51,54-55,57-60,62-65,68-71,73-78,80-81,84-86,88-89,92-120,123-239,241-249,251-282
+frontend/src/client/schemas.gen.ts
+  s_074f60bd4e6223::t_02fa3627f0780f 20510-20516
+frontend/src/client/types.gen.ts
+  s_074f60bd4e6223::t_4c57eae337ea93 6246-6249
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "2f6563db59490a79a508f02ecb7791e11c8fd32b",
+  "prompts": {},
+  "sessions": {
+    "s_074f60bd4e6223": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12df82ba-1b3e-48b6-932a-384f445300a1",
+        "model": "unknown"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_8f29d88c44f5c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1b681ec-4d90-4916-a9d8-8cea401db9bc",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
