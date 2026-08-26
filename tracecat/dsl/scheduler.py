@@ -72,7 +72,10 @@ with workflow.unsafe.imports_passed_through():
         action_collection_prefix,
         action_key,
     )
-    from tracecat.temporal.errors import extract_error_envelope
+    from tracecat.temporal.errors import (
+        extract_error_envelope,
+        extract_error_envelopes_from_details,
+    )
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -104,6 +107,8 @@ def _classified_action_error_info(
         return None
 
     for detail in error.details:
+        if not extract_error_envelopes_from_details((detail,)):
+            continue
         try:
             parsed = ActionErrorInfo.model_validate(detail)
         except ValidationError:
@@ -147,7 +152,7 @@ def _validated_action_error_map(
         except ValidationError:
             return None
 
-    if not parsed or not any(_action_error_contains_envelope(item) for item in parsed):
+    if not parsed or not all(_action_error_contains_envelope(item) for item in parsed):
         return None
     return tuple(parsed)
 

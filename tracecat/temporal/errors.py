@@ -143,6 +143,13 @@ def extract_error_envelopes(error: BaseException) -> tuple[ErrorEnvelope, ...]:
     return tuple(envelopes)
 
 
+def extract_error_envelopes_from_details(
+    details: Sequence[Any],
+) -> tuple[ErrorEnvelope, ...]:
+    """Extract envelopes only from explicitly classified transport details."""
+    return _envelopes_from_details(details)
+
+
 def _envelope_from_details(details: Sequence[Any]) -> ErrorEnvelope | None:
     envelopes = _envelopes_from_details(details)
     return envelopes[0] if envelopes else None
@@ -235,7 +242,10 @@ def _envelopes_from_detail(detail: Any) -> tuple[ErrorEnvelope, ...]:
             ActionErrorInfo.model_validate(value)
         except ValidationError:
             return ()
-        for envelope in _envelopes_from_detail(value):
+        value_envelopes = _envelopes_from_detail(value)
+        if not value_envelopes:
+            return ()
+        for envelope in value_envelopes:
             _append_unique_envelope(envelopes, envelope)
     return tuple(envelopes)
 
