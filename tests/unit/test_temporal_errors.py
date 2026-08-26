@@ -356,6 +356,53 @@ def test_payload_key_does_not_collide_without_valid_discriminator() -> None:
     assert extract_error_envelope(error) is None
 
 
+def test_action_error_detail_requires_nested_schema_discriminator() -> None:
+    error = ApplicationError(
+        "Legacy error",
+        {
+            "ref": "action",
+            "message": "Missing discriminator",
+            "type": "ValueError",
+            "envelope": {
+                "owner": "user",
+                "kind": "action.execution.failed",
+                "message": "Missing discriminator",
+                "retry_disposition": "non_retryable",
+                "cause_type": None,
+            },
+        },
+    )
+
+    assert extract_error_envelope(error) is None
+
+
+def test_aggregate_action_error_requires_child_schema_discriminator() -> None:
+    child = {
+        "ref": "scatter[0]",
+        "message": "Missing discriminator",
+        "type": "ValueError",
+        "envelope": {
+            "owner": "user",
+            "kind": "action.execution.failed",
+            "message": "Missing discriminator",
+            "retry_disposition": "non_retryable",
+            "cause_type": None,
+        },
+    }
+    aggregate = {
+        "ref": "gather",
+        "message": "Gather failed",
+        "type": "ApplicationError",
+        "children": [child],
+    }
+
+    assert extract_error_envelope(ApplicationError("Gather failed", aggregate)) is None
+    assert (
+        extract_error_envelope(ApplicationError("Gather failed", {"gather": aggregate}))
+        is None
+    )
+
+
 def test_action_error_map_extracts_every_classified_envelope() -> None:
     user_envelope = _user_envelope()
     platform_envelope = _platform_envelope()

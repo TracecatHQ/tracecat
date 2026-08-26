@@ -199,7 +199,19 @@ def _envelopes_from_detail(detail: Any) -> tuple[ErrorEnvelope, ...]:
     except ValidationError:
         pass
     else:
-        return _envelopes_from_detail(parsed)
+        raw_envelopes: list[ErrorEnvelope] = []
+        if parsed.envelope is not None:
+            if envelope := parse_error_envelope(detail.get("envelope")):
+                _append_unique_envelope(raw_envelopes, envelope)
+
+        if parsed.children is not None:
+            children = detail.get("children")
+            if not isinstance(children, Sequence):
+                return ()
+            for child in children:
+                for envelope in _envelopes_from_detail(child):
+                    _append_unique_envelope(raw_envelopes, envelope)
+        return tuple(raw_envelopes)
 
     # Workflow-level action failures retain the established ``{ref: info}``
     # details shape. Every value must be a complete ActionErrorInfo; accepting a
@@ -207,10 +219,10 @@ def _envelopes_from_detail(detail: Any) -> tuple[ErrorEnvelope, ...]:
     envelopes: list[ErrorEnvelope] = []
     for value in detail.values():
         try:
-            parsed = ActionErrorInfo.model_validate(value)
+            ActionErrorInfo.model_validate(value)
         except ValidationError:
             return ()
-        for envelope in _envelopes_from_detail(parsed):
+        for envelope in _envelopes_from_detail(value):
             _append_unique_envelope(envelopes, envelope)
     return tuple(envelopes)
 
