@@ -1,10 +1,20 @@
-import { buildContentSecurityPolicy, parseOrigins } from "@/lib/csp"
+import {
+  buildContentSecurityPolicy,
+  buildContentSecurityPolicyFromEnv,
+  parseOrigins,
+} from "@/lib/csp"
 
 const BASE_POLICY =
   "connect-src 'self'; default-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; script-src 'self' 'unsafe-inline'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'"
 
 const POSTHOG_POLICY =
   "connect-src 'self' https://*.posthog.com; default-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; script-src 'self' 'unsafe-inline' https://*.posthog.com; script-src-attr 'none'; style-src 'self' 'unsafe-inline'"
+
+const directiveNames = (policy: string) =>
+  policy.split("; ").map((directive) => directive.split(" ")[0])
+
+const connectSrc = (policy: string) =>
+  policy.split("; ").find((directive) => directive.startsWith("connect-src "))
 
 describe("parseOrigins", () => {
   it.each([
@@ -58,6 +68,18 @@ describe("parseOrigins", () => {
     ])
   })
 
+  it("strips userinfo", () => {
+    expect(parseOrigins("https://user:pass@a.example.com")).toEqual([
+      "https://a.example.com",
+    ])
+  })
+
+  it("passes a wildcard host through unchanged", () => {
+    expect(parseOrigins("https://*.s3.us-west-2.amazonaws.com")).toEqual([
+      "https://*.s3.us-west-2.amazonaws.com",
+    ])
+  })
+
   it("keeps an explicit port", () => {
     expect(parseOrigins("https://minio.local:9000")).toEqual([
       "https://minio.local:9000",
@@ -95,6 +117,24 @@ describe("parseOrigins", () => {
     expect(parseOrigins("foo https://a.example.com 'self'")).toEqual([
       "https://a.example.com",
     ])
+  })
+
+  it("reports exactly the dropped tokens to onReject", () => {
+    const rejected: string[] = []
+    const origins = parseOrigins(
+      "foo https://a.example.com ftp://x, 'self' https://a.example.com/x",
+      { onReject: (token) => rejected.push(token) }
+    )
+    expect(origins).toEqual(["https://a.example.com"])
+    expect(rejected).toEqual(["foo", "ftp://x", "'self'"])
+  })
+
+  it("does not call onReject when every token parses", () => {
+    const onReject = jest.fn()
+    expect(
+      parseOrigins("https://a.example.com https://b.example.com", { onReject })
+    ).toEqual(["https://a.example.com", "https://b.example.com"])
+    expect(onReject).not.toHaveBeenCalled()
   })
 
   it("never returns a token containing a separator or a directive delimiter", () => {
@@ -144,7 +184,10 @@ describe("buildContentSecurityPolicy", () => {
         ],
       })
     ).toBe(
-      "connect-src 'self' https://a.s3.us-west-2.amazonaws.com https://b.s3.us-west-2.amazonaws.com; default-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; script-src 'self' 'unsafe-inline'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'"
+      BASE_POLICY.replace(
+        "connect-src 'self'",
+        "connect-src 'self' https://a.s3.us-west-2.amazonaws.com https://b.s3.us-west-2.amazonaws.com"
+      )
     )
   })
 
@@ -155,7 +198,10 @@ describe("buildContentSecurityPolicy", () => {
         extraConnectSrc: ["https://a.s3.us-west-2.amazonaws.com"],
       })
     ).toBe(
-      "connect-src 'self' https://*.posthog.com https://a.s3.us-west-2.amazonaws.com; default-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; script-src 'self' 'unsafe-inline' https://*.posthog.com; script-src-attr 'none'; style-src 'self' 'unsafe-inline'"
+      POSTHOG_POLICY.replace(
+        "connect-src 'self' https://*.posthog.com",
+        "connect-src 'self' https://*.posthog.com https://a.s3.us-west-2.amazonaws.com"
+      )
     )
   })
 
@@ -166,15 +212,15 @@ describe("buildContentSecurityPolicy", () => {
       extraConnectSrc: [extra],
     })
     const directives = policy.split("; ")
-    const matching = directives.filter((directive) => directive.includes(extra))
+    const matching = directives.filter((directive) =>
+      directive.split(" ").includes(extra)
+    )
     expect(matching).toEqual([
       `connect-src 'self' https://*.posthog.com ${extra}`,
     ])
   })
 
   it("keeps directive order stable", () => {
-    const directiveNames = (policy: string) =>
-      policy.split("; ").map((directive) => directive.split(" ")[0])
     const expected = [
       "connect-src",
       "default-src",
@@ -196,5 +242,55 @@ describe("buildContentSecurityPolicy", () => {
         })
       )
     ).toEqual(expected)
+  })
+})
+
+describe("buildContentSecurityPolicyFromEnv", () => {
+  let warnSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    warnSpy.mockRestore()
+  })
+
+  it("returns the base policy for an empty environment", () => {
+    expect(buildContentSecurityPolicyFromEnv({})).toBe(BASE_POLICY)
+  })
+
+  it("returns the posthog policy when a posthog key is set", () => {
+    expect(
+      buildContentSecurityPolicyFromEnv({ NEXT_PUBLIC_POSTHOG_KEY: "phc_x" })
+    ).toBe(POSTHOG_POLICY)
+  })
+
+  it("adds configured origins to connect-src", () => {
+    const policy = buildContentSecurityPolicyFromEnv({
+      TRACECAT__CSP_CONNECT_SRC_ORIGINS: "https://a.example.com",
+    })
+    expect(policy).toBe(
+      BASE_POLICY.replace(
+        "connect-src 'self'",
+        "connect-src 'self' https://a.example.com"
+      )
+    )
+  })
+
+  it("does not warn when every configured origin parses", () => {
+    buildContentSecurityPolicyFromEnv({
+      TRACECAT__CSP_CONNECT_SRC_ORIGINS: "https://a.example.com",
+    })
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it("keeps valid origins and warns once about invalid ones", () => {
+    const policy = buildContentSecurityPolicyFromEnv({
+      TRACECAT__CSP_CONNECT_SRC_ORIGINS: "https://a.example.com, junk",
+    })
+    expect(connectSrc(policy)).toBe("connect-src 'self' https://a.example.com")
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0][0]).toContain("junk")
   })
 })

@@ -14,8 +14,10 @@ const nextConfig = {
     return Date.now().toString()
   },
   headers: async () => {
-    // Content-Security-Policy is set at runtime in `src/middleware.ts` via
-    // `src/lib/csp.ts` so a deployment can extend it without a rebuild.
+    // Content-Security-Policy is set at runtime in src/middleware.ts (see
+    // src/lib/csp.ts) so a deployment can extend it without a rebuild. The
+    // middleware matcher skips _next/static, _next/image, favicon.ico and
+    // image files, so those responses carry the headers below but no CSP.
     return [
       {
         // Apply these headers to all routes

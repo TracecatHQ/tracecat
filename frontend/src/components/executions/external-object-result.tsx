@@ -27,9 +27,6 @@ function formatSize(sizeBytes: number): string {
   return `${value.toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`
 }
 
-// Cross-origin download URLs skip the probe and are only handed to an anchor,
-// which is a navigation and not a `connect-src` fetch. That is why the workflow
-// bucket origin does not need to be in `TRACECAT__CSP_CONNECT_SRC_ORIGINS`.
 function shouldProbeDownloadUrl(downloadUrl: string): boolean {
   try {
     const parsed = new URL(downloadUrl, window.location.href)

@@ -71,6 +71,17 @@ locals {
     TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS   = var.temporal_payload_encryption_cache_max_items
   }
 
+  # Presigned S3 origins the browser fetches directly (skills upload PUT,
+  # inline attachment image fetch). Appended to the UI CSP connect-src.
+  # botocore emits the legacy global host for us-east-1 unless
+  # AWS_S3_US_EAST_1_REGIONAL_ENDPOINT=regional is set.
+  presigned_browser_origins = distinct(flatten([
+    for bucket in [aws_s3_bucket.skills.bucket, aws_s3_bucket.attachments.bucket] : compact([
+      "https://${bucket}.s3.${var.aws_region}.amazonaws.com",
+      var.aws_region == "us-east-1" ? "https://${bucket}.s3.amazonaws.com" : "",
+    ])
+  ]))
+
   tracecat_blob_storage_env = {
     TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS = aws_s3_bucket.attachments.bucket
     TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY    = aws_s3_bucket.registry.bucket
@@ -277,22 +288,13 @@ locals {
 
   ui_env = [
     for k, v in {
-      NEXT_PUBLIC_API_URL    = local.public_api_url
-      NEXT_PUBLIC_APP_ENV    = var.tracecat_app_env
-      NEXT_PUBLIC_APP_URL    = local.public_app_url
-      NEXT_PUBLIC_AUTH_TYPES = var.auth_types
-      NEXT_SERVER_API_URL    = local.internal_api_url
-      NODE_ENV               = "production"
-      # Presigned S3 origins the browser must be allowed to fetch (skills upload
-      # PUT, attachment image preview). Appended to the UI CSP connect-src.
-      # botocore emits the legacy global host for us-east-1 unless
-      # AWS_S3_US_EAST_1_REGIONAL_ENDPOINT=regional is set, so allow both forms.
-      TRACECAT__CSP_CONNECT_SRC_ORIGINS = join(" ", distinct(compact([
-        "https://${aws_s3_bucket.skills.bucket}.s3.${var.aws_region}.amazonaws.com",
-        "https://${aws_s3_bucket.attachments.bucket}.s3.${var.aws_region}.amazonaws.com",
-        var.aws_region == "us-east-1" ? "https://${aws_s3_bucket.skills.bucket}.s3.amazonaws.com" : "",
-        var.aws_region == "us-east-1" ? "https://${aws_s3_bucket.attachments.bucket}.s3.amazonaws.com" : "",
-      ])))
+      NEXT_PUBLIC_API_URL               = local.public_api_url
+      NEXT_PUBLIC_APP_ENV               = var.tracecat_app_env
+      NEXT_PUBLIC_APP_URL               = local.public_app_url
+      NEXT_PUBLIC_AUTH_TYPES            = var.auth_types
+      NEXT_SERVER_API_URL               = local.internal_api_url
+      NODE_ENV                          = "production"
+      TRACECAT__CSP_CONNECT_SRC_ORIGINS = join(" ", local.presigned_browser_origins)
     } :
     { name = k, value = tostring(v) } if v != null
   ]

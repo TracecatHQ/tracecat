@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server"
-import { buildContentSecurityPolicy, parseOrigins } from "@/lib/csp"
+import { buildContentSecurityPolicyFromEnv } from "@/lib/csp"
 
-// Captured once at cold start, so the server must be restarted for a change to
-// `TRACECAT__CSP_CONNECT_SRC_ORIGINS` to take effect. PostHog is keyed on
-// `NEXT_PUBLIC_POSTHOG_KEY` because that is the key `src/providers/posthog.tsx`
-// initializes with.
-const CONTENT_SECURITY_POLICY = buildContentSecurityPolicy({
-  posthogEnabled: Boolean(process.env.NEXT_PUBLIC_POSTHOG_KEY),
-  extraConnectSrc: parseOrigins(process.env.TRACECAT__CSP_CONNECT_SRC_ORIGINS),
+// `TRACECAT__CSP_CONNECT_SRC_ORIGINS` is read from the runtime environment once
+// at cold start, so the server must be restarted for a change to take effect.
+// `NEXT_PUBLIC_POSTHOG_KEY` is inlined at build time when it is set during
+// `next build`, which is also the only configuration in which the PostHog
+// provider (`src/providers/posthog.tsx`) initializes, so the two stay
+// consistent. Keep both as direct `process.env.X` member expressions: that is
+// what Next's build-time inlining matches.
+const CONTENT_SECURITY_POLICY = buildContentSecurityPolicyFromEnv({
+  NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
+  TRACECAT__CSP_CONNECT_SRC_ORIGINS:
+    process.env.TRACECAT__CSP_CONNECT_SRC_ORIGINS,
 })
 
 function middleware() {
