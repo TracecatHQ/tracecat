@@ -1,6 +1,7 @@
 import asyncio
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -52,6 +53,75 @@ async def case_rows_service(
 @pytest.fixture
 async def tables_service(session: AsyncSession, svc_role: Role) -> TablesService:
     return TablesService(session=session, role=svc_role)
+
+
+@dataclass(frozen=True, slots=True)
+class CommittingWorkspace:
+    """A workspace whose sessions really commit, on an engine of their own."""
+
+    session_factory: async_sessionmaker[AsyncSession]
+    role: Role
+
+
+@pytest.fixture
+async def committing_workspace() -> AsyncGenerator[CommittingWorkspace, None]:
+    """Workspace on a dedicated engine where commits reach the database.
+
+    The ``session`` fixture pins a test to a single connection inside an outer
+    transaction that is never committed, so it cannot tell a flushed write from
+    a committed one, and a second connection would see neither the writes nor be
+    able to acquire the case lock. Tests that need durable commits, or a second
+    connection, take this fixture instead.
+    """
+    engine = create_async_engine(
+        TEST_DB_CONFIG.test_url,
+        poolclass=NullPool,
+        # Fail fast instead of hanging the suite if a lock is never released.
+        connect_args={"server_settings": {"lock_timeout": "30s"}},
+    )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        workspace_id=workspace_id,
+        organization_id=TEST_ORG_ID,
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+        scopes=ADMIN_SCOPES,
+    )
+
+    try:
+        async with session_factory() as setup_session:
+            setup_session.add(
+                Workspace(
+                    id=workspace_id,
+                    name=f"case-rows-committed-{workspace_id.hex[:8]}",
+                    organization_id=TEST_ORG_ID,
+                )
+            )
+            await setup_session.commit()
+
+        yield CommittingWorkspace(session_factory=session_factory, role=role)
+    finally:
+        async with session_factory() as cleanup_session:
+            tables = (
+                (
+                    await cleanup_session.execute(
+                        select(Table).where(Table.workspace_id == workspace_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            cleanup_tables_service = TablesService(session=cleanup_session, role=role)
+            for table in tables:
+                await cleanup_tables_service.delete_table(table)
+            await cleanup_session.execute(
+                sa.delete(Workspace).where(Workspace.id == workspace_id)
+            )
+            await cleanup_session.commit()
+        await engine.dispose()
 
 
 async def _create_case(cases_service: CasesService):
@@ -221,13 +291,14 @@ async def test_link_row_enforces_per_table_row_limit(
 
 
 @pytest.mark.anyio
-async def test_insert_row_to_case_rejects_before_inserting_when_table_is_full(
+async def test_insert_row_to_case_rejects_when_table_is_full(
     monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
     cases_service: CasesService,
     case_rows_service: CaseTableRowsService,
     tables_service: TablesService,
 ) -> None:
-    """A full table must reject the insert without writing the row."""
+    """A full table must reject the link and leave no row behind."""
     monkeypatch.setattr(case_rows_service_module, "MAX_LINKED_ROWS_PER_TABLE", 1)
     case = await _create_case(cases_service)
     table_id, row_id = await _create_table_with_row(
@@ -249,7 +320,76 @@ async def test_insert_row_to_case_rejects_before_inserting_when_table_is_full(
             ),
         )
 
+    # The request lifecycle rolls the session back when the handler raises,
+    # which discards the flushed but uncommitted row.
+    await session.rollback()
+
     assert await _count_physical_rows(tables_service, table_id) == 1
+
+
+@pytest.mark.anyio
+async def test_insert_row_to_case_upserts_an_already_linked_row_at_the_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    """An upsert onto an already-linked row adds no link, so the caps allow it."""
+    case = await _create_case(cases_service)
+    table = await tables_service.create_table(
+        TableCreate(
+            name=f"case_rows_insert_upsert_{uuid.uuid4().hex[:8]}",
+            columns=[
+                TableColumnCreate(
+                    name="key", type=SqlType.TEXT, nullable=True, default=None
+                ),
+                TableColumnCreate(
+                    name="value", type=SqlType.TEXT, nullable=True, default=None
+                ),
+            ],
+        )
+    )
+    # ``upsert`` resolves conflicts against the table's single unique index.
+    await tables_service.create_unique_index(table, "key")
+    row = await tables_service.insert_row(
+        table,
+        TableRowInsert(data={"key": "alpha", "value": "one"}),
+    )
+    row_id = row.get("id")
+    assert isinstance(row_id, uuid.UUID)
+    await case_rows_service.link_row(
+        case=case,
+        params=CaseTableRowLinkCreate(table_id=table.id, row_id=row_id),
+    )
+
+    # The table is now at its cap, so a link to any *new* row would be rejected.
+    monkeypatch.setattr(case_rows_service_module, "MAX_LINKED_ROWS_PER_TABLE", 1)
+
+    link = await case_rows_service.insert_row_to_case(
+        case=case,
+        params=CaseTableRowInsertCreate(
+            table_id=table.id,
+            row=TableRowInsert(data={"key": "alpha", "value": "two"}, upsert=True),
+        ),
+    )
+
+    assert link.row_id == row_id
+    assert await _count_physical_rows(tables_service, table.id) == 1
+
+    link_count = await session.scalar(
+        select(func.count())
+        .select_from(CaseTableRow)
+        .where(
+            CaseTableRow.workspace_id == case_rows_service.workspace_id,
+            CaseTableRow.case_id == case.id,
+            CaseTableRow.table_id == table.id,
+        )
+    )
+    assert link_count == 1
+
+    upserted = await tables_service.get_row(table, row_id)
+    assert upserted["value"] == "two"
 
 
 @pytest.mark.anyio
@@ -1245,6 +1385,7 @@ async def test_unlink_rows_returns_zero_when_nothing_linked(
 @pytest.mark.anyio
 async def test_concurrent_link_rows_cannot_exceed_row_limit(
     monkeypatch: pytest.MonkeyPatch,
+    committing_workspace: CommittingWorkspace,
 ) -> None:
     """Guard against two concurrent link requests both passing the row cap.
 
@@ -1259,104 +1400,133 @@ async def test_concurrent_link_rows_cannot_exceed_row_limit(
         case_rows_service_module, "MAX_LINKED_ROWS_PER_CASE", link_limit
     )
 
-    # Own engine, not the ``session`` fixture: that fixture pins the test to a
-    # single connection inside an outer transaction that is never committed, so
-    # a second connection would neither see the seeded links nor be able to
-    # acquire the case lock.
-    engine = create_async_engine(
-        TEST_DB_CONFIG.test_url,
-        poolclass=NullPool,
-        # Fail fast instead of hanging the suite if the lock is never released.
-        connect_args={"server_settings": {"lock_timeout": "30s"}},
-    )
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    session_factory = committing_workspace.session_factory
+    role = committing_workspace.role
 
-    workspace_id = uuid.uuid4()
-    role = Role(
-        type="user",
-        workspace_id=workspace_id,
-        organization_id=TEST_ORG_ID,
-        user_id=uuid.uuid4(),
-        service_id="tracecat-api",
-        scopes=ADMIN_SCOPES,
-    )
+    async with session_factory() as setup_session:
+        tables_service = TablesService(session=setup_session, role=role)
+        table_id, row_ids = await _create_table_with_rows(
+            tables_service,
+            name=f"case_rows_race_limit_{uuid.uuid4().hex[:8]}",
+            values=["one", "two", "three", "four"],
+        )
+        case = await _create_case(CasesService(session=setup_session, role=role))
+        case_id = case.id
 
-    try:
-        async with session_factory() as setup_session:
-            setup_session.add(
-                Workspace(
-                    id=workspace_id,
-                    name=f"case-rows-race-{workspace_id.hex[:8]}",
-                    organization_id=TEST_ORG_ID,
-                )
+        seeded = await CaseTableRowsService(session=setup_session, role=role).link_rows(
+            case=case, table_id=table_id, row_ids=row_ids[:2]
+        )
+        assert seeded.linked_count == 2
+
+    async def link_one(row_id: uuid.UUID) -> CaseTableRowBatchLinkResponse:
+        async with session_factory() as task_session:
+            service = CaseTableRowsService(session=task_session, role=role)
+            task_case = await service.get_case_or_raise(case_id)
+            return await service.link_rows(
+                case=task_case,
+                table_id=table_id,
+                row_ids=[row_id],
             )
-            await setup_session.commit()
 
-            tables_service = TablesService(session=setup_session, role=role)
-            table_id, row_ids = await _create_table_with_rows(
-                tables_service,
-                name=f"case_rows_race_limit_{uuid.uuid4().hex[:8]}",
-                values=["one", "two", "three", "four"],
+    results = await asyncio.gather(
+        link_one(row_ids[2]),
+        link_one(row_ids[3]),
+        return_exceptions=True,
+    )
+
+    linked = [
+        result
+        for result in results
+        if isinstance(result, CaseTableRowBatchLinkResponse)
+    ]
+    errors = [result for result in results if isinstance(result, BaseException)]
+    assert len(linked) == 1, results
+    assert linked[0].linked_count == 1
+    assert len(errors) == 1, results
+    assert isinstance(errors[0], ValueError)
+    assert f"at most {link_limit} linked rows" in str(errors[0])
+
+    async with session_factory() as verify_session:
+        total_links = await verify_session.scalar(
+            select(func.count())
+            .select_from(CaseTableRow)
+            .where(CaseTableRow.case_id == case_id)
+        )
+    assert total_links == link_limit
+
+
+@pytest.mark.anyio
+async def test_insert_row_to_case_upsert_update_is_committed(
+    monkeypatch: pytest.MonkeyPatch,
+    committing_workspace: CommittingWorkspace,
+) -> None:
+    """An upsert onto an already-linked row must commit its column update.
+
+    ``link_row`` returns an existing link without committing, so unless
+    ``insert_row_to_case`` commits, the flushed ``ON CONFLICT DO UPDATE`` is
+    discarded when the request's session closes. Verified from a second
+    connection, which only sees committed writes.
+    """
+    session_factory = committing_workspace.session_factory
+    role = committing_workspace.role
+
+    async with session_factory() as setup_session:
+        tables_service = TablesService(session=setup_session, role=role)
+        table = await tables_service.create_table(
+            TableCreate(
+                name=f"case_rows_upsert_commit_{uuid.uuid4().hex[:8]}",
+                columns=[
+                    TableColumnCreate(
+                        name="key", type=SqlType.TEXT, nullable=True, default=None
+                    ),
+                    TableColumnCreate(
+                        name="value", type=SqlType.TEXT, nullable=True, default=None
+                    ),
+                ],
             )
-            case = await _create_case(CasesService(session=setup_session, role=role))
-            case_id = case.id
+        )
+        table_id = table.id
+        # ``upsert`` resolves conflicts against the table's single unique index.
+        await tables_service.create_unique_index(table, "key")
+        row = await tables_service.insert_row(
+            table,
+            TableRowInsert(data={"key": "alpha", "value": "one"}),
+        )
+        row_id = row.get("id")
+        assert isinstance(row_id, uuid.UUID)
 
-            seeded = await CaseTableRowsService(
-                session=setup_session, role=role
-            ).link_rows(case=case, table_id=table_id, row_ids=row_ids[:2])
-            assert seeded.linked_count == 2
-
-        async def link_one(row_id: uuid.UUID) -> CaseTableRowBatchLinkResponse:
-            async with session_factory() as task_session:
-                service = CaseTableRowsService(session=task_session, role=role)
-                task_case = await service.get_case_or_raise(case_id)
-                return await service.link_rows(
-                    case=task_case,
-                    table_id=table_id,
-                    row_ids=[row_id],
-                )
-
-        results = await asyncio.gather(
-            link_one(row_ids[2]),
-            link_one(row_ids[3]),
-            return_exceptions=True,
+        case = await _create_case(CasesService(session=setup_session, role=role))
+        case_id = case.id
+        await CaseTableRowsService(session=setup_session, role=role).link_row(
+            case=case,
+            params=CaseTableRowLinkCreate(table_id=table_id, row_id=row_id),
         )
 
-        linked = [
-            result
-            for result in results
-            if isinstance(result, CaseTableRowBatchLinkResponse)
-        ]
-        errors = [result for result in results if isinstance(result, BaseException)]
-        assert len(linked) == 1, results
-        assert linked[0].linked_count == 1
-        assert len(errors) == 1, results
-        assert isinstance(errors[0], ValueError)
-        assert f"at most {link_limit} linked rows" in str(errors[0])
+    # The table is now at its cap, so a link to any *new* row would be rejected.
+    monkeypatch.setattr(case_rows_service_module, "MAX_LINKED_ROWS_PER_TABLE", 1)
 
-        async with session_factory() as verify_session:
-            total_links = await verify_session.scalar(
-                select(func.count())
-                .select_from(CaseTableRow)
-                .where(CaseTableRow.case_id == case_id)
-            )
-        assert total_links == link_limit
-    finally:
-        async with session_factory() as cleanup_session:
-            tables = (
-                (
-                    await cleanup_session.execute(
-                        select(Table).where(Table.workspace_id == workspace_id)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            cleanup_tables_service = TablesService(session=cleanup_session, role=role)
-            for table in tables:
-                await cleanup_tables_service.delete_table(table)
-            await cleanup_session.execute(
-                sa.delete(Workspace).where(Workspace.id == workspace_id)
-            )
-            await cleanup_session.commit()
-        await engine.dispose()
+    async with session_factory() as request_session:
+        service = CaseTableRowsService(session=request_session, role=role)
+        request_case = await service.get_case_or_raise(case_id)
+        link = await service.insert_row_to_case(
+            case=request_case,
+            params=CaseTableRowInsertCreate(
+                table_id=table_id,
+                row=TableRowInsert(data={"key": "alpha", "value": "two"}, upsert=True),
+            ),
+        )
+        assert link.row_id == row_id
+
+    async with session_factory() as verify_session:
+        verify_tables = TablesService(session=verify_session, role=role)
+        verify_table = await verify_tables.get_table(table_id)
+        upserted = await verify_tables.get_row(verify_table, row_id)
+
+        total_links = await verify_session.scalar(
+            select(func.count())
+            .select_from(CaseTableRow)
+            .where(CaseTableRow.case_id == case_id)
+        )
+
+    assert upserted["value"] == "two"
+    assert total_links == 1

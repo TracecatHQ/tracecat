@@ -504,26 +504,29 @@ class CaseTableRowsService(BaseWorkspaceService):
     ) -> CaseTableRow:
         table = await self.tables.get_table(params.table_id)
 
-        # The insert and the link share one transaction. ``commit=False`` keeps
-        # the row flushed but uncommitted, so the case lock taken here is still
-        # held when ``link_row`` re-checks the caps and commits both writes
-        # together. Reject the caps up front to avoid the pointless insert; if
-        # the link is rejected anyway, or anything else fails, the flushed row
-        # rolls back when the request's session closes, so no orphan row can be
-        # left behind.
+        # Take the case lock first so the whole operation runs under it, but
+        # leave the caps to ``link_row``, after the insert. That order is
+        # deliberate: with ``upsert`` the row can resolve to one that is already
+        # linked to this case, which adds no link and so must stay an allowed
+        # no-op even when the caps are full. ``commit=False`` keeps the insert
+        # and the link in one transaction, so a link the caps reject rolls the
+        # flushed row back and no orphan row can be left behind.
         await self._lock_case(case.id)
-        if (message := await self._link_cap_violation(case.id, table.id)) is not None:
-            raise ValueError(message)
 
         row = await self.tables.insert_row(table, params.row, commit=False)
         row_id = row.get("id")
         if not isinstance(row_id, uuid.UUID):
             raise ValueError("Inserted row ID is invalid")
 
-        return await self.link_row(
+        link = await self.link_row(
             case=case,
             params=CaseTableRowLinkCreate(table_id=params.table_id, row_id=row_id),
         )
+        # ``link_row`` returns an existing link without committing, so commit
+        # here to persist an upsert's row update on that path (a second commit
+        # after ``link_row``'s own is a no-op).
+        await self.session.commit()
+        return link
 
     async def hydrate_case_rows(
         self,
