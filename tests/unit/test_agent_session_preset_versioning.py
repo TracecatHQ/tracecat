@@ -59,7 +59,7 @@ def _build_service() -> tuple[_TestAgentSessionService, SimpleNamespace, Role]:
     return service, session, role
 
 
-def test_execution_role_adds_only_agent_bootstrap_scopes() -> None:
+def test_execution_role_adds_only_agent_runtime_scopes() -> None:
     service, _session, actor_role = _build_service()
 
     execution_role = service.execution_role
@@ -72,7 +72,13 @@ def test_execution_role_adds_only_agent_bootstrap_scopes() -> None:
     assert execution_role.workspace_id == actor_role.workspace_id
     assert execution_role.organization_id == actor_role.organization_id
     assert AGENT_SESSION_EXECUTION_SCOPES == frozenset(
-        {"agent:read", "secret:read", "org:secret:read"}
+        {
+            "action:*:execute",
+            "agent:read",
+            "org:secret:read",
+            "secret:read",
+            "workflow:execute",
+        }
     )
 
 

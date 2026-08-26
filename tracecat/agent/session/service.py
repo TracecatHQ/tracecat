@@ -165,9 +165,11 @@ if TYPE_CHECKING:
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
 AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
     {
+        "action:*:execute",
         "agent:read",
-        "secret:read",
         "org:secret:read",
+        "secret:read",
+        "workflow:execute",
     }
 )
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
@@ -401,12 +403,12 @@ class AgentSessionService(BaseWorkspaceService):
 
     @property
     def execution_role(self) -> Role:
-        """Return the actor role with read-only agent bootstrap scopes.
+        """Return the actor role with trusted agent execution scopes.
 
         Agent admission and user-facing tool filtering must continue to use
         ``self.role``. The derived role is only for trusted orchestration that
-        resolves presets, subagents, skills, and model credentials before the
-        sandbox starts. The sandbox receives scoped tokens, not this role.
+        resolves agent resources and dispatches tools already present in the
+        compiled allowlist. The sandbox receives scoped tokens, not this role.
         """
         scopes = (self.role.scopes or frozenset()) | AGENT_SESSION_EXECUTION_SCOPES
         return self.role.model_copy(update={"scopes": scopes})
