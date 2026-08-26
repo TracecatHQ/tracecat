@@ -893,10 +893,10 @@ def _raise_classified_subflow_application_error(
     """Raise a history-safe classified failure for subflow preparation."""
     if isinstance(error, ApplicationError):
         error_type = error.type or type(error).__name__
-        legacy_details = (
-            tuple(error.details)
-            if extract_error_envelopes_from_details(error.details)
-            else ()
+        legacy_details = tuple(
+            detail
+            for detail in error.details
+            if extract_error_envelopes_from_details((detail,))
         )
         next_retry_delay = (
             error.next_retry_delay

@@ -296,6 +296,40 @@ async def test_prepare_subflow_drops_unclassified_application_error_details() ->
 
 
 @pytest.mark.anyio
+async def test_prepare_subflow_filters_unclassified_sibling_details() -> None:
+    sensitive = "SENSITIVE_MARKER"
+    envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    classified = _capture_application_error(envelope)
+    original_error = ApplicationError(
+        classified.message,
+        *classified.details,
+        {"diagnostic": sensitive},
+        type=classified.type,
+        non_retryable=classified.non_retryable,
+    )
+
+    with (
+        patch(
+            "tracecat.dsl.action._prepare_subflow",
+            new=AsyncMock(side_effect=original_error),
+        ),
+        patch("tracecat.dsl.action.logger.error"),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await DSLActivities.prepare_subflow_activity(_prepare_subflow_input())
+
+    failure = Failure()
+    await DataConverter.default.encode_failure(exc_info.value, failure)
+    assert extract_error_envelope(exc_info.value) == envelope
+    assert sensitive not in str(exc_info.value.details)
+    assert sensitive not in str(failure)
+
+
+@pytest.mark.anyio
 async def test_prepare_subflow_clears_retry_delay_for_non_retryable_envelope() -> None:
     envelope = ErrorEnvelope.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
