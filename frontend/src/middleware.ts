@@ -1,6 +1,20 @@
 import { NextResponse } from "next/server"
+import { buildContentSecurityPolicy, parseOrigins } from "@/lib/csp"
 
-const middleware = () => NextResponse.next()
+// Captured once at cold start, so the server must be restarted for a change to
+// `TRACECAT__CSP_CONNECT_SRC_ORIGINS` to take effect. PostHog is keyed on
+// `NEXT_PUBLIC_POSTHOG_KEY` because that is the key `src/providers/posthog.tsx`
+// initializes with.
+const CONTENT_SECURITY_POLICY = buildContentSecurityPolicy({
+  posthogEnabled: Boolean(process.env.NEXT_PUBLIC_POSTHOG_KEY),
+  extraConnectSrc: parseOrigins(process.env.TRACECAT__CSP_CONNECT_SRC_ORIGINS),
+})
+
+function middleware() {
+  return NextResponse.next({
+    headers: { "content-security-policy": CONTENT_SECURITY_POLICY },
+  })
+}
 
 export default middleware
 export const config = {

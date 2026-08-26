@@ -14,6 +14,8 @@ const nextConfig = {
     return Date.now().toString()
   },
   headers: async () => {
+    // Content-Security-Policy is set at runtime in `src/middleware.ts` via
+    // `src/lib/csp.ts` so a deployment can extend it without a rebuild.
     return [
       {
         // Apply these headers to all routes
@@ -38,34 +40,6 @@ const nextConfig = {
           {
             key: "Permissions-Policy",
             value: "document-domain=()",
-          },
-          {
-            key: "Content-Security-Policy",
-            value: process.env.POSTHOG_KEY
-              ? [
-                  "connect-src 'self' https://*.posthog.com",
-                  "default-src 'self'",
-                  "worker-src 'self' blob:",
-                  "frame-ancestors 'none'",
-                  "img-src 'self' data: blob:",
-                  "object-src 'none'",
-                  "base-uri 'self'",
-                  "script-src 'self' 'unsafe-inline' https://*.posthog.com",
-                  "script-src-attr 'none'",
-                  "style-src 'self' 'unsafe-inline'",
-                ].join("; ")
-              : [
-                  "connect-src 'self'",
-                  "default-src 'self'",
-                  "worker-src 'self' blob:",
-                  "frame-ancestors 'none'",
-                  "img-src 'self' data: blob:",
-                  "object-src 'none'",
-                  "base-uri 'self'",
-                  "script-src 'self' 'unsafe-inline'",
-                  "script-src-attr 'none'",
-                  "style-src 'self' 'unsafe-inline'",
-                ].join("; "),
           },
         ],
       },

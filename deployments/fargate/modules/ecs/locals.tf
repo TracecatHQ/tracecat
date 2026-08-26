@@ -283,6 +283,16 @@ locals {
       NEXT_PUBLIC_AUTH_TYPES = var.auth_types
       NEXT_SERVER_API_URL    = local.internal_api_url
       NODE_ENV               = "production"
+      # Presigned S3 origins the browser must be allowed to fetch (skills upload
+      # PUT, attachment image preview). Appended to the UI CSP connect-src.
+      # botocore emits the legacy global host for us-east-1 unless
+      # AWS_S3_US_EAST_1_REGIONAL_ENDPOINT=regional is set, so allow both forms.
+      TRACECAT__CSP_CONNECT_SRC_ORIGINS = join(" ", distinct(compact([
+        "https://${aws_s3_bucket.skills.bucket}.s3.${var.aws_region}.amazonaws.com",
+        "https://${aws_s3_bucket.attachments.bucket}.s3.${var.aws_region}.amazonaws.com",
+        var.aws_region == "us-east-1" ? "https://${aws_s3_bucket.skills.bucket}.s3.amazonaws.com" : "",
+        var.aws_region == "us-east-1" ? "https://${aws_s3_bucket.attachments.bucket}.s3.amazonaws.com" : "",
+      ])))
     } :
     { name = k, value = tostring(v) } if v != null
   ]
