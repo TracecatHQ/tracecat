@@ -1665,6 +1665,43 @@ async def test_export_follows_subagent_current_head(
 
 
 @pytest.mark.anyio
+async def test_import_accepts_stale_subagent_version_selector(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    files = _versioned_subagent_git_tree()
+    del files[f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml"]
+    service = WorkspaceSyncService(session=session, role=svc_role)
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="3" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    parent = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-triage-parent",
+        )
+    )
+    child = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-evidence-child",
+        )
+    )
+    assert parent is not None
+    assert child is not None
+    assert child.current_version_id is not None
+    imported_subagent = parent.agents["subagents"][0]
+    assert imported_subagent["preset_version"] == 2
+    assert imported_subagent["preset_version_id"] == str(child.current_version_id)
+
+
+@pytest.mark.anyio
 async def test_round_trip_preserves_presets_pinning_different_skill_versions(
     session: AsyncSession,
     svc_role: Role,

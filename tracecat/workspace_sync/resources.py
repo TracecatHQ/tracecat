@@ -242,27 +242,6 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
                     )
                 )
                 continue
-            if subagent.version is not None and subagent.version not in (
-                _preset_available_versions(preset_specs_by_slug[subagent.slug])
-            ):
-                diagnostics.append(
-                    PullDiagnostic(
-                        workflow_path=AGENT_PRESET_RESOURCE_ADAPTER.source_path(
-                            source_id
-                        ),
-                        workflow_title=preset.name,
-                        error_type="dependency",
-                        message=(
-                            "Agent preset references missing subagent version "
-                            f"{subagent.slug!r}@{subagent.version}"
-                        ),
-                        details={
-                            "preset_slug": preset.slug,
-                            "subagent_slug": subagent.slug,
-                            "subagent_version": subagent.version,
-                        },
-                    )
-                )
 
     if cycle := _find_cycle(preset_graph):
         diagnostics.append(
@@ -367,11 +346,6 @@ def workflow_references(definition: DSLInput) -> WorkflowReferences:
 def _skill_available_versions(skill: Any) -> set[int]:
     """Return skill versions represented by the parsed spec."""
     return set(skill.versions)
-
-
-def _preset_available_versions(preset: Any) -> set[int]:
-    """Return agent preset versions represented by the parsed spec."""
-    return set(preset.versions)
 
 
 def _parse_yaml_resource[ModelT: BaseModel](
