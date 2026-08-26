@@ -2835,17 +2835,21 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         create_mock_finalize_turn_activity(),
     ]
 
-    async with agent_worker_factory(
+    agent_worker = agent_worker_factory(
         temporal_client, task_queue=agent_queue, custom_activities=activities
-    ):
-        wf_handle = await temporal_client.start_workflow(
-            DurableAgentWorkflow.run,
-            workflow_args,
-            id=AgentWorkflowID(mock_session_id),
-            task_queue=agent_queue,
-            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-            execution_timeout=timedelta(seconds=60),
-        )
+    )
+    async with asyncio.timeout(30):
+        await agent_worker.__aenter__()
+    try:
+        async with asyncio.timeout(30):
+            wf_handle = await temporal_client.start_workflow(
+                DurableAgentWorkflow.run,
+                workflow_args,
+                id=AgentWorkflowID(mock_session_id),
+                task_queue=agent_queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=60),
+            )
 
         await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
         await asyncio.wait_for(approval_done_emitted.wait(), timeout=10)
@@ -2853,15 +2857,20 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
             "record_approval_requests",
             "emit_session_done",
         ]
-        await wf_handle.execute_update(
-            DurableAgentWorkflow.set_approvals,
-            WorkflowApprovalSubmission(
-                approvals={"call_123": True},
-                approved_by=svc_role.user_id,
-            ),
-        )
+        async with asyncio.timeout(30):
+            await wf_handle.execute_update(
+                DurableAgentWorkflow.set_approvals,
+                WorkflowApprovalSubmission(
+                    approvals={"call_123": True},
+                    approved_by=svc_role.user_id,
+                ),
+            )
 
-        result = await wf_handle.result()
+        async with asyncio.timeout(30):
+            result = await wf_handle.result()
+    finally:
+        async with asyncio.timeout(30):
+            await agent_worker.__aexit__(None, None, None)
 
     assert result.session_id == mock_session_id
     assert executor_attempts == 1
