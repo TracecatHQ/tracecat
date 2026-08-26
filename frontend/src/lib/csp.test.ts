@@ -211,13 +211,22 @@ describe("buildContentSecurityPolicy", () => {
       posthogEnabled: true,
       extraConnectSrc: [extra],
     })
-    const directives = policy.split("; ")
-    const matching = directives.filter((directive) =>
-      directive.split(" ").includes(extra)
+    const directives = new Map(
+      policy.split("; ").map((directive) => {
+        const [name, ...sources] = directive.split(" ")
+        return [name, sources] as const
+      })
     )
-    expect(matching).toEqual([
-      `connect-src 'self' https://*.posthog.com ${extra}`,
+    expect(directives.get("connect-src")).toEqual([
+      "'self'",
+      "https://*.posthog.com",
+      extra,
     ])
+    for (const [name, sources] of directives) {
+      if (name !== "connect-src") {
+        expect(sources.filter((source) => source === extra)).toEqual([])
+      }
+    }
   })
 
   it("keeps directive order stable", () => {
