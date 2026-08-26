@@ -11,6 +11,7 @@ from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 
+from tests.shared import capture_application_error as _capture_application_error
 from tracecat.auth.types import Role
 from tracecat.dsl.action import (
     DSLActivities,
@@ -41,7 +42,6 @@ from tracecat.runtime.errors import (
 from tracecat.temporal.errors import (
     extract_error_envelope,
     extract_error_envelopes,
-    raise_application_error_from_envelope,
 )
 from tracecat.temporal.exceptions import UserError
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
@@ -72,15 +72,6 @@ def _classified_error_info(envelope: ErrorEnvelope, *, ref: str) -> ActionErrorI
         type=envelope.cause_type or "ApplicationError",
         envelope=envelope,
     )
-
-
-def _capture_application_error(
-    envelope: ErrorEnvelope,
-    *details: object,
-) -> ApplicationError:
-    with pytest.raises(ApplicationError) as exc_info:
-        raise_application_error_from_envelope(envelope, *details)
-    return exc_info.value
 
 
 def _capture_workflow_application_error(

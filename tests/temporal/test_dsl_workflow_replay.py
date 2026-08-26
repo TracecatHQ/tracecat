@@ -9,10 +9,11 @@ from typing import Never
 
 import pytest
 from temporalio import activity
-from temporalio.client import Client, WorkflowFailureError, WorkflowHistory
+from temporalio.client import Client, WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import Replayer, Worker
 
+from tests.shared import recorded_patch_ids
 from tracecat.auth.types import Role
 from tracecat.dsl import workflow as workflow_module
 from tracecat.dsl.action import DSLActivities, PrepareSubflowActivityInput
@@ -78,28 +79,6 @@ def _raise_legacy_workflow_application_error(
 
 def _ignore_terminal_error_owner(_error: ApplicationError) -> None:
     """Reproduce the absence of terminal owner attribution before ENG-1407."""
-
-
-async def _recorded_patch_ids(
-    temporal_client: Client,
-    history: WorkflowHistory,
-) -> set[str]:
-    """Decode patch IDs recorded in a workflow history."""
-    patch_ids: set[str] = set()
-    for event in history.events:
-        if not event.HasField("marker_recorded_event_attributes"):
-            continue
-        attributes = event.marker_recorded_event_attributes
-        if attributes.marker_name != "core_patch":
-            continue
-        patch_payload = attributes.details.get("patch-data")
-        if patch_payload is None:
-            continue
-        patch_data = await temporal_client.data_converter.decode(patch_payload.payloads)
-        for data in patch_data:
-            if isinstance(data, Mapping) and isinstance(data.get("id"), str):
-                patch_ids.add(data["id"])
-    return patch_ids
 
 
 @pytest.mark.anyio
@@ -181,9 +160,9 @@ async def test_dsl_workflow_replays_legacy_subflow_failure_history(
 
     history = await handle.fetch_history()
     assert extract_error_envelope(exc_info.value) is None
-    recorded_patch_ids = await _recorded_patch_ids(temporal_client, history)
-    assert ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH not in recorded_patch_ids
-    assert ERROR_OWNER_AFTER_HANDLER_PATCH not in recorded_patch_ids
+    patch_ids = await recorded_patch_ids(temporal_client, history)
+    assert ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH not in patch_ids
+    assert ERROR_OWNER_AFTER_HANDLER_PATCH not in patch_ids
 
     replay_result = await Replayer(
         workflows=[DSLWorkflow],

@@ -24,7 +24,6 @@ from tracecat.agent.common.types import MCPHttpServerConfig, MCPStdioServerConfi
 from tracecat.auth.types import Role
 from tracecat.dsl.action import (
     BuildAgentArgsActivityInput,
-    BuildPresetAgentArgsActivityInput,
     DSLActivities,
 )
 from tracecat.dsl.schemas import ExecutionContext, TaskResult
@@ -608,7 +607,7 @@ class TestBuildPresetAgentArgsActivity:
             "preset": "my-preset",
             "user_prompt": "${{ VARS.prompts.default }}",
         }
-        input = BuildPresetAgentArgsActivityInput(
+        input = BuildAgentArgsActivityInput(
             args=args,
             operand=_make_context(),
             role=role,
@@ -634,7 +633,7 @@ class TestBuildPresetAgentArgsActivity:
             "preset": "my-preset",
             "user_prompt": "Hello",
         }
-        input = BuildPresetAgentArgsActivityInput(
+        input = BuildAgentArgsActivityInput(
             args=args,
             operand=_make_context(),
             role=role,
@@ -658,7 +657,7 @@ class TestBuildPresetAgentArgsActivity:
             "preset": "my-preset",
             "user_prompt": "${{ VARS.prompts.default }}",
         }
-        input = BuildPresetAgentArgsActivityInput(
+        input = BuildAgentArgsActivityInput(
             args=args,
             operand=_make_context(),
             role=role,
