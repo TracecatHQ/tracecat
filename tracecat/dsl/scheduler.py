@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -17,6 +17,7 @@ _SCHEDULER_TASK_SPAWN_YIELD_EVERY = 16
 """Yield while spawning ready task coroutines to avoid long workflow activations."""
 
 with workflow.unsafe.imports_passed_through():
+    from pydantic import ValidationError
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
 
@@ -105,10 +106,21 @@ def _classified_action_error_info(
     for detail in error.details:
         try:
             parsed = ActionErrorInfo.model_validate(detail)
-        except Exception:
-            continue
-        if parsed.envelope is not None:
-            return parsed
+        except ValidationError:
+            pass
+        else:
+            if _action_error_contains_envelope(parsed):
+                return parsed
+
+        if children := _validated_action_error_map(detail):
+            return ActionErrorInfo(
+                ref=ref,
+                message=envelope.message,
+                type=error.type or error.__class__.__name__,
+                stream_id=stream_id,
+                children=list(children),
+                envelope=envelope,
+            )
 
     return ActionErrorInfo(
         ref=ref,
@@ -116,6 +128,36 @@ def _classified_action_error_info(
         type=error.type or error.__class__.__name__,
         stream_id=stream_id,
         envelope=envelope,
+    )
+
+
+def _validated_action_error_map(
+    detail: object,
+) -> tuple[ActionErrorInfo, ...] | None:
+    """Validate the established workflow ``{ref: ActionErrorInfo}`` shape."""
+    if not isinstance(detail, Mapping):
+        return None
+
+    parsed: list[ActionErrorInfo] = []
+    for ref, value in detail.items():
+        if not isinstance(ref, str):
+            return None
+        try:
+            parsed.append(ActionErrorInfo.model_validate(value))
+        except ValidationError:
+            return None
+
+    if not parsed or not any(_action_error_contains_envelope(item) for item in parsed):
+        return None
+    return tuple(parsed)
+
+
+def _action_error_contains_envelope(detail: ActionErrorInfo) -> bool:
+    """Return whether an action error directly or transitively is classified."""
+    if detail.envelope is not None:
+        return True
+    return any(
+        _action_error_contains_envelope(child) for child in detail.children or ()
     )
 
 

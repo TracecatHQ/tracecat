@@ -29,7 +29,10 @@ from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
 )
-from tracecat.temporal.errors import raise_application_error_from_envelope
+from tracecat.temporal.errors import (
+    extract_error_envelopes,
+    raise_application_error_from_envelope,
+)
 
 
 def _capture_application_error(
@@ -104,6 +107,55 @@ async def test_scheduler_preserves_classified_action_error() -> None:
 
     details = scheduler.task_exceptions["task_0"].details
     assert details.envelope == envelope
+
+
+@pytest.mark.anyio
+async def test_scheduler_preserves_all_classified_mapped_child_errors() -> None:
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    user_envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The child action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    platform_envelope = ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the child action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    user_detail = ActionErrorInfo(
+        ref="user_action",
+        message=user_envelope.message,
+        type="UserError",
+        envelope=user_envelope,
+    )
+    platform_detail = ActionErrorInfo(
+        ref="platform_action",
+        message=platform_envelope.message,
+        type="RuntimeError",
+        envelope=platform_envelope,
+    )
+    error = _capture_application_error(
+        user_envelope,
+        {
+            user_detail.ref: user_detail.model_dump(mode="json"),
+            platform_detail.ref: platform_detail.model_dump(mode="json"),
+        },
+    )
+
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
+
+    details = scheduler.task_exceptions["task_0"].details
+    assert details.ref == "task_0"
+    assert details.envelope == user_envelope
+    assert details.children == [user_detail, platform_detail]
+    retransported = _capture_application_error(user_envelope, details)
+    assert extract_error_envelopes(retransported) == (
+        user_envelope,
+        platform_envelope,
+    )
 
 
 @pytest.mark.anyio
