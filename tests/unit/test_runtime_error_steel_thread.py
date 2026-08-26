@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from temporalio.api.failure.v1 import Failure
@@ -16,6 +16,7 @@ from tracecat.dsl.action import (
     PrepareSubflowActivityInput,
     SubflowDefinitionNotFoundError,
 )
+from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement, ExecutionContext
 from tracecat.dsl.types import (
@@ -28,6 +29,7 @@ from tracecat.dsl.workflow import (
     DSLWorkflow,
     _raise_workflow_application_error,
 )
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.runtime.errors import (
     ErrorEnvelope,
     RetryDisposition,
@@ -40,7 +42,7 @@ from tracecat.temporal.errors import (
     raise_application_error_from_envelope,
 )
 from tracecat.temporal.exceptions import UserError
-from tracecat.workflow.executions.enums import TemporalSearchAttr
+from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
 
 
 def _prepare_subflow_input() -> PrepareSubflowActivityInput:
@@ -85,6 +87,22 @@ def _capture_workflow_application_error(
     with pytest.raises(ApplicationError) as exc_info:
         _raise_workflow_application_error(task_exceptions)
     return exc_info.value
+
+
+def _error_handler_workflow() -> tuple[DSLWorkflow, DSLRunArgs]:
+    instance = object.__new__(DSLWorkflow)
+    role = _prepare_subflow_input().role
+    dsl = DSLInput(
+        title="Error handler source",
+        description="Error handler ownership test",
+        entrypoint=DSLEntrypoint(ref="noop"),
+        actions=[ActionStatement(ref="noop", action="core.noop")],
+    )
+    args = DSLRunArgs(role=role, dsl=dsl, wf_id=WorkflowUUID.new_uuid4())
+    instance.logger = MagicMock()
+    instance.dsl = dsl
+    instance.wf_exec_id = f"{args.wf_id.short()}/exec_test"
+    return instance, args
 
 
 @pytest.mark.anyio
@@ -401,6 +419,119 @@ def test_mixed_workflow_errors_do_not_promote_partial_classification() -> None:
     with patch("tracecat.dsl.workflow.workflow.patched") as patched_mock:
         assert DSLWorkflow._has_user_error_cause(error) is False
     patched_mock.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_error_handler_runs_before_original_owner_is_stamped() -> None:
+    instance, args = _error_handler_workflow()
+    envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    error = _capture_application_error(
+        envelope,
+        {
+            "action": _classified_error_info(envelope, ref="action").model_dump(
+                mode="json"
+            )
+        },
+    )
+    events: list[str] = []
+
+    async def run_handler(_: DSLRunArgs) -> None:
+        events.append("handler")
+
+    with (
+        patch.object(
+            instance,
+            "_get_error_handler_workflow_id",
+            new=AsyncMock(return_value=args.wf_id),
+        ),
+        patch.object(
+            instance,
+            "_prepare_error_handler_workflow",
+            new=AsyncMock(return_value=args),
+        ),
+        patch.object(
+            instance,
+            "_run_error_handler_workflow",
+            new=AsyncMock(side_effect=run_handler),
+        ) as run_handler_mock,
+        patch.object(
+            DSLWorkflow,
+            "_upsert_terminal_error_owner",
+            side_effect=lambda _: events.append("upsert"),
+        ) as upsert_mock,
+        patch("tracecat.dsl.workflow.workflow.info"),
+        patch(
+            "tracecat.dsl.workflow.get_trigger_type",
+            return_value=TriggerType.MANUAL,
+        ),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await instance._handle_application_error(args, error)
+
+    assert exc_info.value is error
+    run_handler_mock.assert_awaited_once_with(args)
+    upsert_mock.assert_called_once_with(error)
+    assert events == ["handler", "upsert"]
+
+
+@pytest.mark.anyio
+async def test_error_handler_failure_replaces_original_terminal_owner() -> None:
+    instance, args = _error_handler_workflow()
+    original_envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    handler_envelope = ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not run the error handler",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    original_error = _capture_application_error(
+        original_envelope,
+        {
+            "action": _classified_error_info(
+                original_envelope, ref="action"
+            ).model_dump(mode="json")
+        },
+    )
+    handler_error = _capture_application_error(handler_envelope)
+
+    with (
+        patch.object(
+            instance,
+            "_get_error_handler_workflow_id",
+            new=AsyncMock(return_value=args.wf_id),
+        ),
+        patch.object(
+            instance,
+            "_prepare_error_handler_workflow",
+            new=AsyncMock(return_value=args),
+        ),
+        patch.object(
+            instance,
+            "_run_error_handler_workflow",
+            new=AsyncMock(side_effect=handler_error),
+        ),
+        patch.object(
+            DSLWorkflow,
+            "_upsert_terminal_error_owner",
+        ) as upsert_mock,
+        patch("tracecat.dsl.workflow.workflow.info"),
+        patch(
+            "tracecat.dsl.workflow.get_trigger_type",
+            return_value=TriggerType.MANUAL,
+        ),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await instance._handle_application_error(args, original_error)
+
+    assert exc_info.value is handler_error
+    upsert_mock.assert_called_once_with(handler_error)
 
 
 def test_terminal_platform_owner_wins_for_alert_attribution() -> None:

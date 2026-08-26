@@ -459,65 +459,7 @@ class DSLWorkflow:
         try:
             return await self._run_workflow(args)
         except ApplicationError as e:
-            self._upsert_terminal_error_owner(e)
-            # Application error
-            self.logger.warning(
-                "Error running workflow, running error handler",
-                type=e.__class__.__name__,
-            )
-            # 1. Get the error handler workflow ID
-            handler_wf_id = await self._get_error_handler_workflow_id(args)
-            if handler_wf_id is None:
-                self.logger.warning("No error handler workflow ID found, raising error")
-                raise e
-
-            if e.details:
-                err_info_map = e.details[0]
-                self.logger.info("Raising error info", err_info_data=err_info_map)
-                if not isinstance(err_info_map, dict):
-                    self.logger.error(
-                        "Unexpected error info object",
-                        err_info_map=err_info_map,
-                        type=type(err_info_map).__name__,
-                    )
-                    # TODO: There's likely a nicer way to gracefully handle this
-                    # instead of a sentinel error value
-                    errors = [
-                        ActionErrorInfo(
-                            ref="N/A",
-                            message=f"Unexpected error info object of type {type(err_info_map).__name__}: {err_info_map}",
-                            type=type(err_info_map).__name__,
-                        )
-                    ]
-                else:
-                    errors = [
-                        ActionErrorInfo.model_validate(data)
-                        for data in err_info_map.values()
-                    ]
-            else:
-                errors = None
-
-            trigger_type = get_trigger_type(workflow.info())
-            try:
-                err_run_args = await self._prepare_error_handler_workflow(
-                    message=e.message,
-                    handler_wf_id=handler_wf_id,
-                    orig_wf_id=args.wf_id,
-                    orig_wf_exec_id=self.wf_exec_id,
-                    orig_dsl=self.dsl,
-                    trigger_type=TriggerType(trigger_type),
-                    errors=errors,
-                )
-                await self._run_error_handler_workflow(err_run_args)
-            except Exception as err_handler_exc:
-                self.logger.error(
-                    "Failed to run error handler workflow",
-                    error=err_handler_exc,
-                )
-                raise err_handler_exc from e
-
-            # Finally, raise the original error
-            raise e
+            await self._handle_application_error(args, e)
         except Exception as e:
             # Platform error
             if is_cancelled_exception(e):
@@ -858,7 +800,7 @@ class DSLWorkflow:
         return current, current.__class__.__name__
 
     @staticmethod
-    def _upsert_terminal_error_owner(error: ApplicationError) -> None:
+    def _upsert_terminal_error_owner(error: BaseException) -> None:
         """Stamp attribution only when a classified error reaches this boundary."""
         envelopes = extract_error_envelopes(error)
         if not envelopes:
@@ -1989,6 +1931,72 @@ class DSLWorkflow:
                 else workflow.ParentClosePolicy.TERMINATE  # Default is TERMINATE
             ),
         )
+
+    async def _handle_application_error(
+        self,
+        args: DSLRunArgs,
+        error: ApplicationError,
+    ) -> Never:
+        """Run an error handler before stamping the error that remains terminal."""
+        self.logger.warning(
+            "Error running workflow, running error handler",
+            type=error.__class__.__name__,
+        )
+        handler_wf_id = await self._get_error_handler_workflow_id(args)
+        if handler_wf_id is None:
+            self.logger.warning("No error handler workflow ID found, raising error")
+            self._upsert_terminal_error_owner(error)
+            raise error
+
+        if error.details:
+            err_info_map = error.details[0]
+            self.logger.info("Raising error info", err_info_data=err_info_map)
+            if not isinstance(err_info_map, dict):
+                self.logger.error(
+                    "Unexpected error info object",
+                    err_info_map=err_info_map,
+                    type=type(err_info_map).__name__,
+                )
+                errors = [
+                    ActionErrorInfo(
+                        ref="N/A",
+                        message=(
+                            "Unexpected error info object of type "
+                            f"{type(err_info_map).__name__}: {err_info_map}"
+                        ),
+                        type=type(err_info_map).__name__,
+                    )
+                ]
+            else:
+                errors = [
+                    ActionErrorInfo.model_validate(data)
+                    for data in err_info_map.values()
+                ]
+        else:
+            errors = None
+
+        trigger_type = get_trigger_type(workflow.info())
+        try:
+            err_run_args = await self._prepare_error_handler_workflow(
+                message=error.message,
+                handler_wf_id=handler_wf_id,
+                orig_wf_id=args.wf_id,
+                orig_wf_exec_id=self.wf_exec_id,
+                orig_dsl=self.dsl,
+                trigger_type=TriggerType(trigger_type),
+                errors=errors,
+            )
+            await self._run_error_handler_workflow(err_run_args)
+        except Exception as handler_error:
+            self._upsert_terminal_error_owner(handler_error)
+            self.logger.error(
+                "Failed to run error handler workflow",
+                error_type=type(handler_error).__name__,
+            )
+            raise handler_error from error
+
+        self._upsert_terminal_error_owner(error)
+        raise error
 
     async def _get_error_handler_workflow_id(
         self, args: DSLRunArgs
