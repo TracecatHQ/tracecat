@@ -66,6 +66,8 @@ export interface TableRowsGridProps {
  * Presentational grid over externally supplied rows: read-only cells, optional
  * checkbox selection that survives page changes, no route or context coupling.
  * Fetching, pagination and selection state belong to the caller.
+ *
+ * Keyboard copy works; paste is disabled because the cells are never written.
  */
 export function TableRowsGrid({
   columns,
@@ -177,7 +179,8 @@ export function TableRowsGrid({
   return (
     <div
       className={autoHeight ? "" : "h-full"}
-      onKeyDown={(e) => handleGridKeyDown(e, gridApi)}
+      // Read-only: copy is fine, paste would fabricate cell values locally.
+      onKeyDown={(e) => handleGridKeyDown(e, gridApi, { readOnly: true })}
     >
       <AgGridReact<TableRowRead>
         theme={tracecatTheme}
