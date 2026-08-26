@@ -1,15 +1,14 @@
 """Add case-agent session interactions.
 
-Revision ID: 25d9b13bfe67
+Revision ID: 44d7e75b6f4c
 Revises: 598b32358ec5
-Create Date: 2026-08-26 16:59:16.618927
+Create Date: 2026-08-26 17:17:55.915972
 
 """
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from alembic import op
 from tracecat.db.tenant_rls import (
@@ -18,35 +17,19 @@ from tracecat.db.tenant_rls import (
 )
 
 # revision identifiers, used by Alembic.
-revision: str = "25d9b13bfe67"
+revision: str = "44d7e75b6f4c"
 down_revision: str | None = "598b32358ec5"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    sa.Enum(
-        "READ",
-        "CREATE",
-        "UPDATE",
-        name="caseagentsessioninteractionoperation",
-    ).create(op.get_bind())
     op.create_table(
         "case_agent_session_interaction",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("case_id", sa.UUID(), nullable=False),
         sa.Column("agent_session_id", sa.UUID(), nullable=False),
-        sa.Column(
-            "operation",
-            postgresql.ENUM(
-                "READ",
-                "CREATE",
-                "UPDATE",
-                name="caseagentsessioninteractionoperation",
-                create_type=False,
-            ),
-            nullable=False,
-        ),
+        sa.Column("operation", sa.String(), nullable=False),
         sa.Column("workspace_id", sa.UUID(), nullable=False),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
         sa.Column(
@@ -106,12 +89,6 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_index(
-        "ix_case_agent_session_interaction_case_timeline",
-        "case_agent_session_interaction",
-        ["workspace_id", "case_id", "updated_at", "agent_session_id"],
-        unique=False,
-    )
-    op.create_index(
         op.f("ix_case_agent_session_interaction_id"),
         "case_agent_session_interaction",
         ["id"],
@@ -123,9 +100,3 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute(disable_workspace_table_rls("case_agent_session_interaction"))
     op.drop_table("case_agent_session_interaction")
-    sa.Enum(
-        "READ",
-        "CREATE",
-        "UPDATE",
-        name="caseagentsessioninteractionoperation",
-    ).drop(op.get_bind())

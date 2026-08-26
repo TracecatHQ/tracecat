@@ -85,10 +85,6 @@ CASE_SEVERITY_ENUM = Enum(CaseSeverity, name="caseseverity")
 CASE_STATUS_ENUM = Enum(CaseStatus, name="casestatus")
 CASE_TASK_STATUS_ENUM = Enum(CaseTaskStatus, name="casetaskstatus")
 CASE_VERSION_FIELD_ENUM = Enum(CaseVersionField, name="caseversionfield")
-CASE_AGENT_SESSION_INTERACTION_OPERATION_ENUM = Enum(
-    CaseAgentSessionInteractionOperation,
-    name="caseagentsessioninteractionoperation",
-)
 INTERACTION_STATUS_ENUM = Enum(InteractionStatus, name="interactionstatus")
 APPROVAL_STATUS_ENUM = Enum(ApprovalStatus, name="approvalstatus")
 INVITATION_STATUS_ENUM = Enum(InvitationStatus, name="invitationstatus")
@@ -3182,13 +3178,6 @@ class CaseAgentSessionInteraction(WorkspaceModel):
             "operation",
             name="uq_case_agent_session_interaction_ws_case_session_operation",
         ),
-        Index(
-            "ix_case_agent_session_interaction_case_timeline",
-            "workspace_id",
-            "case_id",
-            "updated_at",
-            "agent_session_id",
-        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -3211,7 +3200,7 @@ class CaseAgentSessionInteraction(WorkspaceModel):
         index=True,
     )
     operation: Mapped[CaseAgentSessionInteractionOperation] = mapped_column(
-        CASE_AGENT_SESSION_INTERACTION_OPERATION_ENUM,
+        String,
         nullable=False,
     )
 
