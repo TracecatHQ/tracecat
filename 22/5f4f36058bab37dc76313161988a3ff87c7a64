@@ -1,0 +1,16 @@
+tests/unit/test_skill_service.py
+  h_5f9670feebc95f 8,2502-2598
+tracecat/agent/skill/service.py
+  h_5f9670feebc95f 5,811-812,815-823,1658-1660,2073-2075,2533-2535
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "225f4f36058bab37dc76313161988a3ff87c7a64",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
