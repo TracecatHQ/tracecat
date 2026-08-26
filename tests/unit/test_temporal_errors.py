@@ -180,6 +180,40 @@ def test_aggregate_action_error_rejects_partially_classified_children(
     assert extract_error_envelopes(ApplicationError("Gather failed", detail)) == ()
 
 
+@pytest.mark.anyio
+async def test_partial_aggregate_keeps_fallback_envelope_after_serialization() -> None:
+    user_envelope = _user_envelope()
+    fallback = _platform_envelope()
+    aggregate = ActionErrorInfo(
+        ref="gather",
+        message="Gather failed",
+        type="ApplicationError",
+        children=[
+            ActionErrorInfo(
+                ref="scatter[0]",
+                message=user_envelope.message,
+                type="ValueError",
+                envelope=user_envelope,
+            ),
+            ActionErrorInfo(
+                ref="scatter[1]",
+                message="Legacy failure",
+                type="RuntimeError",
+            ),
+        ],
+    )
+
+    error = _capture_application_error(fallback, aggregate)
+    failure = Failure()
+    await DataConverter.default.encode_failure(error, failure)
+    decoded = await DataConverter.default.decode_failure(failure)
+
+    assert error.type == fallback.kind.value
+    assert error.non_retryable is False
+    assert extract_error_envelopes(error) == (fallback,)
+    assert extract_error_envelopes(decoded) == (fallback,)
+
+
 def test_error_handler_input_preserves_action_error_envelope() -> None:
     envelope = _platform_envelope()
     error_info = ActionErrorInfo(
