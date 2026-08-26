@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling==1.27.0"]
+requires = ["hatchling >= 1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,7 +7,7 @@ name = "tracecat-ee"
 description = "Enterprise Edition features for Tracecat"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { file = "tracecat_ee/LICENSE.md" }
+license = { file = "LICENSE.md" }
 authors = [{ name = "Tracecat", email = "founders@tracecat.com" }]
 classifiers = [
     "Development Status :: 4 - Beta",
