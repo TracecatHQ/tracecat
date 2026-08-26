@@ -1556,8 +1556,9 @@ class TestMCPIntegrationCRUD:
             sort_key="0003:detached-stdio-mcp",
         )
         _install_catalog_entry(monkeypatch, catalog)
-        # Mirrors a row the retire migration detached: same slug, catalog_slug
-        # cleared, still running the old local stdio package.
+        # Mirrors a legacy row whose stale catalog binding was cleared on
+        # update: same slug, catalog_slug None, still running the old local
+        # stdio package.
         legacy = MCPIntegration(
             workspace_id=integration_service.workspace_id,
             name="Detached Stdio MCP",

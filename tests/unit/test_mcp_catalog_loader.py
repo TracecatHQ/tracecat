@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import orjson
@@ -34,6 +35,14 @@ class _CatalogResource:
 
 def _clear_catalog_cache() -> None:
     loader._cached_platform_mcp_catalog_entries.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def isolate_catalog_cache() -> Iterator[None]:
+    """Keep stubbed catalogs from leaking into later tests on the same worker."""
+    _clear_catalog_cache()
+    yield
+    _clear_catalog_cache()
 
 
 def _stub_catalog_resource(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> None:
