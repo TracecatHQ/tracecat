@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import timedelta
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -40,8 +41,11 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
 )
 from tracecat.temporal.errors import (
+    ClassifiedErrorDetail,
     extract_error_envelope,
     extract_error_envelopes,
+    parse_classified_detail,
+    wrap_error,
 )
 from tracecat.temporal.exceptions import UserError
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
@@ -65,12 +69,19 @@ def _prepare_subflow_input() -> PrepareSubflowActivityInput:
     )
 
 
-def _classified_error_info(envelope: ErrorEnvelope, *, ref: str) -> ActionErrorInfo:
+def _action_error_info(envelope: ErrorEnvelope, *, ref: str) -> ActionErrorInfo:
+    """Build the envelope-free payload an envelope's failure would carry."""
     return ActionErrorInfo(
         ref=ref,
         message=envelope.message,
         type=envelope.cause_type or "ApplicationError",
-        envelope=envelope,
+    )
+
+
+def _wrapped_error_detail(envelope: ErrorEnvelope, *, ref: str) -> dict[str, Any]:
+    """Serialize the classified wrapper that transports an envelope and its payload."""
+    return wrap_error(envelope, _action_error_info(envelope, ref=ref)).model_dump(
+        mode="json"
     )
 
 
@@ -102,6 +113,7 @@ def _error_handler_workflow() -> tuple[DSLWorkflow, DSLRunArgs]:
 async def test_prepare_subflow_platform_failure_is_classified_and_history_safe() -> (
     None
 ):
+    """The failure travels as a wrapper whose envelope keeps diagnostics out of history."""
     sensitive = RuntimeError("postgresql://user:secret@example.invalid/database")
 
     with (
@@ -125,8 +137,14 @@ async def test_prepare_subflow_platform_failure_is_classified_and_history_safe()
     assert error.type == envelope.kind.value
     assert error.__cause__ is None
 
-    detail = ActionErrorInfo.model_validate(error.details[0])
+    detail = parse_classified_detail(error.details[0])
+    assert isinstance(detail, ClassifiedErrorDetail)
     assert detail.envelope == envelope
+    assert detail.error == ActionErrorInfo(
+        ref="call_child",
+        message=envelope.message,
+        type="RuntimeError",
+    )
 
     failure = Failure()
     await DataConverter.default.encode_failure(error, failure)
@@ -187,6 +205,7 @@ async def test_prepare_subflow_missing_definition_uses_not_found_kind() -> None:
 
 
 def test_subflow_user_envelope_control_flow_is_replay_gated() -> None:
+    """A wholly user-owned classified failure only steers control flow behind the patch."""
     envelope = ErrorEnvelope.user(
         kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
         message="The child workflow could not be found",
@@ -194,7 +213,7 @@ def test_subflow_user_envelope_control_flow_is_replay_gated() -> None:
     )
     error = _capture_application_error(
         envelope,
-        _classified_error_info(envelope, ref="call_child"),
+        _wrapped_error_detail(envelope, ref="call_child"),
     )
 
     with patch(
@@ -364,6 +383,7 @@ async def test_prepare_subflow_cancellation_keeps_native_semantics() -> None:
 
 
 def test_workflow_error_preserves_all_action_envelopes() -> None:
+    """The terminal map wraps every task: envelope on the wrapper, payload beneath it."""
     user_envelope = ErrorEnvelope.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The action failed",
@@ -374,15 +394,19 @@ def test_workflow_error_preserves_all_action_envelopes() -> None:
         message="Tracecat could not execute the action",
         retry_disposition=RetryDisposition.RETRYABLE,
     )
-    user_detail = _classified_error_info(user_envelope, ref="user_action")
-    platform_detail = _classified_error_info(platform_envelope, ref="platform_action")
+    user_detail = _action_error_info(user_envelope, ref="user_action")
+    platform_detail = _action_error_info(platform_envelope, ref="platform_action")
     task_exceptions = {
         "user_action": TaskExceptionInfo(
-            exception=_capture_application_error(user_envelope, user_detail),
+            exception=_capture_application_error(
+                user_envelope, wrap_error(user_envelope, user_detail)
+            ),
             details=user_detail,
         ),
         "platform_action": TaskExceptionInfo(
-            exception=_capture_application_error(platform_envelope, platform_detail),
+            exception=_capture_application_error(
+                platform_envelope, wrap_error(platform_envelope, platform_detail)
+            ),
             details=platform_detail,
         ),
     }
@@ -392,11 +416,17 @@ def test_workflow_error_preserves_all_action_envelopes() -> None:
     assert error.message == user_envelope.message
     assert error.non_retryable is True
     assert extract_error_envelopes(error) == (user_envelope, platform_envelope)
-    assert error.details[0]["user_action"]["envelope"]["schema"] == (
-        "tracecat.error.v1"
+    assert error.details[0]["user_action"]["envelope"] == user_envelope.model_dump(
+        mode="json"
     )
-    assert error.details[0]["platform_action"]["envelope"]["schema"] == (
-        "tracecat.error.v1"
+    assert error.details[0]["user_action"]["error"] == user_detail.model_dump(
+        mode="json"
+    )
+    assert error.details[0]["platform_action"][
+        "envelope"
+    ] == platform_envelope.model_dump(mode="json")
+    assert error.details[0]["platform_action"]["error"] == platform_detail.model_dump(
+        mode="json"
     )
 
 
@@ -416,13 +446,14 @@ def test_legacy_workflow_error_shape_is_unchanged() -> None:
     assert extract_error_envelope(error) is None
 
 
-def test_mixed_workflow_errors_do_not_promote_partial_classification() -> None:
+def test_mixed_workflow_errors_use_the_unclassified_terminal_raise() -> None:
+    """One unclassified task keeps the whole terminal raise on the legacy shape."""
     user_envelope = ErrorEnvelope.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The action failed",
         retry_disposition=RetryDisposition.NON_RETRYABLE,
     )
-    user_detail = _classified_error_info(user_envelope, ref="user_action")
+    user_detail = _action_error_info(user_envelope, ref="user_action")
     legacy_detail = ActionErrorInfo(
         ref="legacy_action",
         message="Legacy failure",
@@ -431,7 +462,9 @@ def test_mixed_workflow_errors_do_not_promote_partial_classification() -> None:
     error = _capture_workflow_application_error(
         {
             "user_action": TaskExceptionInfo(
-                exception=_capture_application_error(user_envelope, user_detail),
+                exception=_capture_application_error(
+                    user_envelope, wrap_error(user_envelope, user_detail)
+                ),
                 details=user_detail,
             ),
             "legacy_action": TaskExceptionInfo(
@@ -442,6 +475,9 @@ def test_mixed_workflow_errors_do_not_promote_partial_classification() -> None:
     )
 
     assert error.message.startswith("Workflow failed with 2 error(s)")
+    assert error.details == (
+        {"user_action": user_detail, "legacy_action": legacy_detail},
+    )
     assert extract_error_envelopes(error) == ()
     with patch("tracecat.dsl.workflow.workflow.patched") as patched_mock:
         assert DSLWorkflow._has_user_error_cause(error) is False
@@ -450,6 +486,7 @@ def test_mixed_workflow_errors_do_not_promote_partial_classification() -> None:
 
 @pytest.mark.anyio
 async def test_error_handler_runs_before_original_owner_is_stamped() -> None:
+    """The handler completes before the original error's owner is stamped."""
     instance, args = _error_handler_workflow()
     envelope = ErrorEnvelope.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
@@ -458,11 +495,7 @@ async def test_error_handler_runs_before_original_owner_is_stamped() -> None:
     )
     error = _capture_application_error(
         envelope,
-        {
-            "action": _classified_error_info(envelope, ref="action").model_dump(
-                mode="json"
-            )
-        },
+        {"action": _wrapped_error_detail(envelope, ref="action")},
     )
     events: list[str] = []
 
@@ -511,6 +544,7 @@ async def test_error_handler_runs_before_original_owner_is_stamped() -> None:
 
 @pytest.mark.anyio
 async def test_error_handler_failure_replaces_original_terminal_owner() -> None:
+    """A failing handler becomes the terminal error and owns the stamped attribution."""
     instance, args = _error_handler_workflow()
     original_envelope = ErrorEnvelope.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
@@ -524,11 +558,7 @@ async def test_error_handler_failure_replaces_original_terminal_owner() -> None:
     )
     original_error = _capture_application_error(
         original_envelope,
-        {
-            "action": _classified_error_info(
-                original_envelope, ref="action"
-            ).model_dump(mode="json")
-        },
+        {"action": _wrapped_error_detail(original_envelope, ref="action")},
     )
     handler_error = _capture_application_error(handler_envelope)
 
@@ -642,6 +672,7 @@ async def test_error_handler_detail_adaptation_failure_stamps_escaping_error() -
 
 
 def test_terminal_platform_owner_wins_for_alert_attribution() -> None:
+    """One platform-owned wrapper in the terminal map stamps the workflow as platform."""
     user_envelope = ErrorEnvelope.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The action failed",
@@ -653,12 +684,10 @@ def test_terminal_platform_owner_wins_for_alert_attribution() -> None:
         retry_disposition=RetryDisposition.RETRYABLE,
     )
     details = {
-        "user_action": _classified_error_info(
-            user_envelope, ref="user_action"
-        ).model_dump(mode="json"),
-        "platform_action": _classified_error_info(
+        "user_action": _wrapped_error_detail(user_envelope, ref="user_action"),
+        "platform_action": _wrapped_error_detail(
             platform_envelope, ref="platform_action"
-        ).model_dump(mode="json"),
+        ),
     }
     error = ApplicationError("Workflow failed", details, non_retryable=True)
 

@@ -78,6 +78,7 @@ from tracecat.temporal.errors import (
     extract_error_envelope,
     is_classified_detail,
     raise_wrapped_application_error,
+    wrap_error,
 )
 from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
@@ -864,11 +865,13 @@ def _raise_classified_subflow_application_error(
         error_type = type(error).__name__
         legacy_details = ()
 
-    detail = ActionErrorInfo(
-        ref=input.task.ref,
-        message=envelope.message,
-        type=error_type,
-        envelope=envelope,
+    detail = wrap_error(
+        envelope,
+        ActionErrorInfo(
+            ref=input.task.ref,
+            message=envelope.message,
+            type=error_type,
+        ),
     )
     raise_wrapped_application_error(
         error,
