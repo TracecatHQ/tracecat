@@ -276,11 +276,11 @@ function SkillsDetailActionsContent() {
       >
         <AlertDialogContent className="max-h-[85vh] max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
           <AlertDialogHeader>
-            <AlertDialogTitle>Select active version</AlertDialogTitle>
+            <AlertDialogTitle>Restore version</AlertDialogTitle>
             <AlertDialogDescription>
               {versionToRestore
-                ? `Set ${describeVersion(versionToRestore)} as the active published version for this skill?`
-                : "Set the selected published version as the active version for this skill?"}
+                ? `Restore the contents of ${describeVersion(versionToRestore)} as a new current version for this skill?`
+                : "Restore the selected version's contents as a new current version for this skill?"}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {versionLoading ? (

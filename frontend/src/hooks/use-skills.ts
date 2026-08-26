@@ -487,7 +487,7 @@ export function usePublishSkill(workspaceId: string) {
 }
 
 /**
- * Set the currently active published version for a skill.
+ * Restore published skill content as a new current version.
  *
  * @param workspaceId Workspace identifier.
  * @returns Restore mutation state.
@@ -518,15 +518,16 @@ export function useRestoreSkillVersion(workspaceId: string) {
         queryKey: ["skill-versions", workspaceId, variables.skillId],
       })
       toast({
-        title: "Active version updated",
-        description: "The selected published version is now active.",
+        title: "Version restored",
+        description:
+          "The selected version's content was restored as a new current version.",
       })
     },
     onError: (error) => {
       toast({
-        title: "Update failed",
+        title: "Restore failed",
         description:
-          getApiErrorDetail(error) ?? "Failed to update the active version.",
+          getApiErrorDetail(error) ?? "Failed to restore the selected version.",
         variant: "destructive",
       })
     },

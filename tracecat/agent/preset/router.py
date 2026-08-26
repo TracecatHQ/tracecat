@@ -249,7 +249,7 @@ async def restore_agent_preset_version(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetRead:
-    """Restore a historical preset version as current."""
+    """Restore historical preset content as a new current version."""
     service = AgentPresetService(session, role=role)
     preset = await service.get_preset(preset_id)
     if preset is None:

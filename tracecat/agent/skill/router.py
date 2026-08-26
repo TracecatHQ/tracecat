@@ -335,7 +335,7 @@ async def restore_skill_version(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
 ) -> SkillReadMinimal:
-    """Restore a historical version as the current selected skill version."""
+    """Restore historical skill content as a new current version."""
 
     service = SkillService(session, role=role)
     try:
