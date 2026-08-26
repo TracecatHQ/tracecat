@@ -1,17 +1,26 @@
 /**
  * Display-value mapping for comment mentions.
  *
- * The composer's textarea holds *display* text — a mention reads as `@Label` —
- * while the value sent to the API uses the wire token
- * `[@Label](mention://agent/<preset_id>)`. The bridge between the two is a list
- * of `MentionRange` offsets into the display text, maintained as the user edits
- * and converted by `serializeMentions` on submit.
+ * The composer's textarea holds *display* text — an agent mention reads as
+ * `@Label` and a workflow command as `/Label` — while the value sent to the
+ * API uses the wire token `[@Label](mention://agent/<preset_id>)` for agents
+ * and no text at all for workflows, which travel as `workflow_id` instead. The
+ * bridge between the two is a list of `MentionRange` offsets into the display
+ * text, maintained as the user edits and converted by `serializeMentions` on
+ * submit.
  */
+
+/**
+ * What a mention points at. Distinct from the generated `MentionTargetType`,
+ * which is the backend wire enum and only knows `agent`.
+ */
+export type MentionKind = "agent" | "workflow"
 
 /** A mention occupying `[start, end)` of the display text. */
 export interface MentionRange {
   start: number
   end: number
+  kind: MentionKind
   label: string
   targetId: string
 }
@@ -30,13 +39,19 @@ export interface MentionSegment {
   mention: MentionRange | undefined
 }
 
+/** The character that opens a mention session for each kind. */
+const MENTION_TRIGGERS: Record<MentionKind, string> = {
+  agent: "@",
+  workflow: "/",
+}
+
 /** Display form of a mention, i.e. what the user sees in the textarea. */
-export function mentionDisplayText(label: string): string {
-  return `@${label}`
+export function mentionDisplayText(kind: MentionKind, label: string): string {
+  return `${MENTION_TRIGGERS[kind]}${label}`
 }
 
 /**
- * Render a mention as its wire token.
+ * Render an agent mention as its wire token.
  *
  * This shape is a shared contract with the comment renderer, so keep it
  * byte-for-byte stable.
@@ -52,7 +67,13 @@ function sortMentions(mentions: MentionRange[]): MentionRange[] {
   return [...mentions].sort((left, right) => left.start - right.start)
 }
 
-/** Convert display text plus mention ranges into the value sent to the API. */
+/**
+ * Convert display text plus mention ranges into the value sent to the API.
+ *
+ * Agent ranges become wire tokens. Workflow ranges are dropped along with one
+ * following space, if present, so the surrounding text closes up cleanly; the
+ * workflow itself is sent as `workflow_id`, not as text.
+ */
 export function serializeMentions(
   text: string,
   mentions: MentionRange[]
@@ -64,8 +85,12 @@ export function serializeMentions(
       continue
     }
     result += text.slice(cursor, mention.start)
-    result += formatAgentMentionToken(mention)
-    cursor = mention.end
+    if (mention.kind === "agent") {
+      result += formatAgentMentionToken(mention)
+      cursor = mention.end
+      continue
+    }
+    cursor = text[mention.end] === " " ? mention.end + 1 : mention.end
   }
   return result + text.slice(cursor)
 }
@@ -189,44 +214,70 @@ export function findMentionEndingAt(
   return mentions.find((mention) => mention.end === caret)
 }
 
-/** Caret-anchored `@query` span that drives the mention popover. */
-export interface AgentMentionToken {
+/** The single workflow command in the composer, if one has been picked. */
+export function findWorkflowMention(
+  mentions: MentionRange[]
+): MentionRange | undefined {
+  return mentions.find((mention) => mention.kind === "workflow")
+}
+
+/** Caret-anchored `@query` or `/query` span that drives the mention popover. */
+export interface MentionToken {
   start: number
   end: number
   query: string
+  kind: MentionKind
 }
 
-/**
- * Locate the `@query` token immediately before the caret.
- *
- * The `@` must sit at the start of the text or directly after whitespace, and
- * any whitespace inside the query dismisses the token.
- */
-export function getAgentMentionToken(
-  text: string,
-  caret: number
-): AgentMentionToken | undefined {
-  const beforeCaret = text.slice(0, caret)
-  const atIndex = beforeCaret.lastIndexOf("@")
-  if (atIndex < 0) {
+function getTokenForKind(
+  beforeCaret: string,
+  caret: number,
+  kind: MentionKind
+): MentionToken | undefined {
+  const triggerIndex = beforeCaret.lastIndexOf(MENTION_TRIGGERS[kind])
+  if (triggerIndex < 0) {
     return undefined
   }
 
-  const priorChar = atIndex === 0 ? " " : (beforeCaret[atIndex - 1] ?? " ")
+  const priorChar =
+    triggerIndex === 0 ? " " : (beforeCaret[triggerIndex - 1] ?? " ")
   if (priorChar.trim() !== "") {
     return undefined
   }
 
-  const query = beforeCaret.slice(atIndex + 1)
+  const query = beforeCaret.slice(triggerIndex + 1)
   if (/\s/.test(query)) {
     return undefined
   }
 
   return {
-    start: atIndex,
+    start: triggerIndex,
     end: caret,
     query,
+    kind,
   }
+}
+
+/**
+ * Locate the `@query` or `/query` token immediately before the caret.
+ *
+ * The trigger must sit at the start of the text or directly after whitespace,
+ * and any whitespace inside the query dismisses the token. When both triggers
+ * qualify, the one nearer the caret wins, so `@bar/baz` is still an agent
+ * token. The whitespace rule is also what keeps `/` inside URLs and paths from
+ * opening the popover.
+ */
+export function getMentionToken(
+  text: string,
+  caret: number
+): MentionToken | undefined {
+  const beforeCaret = text.slice(0, caret)
+  const agent = getTokenForKind(beforeCaret, caret, "agent")
+  const workflow = getTokenForKind(beforeCaret, caret, "workflow")
+  if (agent && workflow) {
+    return agent.start > workflow.start ? agent : workflow
+  }
+  return agent ?? workflow
 }
 
 /** Result of a pure text-plus-ranges edit, with the caret's landing offset. */
@@ -237,33 +288,64 @@ export interface MentionEdit {
 }
 
 /**
- * Replace the `@query` token with a mention's display text plus a trailing
+ * Replace the trigger token with a mention's display text plus a trailing
  * space, registering the new mention range.
+ *
+ * A comment carries at most one workflow, so inserting a workflow first
+ * removes any workflow already in the text.
  */
 export function applyMentionInsertion(
   text: string,
   mentions: MentionRange[],
-  token: AgentMentionToken,
-  mention: { label: string; targetId: string }
+  token: MentionToken,
+  mention: { kind: MentionKind; label: string; targetId: string }
 ): MentionEdit {
-  const display = mentionDisplayText(mention.label)
+  let baseText = text
+  let baseMentions = mentions
+  let baseToken = token
+  if (mention.kind === "workflow") {
+    const existing = findWorkflowMention(mentions)
+    if (existing) {
+      const removal = applyMentionRemoval(text, mentions, existing)
+      baseText = removal.text
+      baseMentions = removal.mentions
+      if (existing.end <= token.start) {
+        const removed = existing.end - existing.start
+        baseToken = {
+          ...token,
+          start: token.start - removed,
+          end: token.end - removed,
+        }
+      } else if (existing.start <= token.start) {
+        // The caret was inside the old command, so the token text went with
+        // it; insert where the old command began.
+        baseToken = { ...token, start: existing.start, end: existing.start }
+      }
+    }
+  }
+
+  const display = mentionDisplayText(mention.kind, mention.label)
   const inserted = `${display} `
   return {
-    text: text.slice(0, token.start) + inserted + text.slice(token.end),
+    text:
+      baseText.slice(0, baseToken.start) +
+      inserted +
+      baseText.slice(baseToken.end),
     mentions: [
-      ...remapMentions(mentions, {
-        start: token.start,
-        deleted: token.end - token.start,
+      ...remapMentions(baseMentions, {
+        start: baseToken.start,
+        deleted: baseToken.end - baseToken.start,
         inserted: inserted.length,
       }),
       {
-        start: token.start,
-        end: token.start + display.length,
+        start: baseToken.start,
+        end: baseToken.start + display.length,
+        kind: mention.kind,
         label: mention.label,
         targetId: mention.targetId,
       },
     ],
-    caret: token.start + inserted.length,
+    caret: baseToken.start + inserted.length,
   }
 }
 

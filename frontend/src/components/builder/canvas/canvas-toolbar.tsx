@@ -1,10 +1,10 @@
 import type { LucideIcon } from "lucide-react"
 import {
   BlocksIcon,
-  BotIcon,
   BoxIcon,
   DatabaseIcon,
   LayersIcon,
+  MousePointerClickIcon,
   PlusIcon,
   SparklesIcon,
   SquareFunctionIcon,
@@ -67,7 +67,7 @@ const ACTION_CATEGORIES: ActionCategory[] = [
     id: "agent",
     label: "Agent",
     namespace: "ai",
-    icon: BotIcon,
+    icon: MousePointerClickIcon,
     align: "center",
   },
   {
@@ -472,7 +472,7 @@ function ToolbarCategoryDropdown({
     if (isAgentCategory) {
       return (
         <div className="flex size-8 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50/80 dark:border-emerald-900 dark:bg-emerald-500/10">
-          <BotIcon className="size-4 text-foreground" />
+          <MousePointerClickIcon className="size-4 text-foreground" />
         </div>
       )
     }

@@ -4,8 +4,10 @@ import {
   buildMentionSegments,
   diffTextSplice,
   findMentionEndingAt,
+  findWorkflowMention,
   formatAgentMentionToken,
-  getAgentMentionToken,
+  getMentionToken,
+  type MentionKind,
   type MentionRange,
   mentionDisplayText,
   remapMentions,
@@ -15,15 +17,34 @@ import {
 function mention(
   start: number,
   label: string,
-  targetId = "preset-1"
+  targetId = "preset-1",
+  kind: MentionKind = "agent"
 ): MentionRange {
   return {
     start,
-    end: start + mentionDisplayText(label).length,
+    end: start + mentionDisplayText(kind, label).length,
+    kind,
     label,
     targetId,
   }
 }
+
+function workflow(
+  start: number,
+  label: string,
+  targetId = "workflow-1"
+): MentionRange {
+  return mention(start, label, targetId, "workflow")
+}
+
+describe("mentionDisplayText", () => {
+  it("prefixes agents with @ and workflows with /", () => {
+    expect(mentionDisplayText("agent", "Triage agent")).toBe("@Triage agent")
+    expect(mentionDisplayText("workflow", "Escalate case")).toBe(
+      "/Escalate case"
+    )
+  })
+})
 
 describe("formatAgentMentionToken", () => {
   it("renders the shared wire token format", () => {
@@ -70,6 +91,37 @@ describe("serializeMentions", () => {
     expect(serializeMentions("short", [mention(40, "Triage agent")])).toBe(
       "short"
     )
+  })
+
+  it("strips a workflow command and one following space", () => {
+    expect(
+      serializeMentions("/Escalate case hello", [workflow(0, "Escalate case")])
+    ).toBe("hello")
+    expect(
+      serializeMentions("hello /Escalate case", [workflow(6, "Escalate case")])
+    ).toBe("hello ")
+    expect(
+      serializeMentions("a /Escalate case  b", [workflow(2, "Escalate case")])
+    ).toBe("a  b")
+  })
+
+  it("strips workflow commands while keeping agent tokens", () => {
+    expect(
+      serializeMentions("/Escalate case ping @Triage agent", [
+        workflow(0, "Escalate case"),
+        mention(20, "Triage agent"),
+      ])
+    ).toBe("ping [@Triage agent](mention://agent/preset-1)")
+  })
+})
+
+describe("findWorkflowMention", () => {
+  it("returns the workflow range, ignoring agents", () => {
+    const target = workflow(6, "Escalate case")
+    expect(findWorkflowMention([mention(0, "Triage agent"), target])).toBe(
+      target
+    )
+    expect(findWorkflowMention([mention(0, "Triage agent")])).toBeUndefined()
   })
 })
 
@@ -186,34 +238,76 @@ describe("buildMentionSegments", () => {
   })
 })
 
-describe("getAgentMentionToken", () => {
+describe("getMentionToken", () => {
   it("matches @ at the start of the text", () => {
-    expect(getAgentMentionToken("@tri", 4)).toEqual({
+    expect(getMentionToken("@tri", 4)).toEqual({
       start: 0,
       end: 4,
       query: "tri",
+      kind: "agent",
     })
   })
 
   it("matches @ after whitespace", () => {
-    expect(getAgentMentionToken("ping @tri", 9)).toEqual({
+    expect(getMentionToken("ping @tri", 9)).toEqual({
       start: 5,
       end: 9,
       query: "tri",
+      kind: "agent",
     })
   })
 
-  it("returns undefined without an @, after a non-space, or with whitespace", () => {
-    expect(getAgentMentionToken("ping", 4)).toBeUndefined()
-    expect(getAgentMentionToken("email@tri", 9)).toBeUndefined()
-    expect(getAgentMentionToken("@tri agent", 10)).toBeUndefined()
+  it("returns undefined without a trigger, after a non-space, or with whitespace", () => {
+    expect(getMentionToken("ping", 4)).toBeUndefined()
+    expect(getMentionToken("email@tri", 9)).toBeUndefined()
+    expect(getMentionToken("@tri agent", 10)).toBeUndefined()
   })
 
   it("ignores text after the caret", () => {
-    expect(getAgentMentionToken("@tri tail", 4)).toEqual({
+    expect(getMentionToken("@tri tail", 4)).toEqual({
       start: 0,
       end: 4,
       query: "tri",
+      kind: "agent",
+    })
+  })
+
+  it("matches / at the start of the text and after whitespace", () => {
+    expect(getMentionToken("/esc", 4)).toEqual({
+      start: 0,
+      end: 4,
+      query: "esc",
+      kind: "workflow",
+    })
+    expect(getMentionToken("run /esc", 8)).toEqual({
+      start: 4,
+      end: 8,
+      query: "esc",
+      kind: "workflow",
+    })
+  })
+
+  it("ignores / inside words, paths, and URLs", () => {
+    expect(getMentionToken("a/b", 3)).toBeUndefined()
+    expect(getMentionToken("https://x.com/path", 18)).toBeUndefined()
+    expect(getMentionToken("see https://x.com/path", 22)).toBeUndefined()
+  })
+
+  it("resolves @bar/baz to the agent token", () => {
+    expect(getMentionToken("@bar/baz", 8)).toEqual({
+      start: 0,
+      end: 8,
+      query: "bar/baz",
+      kind: "agent",
+    })
+  })
+
+  it("resolves /foo@bar to the workflow token", () => {
+    expect(getMentionToken("/foo@bar", 8)).toEqual({
+      start: 0,
+      end: 8,
+      query: "foo@bar",
+      kind: "workflow",
     })
   })
 })
@@ -223,8 +317,8 @@ describe("applyMentionInsertion", () => {
     const edit = applyMentionInsertion(
       "Ping @tri now",
       [],
-      { start: 5, end: 9, query: "tri" },
-      { label: "Triage agent", targetId: "preset-1" }
+      { start: 5, end: 9, query: "tri", kind: "agent" },
+      { kind: "agent", label: "Triage agent", targetId: "preset-1" }
     )
     expect(edit.text).toBe("Ping @Triage agent  now")
     expect(edit.mentions).toEqual([mention(5, "Triage agent")])
@@ -236,12 +330,64 @@ describe("applyMentionInsertion", () => {
     const edit = applyMentionInsertion(
       "Ping @tri x",
       [later],
-      { start: 5, end: 9, query: "tri" },
-      { label: "Triage agent", targetId: "preset-1" }
+      { start: 5, end: 9, query: "tri", kind: "agent" },
+      { kind: "agent", label: "Triage agent", targetId: "preset-1" }
     )
     expect(edit.mentions).toEqual([
       { ...later, start: 20, end: later.end + 10 },
       mention(5, "Triage agent"),
+    ])
+  })
+
+  it("inserts a workflow command with a / prefix", () => {
+    const edit = applyMentionInsertion(
+      "/esc",
+      [],
+      { start: 0, end: 4, query: "esc", kind: "workflow" },
+      { kind: "workflow", label: "Escalate case", targetId: "workflow-1" }
+    )
+    expect(edit.text).toBe("/Escalate case ")
+    expect(edit.mentions).toEqual([workflow(0, "Escalate case")])
+    expect(edit.caret).toBe("/Escalate case ".length)
+  })
+
+  it("replaces an existing workflow that sits before the token", () => {
+    const existing = workflow(0, "Escalate case")
+    const edit = applyMentionInsertion(
+      "/Escalate case hello /clo",
+      [existing],
+      { start: 21, end: 25, query: "clo", kind: "workflow" },
+      { kind: "workflow", label: "Close case", targetId: "workflow-2" }
+    )
+    expect(edit.text).toBe(" hello /Close case ")
+    expect(edit.mentions).toEqual([workflow(7, "Close case", "workflow-2")])
+    expect(edit.caret).toBe(" hello /Close case ".length)
+  })
+
+  it("replaces an existing workflow that sits after the token", () => {
+    const existing = workflow(11, "Escalate case")
+    const edit = applyMentionInsertion(
+      "/clo hello /Escalate case",
+      [existing],
+      { start: 0, end: 4, query: "clo", kind: "workflow" },
+      { kind: "workflow", label: "Close case", targetId: "workflow-2" }
+    )
+    expect(edit.text).toBe("/Close case  hello ")
+    expect(edit.mentions).toEqual([workflow(0, "Close case", "workflow-2")])
+  })
+
+  it("keeps agent mentions when a workflow replaces another", () => {
+    const agent = mention(15, "Triage agent")
+    const edit = applyMentionInsertion(
+      "/Escalate case @Triage agent /clo",
+      [workflow(0, "Escalate case"), agent],
+      { start: 29, end: 33, query: "clo", kind: "workflow" },
+      { kind: "workflow", label: "Close case", targetId: "workflow-2" }
+    )
+    expect(edit.text).toBe(" @Triage agent /Close case ")
+    expect(edit.mentions).toEqual([
+      { ...agent, start: 1, end: 14 },
+      workflow(15, "Close case", "workflow-2"),
     ])
   })
 })

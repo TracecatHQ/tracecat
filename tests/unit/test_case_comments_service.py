@@ -240,11 +240,30 @@ async def test_case(session: AsyncSession, svc_role: Role) -> Case:
 
 @pytest.fixture
 async def workflow(session: AsyncSession, svc_role: Role) -> Workflow:
+    """A published workflow (publishing sets ``version``)."""
     workflow = Workflow(
         title="Escalate case",
         description="Workflow-backed case comment test",
         status="online",
+        version=1,
         alias="escalate_case",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+    await session.refresh(workflow)
+    return workflow
+
+
+@pytest.fixture
+async def draft_workflow(session: AsyncSession, svc_role: Role) -> Workflow:
+    """A workflow that has never been published."""
+    workflow = Workflow(
+        title="Draft escalation",
+        description="Unpublished workflow-backed case comment test",
+        status="offline",
+        version=None,
+        alias="draft_escalation",
         workspace_id=svc_role.workspace_id,
     )
     session.add(workflow)
@@ -1407,6 +1426,27 @@ class TestCaseCommentsService:
             AuditEventStatus.ATTEMPT.value,
             AuditEventStatus.FAILURE.value,
         ]
+
+    async def test_create_workflow_backed_comment_rejects_draft_workflow(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+        draft_workflow: Workflow,
+    ) -> None:
+        with pytest.raises(TracecatValidationError, match="not published"):
+            await case_comments_service.create_comment(
+                test_case,
+                CaseCommentCreate(
+                    content="Run this workflow",
+                    workflow_id=WorkflowUUID.new(draft_workflow.id),
+                ),
+            )
+
+        result = await session.execute(
+            select(CaseComment).where(CaseComment.case_id == test_case.id)
+        )
+        assert result.scalars().all() == []
 
     async def test_create_workflow_backed_comment_requires_case_addons(
         self,

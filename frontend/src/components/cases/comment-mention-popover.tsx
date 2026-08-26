@@ -4,20 +4,30 @@ import { Loader2 } from "lucide-react"
 import type { ReactNode } from "react"
 import { useMemo } from "react"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
-import type { MentionSection } from "@/hooks/use-comment-mentions"
+import type {
+  MentionSection,
+  MentionSuggestion,
+} from "@/hooks/use-comment-mentions"
+import type { MentionKind } from "@/lib/comment-mentions"
 import type { CaretCoordinates } from "@/lib/textarea-caret"
 import { cn } from "@/lib/utils"
 
+const POPOVER_COPY: Record<MentionKind, { loading: string; empty: string }> = {
+  agent: { loading: "Loading agents...", empty: "No agents found" },
+  workflow: { loading: "Loading workflows...", empty: "No workflows found" },
+}
+
 /**
- * Suggestion list for the `@` mention autocomplete.
+ * Suggestion list for the `@` agent and `/` workflow autocomplete.
  *
- * Anchors to a marker pinned at the `@` trigger so the popover holds still for
- * the whole mention session, and portals out of the comment thread, which clips
- * its own overflow. `open` is fully controlled by the caller, so Radix never
- * dismisses the popover on its own.
+ * Anchors to a marker pinned at the trigger character so the popover holds
+ * still for the whole mention session, and portals out of the comment thread,
+ * which clips its own overflow. `open` is fully controlled by the caller, so
+ * Radix never dismisses the popover on its own.
  */
-export function AgentMentionPopover({
+export function CommentMentionPopover({
   open,
+  kind,
   caret,
   sections,
   itemCount,
@@ -27,12 +37,14 @@ export function AgentMentionPopover({
   children,
 }: {
   open: boolean
+  /** Which trigger opened the popover; picks the loading and empty copy. */
+  kind: MentionKind | undefined
   caret: CaretCoordinates | undefined
   sections: MentionSection[]
   itemCount: number
   activeIndex: number
   isLoading: boolean
-  onSelect: (item: MentionSection["items"][number]) => void
+  onSelect: (item: MentionSuggestion) => void
   children: ReactNode
 }) {
   // Flatten section offsets so each row knows its index in the keyboard order.
@@ -44,6 +56,7 @@ export function AgentMentionPopover({
       return { section, startIndex }
     })
   }, [sections])
+  const copy = POPOVER_COPY[kind ?? "agent"]
 
   return (
     <Popover open={open}>
@@ -74,19 +87,19 @@ export function AgentMentionPopover({
         {isLoading ? (
           <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
             <Loader2 className="size-3 animate-spin" />
-            Loading agents...
+            {copy.loading}
           </div>
         ) : null}
         {!isLoading && itemCount === 0 ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            No agents found
+            {copy.empty}
           </div>
         ) : null}
         {!isLoading && itemCount > 0 ? (
           <div className="max-h-52 overflow-y-auto p-1">
             {sectionsWithOffset.map(({ section, startIndex }) => (
               <div key={section.section}>
-                <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
                   {section.label}
                 </div>
                 {section.items.map((item, index) => (
@@ -96,13 +109,18 @@ export function AgentMentionPopover({
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => onSelect(item)}
                     className={cn(
-                      "flex w-full items-center rounded-sm px-2 py-1 text-left",
+                      "flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left",
                       activeIndex === startIndex + index && "bg-accent"
                     )}
                   >
-                    <span className="w-full truncate text-xs text-foreground">
+                    <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                       {item.label}
                     </span>
+                    {item.hint ? (
+                      <span className="max-w-[45%] truncate text-[10px] text-muted-foreground">
+                        {item.hint}
+                      </span>
+                    ) : null}
                   </button>
                 ))}
               </div>
