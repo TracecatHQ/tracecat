@@ -116,6 +116,7 @@ def _http_spec(raw_spec: RawHttpConnectionSpec) -> MCPConnectionSpec | None:
                 oauth_resource=raw_spec.oauth_resource,
                 oauth_authorization_endpoint=raw_spec.oauth_authorization_endpoint,
                 oauth_token_endpoint=raw_spec.oauth_token_endpoint,
+                oauth_authorize_params=raw_spec.oauth_authorize_params or {},
             )
         case MCPAuthType.CUSTOM:
             return MCPHTTPCustomConnectionSpec(

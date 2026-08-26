@@ -226,137 +226,64 @@
     },
     {
       "slug": "google-cloud-secops-mcp",
-      "docs": "https://google.github.io/mcp-security/servers/secops_mcp.html",
+      "docs": "https://docs.cloud.google.com/chronicle/docs/secops/use-google-secops-mcp",
       "connection_spec": {
-        "server_type": "stdio",
-        "auth_type": "CUSTOM",
-        "stdio_command": "uvx",
-        "stdio_args": [
-          "--from",
-          "google-secops-mcp==0.7.0",
-          "secops_mcp"
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://chronicle.{REGION}.rep.googleapis.com/mcp",
+        "scopes": [
+          "https://www.googleapis.com/auth/chronicle"
         ],
-        "stdio_env": [
-          "CHRONICLE_PROJECT_ID",
-          "CHRONICLE_CUSTOMER_ID",
-          "CHRONICLE_REGION",
-          "SECOPS_SA_PATH"
-        ],
-        "packages": [
-          {
-            "manager": "uvx",
-            "command": "uvx",
-            "args": [
-              "--from",
-              "google-secops-mcp==0.7.0",
-              "secops_mcp"
-            ],
-            "package": "google-secops-mcp==0.7.0"
-          }
-        ],
+        "oauth_authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+        "oauth_token_endpoint": "https://oauth2.googleapis.com/token",
+        "oauth_authorize_params": {
+          "access_type": "offline",
+          "prompt": "consent"
+        },
         "credentials": [
           {
-            "key": "CHRONICLE_PROJECT_ID",
-            "label": "Chronicle Google Cloud Project ID",
-            "description": "The Google Cloud project ID bound to your Chronicle/SecOps instance.",
+            "key": "REGION",
+            "label": "Google SecOps region",
+            "description": "Regional endpoint prefix, e.g. us, eu, asia-southeast1. The server URL is https://chronicle.{REGION}.rep.googleapis.com/mcp.",
             "required": true,
             "secret": false,
-            "target": "stdio_env"
+            "placeholder": "us",
+            "target": "server_uri"
           },
           {
-            "key": "CHRONICLE_CUSTOMER_ID",
-            "label": "Chronicle Customer ID",
-            "description": "The Chronicle instance customer identifier (UUID), e.g. 01234567-abcd-4321-1234-0123456789ab.",
+            "key": "client_id",
+            "label": "Google OAuth client ID",
+            "description": "OAuth 2.0 client (Web application) in the Google Cloud project where the Chronicle API and its MCP are enabled (gcloud beta services mcp enable chronicle.googleapis.com/mcp), with <your Tracecat URL>/integrations/callback as an authorized redirect URI. The authorizing user needs roles/mcp.toolUser.",
             "required": true,
             "secret": false,
-            "target": "stdio_env"
+            "target": "oauth_client"
           },
           {
-            "key": "CHRONICLE_REGION",
-            "label": "Chronicle Region",
-            "description": "Geographic region of the SecOps instance: one of us, eu, or asia.",
+            "key": "client_secret",
+            "label": "Google OAuth client secret",
+            "description": "Client secret paired with the client ID.",
             "required": true,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "SECOPS_SA_PATH",
-            "label": "Service Account Key File Path",
-            "description": "Optional path to a Google Cloud service account JSON key file. Used for non-interactive auth; takes precedence over Application Default Credentials. If unset, the server uses ADC from `gcloud auth application-default login`.",
-            "required": false,
             "secret": true,
-            "target": "stdio_env"
+            "target": "oauth_client"
+          },
+          {
+            "key": "x-goog-user-project",
+            "label": "Quota project ID",
+            "description": "Google Cloud project ID sent as the x-goog-user-project header; required by the managed MCP server.",
+            "required": true,
+            "secret": false,
+            "target": "http_header"
           }
         ],
         "_research": {
           "confidence": "high",
           "docker_only": false,
-          "notes": "Official Google repo: github.com/google/mcp-security (the SecOps/Chronicle server lives under server/secops). Distributed on PyPI as `google-secops-mcp` v0.7.0 with console entry point `secops_mcp`. Canonical STDIO launch per official README: `uvx --from google-secops-mcp secops_mcp`. Also installable via `uv tool install google-secops-mcp` or `pip install google-secops-mcp` (then run module `secops_mcp`).\n\nAuth classified as CUSTOM: the user does NOT pass a bearer token to the server. Instead the server authenticates to Google Cloud via Application Default Credentials (set up out-of-band with `gcloud auth application-default login`) OR via a service account JSON key file referenced by SECOPS_SA_PATH (optional, secret). The user must always supply non-secret identifiers CHRONICLE_PROJECT_ID, CHRONICLE_CUSTOMER_ID, and CHRONICLE_REGION. Underlying ADC is technically a Google OAuth2 credential, but from the connection-spec perspective there is no in-band OAuth flow the MCP server performs, so OAUTH2 fields are left null.\n\nGoogle ALSO offers a separate fully-managed REMOTE/HTTP MCP server for SecOps with a regional streamable-HTTP endpoint pattern like https://chronicle.<region>.rep.googleapis.com/mcp (region-specific). That remote variant is a different deployment than the STDIO package requested here; since the intended transport is STDIO, the STDIO local package is specified. If the HTTP remote variant is later wanted, server_uri would be the regional .../mcp endpoint and auth would be Google Cloud IAM/OAuth.",
+          "notes": "RETIRED (2026-08-26): the local `google-secops-mcp` 0.7.0 stdio recipe was removed. It fails under fresh dependency resolution — the server imports mcp.server.fastmcp, which is gone once the unconstrained mcp dependency resolves to 2.x. Pinning mcp<2 restores all 67 tools, but the recipe has no way to express that pin.\n\nReplaced by Google's managed remote MCP server at https://chronicle.<region>.rep.googleapis.com/mcp, which returned 70 tools on verification. Auth is a Google OAuth bearer token with the https://www.googleapis.com/auth/chronicle scope (the server's protected-resource metadata advertises only that scope; Google's docs also list cloud-platform, which is far broader); the x-goog-user-project header is mandatory and the authorizing principal needs roles/mcp.toolUser. Google does not support dynamic client registration, so the user supplies their own OAuth client, and access_type=offline with prompt=consent is required to receive a refresh token. Enable the MCP surface with `gcloud beta services mcp enable chronicle.googleapis.com/mcp`. Tools take project_id, customer_id, and region as call arguments rather than environment variables.",
           "sources": [
-            "https://github.com/google/mcp-security",
-            "https://github.com/google/mcp-security/blob/main/README.md",
-            "https://google.github.io/mcp-security/servers/secops_mcp.html",
-            "https://pypi.org/project/google-secops-mcp/",
-            "https://docs.cloud.google.com/chronicle/docs/secops/use-google-secops-mcp"
+            "https://docs.cloud.google.com/chronicle/docs/secops/use-google-secops-mcp",
+            "https://google.github.io/mcp-security/remote_server.html"
           ]
         }
-      }
-    },
-    {
-      "slug": "google-security-command-center-mcp",
-      "docs": "https://google.github.io/mcp-security/servers/scc_mcp.html",
-      "connection_spec": {
-        "server_type": "stdio",
-        "auth_type": "CUSTOM",
-        "stdio_command": "uvx",
-        "stdio_args": [
-          "--from",
-          "scc-mcp==0.1.0",
-          "scc_mcp"
-        ],
-        "stdio_env": [
-          "GOOGLE_APPLICATION_CREDENTIALS"
-        ],
-        "packages": [
-          {
-            "manager": "uvx",
-            "command": "uvx",
-            "args": [
-              "--from",
-              "scc-mcp==0.1.0",
-              "scc_mcp"
-            ],
-            "package": "scc-mcp==0.1.0"
-          },
-          {
-            "manager": "pip",
-            "command": "python",
-            "args": [
-              "-m",
-              "scc_mcp"
-            ],
-            "package": "scc-mcp==0.1.0"
-          }
-        ],
-        "credentials": [
-          {
-            "key": "GOOGLE_APPLICATION_CREDENTIALS",
-            "label": "Service Account Key File Path",
-            "description": "Path to a Google Cloud service account JSON key file. The server authenticates via Application Default Credentials (ADC); set this when ADC is not already configured in the environment (e.g. via `gcloud auth application-default login` or Workload Identity). The service account needs roles/securitycenter.adminViewer (or adminEditor) and roles/cloudasset.viewer, and the securitycenter.googleapis.com and cloudasset.googleapis.com APIs must be enabled.",
-            "required": false,
-            "secret": true,
-            "target": "stdio_env"
-          }
-        ],
-        "confidence": "high",
-        "docker_only": false,
-        "research_notes": "Official Google repo: github.com/google/mcp-security (the Security Command Center server lives under server/scc). Distributed on PyPI as `scc-mcp` with module `scc_mcp`. Canonical STDIO launch: `uvx --from scc-mcp scc_mcp`, pinned here to `scc-mcp==0.1.0` (the only published release, 2025-09-05, matching upstream tag `scc-v0.1.0`). Also installable via `pip install scc-mcp` (then run module `scc_mcp`).\n\nAuth classified as CUSTOM: scc_mcp.py reads no environment variables of its own. Both the Security Command Center and Cloud Asset Inventory clients are constructed without explicit credentials and rely on Application Default Credentials, so authentication is configured out-of-band (`gcloud auth application-default login`, Workload Identity, or a service account key referenced by the standard GOOGLE_APPLICATION_CREDENTIALS variable, which google-auth reads). Required IAM: roles/securitycenter.adminViewer or roles/securitycenter.adminEditor, plus roles/cloudasset.viewer. Required APIs: securitycenter.googleapis.com and cloudasset.googleapis.com.\n\nThe target project is passed per tool call as a `project_id` argument rather than an environment variable, so no project identifier is required in the connection spec.\n\nTools exposed: top_vulnerability_findings (active HIGH/CRITICAL vulnerability-class findings, sorted by Attack Exposure Score) and get_finding_remediation (remediation steps plus affected resource details from Cloud Asset Inventory). This server is read-only and vulnerability-focused; it does not list all finding classes and cannot mute or change finding state.",
-        "sources": [
-          "https://github.com/google/mcp-security",
-          "https://google.github.io/mcp-security/servers/scc_mcp.html",
-          "https://pypi.org/project/scc-mcp/",
-          "https://cloud.google.com/security-command-center/docs/reference/rest"
-        ]
       }
     },
     {
@@ -678,158 +605,20 @@
     {
       "slug": "jamf-mcp",
       "docs": "https://developer.jamf.com/developer-guide/docs/mcp",
-      "default_connection_option": "remote-http",
-      "connection_options": [
-        {
-          "id": "remote-http",
-          "label": "Remote HTTP",
-          "description": "Connect to Jamf's hosted MCP server to search Jamf developer documentation and generate Jamf API integration code. No authentication required.",
-          "docs": "https://developer.jamf.com/developer-guide/docs/mcp",
-          "connection_spec": {
-            "server_type": "http",
-            "auth_type": "NONE",
-            "server_uri": "https://developer.jamf.com/mcp",
-            "credentials": [],
-            "_research": {
-              "confidence": "high",
-              "docker_only": false,
-              "notes": "Official Jamf-hosted remote MCP server at https://developer.jamf.com/mcp, documented at developer.jamf.com/developer-guide/docs/mcp. Transport is streamable HTTP; first-party client configs (Cursor, Windsurf, Claude Desktop) are just {\"url\": \"https://developer.jamf.com/mcp\"} with no OAuth flow or API key, so auth_type=NONE. Scope is Jamf DEVELOPER DOCUMENTATION search and API code-generation assistance only — it does NOT manage devices or query Jamf Pro/Protect/Security Cloud tenant data. Device management requires the local-stdio mcp-hub option. Jamf also publishes an AI-agent index at https://developer.jamf.com/llms.txt.",
-              "sources": [
-                "https://developer.jamf.com/developer-guide/docs/mcp"
-              ]
-            }
-          }
-        },
-        {
-          "id": "local-stdio",
-          "label": "Local stdio",
-          "description": "Run Jamf's open-source mcp-hub server locally from a QA-verified commit with API credentials.",
-          "docs": "https://github.com/Jamf-Concepts/mcp-hub",
-          "connection_spec": {
-            "server_type": "stdio",
-            "auth_type": "CUSTOM",
-            "stdio_command": "uvx",
-            "stdio_args": [
-              "--from",
-              "git+https://github.com/Jamf-Concepts/mcp-hub.git@53843c4da3ef666b70de1ee793fa9e8c432b9972",
-              "jamf-mcp"
-            ],
-            "stdio_env": [
-              "JAMF_PRO_URL",
-              "JAMF_PRO_CLIENT_ID",
-              "JAMF_PRO_CLIENT_SECRET",
-              "JAMF_PROTECT_URL",
-              "JAMF_PROTECT_CLIENT_ID",
-              "JAMF_PROTECT_PASSWORD",
-              "JAMF_SECURITY_URL",
-              "JAMF_SECURITY_APP_ID",
-              "JAMF_SECURITY_APP_SECRET"
-            ],
-            "packages": [
-              {
-                "manager": "uvx",
-                "command": "uvx",
-                "args": [
-                  "--from",
-                  "git+https://github.com/Jamf-Concepts/mcp-hub.git@53843c4da3ef666b70de1ee793fa9e8c432b9972",
-                  "jamf-mcp"
-                ],
-                "package": "git+https://github.com/Jamf-Concepts/mcp-hub.git@53843c4da3ef666b70de1ee793fa9e8c432b9972"
-              }
-            ],
-            "credentials": [
-              {
-                "key": "JAMF_PRO_URL",
-                "label": "Jamf Pro URL",
-                "description": "Jamf Pro instance base URL, e.g. https://yourcompany.jamfcloud.com",
-                "required": true,
-                "secret": false,
-                "type": "url",
-                "target": "stdio_env"
-              },
-              {
-                "key": "JAMF_PRO_CLIENT_ID",
-                "label": "Jamf Pro API Client ID",
-                "description": "OAuth client ID for a Jamf Pro API Role/Client (client-credentials).",
-                "required": true,
-                "secret": false,
-                "target": "stdio_env"
-              },
-              {
-                "key": "JAMF_PRO_CLIENT_SECRET",
-                "label": "Jamf Pro API Client Secret",
-                "description": "OAuth client secret for the Jamf Pro API client. Shown once at creation.",
-                "required": true,
-                "secret": true,
-                "target": "stdio_env"
-              },
-              {
-                "key": "JAMF_PROTECT_URL",
-                "label": "Jamf Protect URL",
-                "description": "Jamf Protect tenant URL. Optional; only needed to enable Jamf Protect tools.",
-                "required": false,
-                "secret": false,
-                "type": "url",
-                "target": "stdio_env"
-              },
-              {
-                "key": "JAMF_PROTECT_CLIENT_ID",
-                "label": "Jamf Protect Client ID",
-                "description": "Jamf Protect API client ID. Optional; only needed for Jamf Protect tools.",
-                "required": false,
-                "secret": false,
-                "target": "stdio_env"
-              },
-              {
-                "key": "JAMF_PROTECT_PASSWORD",
-                "label": "Jamf Protect Password/Secret",
-                "description": "Jamf Protect API client password/secret. Optional; only needed for Jamf Protect tools.",
-                "required": false,
-                "secret": true,
-                "target": "stdio_env"
-              },
-              {
-                "key": "JAMF_SECURITY_URL",
-                "label": "Jamf Security Cloud URL",
-                "description": "Jamf Security Cloud (RADAR/RISK API) base URL. Optional; only needed for Security Cloud tools.",
-                "required": false,
-                "secret": false,
-                "type": "url",
-                "target": "stdio_env"
-              },
-              {
-                "key": "JAMF_SECURITY_APP_ID",
-                "label": "Jamf Security Cloud Application ID",
-                "description": "Jamf Security Cloud API application ID. Optional; only needed for Security Cloud tools.",
-                "required": false,
-                "secret": false,
-                "target": "stdio_env"
-              },
-              {
-                "key": "JAMF_SECURITY_APP_SECRET",
-                "label": "Jamf Security Cloud Application Secret",
-                "description": "Jamf Security Cloud API application secret. Optional; only needed for Security Cloud tools.",
-                "required": false,
-                "secret": true,
-                "target": "stdio_env"
-              }
-            ],
-            "_research": {
-              "confidence": "high",
-              "docker_only": false,
-              "notes": "QA PIN (2026-07-15): direct uvx installation and CLI launch were verified at commit 53843c4da3ef666b70de1ee793fa9e8c432b9972. Official first-party server is Jamf-Concepts/mcp-hub, with console script jamf-mcp. The catalog installs it reproducibly from the public Git repository via uvx --from git+https://github.com/Jamf-Concepts/mcp-hub.git@53843c4da3ef666b70de1ee793fa9e8c432b9972 jamf-mcp. Auth is CUSTOM: Jamf Pro requires JAMF_PRO_URL plus client ID and client secret; Jamf Protect and Jamf Security Cloud credentials are optional product-specific additions.",
-              "sources": [
-                "https://github.com/Jamf-Concepts/mcp-hub",
-                "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/docs/INSTALLATION.md",
-                "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/README.md",
-                "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/pyproject.toml",
-                "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/.env.example",
-                "https://pypi.org/pypi/jamf-mcp/json"
-              ]
-            }
-          }
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "NONE",
+        "server_uri": "https://developer.jamf.com/mcp",
+        "credentials": [],
+        "_research": {
+          "confidence": "high",
+          "docker_only": false,
+          "notes": "Official Jamf-hosted remote MCP server at https://developer.jamf.com/mcp, documented at developer.jamf.com/developer-guide/docs/mcp. Transport is streamable HTTP; first-party client configs (Cursor, Windsurf, Claude Desktop) are just {\"url\": \"https://developer.jamf.com/mcp\"} with no OAuth flow or API key, so auth_type=NONE. Verified 2026-08-26: the server exposes 6 tools — five read-only developer-docs/API-reference tools plus execute-request, which sends a caller-supplied HAR request (URL, method, headers, body) and is flagged destructive/open-world by the server. It is not the tenant-management toolset the retired mcp-hub option exposed, but with credentials supplied by the agent it can reach Jamf APIs; gate execute-request with tool approval where that matters. Tracecat does not map the server's destructiveHint/openWorldHint onto tool defaults.\n\nRETIRED (2026-08-26): the local mcp-hub stdio option was removed. Its git-pinned recipe fails under fresh dependency resolution — the server imports mcp.server.fastmcp, which no longer exists once its unconstrained mcp dependency resolves to 2.x — so cold installs die at startup. The hosted server is now the only option for this row; Jamf tenant device management (Jamf Pro/Protect/Security Cloud inventory and actions) is not available through it.",
+          "sources": [
+            "https://developer.jamf.com/developer-guide/docs/mcp"
+          ]
         }
-      ]
+      }
     },
     {
       "slug": "iru-mcp",
@@ -1048,67 +837,6 @@
             "https://docs.feedly.com/article/822-setting-up-the-feedly-mcp-server-in-claude",
             "https://docs.feedly.com/category/819-mcp-server",
             "https://feedly.com/new-features/posts/feedly-mcp-server-automate-cti-workflows-with-claude-and-the-feedly-threat-graph"
-          ]
-        }
-      }
-    },
-    {
-      "slug": "virustotal-mcp",
-      "docs": "https://google.github.io/mcp-security/servers/gti_mcp.html",
-      "connection_spec": {
-        "server_type": "stdio",
-        "auth_type": "CUSTOM",
-        "stdio_command": "uvx",
-        "stdio_args": [
-          "--from",
-          "gti-mcp==0.1.2",
-          "gti_mcp"
-        ],
-        "stdio_env": [
-          "VT_APIKEY",
-          "STATELESS"
-        ],
-        "packages": [
-          {
-            "manager": "uvx",
-            "command": "uvx",
-            "args": [
-              "--from",
-              "gti-mcp==0.1.2",
-              "gti_mcp"
-            ],
-            "package": "gti-mcp==0.1.2"
-          }
-        ],
-        "credentials": [
-          {
-            "key": "VT_APIKEY",
-            "label": "VirusTotal / Google Threat Intelligence API Key",
-            "description": "64-character hexadecimal VirusTotal (GTI) API key. Obtain from your VirusTotal account profile at virustotal.com. Required for all lookups.",
-            "required": true,
-            "secret": true,
-            "target": "stdio_env"
-          },
-          {
-            "key": "STATELESS",
-            "label": "Stateless mode",
-            "description": "Optional. Set to \"1\" to create a fresh transport per request without session persistence. Leave unset for normal stdio operation.",
-            "required": false,
-            "secret": false,
-            "target": "stdio_env"
-          }
-        ],
-        "_research": {
-          "confidence": "high",
-          "docker_only": false,
-          "notes": "The official VirusTotal/Google Threat Intelligence MCP server is the \"gti\" server in Google's first-party monorepo google/mcp-security (maintained by the Google SecOps Team, chronicle@google.com). It matches our catalog description and intended STDIO transport: server.py runs with transport='stdio'.\n\nDistribution: published to PyPI as `gti-mcp` (v0.1.2, 2025-09-05). pyproject.toml defines a console script entry point `gti_mcp = \"gti_mcp.server:main\"` (also aliased as `gti-mcp`), so `uvx --from gti-mcp gti_mcp` is the canonical zero-install runner. pip install + `python -m gti_mcp.server` also works (module is gti_mcp, entry main()). The official README documents running from cloned source (`uv --directory server/gti/gti_mcp run server.py`), but the PyPI package is the cleaner supported path and uses the same entry point.\n\nAuth: CUSTOM. Requires VT_APIKEY (VirusTotal API key, 64-char hex) passed as an environment variable; server raises if missing. No OAuth. Optional STATELESS=1 env toggles per-request transport. No proxy/base-url env vars are read.\n\nNote: several third-party/unofficial VirusTotal MCP servers exist (e.g. npm @burtthecoder/mcp-virustotal, BurtTheCoder/mcp-virustotal; Python barvhaim/virustotal-mcp-server). These are NOT first-party; the catalog description specifically references Google Threat Intelligence, which is the google/mcp-security `gti` server selected here.",
-          "sources": [
-            "https://github.com/google/mcp-security",
-            "https://google.github.io/mcp-security/servers/gti_mcp.html",
-            "https://pypi.org/project/gti-mcp/",
-            "https://raw.githubusercontent.com/google/mcp-security/main/server/gti/README.md",
-            "https://raw.githubusercontent.com/google/mcp-security/main/server/gti/pyproject.toml",
-            "https://raw.githubusercontent.com/google/mcp-security/main/server/gti/gti_mcp/server.py"
           ]
         }
       }
@@ -1679,126 +1407,56 @@
     },
     {
       "slug": "servicenow-mcp",
-      "docs": "https://www.servicenow.com/docs/r/zurich/intelligent-experiences/mcp-platform-manager-landing.html",
+      "docs": "https://www.servicenow.com/docs/r/intelligent-experiences/enable-ai-experiences/connect-mcp-server-client.html",
       "connection_spec": {
-        "server_type": "stdio",
-        "auth_type": "CUSTOM",
-        "stdio_command": "uvx",
-        "stdio_args": [
-          "--from",
-          "servicenow-mcp==0.1.1",
-          "servicenow-mcp"
-        ],
-        "stdio_env": [
-          "SERVICENOW_INSTANCE_URL",
-          "SERVICENOW_AUTH_TYPE",
-          "SERVICENOW_USERNAME",
-          "SERVICENOW_PASSWORD",
-          "SERVICENOW_CLIENT_ID",
-          "SERVICENOW_CLIENT_SECRET",
-          "SERVICENOW_TOKEN_URL",
-          "SERVICENOW_API_KEY",
-          "MCP_TOOL_PACKAGE"
-        ],
-        "packages": [
-          {
-            "manager": "uvx",
-            "command": "uvx",
-            "args": [
-              "--from",
-              "servicenow-mcp==0.1.1",
-              "servicenow-mcp"
-            ],
-            "package": "servicenow-mcp==0.1.1"
-          }
-        ],
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://{SERVICENOW_INSTANCE}.service-now.com/sncapps/mcp-server/mcp/{MCP_SERVER_NAME}",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
         "credentials": [
           {
-            "key": "SERVICENOW_INSTANCE_URL",
-            "label": "ServiceNow Instance URL",
-            "description": "Base URL of your ServiceNow instance, e.g. https://your-instance.service-now.com",
+            "key": "SERVICENOW_INSTANCE",
+            "label": "ServiceNow instance",
+            "description": "Instance subdomain, e.g. acme for https://acme.service-now.com.",
             "required": true,
             "secret": false,
-            "type": "url",
-            "target": "stdio_env"
+            "target": "server_uri"
           },
           {
-            "key": "SERVICENOW_AUTH_TYPE",
-            "label": "Auth Type",
-            "description": "Authentication method: 'basic', 'oauth', or 'api_key'. Defaults to basic in the docs.",
+            "key": "MCP_SERVER_NAME",
+            "label": "MCP server name",
+            "description": "Name of the MCP server created in MCP Server Console.",
             "required": true,
             "secret": false,
-            "target": "stdio_env"
+            "target": "server_uri"
           },
           {
-            "key": "SERVICENOW_USERNAME",
-            "label": "ServiceNow Username",
-            "description": "Username for basic authentication (auth_type=basic).",
-            "required": false,
+            "key": "client_id",
+            "label": "OAuth client ID",
+            "description": "Client ID of an OAuth inbound integration created in Machine Identity Console > Inbound integrations (grant type Authorization code, token format JWT) with <your Tracecat URL>/integrations/callback as the redirect URL.",
+            "required": true,
             "secret": false,
-            "target": "stdio_env"
+            "target": "oauth_client"
           },
           {
-            "key": "SERVICENOW_PASSWORD",
-            "label": "ServiceNow Password",
-            "description": "Password for basic authentication (auth_type=basic).",
-            "required": false,
+            "key": "client_secret",
+            "label": "OAuth client secret",
+            "description": "Client secret of the same OAuth inbound integration.",
+            "required": true,
             "secret": true,
-            "target": "stdio_env"
-          },
-          {
-            "key": "SERVICENOW_CLIENT_ID",
-            "label": "OAuth Client ID",
-            "description": "OAuth application client ID from System OAuth > Application Registry (auth_type=oauth).",
-            "required": false,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "SERVICENOW_CLIENT_SECRET",
-            "label": "OAuth Client Secret",
-            "description": "OAuth application client secret (auth_type=oauth).",
-            "required": false,
-            "secret": true,
-            "target": "stdio_env"
-          },
-          {
-            "key": "SERVICENOW_TOKEN_URL",
-            "label": "OAuth Token URL",
-            "description": "OAuth token endpoint, e.g. https://your-instance.service-now.com/oauth_token.do (auth_type=oauth).",
-            "required": false,
-            "secret": false,
-            "type": "url",
-            "target": "stdio_env"
-          },
-          {
-            "key": "SERVICENOW_API_KEY",
-            "label": "ServiceNow API Key",
-            "description": "API key for api_key authentication (auth_type=api_key).",
-            "required": false,
-            "secret": true,
-            "target": "stdio_env"
-          },
-          {
-            "key": "MCP_TOOL_PACKAGE",
-            "label": "Tool Package",
-            "description": "Optional. Loads a specific subset of tools (e.g. 'catalog_builder', 'service_desk').",
-            "required": false,
-            "secret": false,
-            "target": "stdio_env"
+            "target": "oauth_client"
           }
         ],
         "_research": {
-          "confidence": "medium",
+          "confidence": "high",
           "docker_only": false,
-          "notes": "PROVENANCE/DISCREPANCY: The catalog slug `servicenow-mcp` exactly matches the community Python package `servicenow-mcp` (repo github.com/osomai/servicenow-mcp, aka echelon-ai-labs/servicenow-mcp), published to PyPI as `servicenow-mcp` v0.1.1 (\"MCP for ServiceNow\", requires Python >=3.12). This is a THIRD-PARTY server, not first-party ServiceNow. It talks to a ServiceNow instance via the REST API and supports three user-supplied auth modes (basic username/password [default], oauth client-credentials-style with client id/secret/token URL, api_key) — hence auth_type=CUSTOM, not the platform's OAuth 2.1 browser flow.\n\nThe catalog DESCRIPTION (\"via the Zurich MCP server\", HTTP) instead refers to ServiceNow's NATIVE Zurich-release MCP feature (MCP Server Console / AI Agent Studio), which uses Streamable HTTP + OAuth 2.1 with PKCE. That native feature is NOT a downloadable/installable package — it is a per-instance, governed endpoint configured inside the customer's ServiceNow tenant (no fixed public MCP URL; the docs are JS-rendered and could not be fully read). If Tracecat actually wants the first-party Zurich endpoint, this spec is the wrong artifact and should be revisited: it would be server_type=http, auth_type=OAUTH2 (authorization_code + PKCE, likely DCR/discovery), with a per-instance server_uri the user provides — not the community package below.\n\nTRANSPORT: The osomai package ships as stdio (entry point `servicenow-mcp` -> servicenow_mcp.cli:main) and self-hosted SSE (entry point `servicenow-mcp-sse` -> servicenow_mcp.server_sse:main, binds 0.0.0.0:8080 /sse). There is no vendor-hosted HTTP endpoint, so I selected stdio as the real transport (server_uri left null). For SSE you would self-host `uvx --from servicenow-mcp servicenow-mcp-sse`. uvx works because the PyPI dist defines console_scripts; `python -m servicenow_mcp.cli` is the documented from-source alternative. Confidence MEDIUM: package name/version/entry points/env vars verified on PyPI and the repo README, but the stdio-vs-Zurich-HTTP intent conflict and the per-instance OAuth specifics for the native option are unresolved.",
+          "notes": "RETIRED (2026-08-26): the third-party `servicenow-mcp` 0.1.1 stdio recipe was removed. It fails cold installs (the package does not declare httpx, so the import fails), and the published PyPI artifact's entry point (mcp_server_table.main:start) does not match the repository the row cited, so its provenance could not be verified.\n\nServiceNow now ships a first-party, tenant-hosted MCP server created in MCP Server Console and served at https://<instance>.service-now.com/sncapps/mcp-server/mcp/<server-name>. Auth is OAuth 2.0 authorization code with PKCE and JWT tokens. Dynamic client registration is not supported, so an administrator creates an OAuth inbound integration (Machine Identity Console > Inbound integrations, grant type Authorization code, token format JWT) with Tracecat's /integrations/callback redirect URL and supplies the client ID and secret. Authorization and token endpoints are discovered from the instance's own OAuth metadata, so both are left null here.",
           "sources": [
-            "https://github.com/osomai/servicenow-mcp",
-            "https://raw.githubusercontent.com/osomai/servicenow-mcp/main/README.md",
-            "https://github.com/osomai/servicenow-mcp/blob/main/pyproject.toml",
-            "https://pypi.org/pypi/servicenow-mcp/json",
-            "https://www.servicenow.com/docs/bundle/zurich-intelligent-experiences/page/administer/model-context-protocol-client/task/add-an-oauth-2-1-mcp-server.html",
-            "https://mcpservers.org/servers/osomai/servicenow-mcp"
+            "https://www.servicenow.com/docs/r/intelligent-experiences/enable-ai-experiences/connect-mcp-server-client.html",
+            "https://www.servicenow.com/docs/r/zurich/intelligent-experiences/create-oauth-inbound-integration-mcp-client.html",
+            "https://www.servicenow.com/community/now-assist-articles/mcp-server-console-faq/ta-p/3550125"
           ]
         }
       }
@@ -2123,51 +1781,24 @@
     },
     {
       "slug": "semgrep-mcp",
-      "docs": "https://github.com/semgrep/semgrep/tree/develop/cli/src/semgrep/mcp",
+      "docs": "https://docs.semgrep.dev/semgrep-guardian/overview",
       "connection_spec": {
-        "server_type": "stdio",
-        "auth_type": "CUSTOM",
-        "stdio_command": "uvx",
-        "stdio_args": [
-          "--from",
-          "semgrep-mcp==0.9.0",
-          "semgrep-mcp"
-        ],
-        "stdio_env": [
-          "SEMGREP_APP_TOKEN"
-        ],
-        "packages": [
-          {
-            "manager": "uvx",
-            "command": "uvx",
-            "args": [
-              "--from",
-              "semgrep-mcp==0.9.0",
-              "semgrep-mcp"
-            ],
-            "package": "semgrep-mcp==0.9.0"
-          }
-        ],
-        "credentials": [
-          {
-            "key": "SEMGREP_APP_TOKEN",
-            "label": "Semgrep App Token",
-            "description": "API token for the Semgrep AppSec Platform. Optional; only required to access cloud features such as fetching findings from the platform (semgrep_findings tool). Basic local scans work without it. Generate at https://semgrep.dev/orgs/-/settings/tokens/api",
-            "required": false,
-            "secret": true,
-            "target": "stdio_env"
-          }
-        ],
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.semgrep.ai/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": "https://login.semgrep.dev/oauth2/authorize",
+        "oauth_token_endpoint": "https://login.semgrep.dev/oauth2/token",
+        "credentials": [],
         "_research": {
           "confidence": "high",
           "docker_only": false,
-          "notes": "Official server is semgrep/mcp (PyPI package `semgrep-mcp`). Default transport is STDIO, matching the intended transport. Canonical install is `uvx semgrep-mcp`; also installable via `pip install semgrep-mcp` (exposes the `semgrep-mcp` console script; the `python -m semgrep_mcp` module form is the standard module path but not explicitly documented). Auth is CUSTOM via SEMGREP_APP_TOKEN, which is OPTIONAL — passed as an env var. The server also supports streamable-http (`-t streamable-http` on 127.0.0.1:8000/mcp) and SSE (`-t sse` on 127.0.0.1:8000/sse), and there is an experimental hosted endpoint at https://mcp.semgrep.ai/sse (documented as experimental and may break), but these are not the intended STDIO transport. DEPRECATION: the standalone semgrep/mcp repo has been moved into the main semgrep repo (cli/src/semgrep/mcp); future updates ship via the `semgrep` binary using `semgrep mcp`. However `uvx semgrep-mcp` remains the documented, currently-working install in the README, so it is used here.",
+          "notes": "RETIRED (2026-08-26): the `semgrep-mcp` 0.9.0 stdio recipe was removed. That standalone launcher is deprecated and startup fails looking for the Semgrep Pro binary.\n\nReplaced by Semgrep's hosted Guardian MCP server at https://mcp.semgrep.ai/mcp, verified live: its protected-resource metadata points at https://login.semgrep.dev/, whose authorization-server metadata advertises a registration endpoint (dynamic client registration), S256 PKCE, the authorization_code and refresh_token grants, and offline_access. No user-supplied configuration is needed. The hosted server scans with the default Guardian ruleset. mcp.semgrep.ai also mirrors the authorization-server metadata at its own /.well-known/oauth-authorization-server, so discovery reads complete metadata from the resource host while the endpoints live on login.semgrep.dev; the endpoints are pinned here only to allowlist that host during discovery (no client credentials are declared, so DCR still runs).\n\nIf a local option is ever added back it must launch `semgrep mcp` from the `semgrep` package (verified with semgrep 1.173.0, 7 tools), never the deprecated standalone launcher.",
           "sources": [
-            "https://github.com/semgrep/mcp",
-            "https://github.com/semgrep/mcp/blob/main/README.md",
-            "https://raw.githubusercontent.com/semgrep/mcp/main/README.md",
-            "https://pypi.org/project/semgrep-mcp/",
-            "https://semgrep.dev/docs/mcp"
+            "https://docs.semgrep.dev/semgrep-guardian/overview",
+            "https://docs.semgrep.dev/semgrep-guardian/enterprise-deployment",
+            "https://mcp.semgrep.ai/.well-known/oauth-protected-resource",
+            "https://github.com/semgrep/mcp/blob/main/CHANGELOG.md"
           ]
         }
       }
