@@ -44,9 +44,11 @@ class ClassifiedErrorDetail(BaseModel):
 # The two classified transport shapes: a single wrapped detail, or the
 # established terminal workflow ``{ref: detail}`` map. Anything else —
 # including bare legacy ``ActionErrorInfo`` payloads — is unclassified.
-_CLASSIFIED_DETAIL_ADAPTER: TypeAdapter[
-    ClassifiedErrorDetail | dict[str, ClassifiedErrorDetail]
-] = TypeAdapter(ClassifiedErrorDetail | dict[str, ClassifiedErrorDetail])
+type ClassifiedDetail = ClassifiedErrorDetail | dict[str, ClassifiedErrorDetail]
+
+_CLASSIFIED_DETAIL_ADAPTER: TypeAdapter[ClassifiedDetail] = TypeAdapter(
+    ClassifiedDetail
+)
 
 
 def wrap_error(
@@ -64,7 +66,7 @@ def wrap_error(
 
 def parse_classified_detail(
     detail: Any,
-) -> ClassifiedErrorDetail | dict[str, ClassifiedErrorDetail] | None:
+) -> ClassifiedDetail | None:
     """Parse a transport detail into its classified shape, or None."""
     try:
         return _CLASSIFIED_DETAIL_ADAPTER.validate_python(detail)
