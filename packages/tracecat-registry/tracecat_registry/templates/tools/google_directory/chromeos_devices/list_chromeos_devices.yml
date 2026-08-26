@@ -1,0 +1,100 @@
+type: action
+definition:
+  title: List ChromeOS devices
+  description: Retrieves a paginated list of Chrome OS devices within an account.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/chromeosdevices/list
+  namespace: tools.google_directory
+  name: list_chromeos_devices
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    customer_id:
+      type: str
+      description: >-
+        The unique ID for the customer's Google Workspace account. As an account
+        administrator, you can also use the `my_customer` alias to represent
+        your account's `customerId`.
+      default: my_customer
+    max_results:
+      type: int | None
+      description: Maximum number of results to return. Value should not exceed 300.
+      default: null
+    page_token:
+      type: str | None
+      description: Used to request the next page of query results.
+      default: null
+    order_by:
+      type: str | None
+      description: >-
+        Device property to use for sorting results. Acceptable values are
+        `ANNOTATED_LOCATION`, `ANNOTATED_USER`, `LAST_SYNC`, `NOTES`,
+        `SERIAL_NUMBER` and `STATUS`; the API's discovery document declares the
+        equivalent `annotatedLocation`, `annotatedUser`, `lastSync`, `notes`,
+        `serialNumber` and `status`.
+      default: null
+    sort_order:
+      type: str | None
+      description: >-
+        Whether to return results in ascending or descending order. Must be used
+        with the `orderBy` parameter. Acceptable values are `ASCENDING` and
+        `DESCENDING`.
+      default: null
+    projection:
+      type: str | None
+      description: >-
+        Determines whether the response contains the full list of properties or
+        only a subset. Acceptable values are `BASIC` (includes only the basic
+        metadata fields, e.g. `deviceId`, `serialNumber`, `status` and `user`)
+        and `FULL` (includes all metadata fields).
+      default: null
+    query:
+      type: str | None
+      description: >-
+        Search string in the format given at
+        https://developers.google.com/workspace/admin/directory/v1/list-query-operators
+      default: null
+    org_unit_path:
+      type: str | None
+      description: >-
+        The full path of the organizational unit (minus the leading `/`) or its
+        unique ID.
+      default: null
+    include_child_orgunits:
+      type: bool | None
+      description: >-
+        Return devices from all child orgunits, as well as the specified org
+        unit. If this is set to true, `orgUnitPath` must be provided.
+      default: null
+  steps:
+    - ref: list_chromeos_devices
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: chromeosdevices
+        method_name: list
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly"]
+        params:
+          customerId: ${{ inputs.customer_id }}
+          maxResults: ${{ inputs.max_results }}
+          pageToken: ${{ inputs.page_token }}
+          orderBy: ${{ inputs.order_by }}
+          sortOrder: ${{ inputs.sort_order }}
+          projection: ${{ inputs.projection }}
+          query: ${{ inputs.query }}
+          orgUnitPath: ${{ inputs.org_unit_path }}
+          includeChildOrgunits: ${{ inputs.include_child_orgunits }}
+  returns: ${{ steps.list_chromeos_devices.result }}

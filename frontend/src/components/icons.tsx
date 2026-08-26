@@ -643,6 +643,11 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.google_api": createIconRenderer(GoogleIcon),
     "tools.google_scc": createIconRenderer(GoogleIcon),
     "tools.gmail": createIconRenderer(GmailIcon),
+    "tools.google_slides": createIconRenderer(GoogleSlidesIcon),
+    "tools.google_forms": createIconRenderer(GoogleFormsIcon),
+    "tools.google_directory": createIconRenderer(GoogleIcon),
+    "tools.google_reports": createIconRenderer(GoogleIcon),
+    "tools.google_alert_center": createIconRenderer(GoogleIcon),
     "tools.google_secops_detection": createIconRenderer(GoogleSecOpsIcon),
     "tools.google_secops_soar": createIconRenderer(GoogleSecOpsIcon),
     // Existing vendor marks reused across additional namespaces
@@ -942,6 +947,21 @@ export const providerIcons: Record<
   google_gmail: ({ className, ...rest }) => (
     <div className={className}>
       <GmailIcon {...rest} />
+    </div>
+  ),
+  google_admin: ({ className, ...rest }) => (
+    <div className={className}>
+      <GoogleIcon {...rest} />
+    </div>
+  ),
+  google_slides: ({ className, ...rest }) => (
+    <div className={className}>
+      <GoogleSlidesIcon {...rest} />
+    </div>
+  ),
+  google_forms: ({ className, ...rest }) => (
+    <div className={className}>
+      <GoogleFormsIcon {...rest} />
     </div>
   ),
   github: ({ className, ...rest }) => (
@@ -1707,6 +1727,62 @@ export function GoogleDocsIcon({ className, ...rest }: IconProps) {
         d="M29.375 0L4.406 0C1.983 0 0 1.994 0 4.432v56.136c0 2.438 1.983 4.432 4.406 4.432h38.188c2.423 0 4.406-1.994 4.406-4.432V17.727L29.375 0z"
         fill="url(#docs-radial)"
       />
+    </svg>
+  )
+}
+
+export function GoogleSlidesIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 47 65"
+      width="100%"
+      height="100%"
+      className={className}
+      {...rest}
+    >
+      <path
+        d="M29.375 0L4.406 0C1.983 0 0 1.994 0 4.432v56.136c0 2.438 1.983 4.432 4.406 4.432h38.188c2.423 0 4.406-1.994 4.406-4.432V17.727L29.375 0z"
+        fill="#F4B400"
+      />
+      <path
+        d="M29.375 0v13.295c0 2.448 1.983 4.432 4.406 4.432H47L29.375 0z"
+        fill="#F1A800"
+      />
+      <path
+        d="M11.75 29.545h23.5c1.22 0 2.203.99 2.203 2.216v13.296c0 1.226-.983 2.216-2.203 2.216h-23.5c-1.22 0-2.203-.99-2.203-2.216V31.761c0-1.226.983-2.216 2.203-2.216zm2.203 4.432v8.864h19.094v-8.864H13.953z"
+        fill="#F1F1F1"
+      />
+    </svg>
+  )
+}
+
+export function GoogleFormsIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 47 65"
+      width="100%"
+      height="100%"
+      className={className}
+      {...rest}
+    >
+      <path
+        d="M29.375 0L4.406 0C1.983 0 0 1.994 0 4.432v56.136c0 2.438 1.983 4.432 4.406 4.432h38.188c2.423 0 4.406-1.994 4.406-4.432V17.727L29.375 0z"
+        fill="#7248B9"
+      />
+      <path
+        d="M29.375 0v13.295c0 2.448 1.983 4.432 4.406 4.432H47L29.375 0z"
+        fill="#56368A"
+      />
+      <g fill="#F1F1F1">
+        <circle cx="14.688" cy="31.761" r="2.216" />
+        <rect x="20.563" y="30.284" width="16.156" height="2.955" rx="1.477" />
+        <circle cx="14.688" cy="40.625" r="2.216" />
+        <rect x="20.563" y="39.148" width="16.156" height="2.955" rx="1.477" />
+        <circle cx="14.688" cy="49.489" r="2.216" />
+        <rect x="20.563" y="48.011" width="16.156" height="2.955" rx="1.477" />
+      </g>
     </svg>
   )
 }

@@ -1828,9 +1828,13 @@ class TablesService(BaseTablesService):
         await self.session.commit()
 
     @require_scope("table:create")
-    async def insert_row(self, table: Table, params: TableRowInsert) -> dict[str, Any]:
+    async def insert_row(
+        self, table: Table, params: TableRowInsert, *, commit: bool = True
+    ) -> dict[str, Any]:
+        """Insert a row. ``commit=False`` leaves the row flushed but uncommitted for callers that link it in the same transaction."""
         result = await super().insert_row(table, params)
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
         return result
 
     @require_scope("table:update")

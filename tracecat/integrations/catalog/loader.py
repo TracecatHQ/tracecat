@@ -369,9 +369,11 @@ def get_platform_mcp_catalog_entry_by_slug(
     slug: str, *, include_private: bool = False
 ) -> PlatformMCPCatalogEntry | None:
     """Return one runtime catalog entry by stable slug."""
-    for entry in get_platform_mcp_catalog_entries(include_private=include_private):
+    # Scan the cached tuple and copy only the match; copying every entry per
+    # lookup is too slow for callers that resolve one slug per workspace row.
+    for entry in _cached_platform_mcp_catalog_entries(include_private):
         if entry.slug == slug:
-            return entry
+            return deepcopy(entry)
     return None
 
 

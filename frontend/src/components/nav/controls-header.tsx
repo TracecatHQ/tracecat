@@ -57,6 +57,7 @@ import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { CaseDurationMetrics } from "@/components/cases/case-duration-metrics"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
+import { CaseVersionHistory } from "@/components/cases/case-version-history"
 import {
   CasesViewMode,
   CasesViewToggle,
@@ -84,7 +85,6 @@ import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actio
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
-import { TableLinkRowsToCaseCommand } from "@/components/tables/table-link-rows-to-case-command"
 import { CreateTagDialog } from "@/components/tags/create-tag-dialog"
 import { useQueryClient } from "@/lib/query"
 
@@ -1823,6 +1823,29 @@ function CaseStatusControl({
   )
 }
 
+function CaseDetailActions({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const { caseData } = useGetCase({ caseId, workspaceId })
+
+  return (
+    <>
+      <CaseStatusControl caseId={caseId} workspaceId={workspaceId} />
+      {caseData ? (
+        <CaseVersionHistory
+          workspaceId={workspaceId}
+          caseId={caseId}
+          caseLabel={caseData.short_id}
+        />
+      ) : null}
+    </>
+  )
+}
+
 function TableBreadcrumb({
   tableId,
   workspaceId,
@@ -1863,7 +1886,6 @@ function TableDetailsActions() {
         resources={["table"]}
       />
       <TableSelectionActionsBar />
-      <TableLinkRowsToCaseCommand />
       <TableInsertButton />
     </>
   )
@@ -2252,7 +2274,7 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
         {pageConfig.actions
           ? pageConfig.actions
           : caseId && (
-              <CaseStatusControl caseId={caseId} workspaceId={workspaceId} />
+              <CaseDetailActions caseId={caseId} workspaceId={workspaceId} />
             )}
 
         {onToggleChat && (

@@ -9,7 +9,10 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
-from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.service import (
+    AGENT_SESSION_EXECUTION_SCOPES,
+    AgentSessionService,
+)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.types import AgentConfig
@@ -54,6 +57,29 @@ def _build_service() -> tuple[_TestAgentSessionService, SimpleNamespace, Role]:
     )
     service = _TestAgentSessionService(cast(Any, session), role)
     return service, session, role
+
+
+def test_execution_role_adds_only_agent_runtime_scopes() -> None:
+    service, _session, actor_role = _build_service()
+
+    execution_role = service.execution_role
+
+    assert execution_role.scopes == (
+        (actor_role.scopes or frozenset()) | AGENT_SESSION_EXECUTION_SCOPES
+    )
+    assert actor_role.scopes == frozenset({"agent:execute", "action:*:execute"})
+    assert execution_role.user_id == actor_role.user_id
+    assert execution_role.workspace_id == actor_role.workspace_id
+    assert execution_role.organization_id == actor_role.organization_id
+    assert AGENT_SESSION_EXECUTION_SCOPES == frozenset(
+        {
+            "action:*:execute",
+            "agent:read",
+            "org:secret:read",
+            "secret:read",
+            "workflow:execute",
+        }
+    )
 
 
 @pytest.mark.anyio
@@ -685,6 +711,14 @@ async def test_workspace_chat_preset_config_scope_filters_actions() -> None:
             assert resolved.actions == ["core.workflow.get_workflow"]
             # Instructions still combine preset + entity context.
             assert resolved.instructions == "preset instructions\n\nentity instructions"
+
+        execution_role = agent_svc_cls.call_args.args[1]
+        assert execution_role.scopes == (
+            (service.role.scopes or frozenset()) | AGENT_SESSION_EXECUTION_SCOPES
+        )
+        assert service.role.scopes == frozenset(
+            {"agent:execute", "action:core.workflow.get_workflow:execute"}
+        )
 
 
 @pytest.mark.anyio

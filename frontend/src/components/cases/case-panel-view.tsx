@@ -34,6 +34,7 @@ import {
 } from "@/components/cases/case-panels"
 import { CaseTagPicker } from "@/components/cases/case-tag-picker"
 import { getCaseTaskProgress } from "@/components/cases/case-task-status"
+import { CaseVersionHistory } from "@/components/cases/case-version-history"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { AlertNotification } from "@/components/notifications"
@@ -89,6 +90,8 @@ const CASE_DETAILS_RAIL_WIDTH_CLASS = "w-[24rem]"
 interface CasePanelViewProps {
   caseId: string
   embedded?: boolean
+  /** Show version history in this panel's switcher bar instead of a route header. */
+  showPanelVersionHistory?: boolean
   initialTab?: string | null
   onTabChange?: (tab: string) => void
 }
@@ -97,6 +100,7 @@ interface CasePanelViewProps {
 export function CasePanelView({
   caseId,
   embedded = false,
+  showPanelVersionHistory = false,
   initialTab,
   onTabChange,
 }: CasePanelViewProps) {
@@ -572,7 +576,7 @@ export function CasePanelView({
         >
           {embedded ? (
             <div className="min-w-0 flex-1">
-              <div className="mx-auto w-full min-w-0 max-w-4xl px-4 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5">
+              <div className="mx-auto flex w-full min-w-0 max-w-4xl items-center justify-between gap-2 px-4 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5">
                 {/* No sidebar toggle to align to here, so the embedded band
                     keeps the body column's geometry and the first tab's 24px
                     hit box starts on the same edge as the case title below. */}
@@ -584,11 +588,16 @@ export function CasePanelView({
                   tasks={caseTasks}
                   compact
                 />
+                <CaseVersionHistory
+                  workspaceId={workspaceId}
+                  caseId={caseId}
+                  caseLabel={caseData.short_id}
+                />
               </div>
             </div>
           ) : (
             <div className="min-w-0 flex-1">
-              <div className="mx-auto w-full min-w-0 max-w-4xl px-4 lg:px-6">
+              <div className="mx-auto flex w-full min-w-0 max-w-4xl items-center justify-between gap-2 px-4 lg:px-6">
                 {/* No negative inset: a non-compact tab is min-w-8 around a
                     size-4 icon, so its hit box starts on the title's text edge
                     and the glyph sits 8px inside it. */}
@@ -599,6 +608,13 @@ export function CasePanelView({
                   taskProgress={taskProgress}
                   tasks={caseTasks}
                 />
+                {showPanelVersionHistory ? (
+                  <CaseVersionHistory
+                    workspaceId={workspaceId}
+                    caseId={caseId}
+                    caseLabel={caseData.short_id}
+                  />
+                ) : null}
               </div>
             </div>
           )}
@@ -645,12 +661,14 @@ export function CasePanelView({
                   from the description editor's sticky toolbar padding — see
                   `cases/editor.css`. */}
                 <div className="flex flex-col">
-                  <div className="py-1.5 first:pt-0 last:pb-0">
-                    <CasePanelSummary
-                      caseData={caseData}
-                      updateCase={updateCase}
-                      compact={embedded}
-                    />
+                  <div className="flex items-start gap-2 py-1.5 first:pt-0 last:pb-0">
+                    <div className="min-w-0 flex-1">
+                      <CasePanelSummary
+                        caseData={caseData}
+                        updateCase={updateCase}
+                        compact={embedded}
+                      />
+                    </div>
                   </div>
                   <div className="flex items-start justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
                     <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-2.5">

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import orjson
@@ -31,6 +32,14 @@ class _CatalogResource:
 
 def _clear_catalog_cache() -> None:
     loader._cached_platform_mcp_catalog_entries.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def isolate_catalog_cache() -> Iterator[None]:
+    """Keep stubbed catalogs from leaking into later tests on the same worker."""
+    _clear_catalog_cache()
+    yield
+    _clear_catalog_cache()
 
 
 def _stub_catalog_resource(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> None:
@@ -602,18 +611,46 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
         assert coming_soon.status == "coming_soon"
         assert coming_soon.connection_spec is None
 
-    # jamf-mcp defaults to Jamf's hosted no-auth HTTP server; the local
-    # stdio (device management) option survives alongside it.
+    # jamf-mcp now ships only Jamf's hosted no-auth HTTP docs server; the
+    # local mcp-hub stdio option was retired when its git pin stopped
+    # installing.
     jamf = private_by_slug["jamf-mcp"]
-    if jamf.connection_spec is not None:
-        assert jamf.connection_spec.server_type == "http"
-        assert jamf.connection_spec.requires_config is False
-        assert jamf.connection_options is not None
-        stdio_option = next(
-            option for option in jamf.connection_options if option.id == "local-stdio"
-        )
-        assert stdio_option.connection_spec.server_type == "stdio"
-        assert stdio_option.connection_spec.requires_config is True
+    assert jamf.connection_spec is not None
+    assert jamf.connection_spec.server_type == "http"
+    assert jamf.connection_spec.requires_config is False
+    assert all(
+        option.connection_spec.server_type != "stdio"
+        for option in (jamf.connection_options or [])
+    )
+
+    servicenow_spec = private_by_slug["servicenow-mcp"].connection_spec
+    assert servicenow_spec is not None
+    assert servicenow_spec.kind == "http_oauth2"
+    assert servicenow_spec.requires_config is True
+    assert "{SERVICENOW_INSTANCE}" in servicenow_spec.server_uri
+    assert servicenow_spec.oauth_authorization_endpoint is None
+    assert {
+        credential.key: credential.target for credential in servicenow_spec.credentials
+    } == {
+        "SERVICENOW_INSTANCE": "server_uri",
+        "MCP_SERVER_NAME": "server_uri",
+        "client_id": "oauth_client",
+        "client_secret": "oauth_client",
+    }
+
+    semgrep_spec = private_by_slug["semgrep-mcp"].connection_spec
+    assert semgrep_spec is not None
+    assert semgrep_spec.kind == "http_oauth2"
+    assert semgrep_spec.requires_config is False
+    assert semgrep_spec.credentials == []
+    assert semgrep_spec.server_uri == "https://mcp.semgrep.ai/mcp"
+    # mcp.semgrep.ai mirrors the AS metadata at its own well-known path, so the
+    # login.semgrep.dev endpoint host is pinned to be allowlisted during discovery.
+    assert (
+        semgrep_spec.oauth_authorization_endpoint
+        == "https://login.semgrep.dev/oauth2/authorize"
+    )
+    assert semgrep_spec.oauth_token_endpoint == "https://login.semgrep.dev/oauth2/token"
 
     wiz = private_by_slug["wiz-mcp"]
     assert wiz.connection_spec is not None

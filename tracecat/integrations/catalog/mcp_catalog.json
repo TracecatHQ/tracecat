@@ -44,20 +44,6 @@
       "icon": "https://www.google.com/s2/favicons?domain=docs.runreveal.com&sz=128"
     },
     {
-      "slug": "google-cloud-secops-mcp",
-      "name": "Google Cloud SecOps",
-      "description": "Triage SIEM alerts and run SOAR workflows on Google Cloud SecOps",
-      "category": "SIEM / Datalake",
-      "icon": "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=128"
-    },
-    {
-      "slug": "google-security-command-center-mcp",
-      "name": "Google Security Command Center",
-      "description": "Triage vulnerability findings and fetch remediation guidance from Google Security Command Center",
-      "category": "Cloud",
-      "icon": "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=128"
-    },
-    {
       "slug": "sumo-logic-mcp",
       "name": "Sumo Logic",
       "description": "Search logs and triage incidents on Sumo Logic Cloud SIEM and SOAR",
@@ -102,7 +88,7 @@
     {
       "slug": "jamf-mcp",
       "name": "Jamf",
-      "description": "Manage Apple devices across Jamf Pro, Protect, and Security Cloud",
+      "description": "Search Jamf developer docs, generate API code, and run Jamf API requests",
       "category": "Endpoint",
       "icon": "https://www.google.com/s2/favicons?domain=jamf.com&sz=128"
     },
@@ -147,13 +133,6 @@
       "description": "Read curated threat intelligence feeds from Feedly",
       "category": "Threat Intelligence",
       "icon": "https://www.google.com/s2/favicons?domain=docs.feedly.com&sz=128"
-    },
-    {
-      "slug": "virustotal-mcp",
-      "name": "VirusTotal",
-      "description": "Look up file, URL, IP, and domain reputation via Google Threat Intelligence",
-      "category": "Threat Intelligence",
-      "icon": "https://cdn.simpleicons.org/virustotal"
     },
     {
       "slug": "misp-mcp",
@@ -238,7 +217,7 @@
     {
       "slug": "servicenow-mcp",
       "name": "ServiceNow",
-      "description": "Query and update ServiceNow ITSM records via the Zurich MCP server",
+      "description": "Query and update ServiceNow records via your instance's MCP server",
       "category": "Ticketing",
       "icon": "https://www.google.com/s2/favicons?domain=www.servicenow.com&sz=128"
     },
@@ -294,7 +273,7 @@
     {
       "slug": "semgrep-mcp",
       "name": "Semgrep",
-      "description": "Run SAST scans and review findings with Semgrep",
+      "description": "Scan code for vulnerabilities with Semgrep Guardian",
       "category": "AppSec",
       "icon": "https://www.google.com/s2/favicons?domain=semgrep.dev&sz=128"
     },

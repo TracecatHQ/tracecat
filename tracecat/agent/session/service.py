@@ -163,6 +163,15 @@ if TYPE_CHECKING:
     from tracecat.agent.executor.schemas import ToolExecutionResult
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
+AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
+    {
+        "action:*:execute",
+        "agent:read",
+        "org:secret:read",
+        "secret:read",
+        "workflow:execute",
+    }
+)
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
 _background_tasks: set[asyncio.Task[None]] = set()
 
@@ -391,6 +400,18 @@ class AgentSessionService(BaseWorkspaceService):
     """Service for managing agent sessions and history."""
 
     service_name = "agent-session"
+
+    @property
+    def execution_role(self) -> Role:
+        """Return the actor role with trusted agent execution scopes.
+
+        Agent admission and user-facing tool filtering must continue to use
+        ``self.role``. The derived role is only for trusted orchestration that
+        resolves agent resources and dispatches tools already present in the
+        compiled allowlist. The sandbox receives scoped tokens, not this role.
+        """
+        scopes = (self.role.scopes or frozenset()) | AGENT_SESSION_EXECUTION_SCOPES
+        return self.role.model_copy(update={"scopes": scopes})
 
     async def _get_default_tools(self, entity_type: AgentSessionEntity) -> list[str]:
         """Get entitlement-aware default tools for a session entity type."""
@@ -2108,7 +2129,7 @@ class AgentSessionService(BaseWorkspaceService):
             workflow_id = AgentWorkflowID(run_id)
 
             workflow_args = AgentWorkflowArgs(
-                role=self.role,
+                role=self.execution_role,
                 agent_args=args,
                 title=agent_session.title,
                 entity_type=AgentSessionEntity(agent_session.entity_type),
@@ -2695,7 +2716,7 @@ class AgentSessionService(BaseWorkspaceService):
             ValueError: If the session entity type is unsupported.
             TracecatNotFoundError: If required resources are not found.
         """
-        agent_svc = AgentManagementService(self.session, self.role)
+        agent_svc = AgentManagementService(self.session, self.execution_role)
 
         if agent_session.entity_type is None:
             # No entity type - use the org's default model

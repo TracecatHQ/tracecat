@@ -312,6 +312,10 @@ import type {
   CasesAddTagResponse,
   CasesBatchDeleteCasesData,
   CasesBatchDeleteCasesResponse,
+  CasesBatchLinkCaseRowsData,
+  CasesBatchLinkCaseRowsResponse,
+  CasesBatchUnlinkCaseRowsData,
+  CasesBatchUnlinkCaseRowsResponse,
   CasesBatchUpdateCasesData,
   CasesBatchUpdateCasesResponse,
   CasesCompareCaseVersionData,
@@ -340,6 +344,8 @@ import type {
   CasesLinkCaseRowResponse,
   CasesListCaseDropdownValuesData,
   CasesListCaseDropdownValuesResponse,
+  CasesListCaseLinkedTablesData,
+  CasesListCaseLinkedTablesResponse,
   CasesListCaseRowsData,
   CasesListCaseRowsResponse,
   CasesListCasesData,
@@ -10245,7 +10251,7 @@ export const casesListCaseVersions = (
 
 /**
  * Compare Case Version
- * Compare a case field version with its immediate predecessor.
+ * Return a case field version and its immediate predecessor.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.versionId
@@ -10299,12 +10305,16 @@ export const casesRestoreCaseVersion = (
 
 /**
  * List Case Rows
+ * List linked rows.
+ *
+ * ``total_estimate`` is an exact count when ``table_id`` is set, null otherwise.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.workspaceId
  * @param data.limit
  * @param data.cursor
  * @param data.reverse
+ * @param data.tableId Restrict results to one linked table
  * @returns CursorPaginatedResponse_CaseTableRowRead_ Successful Response
  * @throws ApiError
  */
@@ -10322,6 +10332,7 @@ export const casesListCaseRows = (
       limit: data.limit,
       cursor: data.cursor,
       reverse: data.reverse,
+      table_id: data.tableId,
     },
     errors: {
       422: "Validation Error",
@@ -10357,6 +10368,34 @@ export const casesLinkCaseRow = (
 }
 
 /**
+ * List Case Linked Tables
+ * List the tables that have rows linked to a case, with their columns.
+ *
+ * Only ``case:read`` is required: the links, and the column definitions needed
+ * to render them, are case data.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseLinkedTableRead Successful Response
+ * @throws ApiError
+ */
+export const casesListCaseLinkedTables = (
+  data: CasesListCaseLinkedTablesData
+): CancelablePromise<CasesListCaseLinkedTablesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/cases/{case_id}/rows/tables",
+    path: {
+      case_id: data.caseId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Insert Case Row
  * @param data The data for the request.
  * @param data.caseId
@@ -10371,6 +10410,62 @@ export const casesInsertCaseRow = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workspaces/{workspace_id}/cases/{case_id}/rows/insert",
+    path: {
+      case_id: data.caseId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Batch Link Case Rows
+ * Link rows in bulk; conflict handling makes an integrity error unreachable.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTableRowBatchLinkResponse Successful Response
+ * @throws ApiError
+ */
+export const casesBatchLinkCaseRows = (
+  data: CasesBatchLinkCaseRowsData
+): CancelablePromise<CasesBatchLinkCaseRowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/{case_id}/rows/batch-link",
+    path: {
+      case_id: data.caseId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Batch Unlink Case Rows
+ * Unlink rows in bulk, returning zero for a fully no-op batch.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTableRowBatchUnlinkResponse Successful Response
+ * @throws ApiError
+ */
+export const casesBatchUnlinkCaseRows = (
+  data: CasesBatchUnlinkCaseRowsData
+): CancelablePromise<CasesBatchUnlinkCaseRowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/{case_id}/rows/batch-unlink",
     path: {
       case_id: data.caseId,
       workspace_id: data.workspaceId,

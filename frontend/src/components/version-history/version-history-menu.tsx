@@ -66,6 +66,8 @@ export type VersionHistoryMenuProps = {
   ) => ReactNode
   /** Versions to list in the dropdown, newest first. */
   versions: VersionHistoryEntry[]
+  /** Optional host-owned controls rendered below the scrollable version list. */
+  listFooter?: ReactNode
   /** True while the version list is being fetched. */
   isLoading: boolean
   /**
@@ -108,6 +110,7 @@ export function VersionHistoryMenu({
   renderComparisonDescription,
   renderRestoreConfirmationDescription,
   versions,
+  listFooter,
   isLoading,
   loadError,
   onRestore,
@@ -149,7 +152,7 @@ export function VersionHistoryMenu({
       )
     }
     return (
-      <ScrollArea className="max-h-80">
+      <ScrollArea className="max-h-80 [&_[data-radix-scroll-area-viewport]]:max-h-80">
         <DropdownMenuGroup className="flex flex-col p-1">
           {versions.map((version) => {
             const isCurrent =
@@ -257,6 +260,12 @@ export function VersionHistoryMenu({
               </>
             ) : null}
             {renderVersionList()}
+            {listFooter !== undefined && listFooter !== null ? (
+              <>
+                <DropdownMenuSeparator className="mx-0 my-0" />
+                {listFooter}
+              </>
+            ) : null}
           </div>
         </DropdownMenuContent>
       </DropdownMenu>

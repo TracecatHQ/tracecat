@@ -1,9 +1,23 @@
 import type { GridApi } from "ag-grid-community"
 import type React from "react"
 
+/** Options for {@link handleGridKeyDown}. */
+export interface GridKeyDownOptions {
+  /** Skip paste handling; copy still works. For grids that never write cells. */
+  readOnly?: boolean
+}
+
+/**
+ * Handles Ctrl/Cmd+C and Ctrl/Cmd+V on a grid container.
+ *
+ * Copy writes the selected rows as TSV, or the focused cell when nothing is
+ * selected. Paste writes the clipboard text into the focused cell, so pass
+ * `readOnly` on grids that never persist cell edits.
+ */
 export function handleGridKeyDown(
   e: React.KeyboardEvent,
-  gridApi: GridApi | null
+  gridApi: GridApi | null,
+  options: GridKeyDownOptions = {}
 ) {
   if (!gridApi) return
 
@@ -16,6 +30,7 @@ export function handleGridKeyDown(
     e.preventDefault()
     handleCopy(gridApi)
   } else if (isCtrlOrCmd && e.key === "v") {
+    if (options.readOnly) return
     e.preventDefault()
     handlePaste(gridApi)
   }

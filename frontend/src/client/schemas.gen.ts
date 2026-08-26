@@ -8742,6 +8742,49 @@ export const $CaseFieldUpdate = {
   description: "Update a case field.",
 } as const
 
+export const $CaseLinkedTableRead = {
+  properties: {
+    table_id: {
+      type: "string",
+      format: "uuid",
+      title: "Table Id",
+    },
+    table_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Table Name",
+    },
+    row_count: {
+      type: "integer",
+      title: "Row Count",
+    },
+    columns: {
+      items: {
+        $ref: "#/components/schemas/TableColumnRead",
+      },
+      type: "array",
+      title: "Columns",
+    },
+  },
+  type: "object",
+  required: ["table_id", "row_count", "columns"],
+  title: "CaseLinkedTableRead",
+  description: `One table with at least one row linked to a case.
+
+\`\`row_count\`\` counts links, including links whose source row was deleted.
+
+\`\`columns\`\` carries the table's column definitions so a caller can render
+the linked rows without a separate table read. It is empty when the table
+itself is gone. \`\`is_index\`\` is not populated here; read the table directly
+when unique-index state matters.`,
+} as const
+
 export const $CasePriority = {
   type: "string",
   enum: ["unknown", "low", "medium", "high", "critical", "other"],
@@ -9089,6 +9132,83 @@ export const $CaseStatusGroupCounts = {
   },
   type: "object",
   title: "CaseStatusGroupCounts",
+} as const
+
+export const $CaseTableRowBatchLink = {
+  properties: {
+    table_id: {
+      type: "string",
+      format: "uuid",
+      title: "Table Id",
+    },
+    row_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Row Ids",
+    },
+  },
+  type: "object",
+  required: ["table_id", "row_ids"],
+  title: "CaseTableRowBatchLink",
+} as const
+
+export const $CaseTableRowBatchLinkResponse = {
+  properties: {
+    linked_count: {
+      type: "integer",
+      title: "Linked Count",
+    },
+    already_linked_count: {
+      type: "integer",
+      title: "Already Linked Count",
+    },
+  },
+  type: "object",
+  required: ["linked_count", "already_linked_count"],
+  title: "CaseTableRowBatchLinkResponse",
+  description:
+    "linked_count + already_linked_count == number of distinct row IDs requested.",
+} as const
+
+export const $CaseTableRowBatchUnlink = {
+  properties: {
+    table_id: {
+      type: "string",
+      format: "uuid",
+      title: "Table Id",
+    },
+    row_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Row Ids",
+    },
+  },
+  type: "object",
+  required: ["table_id", "row_ids"],
+  title: "CaseTableRowBatchUnlink",
+} as const
+
+export const $CaseTableRowBatchUnlinkResponse = {
+  properties: {
+    unlinked_count: {
+      type: "integer",
+      title: "Unlinked Count",
+    },
+  },
+  type: "object",
+  required: ["unlinked_count"],
+  title: "CaseTableRowBatchUnlinkResponse",
+  description: "Row IDs with no link are silently skipped.",
 } as const
 
 export const $CaseTableRowInsertCreate = {
@@ -9787,22 +9907,12 @@ export const $CaseVersionCompareRead = {
         },
       ],
     },
-    diff: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/CaseVersionDiffRead",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
   },
   type: "object",
   required: ["selected"],
   title: "CaseVersionCompareRead",
   description:
-    "A selected case version, its predecessor, and their textual diff.",
+    "Raw snapshots for client-side comparison of a selected case version.",
 } as const
 
 export const $CaseVersionContentRead = {
@@ -9828,55 +9938,6 @@ export const $CaseVersionContentRead = {
   required: ["id", "field", "version", "content"],
   title: "CaseVersionContentRead",
   description: "Content for one immutable case field version.",
-} as const
-
-export const $CaseVersionDiffOperation = {
-  type: "string",
-  enum: ["equal", "insert", "delete"],
-  title: "CaseVersionDiffOperation",
-  description: "Operations in an ordered case-version text diff.",
-} as const
-
-export const $CaseVersionDiffRead = {
-  properties: {
-    granularity: {
-      type: "string",
-      const: "word",
-      title: "Granularity",
-      default: "word",
-    },
-    changed: {
-      type: "boolean",
-      title: "Changed",
-    },
-    segments: {
-      items: {
-        $ref: "#/components/schemas/CaseVersionDiffSegmentRead",
-      },
-      type: "array",
-      title: "Segments",
-    },
-  },
-  type: "object",
-  required: ["changed", "segments"],
-  title: "CaseVersionDiffRead",
-  description: "A word-level edit script from predecessor to selected content.",
-} as const
-
-export const $CaseVersionDiffSegmentRead = {
-  properties: {
-    operation: {
-      $ref: "#/components/schemas/CaseVersionDiffOperation",
-    },
-    text: {
-      type: "string",
-      title: "Text",
-    },
-  },
-  type: "object",
-  required: ["operation", "text"],
-  title: "CaseVersionDiffSegmentRead",
-  description: "One exact-text segment in an ordered case-version diff.",
 } as const
 
 export const $CaseVersionField = {
@@ -20457,6 +20518,13 @@ export const $ProviderMetadata = {
       title: "Enabled",
       description: "Whether this provider is available for use",
       default: true,
+    },
+    service_account_json: {
+      type: "boolean",
+      title: "Service Account Json",
+      description:
+        "Whether the client secret is a service account JSON key instead of an OAuth client secret",
+      default: false,
     },
     api_docs_url: {
       anyOf: [

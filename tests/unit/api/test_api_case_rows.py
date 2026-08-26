@@ -12,11 +12,21 @@ from tracecat.cases import router as cases_router
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.rows import internal_router as internal_case_rows_router
 from tracecat.cases.rows import router as case_rows_router
-from tracecat.cases.rows.schemas import CaseTableRowLinkCreate
+from tracecat.cases.rows.schemas import (
+    MAX_CASE_ROW_BATCH_SIZE,
+    CaseLinkedTableRead,
+    CaseTableRowBatchLink,
+    CaseTableRowBatchLinkResponse,
+    CaseTableRowBatchUnlink,
+    CaseTableRowBatchUnlinkResponse,
+    CaseTableRowLinkCreate,
+)
 from tracecat.cases.rows.service import MAX_LINKED_ROWS_PER_CASE
 from tracecat.cases.schemas import CaseReadMinimal
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.tables.enums import SqlType
+from tracecat.tables.schemas import TableColumnRead
 
 
 def _build_case_read(case_id: uuid.UUID) -> CaseReadMinimal:
@@ -219,3 +229,269 @@ async def test_internal_link_case_row_returns_409_for_duplicate_link(
         "code": "CASE_ROW_ALREADY_LINKED",
         "message": "This table row is already linked to the case.",
     }
+
+
+@pytest.mark.anyio
+async def test_list_case_linked_tables_returns_404_for_missing_case(
+    test_admin_role: Role,
+) -> None:
+    case_id = uuid.uuid4()
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case_or_raise.side_effect = TracecatNotFoundError(
+            "Case not found"
+        )
+        mock_service_cls.return_value = mock_service
+
+        with pytest.raises(HTTPException) as exc_info:
+            await case_rows_router.list_case_linked_tables(
+                role=test_admin_role,
+                session=AsyncMock(),
+                case_id=case_id,
+            )
+
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+    assert exc_info.value.detail == "Case not found"
+
+
+@pytest.mark.anyio
+async def test_list_case_linked_tables_returns_columns(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    table_id = uuid.uuid4()
+    column_id = uuid.uuid4()
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case_or_raise.return_value = MagicMock()
+        mock_service.list_linked_tables.return_value = [
+            CaseLinkedTableRead(
+                table_id=table_id,
+                table_name="alerts",
+                row_count=2,
+                columns=[
+                    TableColumnRead(id=column_id, name="value", type=SqlType.TEXT)
+                ],
+            )
+        ]
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            f"/cases/{uuid.uuid4()}/rows/tables",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    linked_table = response.json()[0]
+    assert linked_table["table_id"] == str(table_id)
+    assert linked_table["columns"] == [
+        {
+            "id": str(column_id),
+            "name": "value",
+            "type": SqlType.TEXT.value,
+            "nullable": True,
+            "default": None,
+            "is_index": False,
+            "options": None,
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_batch_link_case_rows_returns_404_for_missing_case(
+    test_admin_role: Role,
+) -> None:
+    case_id = uuid.uuid4()
+    params = CaseTableRowBatchLink(table_id=uuid.uuid4(), row_ids=[uuid.uuid4()])
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case_or_raise.side_effect = TracecatNotFoundError(
+            "Case not found"
+        )
+        mock_service_cls.return_value = mock_service
+
+        with pytest.raises(HTTPException) as exc_info:
+            await case_rows_router.batch_link_case_rows(
+                role=test_admin_role,
+                session=AsyncMock(),
+                case_id=case_id,
+                params=params,
+            )
+
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+    assert exc_info.value.detail == "Case not found"
+
+
+@pytest.mark.anyio
+async def test_batch_unlink_case_rows_returns_404_for_missing_case(
+    test_admin_role: Role,
+) -> None:
+    case_id = uuid.uuid4()
+    params = CaseTableRowBatchUnlink(table_id=uuid.uuid4(), row_ids=[uuid.uuid4()])
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case_or_raise.side_effect = TracecatNotFoundError(
+            "Case not found"
+        )
+        mock_service_cls.return_value = mock_service
+
+        with pytest.raises(HTTPException) as exc_info:
+            await case_rows_router.batch_unlink_case_rows(
+                role=test_admin_role,
+                session=AsyncMock(),
+                case_id=case_id,
+                params=params,
+            )
+
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+    assert exc_info.value.detail == "Case not found"
+
+
+@pytest.mark.anyio
+async def test_batch_link_case_rows_returns_404_for_missing_rows(
+    test_admin_role: Role,
+) -> None:
+    case_id = uuid.uuid4()
+    params = CaseTableRowBatchLink(
+        table_id=uuid.uuid4(),
+        row_ids=[uuid.uuid4(), uuid.uuid4(), uuid.uuid4()],
+    )
+    expected_error = "2 of 3 rows not found in table t"
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case_or_raise.return_value = MagicMock()
+        mock_service.link_rows.side_effect = TracecatNotFoundError(expected_error)
+        mock_service_cls.return_value = mock_service
+
+        with pytest.raises(HTTPException) as exc_info:
+            await case_rows_router.batch_link_case_rows(
+                role=test_admin_role,
+                session=AsyncMock(),
+                case_id=case_id,
+                params=params,
+            )
+
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+    assert exc_info.value.detail == expected_error
+
+
+@pytest.mark.anyio
+async def test_batch_link_case_rows_returns_400_for_row_limit(
+    test_admin_role: Role,
+) -> None:
+    case_id = uuid.uuid4()
+    params = CaseTableRowBatchLink(table_id=uuid.uuid4(), row_ids=[uuid.uuid4()])
+    expected_error = f"A case can have at most {MAX_LINKED_ROWS_PER_CASE} linked rows"
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case_or_raise.return_value = MagicMock()
+        mock_service.link_rows.side_effect = ValueError(expected_error)
+        mock_service_cls.return_value = mock_service
+
+        with pytest.raises(HTTPException) as exc_info:
+            await case_rows_router.batch_link_case_rows(
+                role=test_admin_role,
+                session=AsyncMock(),
+                case_id=case_id,
+                params=params,
+            )
+
+    assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+    assert exc_info.value.detail == expected_error
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("path", "row_ids"),
+    [
+        ("batch-link", []),
+        ("batch-link", [str(uuid.uuid4())] * (MAX_CASE_ROW_BATCH_SIZE + 1)),
+        ("batch-unlink", []),
+    ],
+)
+async def test_batch_case_rows_validates_row_ids(
+    client: TestClient,
+    test_admin_role: Role,
+    path: str,
+    row_ids: list[str],
+) -> None:
+    response = client.post(
+        f"/cases/{uuid.uuid4()}/rows/{path}",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={"table_id": str(uuid.uuid4()), "row_ids": row_ids},
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.anyio
+async def test_batch_link_case_rows_accepts_a_full_batch(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    row_ids = [str(uuid.uuid4()) for _ in range(MAX_CASE_ROW_BATCH_SIZE)]
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case_or_raise.return_value = MagicMock()
+        mock_service.link_rows.return_value = CaseTableRowBatchLinkResponse(
+            linked_count=MAX_CASE_ROW_BATCH_SIZE,
+            already_linked_count=0,
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            f"/cases/{uuid.uuid4()}/rows/batch-link",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"table_id": str(uuid.uuid4()), "row_ids": row_ids},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["linked_count"] == MAX_CASE_ROW_BATCH_SIZE
+
+
+@pytest.mark.anyio
+async def test_batch_link_case_rows_returns_service_counts(
+    test_admin_role: Role,
+) -> None:
+    case_id = uuid.uuid4()
+    params = CaseTableRowBatchLink(table_id=uuid.uuid4(), row_ids=[uuid.uuid4()])
+    expected = CaseTableRowBatchLinkResponse(
+        linked_count=2,
+        already_linked_count=1,
+    )
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case_or_raise.return_value = MagicMock()
+        mock_service.link_rows.return_value = expected
+        mock_service_cls.return_value = mock_service
+
+        result = await case_rows_router.batch_link_case_rows(
+            role=test_admin_role,
+            session=AsyncMock(),
+            case_id=case_id,
+            params=params,
+        )
+
+    assert result is expected
+
+
+@pytest.mark.anyio
+async def test_batch_unlink_case_rows_wraps_service_count(
+    test_admin_role: Role,
+) -> None:
+    case_id = uuid.uuid4()
+    params = CaseTableRowBatchUnlink(table_id=uuid.uuid4(), row_ids=[uuid.uuid4()])
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case_or_raise.return_value = MagicMock()
+        mock_service.unlink_rows.return_value = 3
+        mock_service_cls.return_value = mock_service
+
+        result = await case_rows_router.batch_unlink_case_rows(
+            role=test_admin_role,
+            session=AsyncMock(),
+            case_id=case_id,
+            params=params,
+        )
+
+    assert result == CaseTableRowBatchUnlinkResponse(unlinked_count=3)

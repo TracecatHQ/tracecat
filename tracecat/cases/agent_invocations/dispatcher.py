@@ -71,7 +71,9 @@ class CaseCommentAgentInvocationDispatcher(BaseWorkspaceService):
             if agent_session is None:
                 raise TracecatNotFoundError("Linked agent session not found")
         else:
-            preset_service = AgentPresetService(self.session, self.role)
+            preset_service = AgentPresetService(
+                self.session, session_service.execution_role
+            )
             preset_version = await preset_service.resolve_agent_preset_version(
                 preset_id=preset_id
             )

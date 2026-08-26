@@ -19,7 +19,6 @@ from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
     CaseStatus,
-    CaseVersionDiffOperation,
     CaseVersionField,
 )
 from tracecat.cases.schemas import (
@@ -35,8 +34,6 @@ from tracecat.cases.versions import router as case_versions_router
 from tracecat.cases.versions.schemas import (
     CaseVersionCompareRead,
     CaseVersionContentRead,
-    CaseVersionDiffRead,
-    CaseVersionDiffSegmentRead,
     CaseVersionReadMinimal,
     CaseVersionRestoreRead,
 )
@@ -867,7 +864,7 @@ async def test_compare_case_version_success_and_mismatch_404(
     test_admin_role: Role,
     mock_case: Case,
 ) -> None:
-    """Compare serializes predecessor content and hides mismatched versions."""
+    """Compare returns raw snapshots and hides mismatched versions."""
     selected_id = uuid.uuid4()
     predecessor_id = uuid.uuid4()
     comparison = CaseVersionCompareRead(
@@ -882,23 +879,6 @@ async def test_compare_case_version_success_and_mismatch_404(
             field=CaseVersionField.DESCRIPTION,
             version=1,
             content="Old body",
-        ),
-        diff=CaseVersionDiffRead(
-            changed=True,
-            segments=[
-                CaseVersionDiffSegmentRead(
-                    operation=CaseVersionDiffOperation.DELETE,
-                    text="Old",
-                ),
-                CaseVersionDiffSegmentRead(
-                    operation=CaseVersionDiffOperation.INSERT,
-                    text="New",
-                ),
-                CaseVersionDiffSegmentRead(
-                    operation=CaseVersionDiffOperation.EQUAL,
-                    text=" body",
-                ),
-            ],
         ),
     )
     with patch.object(case_versions_router, "CasesService") as mock_service_cls:
@@ -920,15 +900,7 @@ async def test_compare_case_version_success_and_mismatch_404(
 
     assert success.status_code == status.HTTP_200_OK
     assert success.json()["predecessor"]["content"] == "Old body"
-    assert success.json()["diff"] == {
-        "granularity": "word",
-        "changed": True,
-        "segments": [
-            {"operation": "delete", "text": "Old"},
-            {"operation": "insert", "text": "New"},
-            {"operation": "equal", "text": " body"},
-        ],
-    }
+    assert "diff" not in success.json()
     assert missing.status_code == status.HTTP_404_NOT_FOUND
 
 

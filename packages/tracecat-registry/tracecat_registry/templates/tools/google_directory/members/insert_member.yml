@@ -1,0 +1,82 @@
+type: action
+definition:
+  title: Insert member
+  description: Adds a user to the specified group.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/members/insert
+  namespace: tools.google_directory
+  name: insert_member
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    group_key:
+      type: str
+      description: >-
+        Identifies the group in the API request. The value can be the group's email address,
+        group alias, or the unique group ID.
+    email:
+      type: str
+      description: >-
+        The member's email address. A member can be a user or another group. This property is
+        required when adding a member to a group.
+    role:
+      type: str | None
+      description: >-
+        The member's role in a group. Allowed values are `OWNER`, `MANAGER`, and `MEMBER`.
+      default: null
+    delivery_settings:
+      type: str | None
+      description: >-
+        Defines mail delivery preferences of member. Allowed values are `ALL_MAIL`, `DAILY`,
+        `DIGEST`, `DISABLED`, and `NONE`.
+      default: null
+    type:
+      type: str | None
+      description: >-
+        The type of group member. Allowed values are `CUSTOMER`, `EXTERNAL`, `GROUP`, and `USER`.
+      default: null
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          email: ${{ inputs.email }}
+          role: ${{ inputs.role }}
+          delivery_settings: ${{ inputs.delivery_settings }}
+          type: ${{ inputs.type }}
+        script: |
+          def main(email, role, delivery_settings, type):
+              # Values inside a Google API request body are not null-pruned, and the Directory
+              # API rejects an explicit null on these optional Member fields.
+              body = {"email": email}
+              if role is not None:
+                  body["role"] = role
+              if delivery_settings is not None:
+                  body["delivery_settings"] = delivery_settings
+              if type is not None:
+                  body["type"] = type
+              return body
+    - ref: insert_member
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: members
+        method_name: insert
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.group.member"]
+        params:
+          groupKey: ${{ inputs.group_key }}
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.insert_member.result }}
