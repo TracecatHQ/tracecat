@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import (
     AddSearchAttributesRequest,
+    ListSearchAttributesRequest,
     RemoveSearchAttributesRequest,
 )
 from tenacity import (
@@ -189,9 +190,31 @@ async def add_temporal_search_attributes():
         TemporalSearchAttr.ERROR_OWNER.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
     }
     try:
+        registered = await client.operator_service.list_search_attributes(
+            ListSearchAttributesRequest(namespace=namespace)
+        )
+        missing_attrs: dict[str, IndexedValueType.ValueType] = {}
+        for name, expected_type in attrs.items():
+            registered_type = registered.custom_attributes.get(name)
+            if registered_type is None:
+                missing_attrs[name] = expected_type
+            elif registered_type != expected_type:
+                raise RuntimeError(
+                    "Temporal search attribute has an unexpected type: "
+                    f"{name} (expected {expected_type}, got {registered_type})"
+                )
+
+        if not missing_attrs:
+            logger.info(
+                "Temporal search attributes already registered",
+                namespace=namespace,
+                search_attributes=list(attrs.keys()),
+            )
+            return
+
         await client.operator_service.add_search_attributes(
             AddSearchAttributesRequest(
-                search_attributes=attrs,
+                search_attributes=missing_attrs,
                 namespace=namespace,
             )
         )
@@ -205,7 +228,7 @@ async def add_temporal_search_attributes():
     logger.info(
         "Temporal search attributes added",
         namespace=namespace,
-        search_attributes=list(attrs.keys()),
+        search_attributes=list(missing_attrs.keys()),
     )
 
 

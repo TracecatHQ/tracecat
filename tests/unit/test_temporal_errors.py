@@ -151,6 +151,35 @@ def test_aggregate_action_errors_preserve_classified_children() -> None:
     assert extract_error_envelopes(error) == (envelope,)
 
 
+@pytest.mark.parametrize("serialized", [False, True])
+def test_aggregate_action_error_rejects_partially_classified_children(
+    serialized: bool,
+) -> None:
+    envelope = _user_envelope()
+    aggregate = ActionErrorInfo(
+        ref="gather",
+        message="Gather failed",
+        type="ApplicationError",
+        envelope=envelope,
+        children=[
+            ActionErrorInfo(
+                ref="scatter[0]",
+                message=envelope.message,
+                type="ValueError",
+                envelope=envelope,
+            ),
+            ActionErrorInfo(
+                ref="scatter[1]",
+                message="Legacy failure",
+                type="RuntimeError",
+            ),
+        ],
+    )
+    detail = aggregate.model_dump(mode="json") if serialized else aggregate
+
+    assert extract_error_envelopes(ApplicationError("Gather failed", detail)) == ()
+
+
 def test_error_handler_input_preserves_action_error_envelope() -> None:
     envelope = _platform_envelope()
     error_info = ActionErrorInfo(
