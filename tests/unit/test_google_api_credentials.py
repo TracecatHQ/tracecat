@@ -320,3 +320,20 @@ def test_call_api_sends_media_as_media_body() -> None:
     assert media_body.size() == len(content)
     assert media_body.getbytes(0, len(content)) == content
     assert media_body.resumable() is False
+
+
+def test_media_accepts_wrapped_base64_and_rejects_garbage() -> None:
+    """Line-wrapped Base64 (GNU `base64` default) decodes; junk does not."""
+    content = bytes(range(256)) * 3
+    wrapped = base64.encodebytes(content).decode()
+    assert "\n" in wrapped
+
+    media_body = google_api._build_media_upload(
+        {"content_base64": wrapped, "mime_type": "application/octet-stream"}
+    )
+    assert media_body.getbytes(0, len(content)) == content
+
+    with pytest.raises(ValueError):
+        google_api._build_media_upload(
+            {"content_base64": "not*base64!", "mime_type": "text/plain"}
+        )

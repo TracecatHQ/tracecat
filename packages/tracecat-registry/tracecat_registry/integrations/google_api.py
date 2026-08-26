@@ -212,8 +212,12 @@ def _prune_none_params(params: GoogleAPIParams | None) -> GoogleAPIParams:
 
 
 def _build_media_upload(media: GoogleMediaUpload) -> MediaIoBaseUpload:
+    # Line-wrapped Base64 (the GNU `base64` default) is valid input; strip the
+    # whitespace, then reject anything outside the alphabet instead of silently
+    # uploading corrupted content.
+    encoded = "".join(media["content_base64"].split())
     return MediaIoBaseUpload(
-        io.BytesIO(base64.b64decode(media["content_base64"], validate=True)),
+        io.BytesIO(base64.b64decode(encoded, validate=True)),
         mimetype=media["mime_type"],
         resumable=False,
     )
