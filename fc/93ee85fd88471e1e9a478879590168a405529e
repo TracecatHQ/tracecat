@@ -1,0 +1,178 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/create_folder.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 64
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/permissions/add_permission.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 51
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/get_message_headers.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/values/batch_clear_values_by_data_filter.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 46
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/drafts/update_draft.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 131
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/users/get_profile.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 37
+packages/tracecat-registry/tracecat_registry/templates/tools/google_docs/get_document.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 50
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/delete_file.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 40
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/create_spreadsheet.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 52
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/get_spreadsheet.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 57
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/history/list_history.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 69
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/labels/get_label.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 40
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/permissions/update_permission.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 46
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/labels/create_label.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 50
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/modify_thread.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 68
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/spreadsheets/get_spreadsheet_by_data_filter.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 63
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/responses/get_response.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 37
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/list_threads.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 61
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/values/update_values.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 91
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/untrash_thread.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/permissions/get_file_permissions.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 48
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/permissions/revoke_permission.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 39
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/responses/list_responses.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 55
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/batch_update_values.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 101
+packages/tracecat-registry/tracecat_registry/templates/tools/google_slides/presentations/get_presentation.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 34
+tests/unit/test_google_templates_contract.py
+  s_0855f338158bca::t_f0b9eaee56f00d 39
+  s_0855f338158bca::t_b469519ef4382f 72-87
+  s_0855f338158bca::t_60a8c9b90306f2 9-10,16
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/forms/get_form.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 34
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/append_values.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 93
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/developer_metadata/search_developer_metadata.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 48
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/trash_message.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 40
+packages/tracecat-registry/tracecat_registry/templates/tools/google_slides/pages/get_page_thumbnail.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 53
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/modify_message.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 66
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/get_message.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 46
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/get_thread.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 45
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/forms/create_form.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 64
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/activity/query_activity.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 101
+tracecat/integrations/providers/google/admin.py
+  s_0855f338158bca::t_35c221828a9115 47-51
+  s_0855f338158bca::t_06dcd1d206a4a4 3-5
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/upload_file.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 69
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/watches/delete_watch.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 37
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/batch_clear_values.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 37
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/drafts/create_draft.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 128
+packages/tracecat-registry/tracecat_registry/templates/tools/google_docs/batch_update_document.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 61
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/values/batch_update_values_by_data_filter.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 96
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/values/get_values.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 58
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/delete_message.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 44
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/send_message.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 129
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/forms/set_publish_settings.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 72
+packages/tracecat-registry/tracecat_registry/templates/tools/google_slides/presentations/create_presentation.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 47
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/watches/list_watches.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 36
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/search_messages.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 48
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/developer_metadata/get_developer_metadata.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 39
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/drafts/send_draft.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_slides/pages/get_page.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 37
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/forms/batch_update_form.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 73
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/batch_delete_messages.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 44
+packages/tracecat-registry/tracecat_registry/templates/tools/google_slides/presentations/batch_update_presentation.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 66
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/values/clear_values.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 40
+docs/automations/core-concepts/secrets.mdx
+  s_0855f338158bca::t_1f16a5e3cb951a 94,98,102-103,105-109
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/untrash_message.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 40
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/batch_modify_messages.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 63
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/labels/patch_label.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 53
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/drafts/list_drafts.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 57
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/trash_thread.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_docs/create_document.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/spreadsheets/batch_update_spreadsheet.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 86
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/get_attachment.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/batch_get_values.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 74
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/watches/renew_watch.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 39
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/copy_sheet.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 40
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/get_file.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 40
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/labels/delete_label.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 42
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/labels/list_labels.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 37
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/permanently_delete_file.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 36
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/drafts/get_draft.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 49
+packages/tracecat-registry/tracecat_registry/templates/tools/google_forms/watches/create_watch.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 76
+packages/tracecat-registry/tracecat_registry/templates/tools/google_drive/files/list_files.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 98
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/delete_thread.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 45
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/drafts/delete_draft.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 40
+packages/tracecat-registry/tracecat_registry/templates/tools/google_sheets/values/batch_get_values_by_data_filter.yml
+  s_0855f338158bca::t_6e07bb88a1e1bc 90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "fc93ee85fd88471e1e9a478879590168a405529e",
+  "prompts": {},
+  "sessions": {
+    "s_0855f338158bca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0461c8f1-d32d-4956-9627-d4e029e7efaf",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
