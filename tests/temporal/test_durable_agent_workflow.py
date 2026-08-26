@@ -11,6 +11,7 @@ import asyncio
 import os
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
 
@@ -403,11 +404,16 @@ async def replay_durable_agent_workflow_history(
     async def histories() -> AsyncIterator[WorkflowHistory]:
         yield history
 
-    replay_results = await Replayer(
-        workflows=[DurableAgentWorkflow],
-        workflow_runner=UnsandboxedWorkflowRunner(),
-        data_converter=temporal_client.data_converter,
-    ).replay_workflows(histories(), raise_on_replay_failure=False)
+    # Replayer creates an executor that it intentionally never shuts down when
+    # none is supplied. Repeated replays would therefore keep xdist workers
+    # alive after their final test.
+    with ThreadPoolExecutor() as workflow_task_executor:
+        replay_results = await Replayer(
+            workflows=[DurableAgentWorkflow],
+            workflow_task_executor=workflow_task_executor,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            data_converter=temporal_client.data_converter,
+        ).replay_workflows(histories(), raise_on_replay_failure=False)
     assert not replay_results.replay_failures
 
 
