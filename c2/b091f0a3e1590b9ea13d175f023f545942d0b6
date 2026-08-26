@@ -1,0 +1,40 @@
+frontend/src/hooks/use-case-rows.ts
+  s_ca70cedb5d591c::t_e374b38b3d34ee 69-90,219-225,229,232,234-248
+frontend/tests/use-case-rows.test.tsx
+  s_ca70cedb5d591c::t_ffa1feae6717a3 16,68-82,219-254
+frontend/tests/case-linked-rows-section.test.tsx
+  s_ca70cedb5d591c::t_f0e3b05735ef32 12,19-20,22,285-313
+  s_ca70cedb5d591c::t_1d400a58ae1d9f 314-315
+tracecat/cases/rows/service.py
+  s_ca70cedb5d591c::t_9fa4dd3dfffe9f 58-74
+  s_ca70cedb5d591c::t_20d862c97a01d0 208-209
+  s_ca70cedb5d591c::t_e74342a05884c4 298-299
+tests/unit/test_case_table_rows_service.py
+  s_ca70cedb5d591c::t_60d89a763482d3 8
+  s_ca70cedb5d591c::t_6a25e95230db95 1059-1063,1065-1067,1069-1070
+  s_ca70cedb5d591c::t_dc4d7e8c605517 1071-1073
+  s_ca70cedb5d591c::t_5b5b0cd14b4fdf 1068
+  s_ca70cedb5d591c::t_3f40acbed4b87a 971-973
+  s_ca70cedb5d591c::t_5c3989b35eacd0 956-958,962-970,974-1058,1064,1074-1075
+  s_ca70cedb5d591c::t_8d346b4b75582c 1,10-11,13-14,16,19-22,29
+  s_ca70cedb5d591c::t_5fac5e13d860df 959-961
+frontend/src/components/cases/case-linked-rows-section.tsx
+  s_ca70cedb5d591c::t_8c21d08883acc3 19,212-235,330-342
+  s_ca70cedb5d591c::t_d9ed9ff70f72b9 343
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "c2b091f0a3e1590b9ea13d175f023f545942d0b6",
+  "prompts": {},
+  "sessions": {
+    "s_ca70cedb5d591c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "007cd624-4ad9-4928-b97a-6193bb1d46fe",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
