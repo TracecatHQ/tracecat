@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 
 import sqlalchemy as sa
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -64,6 +65,25 @@ class ResolveAgentsConfigActivityInput(BaseModel):
     # deserialize; only the durable resume path sets it. PR 2.3a (dispatch-time
     # resolution) may subsume or remove this flag.
     preserve_resolved_versions: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def preserve_legacy_resume_bindings(cls, data: object) -> object:
+        """Translate old resume payloads to the exact-version contract.
+
+        Older workflows expressed exact preservation only through
+        ``follow_latest_versions=False``. New payloads always carry the explicit
+        replacement field, whose value takes precedence.
+        """
+        if (
+            isinstance(data, Mapping)
+            and "preserve_resolved_versions" not in data
+            and data.get("follow_latest_versions") is False
+        ):
+            translated = dict(data)
+            translated["preserve_resolved_versions"] = True
+            return translated
+        return data
 
 
 @activity.defn

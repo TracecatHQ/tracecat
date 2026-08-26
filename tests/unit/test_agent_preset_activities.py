@@ -101,6 +101,41 @@ def test_resolve_agents_config_input_defaults_preserve_resolved_versions() -> No
     assert parsed.preserve_resolved_versions is False
 
 
+def test_resolve_agents_config_input_preserves_legacy_resume_binding() -> None:
+    """A new worker must honor the exact-version contract from an old history."""
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    parsed = ResolveAgentsConfigActivityInput.model_validate(
+        {"role": role, "follow_latest_versions": False}
+    )
+
+    assert parsed.preserve_resolved_versions is True
+
+
+def test_explicit_preservation_flag_overrides_legacy_resume_field() -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    parsed = ResolveAgentsConfigActivityInput.model_validate(
+        {
+            "role": role,
+            "follow_latest_versions": False,
+            "preserve_resolved_versions": False,
+        }
+    )
+
+    assert parsed.preserve_resolved_versions is False
+
+
 def test_resolve_agents_config_result_derives_session_binding() -> None:
     binding = ResolvedAttachedSubagentRef(
         preset="analyst",
@@ -258,7 +293,7 @@ async def test_resolve_agents_config_resolves_persisted_ref_by_preset_id(
 
 
 @pytest.mark.anyio
-async def test_resolve_agents_config_ignores_legacy_follow_latest_flag(
+async def test_resolve_agents_config_preserves_legacy_resume_binding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     preset_id = uuid.uuid4()
@@ -273,6 +308,7 @@ async def test_resolve_agents_config_ignores_legacy_follow_latest_flag(
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
         resolve_agent_preset_version_for_subagent_ref=AsyncMock(return_value=version),
+        resolve_agent_preset_version_snapshot=AsyncMock(return_value=version),
         _get_version_agents_config=AsyncMock(
             return_value=AgentSubagentsConfig(enabled=False)
         ),
@@ -316,9 +352,12 @@ async def test_resolve_agents_config_ignores_legacy_follow_latest_flag(
         )
     )
 
-    service.resolve_agent_preset_version_for_subagent_ref.assert_awaited_once_with(
+    service.resolve_agent_preset_version_snapshot.assert_awaited_once_with(
+        preset_version_id=preset_version_id,
         preset_id=preset_id,
+        preset_slug="old-analyst-slug",
     )
+    service.resolve_agent_preset_version_for_subagent_ref.assert_not_awaited()
     service.resolve_agent_preset_version.assert_not_awaited()
     assert result.subagents[0].binding.preset_version_id == preset_version_id
 
