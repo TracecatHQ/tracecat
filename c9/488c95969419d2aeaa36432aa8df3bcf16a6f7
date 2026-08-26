@@ -1,0 +1,33 @@
+frontend/tests/oauth-integration-details-dialog.test.tsx
+  s_7ebd0c780948e1::t_81225c021195cf 11,78,102-104,165-167,172-176,182,187,233-268
+frontend/src/components/integrations/oauth-integration-details-dialog.tsx
+  s_7ebd0c780948e1::t_81225c021195cf 35,40,50,67,71,89,96-97,136-137,281-292,430-447
+  s_7ebd0c780948e1::t_be387a3117117c 448-450
+frontend/src/app/workspaces/[workspaceId]/integrations/page.tsx
+  s_7ebd0c780948e1::t_81225c021195cf 47,52,94,105-106,126-130,152,182,454-459,624-641,680,709-735
+  s_7ebd0c780948e1::t_c5902e4912d3db 736
+frontend/src/lib/integrations.ts
+  s_7ebd0c780948e1::t_81225c021195cf 32-36
+frontend/tests/integrations.test.ts
+  s_7ebd0c780948e1::t_81225c021195cf 1,9-13
+  s_7ebd0c780948e1::t_5da4d0db34ce41 14
+frontend/src/hooks/use-integration-actions.ts
+  s_7ebd0c780948e1::t_81225c021195cf 6,101-123,126-127
+  s_7ebd0c780948e1::t_ecd95228cbfcaa 124-125,128-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "c9488c95969419d2aeaa36432aa8df3bcf16a6f7",
+  "prompts": {},
+  "sessions": {
+    "s_7ebd0c780948e1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e9d806a-d15d-477d-9b75-a6d9c2779b4d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
