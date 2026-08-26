@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
-import { useLinkCaseRows } from "@/hooks/use-case-rows"
+import { CaseRowsLinkError, useLinkCaseRows } from "@/hooks/use-case-rows"
 import { getApiErrorDetail } from "@/lib/errors"
 import { useGetTable, useListTables } from "@/lib/hooks"
 
@@ -165,17 +165,53 @@ function CaseLinkRowsDialogBody({
   async function handleAdd() {
     let linkedCount = 0
     let alreadyLinkedCount = 0
+    // Every request commits on its own, so a failure part-way through has to
+    // report what landed and unstage it before the user retries.
+    const committedTableIds = new Set<string>()
+    let pendingTableId: string | null = null
     try {
       for (const [stagedTableId, rowIds] of stagedByTable) {
         if (rowIds.size === 0) continue
+        pendingTableId = stagedTableId
         const result = await linkCaseRows({
           tableId: stagedTableId,
           rowIds: [...rowIds],
         })
         linkedCount += result.linkedCount
         alreadyLinkedCount += result.alreadyLinkedCount
+        committedTableIds.add(stagedTableId)
+        pendingTableId = null
       }
     } catch (error) {
+      if (error instanceof CaseRowsLinkError) {
+        linkedCount += error.linkedCount
+        alreadyLinkedCount += error.alreadyLinkedCount
+        const committedRowIds = new Set(error.committedRowIds)
+        const failedTableId = pendingTableId
+        setStagedByTable((previous) =>
+          dropCommitted(
+            previous,
+            committedTableIds,
+            failedTableId,
+            committedRowIds
+          )
+        )
+        const detail = getApiErrorDetail(error.cause) ?? "Try again."
+        if (linkedCount + alreadyLinkedCount > 0) {
+          toast({
+            title: "Some rows were not linked",
+            description: `${describePartialLink(linkedCount, alreadyLinkedCount)} ${detail}`,
+            variant: "destructive",
+          })
+          return
+        }
+        toast({
+          title: "Could not link rows",
+          description: detail,
+          variant: "destructive",
+        })
+        return
+      }
       toast({
         title: "Could not link rows",
         description: getApiErrorDetail(error) ?? "Try again.",
@@ -303,6 +339,43 @@ function CaseLinkRowsDialogBody({
       </div>
     </>
   )
+}
+
+/**
+ * Staged picks minus everything a failed multi-request link already committed,
+ * so a retry only re-sends what is left.
+ */
+function dropCommitted(
+  staged: ReadonlyMap<string, ReadonlySet<string>>,
+  committedTableIds: ReadonlySet<string>,
+  failedTableId: string | null,
+  committedRowIds: ReadonlySet<string>
+): ReadonlyMap<string, ReadonlySet<string>> {
+  const next = new Map<string, ReadonlySet<string>>()
+  for (const [tableId, rowIds] of staged) {
+    if (committedTableIds.has(tableId)) continue
+    let remaining = rowIds
+    if (tableId === failedTableId) {
+      remaining = new Set(
+        [...rowIds].filter((rowId) => !committedRowIds.has(rowId))
+      )
+    }
+    if (remaining.size === 0) continue
+    next.set(tableId, remaining)
+  }
+  return next
+}
+
+function describePartialLink(
+  linkedCount: number,
+  alreadyLinkedCount: number
+): string {
+  const linkedNoun = linkedCount === 1 ? "row" : "rows"
+  let description = `Linked ${linkedCount} ${linkedNoun}`
+  if (alreadyLinkedCount > 0) {
+    description += ` (${alreadyLinkedCount} already linked)`
+  }
+  return `${description} before a request failed.`
 }
 
 function describeLinkResult(

@@ -5,6 +5,7 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { CaseLinkedTableRead, CaseTableRowRead } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseLinkedRowsSection } from "@/components/cases/case-linked-rows-section"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -28,18 +29,24 @@ jest.mock("@/components/ui/use-toast", () => ({
   toast: jest.fn(),
 }))
 
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: jest.fn(),
+}))
+
 // AG Grid cannot mount under jsdom; a checkbox per row stands in for it.
 jest.mock("@/components/tables/table-rows-grid", () => ({
   TableRowsGrid: ({
     rows,
+    selectable,
     selectedRowIds,
     onSelectedRowIdsChange,
   }: {
     rows: readonly { id: string }[]
+    selectable?: boolean
     selectedRowIds?: ReadonlySet<string>
     onSelectedRowIdsChange?: (rowIds: string[]) => void
   }) => (
-    <div data-testid="rows-grid">
+    <div data-testid="rows-grid" data-selectable={String(Boolean(selectable))}>
       {rows.map((row) => (
         <input
           key={row.id}
@@ -88,6 +95,9 @@ const mockUseCaseTableRows = useCaseTableRows as jest.MockedFunction<
   typeof useCaseTableRows
 >
 const mockUseGetTable = useGetTable as jest.MockedFunction<typeof useGetTable>
+const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
+  typeof useScopeCheck
+>
 const mockToast = toast as jest.MockedFunction<typeof toast>
 const mockUnlinkCaseRows = jest.fn()
 
@@ -132,6 +142,7 @@ function renderSection() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockUseScopeCheck.mockReturnValue(true)
   setLinkedTables(SUMMARY)
   mockUseGetTable.mockImplementation(({ tableId }) => ({
     table: { id: tableId, name: tableId, columns: [] },
@@ -290,5 +301,52 @@ describe("CaseLinkedRowsSection", () => {
     const dialog = screen.getByTestId("link-rows-dialog")
     expect(dialog).toHaveAttribute("data-open", "true")
     expect(dialog).toHaveAttribute("data-initial-table-id", "table-1")
+  })
+
+  describe("without case:update", () => {
+    beforeEach(() => {
+      mockUseScopeCheck.mockReturnValue(false)
+    })
+
+    it("checks for the case:update scope", () => {
+      renderSection()
+
+      expect(mockUseScopeCheck).toHaveBeenCalledWith("case:update")
+    })
+
+    it("leaves the grids read-only and drops every mutation control", () => {
+      renderSection()
+
+      const grids = screen.getAllByTestId("rows-grid")
+      expect(grids).toHaveLength(2)
+      for (const grid of grids) {
+        expect(grid).toHaveAttribute("data-selectable", "false")
+      }
+
+      expect(screen.getByText("Alerts")).toBeInTheDocument()
+      expect(screen.getByText("2 rows")).toBeInTheDocument()
+      expect(screen.getByText("Table")).toBeInTheDocument()
+      expect(screen.getByText("1 row")).toBeInTheDocument()
+
+      expect(
+        screen.queryByRole("button", { name: "Link table" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Add rows" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Unlink" })
+      ).not.toBeInTheDocument()
+    })
+
+    it("shows a read-only empty state when nothing is linked", () => {
+      setLinkedTables([])
+      renderSection()
+
+      expect(screen.getByText("No linked rows")).toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Link table" })
+      ).not.toBeInTheDocument()
+    })
   })
 })

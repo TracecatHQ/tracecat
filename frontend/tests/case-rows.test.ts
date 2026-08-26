@@ -78,6 +78,16 @@ describe("toGridRow", () => {
   it("does not flag a healthy link", () => {
     expect(toGridRow(makeLink())[UNAVAILABLE_ROW_FLAG]).toBe(false)
   })
+
+  it("uses the backend-reserved internal prefix for the flag", () => {
+    expect(UNAVAILABLE_ROW_FLAG.startsWith("__tc_")).toBe(true)
+  })
+
+  it("leaves a user column the flag could have shadowed untouched", () => {
+    const row = toGridRow(makeLink({ row_data: { __unavailable: "keep me" } }))
+    expect(row.__unavailable).toBe("keep me")
+    expect(row[UNAVAILABLE_ROW_FLAG]).toBe(false)
+  })
 })
 
 describe("UNAVAILABLE_ROW_CLASS_RULES", () => {

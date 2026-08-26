@@ -1,8 +1,13 @@
 import type { RowClassRules } from "ag-grid-community"
 import type { CaseTableRowRead, TableRowRead } from "@/client"
 
-/** Sentinel field marking a link whose source table row was deleted. */
-export const UNAVAILABLE_ROW_FLAG = "__unavailable"
+/**
+ * Sentinel field marking a link whose source table row was deleted. The
+ * backend reserves the `__tc_` prefix for internal columns and rejects user
+ * columns that start with it, so this key can never collide with a table
+ * column.
+ */
+export const UNAVAILABLE_ROW_FLAG = "__tc_unavailable"
 
 /**
  * Dims links whose source row is gone. They stay selectable so they can be

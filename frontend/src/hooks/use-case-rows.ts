@@ -35,6 +35,32 @@ export interface LinkCaseRowsResult {
   alreadyLinkedCount: number
 }
 
+/** A batch-link call failed after some chunks were already committed. */
+export class CaseRowsLinkError extends Error {
+  readonly linkedCount: number
+  readonly alreadyLinkedCount: number
+  /** Row IDs in the chunks that committed (linked or already linked) before the failure. */
+  readonly committedRowIds: readonly string[]
+
+  constructor({
+    linkedCount,
+    alreadyLinkedCount,
+    committedRowIds,
+    cause,
+  }: {
+    linkedCount: number
+    alreadyLinkedCount: number
+    committedRowIds: readonly string[]
+    cause: unknown
+  }) {
+    super("Linking rows failed after some rows were committed", { cause })
+    this.name = "CaseRowsLinkError"
+    this.linkedCount = linkedCount
+    this.alreadyLinkedCount = alreadyLinkedCount
+    this.committedRowIds = committedRowIds
+  }
+}
+
 /** Summed result of every batch-unlink request for one call. */
 export interface UnlinkCaseRowsResult {
   unlinkedCount: number
@@ -120,22 +146,39 @@ export function useCaseTableRows({
   }
 }
 
-/** Link rows from one table to a case (chunked into batches of 200). */
+/**
+ * Link rows from one table to a case (chunked into batches of 200).
+ *
+ * Rejects with a {@link CaseRowsLinkError} carrying whatever the chunks before
+ * the failure committed, so callers can report partial success and drop the
+ * committed rows from a retry.
+ */
 export function useLinkCaseRows({ caseId, workspaceId }: CaseRowsScope) {
   const queryClient = useQueryClient()
   const { mutateAsync: linkCaseRows, isPending: linkCaseRowsIsPending } =
-    useMutation<LinkCaseRowsResult, ApiError, CaseRowsBatch>({
+    useMutation<LinkCaseRowsResult, CaseRowsLinkError, CaseRowsBatch>({
       mutationFn: async ({ tableId, rowIds }) => {
         let linkedCount = 0
         let alreadyLinkedCount = 0
+        const committedRowIds: string[] = []
         for (const batch of chunkRowIds(rowIds)) {
-          const response = await casesBatchLinkCaseRows({
-            caseId,
-            workspaceId,
-            requestBody: { table_id: tableId, row_ids: batch },
-          })
-          linkedCount += response.linked_count
-          alreadyLinkedCount += response.already_linked_count
+          try {
+            const response = await casesBatchLinkCaseRows({
+              caseId,
+              workspaceId,
+              requestBody: { table_id: tableId, row_ids: batch },
+            })
+            linkedCount += response.linked_count
+            alreadyLinkedCount += response.already_linked_count
+            committedRowIds.push(...batch)
+          } catch (error) {
+            throw new CaseRowsLinkError({
+              linkedCount,
+              alreadyLinkedCount,
+              committedRowIds,
+              cause: error,
+            })
+          }
         }
         return { linkedCount, alreadyLinkedCount }
       },

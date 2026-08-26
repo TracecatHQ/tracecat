@@ -3,6 +3,7 @@
 import { Link2, Plus, Unlink2 } from "lucide-react"
 import { type ReactNode, useMemo, useState } from "react"
 import type { TableRowRead } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseLinkRowsDialog } from "@/components/cases/case-link-rows-dialog"
 import {
   CASE_PANEL_ACTION_BOX_CLASS,
@@ -38,6 +39,10 @@ export interface CaseLinkedRowsSectionProps {
  * case, each with its own selection for unlinking, and a compact action bar
  * beneath them that opens the link dialog. The action bar doubles as the
  * empty state.
+ *
+ * Every mutation here is guarded by `case:update` on the API, so the link,
+ * add, select, and unlink controls only render with that scope. Without it
+ * the grids stay, read-only, and the empty state is plain text.
  */
 export function CaseLinkedRowsSection({
   caseId,
@@ -45,6 +50,8 @@ export function CaseLinkedRowsSection({
 }: CaseLinkedRowsSectionProps) {
   const { linkedTables, linkedTablesIsLoading, linkedTablesError } =
     useCaseLinkedTables({ caseId, workspaceId })
+  // Scopes still loading reads as "not permitted", so controls never flash.
+  const canUpdate = useScopeCheck("case:update") === true
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [linkDialogTableId, setLinkDialogTableId] = useState<string>()
 
@@ -84,12 +91,27 @@ export function CaseLinkedRowsSection({
             tableId={linkedTable.table_id}
             tableName={linkedTable.table_name ?? null}
             rowCount={linkedTable.row_count}
+            canUpdate={canUpdate}
             onAddRows={() => openDialog(linkedTable.table_id)}
           />
         ))}
-        <div className={CASE_PANEL_ACTION_BOX_CLASS}>
-          <LinkTableRow onClick={() => openDialog()} />
-        </div>
+        {canUpdate && (
+          <div className={CASE_PANEL_ACTION_BOX_CLASS}>
+            <LinkTableRow onClick={() => openDialog()} />
+          </div>
+        )}
+        {!canUpdate && linkedTables.length === 0 && (
+          <div className={CASE_PANEL_ACTION_BOX_CLASS}>
+            <p
+              className={cn(
+                CASE_PANEL_ACTION_ROW_CLASS,
+                "flex items-center text-sm text-muted-foreground"
+              )}
+            >
+              No linked rows
+            </p>
+          </div>
+        )}
       </div>
       <CaseLinkRowsDialog
         open={linkDialogOpen}
@@ -135,6 +157,8 @@ interface CaseLinkedTableSectionProps {
   tableId: string
   tableName: string | null
   rowCount: number
+  /** Whether the viewer holds `case:update`; gates every mutation control. */
+  canUpdate: boolean
   onAddRows: () => void
 }
 
@@ -144,6 +168,7 @@ function CaseLinkedTableSection({
   tableId,
   tableName,
   rowCount,
+  canUpdate,
   onAddRows,
 }: CaseLinkedTableSectionProps) {
   const [selectedRowIds, setSelectedRowIds] =
@@ -217,7 +242,7 @@ function CaseLinkedTableSection({
         rows={rows}
         tableId={tableId}
         isLoading={rowsIsLoading}
-        selectable
+        selectable={canUpdate}
         selectedRowIds={selectedRowIds}
         onSelectedRowIdsChange={(ids) => setSelectedRowIds(new Set(ids))}
         autoHeight
@@ -237,7 +262,7 @@ function CaseLinkedTableSection({
           </span>
         </div>
         <div className="flex items-center gap-1">
-          {selectedCount > 0 && (
+          {canUpdate && selectedCount > 0 && (
             <>
               <span className="text-xs text-muted-foreground tabular-nums">
                 {selectedCount} selected
@@ -258,15 +283,17 @@ function CaseLinkedTableSection({
               </Button>
             </>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-muted-foreground"
-            onClick={onAddRows}
-          >
-            <Plus className="mr-1 size-3" />
-            Add rows
-          </Button>
+          {canUpdate && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={onAddRows}
+            >
+              <Plus className="mr-1 size-3" />
+              Add rows
+            </Button>
+          )}
         </div>
       </div>
       <div className="overflow-x-auto rounded-md border">

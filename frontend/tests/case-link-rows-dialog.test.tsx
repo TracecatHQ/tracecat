@@ -8,7 +8,7 @@ import type { TableReadMinimal, TableRowRead } from "@/client"
 import { CaseLinkRowsDialog } from "@/components/cases/case-link-rows-dialog"
 import { toast } from "@/components/ui/use-toast"
 import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
-import { useLinkCaseRows } from "@/hooks/use-case-rows"
+import { CaseRowsLinkError, useLinkCaseRows } from "@/hooks/use-case-rows"
 import { useGetTable, useListTables } from "@/lib/hooks"
 
 jest.mock("@/lib/hooks", () => ({
@@ -20,7 +20,9 @@ jest.mock("@/hooks/pagination/use-tables-pagination", () => ({
   useTablesPagination: jest.fn(),
 }))
 
+// Only the hook is stubbed: the dialog branches on the real CaseRowsLinkError.
 jest.mock("@/hooks/use-case-rows", () => ({
+  ...jest.requireActual("@/hooks/use-case-rows"),
   useLinkCaseRows: jest.fn(),
 }))
 
@@ -353,6 +355,45 @@ describe("CaseLinkRowsDialog", () => {
     expect(onOpenChange).not.toHaveBeenCalled()
     expect(screen.getByTestId("row-a1")).toBeChecked()
     expect(screen.getByText("1 selected")).toBeInTheDocument()
+  })
+
+  it("reports partial success and unstages what committed", async () => {
+    const user = userEvent.setup()
+    const failure = new CaseRowsLinkError({
+      linkedCount: 0,
+      alreadyLinkedCount: 0,
+      committedRowIds: [],
+      cause: Object.assign(new Error("Bad Request"), {
+        status: 400,
+        body: { detail: "A case can have at most 5000 linked rows" },
+      }),
+    })
+    mockLinkCaseRows
+      .mockResolvedValueOnce({ linkedCount: 2, alreadyLinkedCount: 0 })
+      .mockRejectedValueOnce(failure)
+    const { onOpenChange } = renderDialog()
+
+    await user.click(screen.getByTestId("row-a1"))
+    await user.click(screen.getByTestId("row-a2"))
+    await pickTable(user, "Beta")
+    await user.click(screen.getByTestId("row-b1"))
+    await user.click(screen.getByRole("button", { name: "Add 3 rows" }))
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Some rows were not linked",
+        description:
+          "Linked 2 rows before a request failed. A case can have at most 5000 linked rows",
+        variant: "destructive",
+      })
+    })
+    expect(onOpenChange).not.toHaveBeenCalled()
+    // table-a committed, so only table-b's pick is left for a retry.
+    expect(screen.getByText("1 selected")).toBeInTheDocument()
+    expect(screen.getByTestId("row-b1")).toBeChecked()
+    await pickTable(user, "Alpha")
+    expect(screen.getByTestId("row-a1")).not.toBeChecked()
+    expect(screen.getByTestId("row-a2")).not.toBeChecked()
   })
 
   it("keeps picks when the page size changes", async () => {

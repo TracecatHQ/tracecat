@@ -12,6 +12,7 @@ import {
   casesListCaseRows,
 } from "@/client"
 import {
+  CaseRowsLinkError,
   caseRowsQueryKey,
   useCaseLinkedTables,
   useCaseTableRows,
@@ -46,6 +47,22 @@ const mockListCaseRows = casesListCaseRows as jest.MockedFunction<
 
 const SCOPE = { caseId: "case-1", workspaceId: "ws-1" }
 const ROW_IDS = Array.from({ length: 450 }, (_, index) => `row-${index}`)
+const TWO_CHUNK_ROW_IDS = ROW_IDS.slice(0, 250)
+
+/** Await a link that must reject with the hook's partial-failure error. */
+async function captureLinkError(
+  promise: Promise<unknown>
+): Promise<CaseRowsLinkError> {
+  try {
+    await promise
+  } catch (error) {
+    if (error instanceof CaseRowsLinkError) {
+      return error
+    }
+    throw error
+  }
+  throw new Error("Expected the link to reject")
+}
 
 function setup() {
   const queryClient = new QueryClient({
@@ -110,16 +127,42 @@ describe("useLinkCaseRows", () => {
     })
   })
 
-  it("rejects with the API error so the caller can toast it", async () => {
+  it("reports what committed when a later chunk fails", async () => {
+    const failure = new Error("boom")
+    mockBatchLink
+      .mockResolvedValueOnce({ linked_count: 199, already_linked_count: 1 })
+      .mockRejectedValueOnce(failure)
+    const { wrapper } = setup()
+
+    const { result } = renderHook(() => useLinkCaseRows(SCOPE), { wrapper })
+    const error = await captureLinkError(
+      result.current.linkCaseRows({
+        tableId: "table-1",
+        rowIds: TWO_CHUNK_ROW_IDS,
+      })
+    )
+
+    expect(error.linkedCount).toBe(199)
+    expect(error.alreadyLinkedCount).toBe(1)
+    expect(error.committedRowIds).toEqual(TWO_CHUNK_ROW_IDS.slice(0, 200))
+    expect(error.cause).toBe(failure)
+    expect(mockBatchLink).toHaveBeenCalledTimes(2)
+  })
+
+  it("reports nothing committed when the first chunk fails", async () => {
     const failure = new Error("boom")
     mockBatchLink.mockRejectedValueOnce(failure)
     const { wrapper } = setup()
 
     const { result } = renderHook(() => useLinkCaseRows(SCOPE), { wrapper })
-
-    await expect(
+    const error = await captureLinkError(
       result.current.linkCaseRows({ tableId: "table-1", rowIds: ["row-1"] })
-    ).rejects.toBe(failure)
+    )
+
+    expect(error.linkedCount).toBe(0)
+    expect(error.alreadyLinkedCount).toBe(0)
+    expect(error.committedRowIds).toEqual([])
+    expect(error.cause).toBe(failure)
   })
 })
 
