@@ -46,7 +46,7 @@ from tracecat.auth.users import (
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_agent_session_id, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import AuthSession, get_async_session_auth_context_manager
 from tracecat.db.models import (
@@ -823,6 +823,7 @@ async def _authenticate_executor(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
             )
 
+    ctx_agent_session_id.set(token_payload.agent_session_id)
     return role
 
 
@@ -874,6 +875,11 @@ async def _role_dependency(
     Delegates to the appropriate auth handler based on credentials and allowed
     auth types, then validates the resulting role.
     """
+    # Authentication dependencies may be called more than once in one async
+    # context in tests and internal callers. Only a verified executor token may
+    # repopulate this value below.
+    ctx_agent_session_id.set(None)
+
     # Dispatch to appropriate auth handler
     role: Role | None = None
     service_key = internal_service_key or api_key
@@ -1535,6 +1541,7 @@ async def authenticated_user_only(
     This intentionally does not activate platform-superuser privileges; use
     SuperuserRole for routes that need platform admin access.
     """
+    ctx_agent_session_id.set(None)
     role = Role(
         type="user",
         user_id=user.id,

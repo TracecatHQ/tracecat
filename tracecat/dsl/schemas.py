@@ -575,6 +575,8 @@ class RunActionInput(BaseModel):
     stream_id: StreamID = ROOT_STREAM
     session_id: uuid.UUID | None = None
     """ID for a streamable session, if any."""
+    agent_session_id: uuid.UUID | None = None
+    """Trusted agent session provenance supplied by the MCP execution boundary."""
     registry_lock: RegistryLock
     """Registry version lock from workflow definition. Required and must be non-empty."""
 

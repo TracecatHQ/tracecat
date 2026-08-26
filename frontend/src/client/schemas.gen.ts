@@ -22907,6 +22907,18 @@ export const $RunActionInput = {
       ],
       title: "Session Id",
     },
+    agent_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Session Id",
+    },
     registry_lock: {
       $ref: "#/components/schemas/RegistryLock",
     },

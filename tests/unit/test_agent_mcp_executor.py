@@ -39,6 +39,7 @@ async def test_execute_action_starts_registry_tool_workflow_with_alias_correlati
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     claims = _build_claims()
+    untrusted_session_id = uuid.UUID("00000000-0000-0000-0000-000000000099")
     monkeypatch.setattr(
         executor, "build_agent_tool_workflow_id", lambda: "agent-tool/tool-wf-123"
     )
@@ -58,7 +59,10 @@ async def test_execute_action_starts_registry_tool_workflow_with_alias_correlati
 
     result = await executor.execute_action(
         "core.http_request",
-        {"url": "https://example.com"},
+        {
+            "url": "https://example.com",
+            "agent_session_id": str(untrusted_session_id),
+        },
         claims,
         _build_registry_lock(),
         tool_call_id="toolu_123",
@@ -66,6 +70,11 @@ async def test_execute_action_starts_registry_tool_workflow_with_alias_correlati
 
     call = fake_client.execute_workflow.await_args
     assert call.kwargs["id"] == "agent-tool/tool-wf-123"
+    workflow_input = call.args[1]
+    assert workflow_input.run_input.agent_session_id == claims.session_id
+    assert workflow_input.run_input.task.args["agent_session_id"] == str(
+        untrusted_session_id
+    )
     assert call.kwargs["memo"] == {
         "parent_agent_workflow_id": f"agent/{claims.session_id}",
         "parent_agent_run_id": "run-123",
