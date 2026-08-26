@@ -1,0 +1,14 @@
+deployments/fargate/modules/ecs/s3.tf
+  h_5f9670feebc95f 116-119,244-247,357-386
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "6bb51259651c67239493787bbc48665f87d62ee3",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
