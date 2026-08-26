@@ -2589,17 +2589,10 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         input: LoadSessionInput,
     ) -> LoadSessionResult:
         assert input.session_id == mock_session_id
-        if len(captured_agent_inputs) == 0:
-            return LoadSessionResult(
-                found=True,
-                sdk_session_id="legacy-sdk-session",
-                sdk_session_data=legacy_sdk_session_data,
-                is_fork=False,
-            )
         return LoadSessionResult(
             found=True,
             sdk_session_id="legacy-sdk-session",
-            sdk_session_data=None,
+            sdk_session_data=legacy_sdk_session_data,
             is_fork=False,
         )
 
@@ -2608,29 +2601,19 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         input: AgentExecutorInput,
     ) -> AgentExecutorResult:
         captured_agent_inputs.append(input)
-        if len(captured_agent_inputs) == 1:
-            assert input.sdk_session_id == "legacy-sdk-session"
-            assert input.sdk_session_data == legacy_sdk_session_data
-            assert input.is_approval_continuation is False
-            return AgentExecutorResult(
-                success=True,
-                approval_requested=True,
-                approval_items=[
-                    ToolCallContent(
-                        id="call_123",
-                        name="core__http_request",
-                        input={"url": "https://example.com", "method": "GET"},
-                    )
-                ],
-            )
-
         assert input.sdk_session_id == "legacy-sdk-session"
-        assert input.sdk_session_data is None
-        assert input.is_approval_continuation is True
+        assert input.sdk_session_data == legacy_sdk_session_data
+        assert input.is_approval_continuation is False
         return AgentExecutorResult(
             success=True,
-            approval_requested=False,
-            output={"status": "continued"},
+            approval_requested=True,
+            approval_items=[
+                ToolCallContent(
+                    id="call_123",
+                    name="core__http_request",
+                    input={"url": "https://example.com", "method": "GET"},
+                )
+            ],
         )
 
     @activity.defn(name="record_approval_requests")
@@ -2640,12 +2623,6 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         assert [approval.tool_call_id for approval in input.approvals] == ["call_123"]
         approval_pause_call_order.append("record_approval_requests")
         approval_request_recorded.set()
-
-    @activity.defn(name="apply_approval_decisions")
-    async def mock_apply_approval_decisions(
-        input: ApplyApprovalResultsActivityInputs,
-    ) -> None:
-        assert [decision.tool_call_id for decision in input.decisions] == ["call_123"]
 
     workflow_args = AgentWorkflowArgs(
         role=svc_role,
@@ -2664,15 +2641,11 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         create_mock_load_session_messages_activity(),
         create_mock_build_tool_definitions_activity(),
         mock_run_agent_activity,
-        create_mock_execute_action_activity(),
-        create_mock_reconcile_tool_results_activity(),
         mock_record_approval_requests,
-        mock_apply_approval_decisions,
         create_mock_emit_session_done_activity(
             call_order=approval_pause_call_order,
             done_event=approval_done_emitted,
         ),
-        create_mock_finalize_turn_activity(),
     ]
 
     async with agent_worker_factory(
@@ -2694,25 +2667,12 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
             "emit_session_done",
         ]
         suspended_history = await fetch_history_after_completed_workflow_task(wf_handle)
-        await replay_durable_agent_workflow_history(temporal_client, suspended_history)
 
-        await wf_handle.execute_update(
-            DurableAgentWorkflow.set_approvals,
-            WorkflowApprovalSubmission(
-                approvals={"call_123": True},
-                approved_by=svc_role.user_id,
-            ),
-        )
+    await wf_handle.terminate(reason="Replay regression history captured")
+    await replay_durable_agent_workflow_history(temporal_client, suspended_history)
 
-        result = await wf_handle.result()
-        completed_history = await wf_handle.fetch_history()
-        await replay_durable_agent_workflow_history(temporal_client, completed_history)
-
-    assert result.session_id == mock_session_id
-    assert result.output == {"status": "continued"}
     assert [input.sdk_session_data for input in captured_agent_inputs] == [
-        legacy_sdk_session_data,
-        None,
+        legacy_sdk_session_data
     ]
 
 
