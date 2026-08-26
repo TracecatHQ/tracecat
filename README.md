@@ -78,8 +78,7 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 
 This repo is available under the [AGPL-3.0 license](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE) with the following exceptions:
 
-- `packages/tracecat-ee` directory is under Tracecat's paid EE (Enterprise Edition) license.
-- Any code that gates `ee` features across the repo
+- The `packages/tracecat-ee` directory and code that gates `ee` features across the repo are under Tracecat's paid EE (Enterprise Edition) license. Production use requires a valid Tracecat Enterprise License.
 
 Code that fall under the above exceptions must not be redistributed, sold, or otherwise commercialized without permission.
 
