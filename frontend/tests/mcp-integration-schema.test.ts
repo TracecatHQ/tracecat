@@ -4,7 +4,6 @@ import {
   catalogEntryToFormValues,
   invalidUrlEnvKeys,
   MCP_INTEGRATION_FORM_DEFAULTS,
-  missingRequiredHttpHeaderCredentials,
   missingRequiredOAuthClientCredentials,
   urlTypedStdioEnvKeys,
 } from "@/components/integrations/mcp-integration-schema"
@@ -105,97 +104,6 @@ describe("missingRequiredOAuthClientCredentials", () => {
 
   it("treats unparseable JSON as having no missing credentials", () => {
     expect(missingRequiredOAuthClientCredentials(spec, "not json")).toEqual([])
-  })
-})
-
-describe("missingRequiredHttpHeaderCredentials", () => {
-  const spec = oauthSpec([
-    {
-      key: "client_id",
-      label: "Client ID",
-      description: "OAuth client ID",
-      required: true,
-      secret: false,
-      target: "oauth_client",
-    },
-    {
-      key: "x-goog-user-project",
-      label: "Project",
-      description: "Billing project header",
-      required: true,
-      secret: false,
-      target: "http_header",
-    },
-    {
-      key: "x-optional",
-      label: "Optional header",
-      description: "Not required",
-      required: false,
-      secret: false,
-      target: "http_header",
-    },
-  ])
-
-  it("flags required headers left empty in the prefilled template", () => {
-    const template = JSON.stringify({ "x-goog-user-project": "" })
-    expect(missingRequiredHttpHeaderCredentials(spec, template)).toEqual([
-      "Project",
-    ])
-  })
-
-  it("flags required headers missing from the JSON entirely", () => {
-    expect(missingRequiredHttpHeaderCredentials(spec, "{}")).toEqual([
-      "Project",
-    ])
-  })
-
-  it("treats blank input as every required header missing", () => {
-    expect(missingRequiredHttpHeaderCredentials(spec, "")).toEqual(["Project"])
-    expect(missingRequiredHttpHeaderCredentials(spec, "   ")).toEqual([
-      "Project",
-    ])
-  })
-
-  it("returns nothing when required headers are filled", () => {
-    const value = JSON.stringify({ "x-goog-user-project": "my-project" })
-    expect(missingRequiredHttpHeaderCredentials(spec, value)).toEqual([])
-  })
-
-  it("matches header names case-insensitively", () => {
-    const value = JSON.stringify({ "X-Goog-User-Project": "my-project" })
-    expect(missingRequiredHttpHeaderCredentials(spec, value)).toEqual([])
-  })
-
-  it("ignores optional headers and non-http_header targets", () => {
-    const value = JSON.stringify({
-      "x-goog-user-project": "my-project",
-      "x-optional": "",
-      client_id: "",
-    })
-    expect(missingRequiredHttpHeaderCredentials(spec, value)).toEqual([])
-  })
-
-  it("treats unparseable or non-object JSON as every required header missing", () => {
-    expect(missingRequiredHttpHeaderCredentials(spec, "not json")).toEqual([
-      "Project",
-    ])
-    expect(missingRequiredHttpHeaderCredentials(spec, "[]")).toEqual([
-      "Project",
-    ])
-  })
-
-  it("returns nothing for blank input when no headers are required", () => {
-    const noHeaders = oauthSpec([
-      {
-        key: "client_id",
-        label: "Client ID",
-        description: "OAuth client ID",
-        required: true,
-        secret: false,
-        target: "oauth_client",
-      },
-    ])
-    expect(missingRequiredHttpHeaderCredentials(noHeaders, "")).toEqual([])
   })
 })
 
@@ -367,57 +275,6 @@ describe("catalogEntryToFormValues", () => {
     expect(JSON.parse(values.custom_credentials ?? "{}")).toEqual({
       "Wiz-Client-Id": "",
       "X-Wiz-MCP-Mode": "gateway",
-    })
-  })
-
-  it("splits OAuth client and header templates on a mixed OAuth row", () => {
-    const values = catalogEntryToFormValues({
-      slug: "secops-mcp",
-      name: "Google SecOps",
-      description: "Investigate detections in Google SecOps",
-      connection_spec: {
-        server_type: "http",
-        auth_type: "OAUTH2",
-        server_uri: "https://chronicle.{REGION}.rep.googleapis.com/mcp",
-        config_fields: [],
-        credentials: [
-          {
-            key: "client_id",
-            label: "Client ID",
-            description: "OAuth client ID",
-            required: true,
-            secret: false,
-            target: "oauth_client",
-          },
-          {
-            key: "client_secret",
-            label: "Client secret",
-            description: "OAuth client secret",
-            required: true,
-            secret: true,
-            target: "oauth_client",
-          },
-          {
-            key: "x-goog-user-project",
-            label: "Project",
-            description: "Billing project header",
-            required: true,
-            secret: false,
-            placeholder: "my-project",
-            target: "http_header",
-          },
-        ],
-      },
-    } as unknown as Parameters<typeof catalogEntryToFormValues>[0])
-
-    expect(values.auth_type).toBe("OAUTH2")
-    expect(values.oauth_setup).toBe("oauth_client")
-    expect(JSON.parse(values.oauth_client_credentials ?? "{}")).toEqual({
-      client_id: "",
-      client_secret: "",
-    })
-    expect(JSON.parse(values.custom_credentials ?? "{}")).toEqual({
-      "x-goog-user-project": "my-project",
     })
   })
 })

@@ -225,68 +225,6 @@
       }
     },
     {
-      "slug": "google-cloud-secops-mcp",
-      "docs": "https://docs.cloud.google.com/chronicle/docs/secops/use-google-secops-mcp",
-      "connection_spec": {
-        "server_type": "http",
-        "auth_type": "OAUTH2",
-        "server_uri": "https://chronicle.{REGION}.rep.googleapis.com/mcp",
-        "scopes": [
-          "https://www.googleapis.com/auth/chronicle"
-        ],
-        "oauth_authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
-        "oauth_token_endpoint": "https://oauth2.googleapis.com/token",
-        "oauth_authorize_params": {
-          "access_type": "offline",
-          "prompt": "consent"
-        },
-        "credentials": [
-          {
-            "key": "REGION",
-            "label": "Google SecOps region",
-            "description": "Regional endpoint prefix, e.g. us, eu, asia-southeast1. The server URL is https://chronicle.{REGION}.rep.googleapis.com/mcp.",
-            "required": true,
-            "secret": false,
-            "placeholder": "us",
-            "target": "server_uri"
-          },
-          {
-            "key": "client_id",
-            "label": "Google OAuth client ID",
-            "description": "OAuth 2.0 client (Web application) in the Google Cloud project where the Chronicle API and its MCP are enabled (gcloud beta services mcp enable chronicle.googleapis.com/mcp), with <your Tracecat URL>/integrations/callback as an authorized redirect URI. The authorizing user needs roles/mcp.toolUser.",
-            "required": true,
-            "secret": false,
-            "target": "oauth_client"
-          },
-          {
-            "key": "client_secret",
-            "label": "Google OAuth client secret",
-            "description": "Client secret paired with the client ID.",
-            "required": true,
-            "secret": true,
-            "target": "oauth_client"
-          },
-          {
-            "key": "x-goog-user-project",
-            "label": "Quota project ID",
-            "description": "Google Cloud project ID sent as the x-goog-user-project header; required by the managed MCP server.",
-            "required": true,
-            "secret": false,
-            "target": "http_header"
-          }
-        ],
-        "_research": {
-          "confidence": "high",
-          "docker_only": false,
-          "notes": "RETIRED (2026-08-26): the local `google-secops-mcp` 0.7.0 stdio recipe was removed. It fails under fresh dependency resolution — the server imports mcp.server.fastmcp, which is gone once the unconstrained mcp dependency resolves to 2.x. Pinning mcp<2 restores all 67 tools, but the recipe has no way to express that pin.\n\nReplaced by Google's managed remote MCP server at https://chronicle.<region>.rep.googleapis.com/mcp, which returned 70 tools on verification. Auth is a Google OAuth bearer token with the https://www.googleapis.com/auth/chronicle scope (the server's protected-resource metadata advertises only that scope; Google's docs also list cloud-platform, which is far broader); the x-goog-user-project header is mandatory and the authorizing principal needs roles/mcp.toolUser. Google does not support dynamic client registration, so the user supplies their own OAuth client, and access_type=offline with prompt=consent is required to receive a refresh token. Enable the MCP surface with `gcloud beta services mcp enable chronicle.googleapis.com/mcp`. Tools take project_id, customer_id, and region as call arguments rather than environment variables.",
-          "sources": [
-            "https://docs.cloud.google.com/chronicle/docs/secops/use-google-secops-mcp",
-            "https://google.github.io/mcp-security/remote_server.html"
-          ]
-        }
-      }
-    },
-    {
       "slug": "sumo-logic-mcp",
       "docs": "https://www.sumologic.com/demo/mcp-server",
       "connection_spec": {

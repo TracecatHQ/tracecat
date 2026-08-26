@@ -14,10 +14,7 @@ from tracecat.integrations.catalog import loader
 from tracecat.integrations.catalog.service import PlatformMCPCatalogService
 from tracecat.integrations.catalog.types import RawCatalogRow
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
-from tracecat.integrations.schemas import (
-    MCPHTTPOAuth2ConnectionSpec,
-    OAuthTokenState,
-)
+from tracecat.integrations.schemas import OAuthTokenState
 
 
 class _CatalogResource:
@@ -283,59 +280,6 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
     assert local_only_spec is not None
     assert local_only_spec.server_type == "stdio"
     assert local_only_spec.requires_config is True
-
-
-def test_get_platform_mcp_catalog_entries_propagates_oauth_authorize_params(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _stub_catalog_resource(
-        monkeypatch,
-        orjson.dumps(
-            {
-                "servers": [
-                    {
-                        "slug": "pinned-params-mcp",
-                        "name": "Pinned params",
-                        "description": "Needs vendor authorize params",
-                        "category": "Cloud",
-                        "connection_spec": {
-                            "server_type": "http",
-                            "auth_type": "OAUTH2",
-                            "server_uri": "https://mcp.example.com/mcp",
-                            "oauth_authorize_params": {
-                                "access_type": "offline",
-                                "prompt": "consent",
-                            },
-                        },
-                    },
-                    {
-                        "slug": "plain-oauth-mcp",
-                        "name": "Plain OAuth",
-                        "description": "No extra authorize params",
-                        "category": "Cloud",
-                        "connection_spec": {
-                            "server_type": "http",
-                            "auth_type": "OAUTH2",
-                            "server_uri": "https://mcp.example.com/mcp",
-                        },
-                    },
-                ]
-            }
-        ),
-    )
-
-    entries = loader.get_platform_mcp_catalog_entries(include_private=True)
-
-    assert [entry.slug for entry in entries] == ["pinned-params-mcp", "plain-oauth-mcp"]
-    pinned_spec = entries[0].connection_spec
-    assert isinstance(pinned_spec, MCPHTTPOAuth2ConnectionSpec)
-    assert pinned_spec.oauth_authorize_params == {
-        "access_type": "offline",
-        "prompt": "consent",
-    }
-    plain_spec = entries[1].connection_spec
-    assert isinstance(plain_spec, MCPHTTPOAuth2ConnectionSpec)
-    assert plain_spec.oauth_authorize_params == {}
 
 
 def test_get_platform_mcp_catalog_entries_normalizes_connection_options(
@@ -693,27 +637,6 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
         "client_id": "oauth_client",
         "client_secret": "oauth_client",
     }
-
-    secops_spec = private_by_slug["google-cloud-secops-mcp"].connection_spec
-    assert secops_spec is not None
-    assert secops_spec.kind == "http_oauth2"
-    assert secops_spec.requires_config is True
-    assert (
-        secops_spec.oauth_authorization_endpoint
-        == "https://accounts.google.com/o/oauth2/v2/auth"
-    )
-    assert secops_spec.oauth_token_endpoint == "https://oauth2.googleapis.com/token"
-    assert secops_spec.oauth_authorize_params == {
-        "access_type": "offline",
-        "prompt": "consent",
-    }
-    assert secops_spec.scopes == ["https://www.googleapis.com/auth/chronicle"]
-    secops_credentials = {
-        credential.key: credential for credential in secops_spec.credentials
-    }
-    assert secops_credentials["x-goog-user-project"].target == "http_header"
-    assert secops_credentials["x-goog-user-project"].required is True
-    assert secops_credentials["REGION"].target == "server_uri"
 
     semgrep_spec = private_by_slug["semgrep-mcp"].connection_spec
     assert semgrep_spec is not None

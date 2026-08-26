@@ -84,8 +84,12 @@ RETIRED_STDIO_LAUNCHERS = (
     '"secops_mcp"',
 )
 
-# Rows dropped from the catalog: native registry actions cover both.
-RETIRED_CATALOG_SLUGS = ("google-security-command-center-mcp", "virustotal-mcp")
+# Rows dropped from the catalog: no replacement recipe ships for them.
+RETIRED_CATALOG_SLUGS = (
+    "google-security-command-center-mcp",
+    "virustotal-mcp",
+    "google-cloud-secops-mcp",
+)
 
 
 def _catalog_servers() -> dict[str, dict[str, Any]]:

@@ -44,13 +44,6 @@
       "icon": "https://www.google.com/s2/favicons?domain=docs.runreveal.com&sz=128"
     },
     {
-      "slug": "google-cloud-secops-mcp",
-      "name": "Google Cloud SecOps",
-      "description": "Triage SIEM alerts and run SOAR workflows on Google Cloud SecOps",
-      "category": "SIEM / Datalake",
-      "icon": "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=128"
-    },
-    {
       "slug": "sumo-logic-mcp",
       "name": "Sumo Logic",
       "description": "Search logs and triage incidents on Sumo Logic Cloud SIEM and SOAR",

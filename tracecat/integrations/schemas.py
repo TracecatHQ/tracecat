@@ -20,7 +20,6 @@ from pydantic import (
     ValidationError,
     computed_field,
     field_validator,
-    model_validator,
 )
 
 from tracecat.expressions.patterns import STANDALONE_TEMPLATE
@@ -431,38 +430,10 @@ class MCPHttpIntegrationCreate(_MCPIntegrationCreateBase):
     custom_credentials: SecretStr | None = Field(
         default=None,
         description=(
-            "HTTP headers as a JSON object. Required for custom auth type; "
+            "Custom credentials as JSON headers. Required for custom auth type; "
             "optional additional headers for OAuth2 auth type."
         ),
     )
-    oauth_client_credentials: SecretStr | None = Field(
-        default=None,
-        description=(
-            "OAuth client credentials as a JSON object (client_id / "
-            "client_secret) for catalog OAuth2 rows that declare an "
-            "'oauth_client' credential. Kept separate from custom_credentials "
-            "so one connect can carry both a user-created OAuth client and "
-            "extra HTTP headers."
-        ),
-    )
-
-    @model_validator(mode="after")
-    def _validate_oauth_client_credentials(self) -> Self:
-        # Blank means "not supplied": the service branches on ``is None`` to
-        # decide whether custom_credentials is headers or a legacy client.
-        if (
-            self.oauth_client_credentials is not None
-            and not self.oauth_client_credentials.get_secret_value().strip()
-        ):
-            self.oauth_client_credentials = None
-        if (
-            self.oauth_client_credentials is not None
-            and self.auth_type != MCPAuthType.OAUTH2
-        ):
-            raise ValueError(
-                "oauth_client_credentials is only valid for OAuth 2.0 MCP servers"
-            )
-        return self
 
     @field_validator("server_uri", mode="before")
     @classmethod
@@ -756,14 +727,6 @@ class MCPHTTPOAuth2ConnectionSpec(_MCPConnectionSpecBase):
     without relaxing same-host validation globally.
     """
     oauth_token_endpoint: str | None = None
-    oauth_authorize_params: dict[str, str] = Field(default_factory=dict)
-    """Extra authorization-request parameters pinned by the repo-owned catalog row.
-
-    Some providers only issue a refresh token when the authorize request
-    carries vendor parameters (e.g. Google's ``access_type=offline`` and
-    ``prompt=consent``). Reserved OAuth parameters (client_id, redirect_uri,
-    response_type, state, scope, resource, PKCE) are never overridable.
-    """
 
 
 class MCPHTTPCustomConnectionSpec(_MCPConnectionSpecBase):

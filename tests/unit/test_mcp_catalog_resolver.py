@@ -169,10 +169,10 @@ def test_user_supplied_uri_rejects_embedded_credentials() -> None:
             id="iru-real-tenant-behind-sentinel-template",
         ),
         pytest.param(
-            "google-cloud-secops-mcp",
+            "freshservice-mcp",
             MCPAuthType.OAUTH2,
-            "https://chronicle.asia-southeast1.rep.googleapis.com/mcp",
-            id="secops-region-placeholder",
+            "https://acme.freshservice.com/mcp",
+            id="freshservice-domain-placeholder",
         ),
         pytest.param(
             "scanner-mcp",
@@ -181,10 +181,10 @@ def test_user_supplied_uri_rejects_embedded_credentials() -> None:
             id="scanner-local-server",
         ),
         pytest.param(
-            "google-cloud-secops-mcp",
+            "freshservice-mcp",
             MCPAuthType.OAUTH2,
-            "https://mcp.internal.example/proxy/chronicle",
-            id="secops-host-outside-template",
+            "https://mcp.internal.example/proxy/freshservice",
+            id="freshservice-host-outside-template",
         ),
     ],
 )

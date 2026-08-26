@@ -16834,13 +16834,6 @@ export const $MCPHTTPOAuth2ConnectionSpec = {
       ],
       title: "Oauth Token Endpoint",
     },
-    oauth_authorize_params: {
-      additionalProperties: {
-        type: "string",
-      },
-      type: "object",
-      title: "Oauth Authorize Params",
-    },
     config_fields: {
       items: {
         $ref: "#/components/schemas/MCPConfigField",
@@ -16951,22 +16944,7 @@ export const $MCPHttpIntegrationCreate = {
       ],
       title: "Custom Credentials",
       description:
-        "HTTP headers as a JSON object. Required for custom auth type; optional additional headers for OAuth2 auth type.",
-    },
-    oauth_client_credentials: {
-      anyOf: [
-        {
-          type: "string",
-          format: "password",
-          writeOnly: true,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Oauth Client Credentials",
-      description:
-        "OAuth client credentials as a JSON object (client_id / client_secret) for catalog OAuth2 rows that declare an 'oauth_client' credential. Kept separate from custom_credentials so one connect can carry both a user-created OAuth client and extra HTTP headers.",
+        "Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.",
     },
   },
   type: "object",
