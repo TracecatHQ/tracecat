@@ -1,0 +1,16 @@
+frontend/src/lib/csp.test.ts
+  h_5f9670feebc95f 83-86
+frontend/src/lib/csp.ts
+  h_5f9670feebc95f 21-25,27,33-42,75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "3db90a7e4fa949ce37dbe6708b13298f934f7fa4",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
