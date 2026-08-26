@@ -196,7 +196,6 @@ markers = [
     "ollama: mark tests that require Ollama",
     "temporal: marks tests that require Temporal server",
     "requires_api: marks tests that require a live Tracecat API endpoint",
-    "serial: marks tests that must not run under pytest-xdist",
     "regression: marks regression tests",
 ]
 
