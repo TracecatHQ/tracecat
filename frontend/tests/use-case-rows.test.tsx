@@ -4,19 +4,17 @@
 
 import { renderHook, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
-import type { CaseLinkedTableRead, CaseTableRowRead } from "@/client"
+import type { CaseLinkedTableRead } from "@/client"
 import {
   casesBatchLinkCaseRows,
   casesBatchUnlinkCaseRows,
   casesListCaseLinkedTables,
-  casesListCaseRows,
 } from "@/client"
 import {
   CaseRowsLinkError,
   CaseRowsUnlinkError,
   caseRowsQueryKey,
   useCaseLinkedTables,
-  useCaseTableRows,
   useLinkCaseRows,
   useUnlinkCaseRows,
 } from "@/hooks/use-case-rows"
@@ -29,7 +27,6 @@ jest.mock("@/client", () => {
     casesBatchLinkCaseRows: jest.fn(),
     casesBatchUnlinkCaseRows: jest.fn(),
     casesListCaseLinkedTables: jest.fn(),
-    casesListCaseRows: jest.fn(),
   }
 })
 
@@ -42,13 +39,9 @@ const mockBatchUnlink = casesBatchUnlinkCaseRows as jest.MockedFunction<
 const mockListLinkedTables = casesListCaseLinkedTables as jest.MockedFunction<
   typeof casesListCaseLinkedTables
 >
-const mockListCaseRows = casesListCaseRows as jest.MockedFunction<
-  typeof casesListCaseRows
->
-
 const SCOPE = { caseId: "case-1", workspaceId: "ws-1" }
 const ROW_IDS = Array.from({ length: 450 }, (_, index) => `row-${index}`)
-const TWO_CHUNK_ROW_IDS = ROW_IDS.slice(0, 250)
+const TWO_CHUNK_ROW_IDS = ROW_IDS.slice(0, 150)
 
 /** Await a link that must reject with the hook's partial-failure error. */
 async function captureLinkError(
@@ -107,11 +100,13 @@ describe("useLinkCaseRows", () => {
     jest.clearAllMocks()
   })
 
-  it("chunks ids into batches of 200, sums counts and invalidates", async () => {
+  it("chunks ids into batches of 100, sums counts and invalidates", async () => {
     mockBatchLink
-      .mockResolvedValueOnce({ linked_count: 200, already_linked_count: 0 })
-      .mockResolvedValueOnce({ linked_count: 150, already_linked_count: 50 })
-      .mockResolvedValueOnce({ linked_count: 40, already_linked_count: 10 })
+      .mockResolvedValueOnce({ linked_count: 100, already_linked_count: 0 })
+      .mockResolvedValueOnce({ linked_count: 80, already_linked_count: 20 })
+      .mockResolvedValueOnce({ linked_count: 90, already_linked_count: 10 })
+      .mockResolvedValueOnce({ linked_count: 100, already_linked_count: 0 })
+      .mockResolvedValueOnce({ linked_count: 20, already_linked_count: 30 })
     const { wrapper, invalidateSpy } = setup()
 
     const { result } = renderHook(() => useLinkCaseRows(SCOPE), { wrapper })
@@ -121,11 +116,13 @@ describe("useLinkCaseRows", () => {
     })
 
     expect(outcome).toEqual({ linkedCount: 390, alreadyLinkedCount: 60 })
-    expect(mockBatchLink).toHaveBeenCalledTimes(3)
+    expect(mockBatchLink).toHaveBeenCalledTimes(5)
     const batches = mockBatchLink.mock.calls.map(
       ([params]) => params.requestBody.row_ids
     )
-    expect(batches.map((batch) => batch.length)).toEqual([200, 200, 50])
+    expect(batches.map((batch) => batch.length)).toEqual([
+      100, 100, 100, 100, 50,
+    ])
     expect(batches.flat()).toEqual(ROW_IDS)
     for (const [params] of mockBatchLink.mock.calls) {
       expect(params).toEqual(
@@ -146,7 +143,7 @@ describe("useLinkCaseRows", () => {
   it("reports what committed when a later chunk fails", async () => {
     const failure = new Error("boom")
     mockBatchLink
-      .mockResolvedValueOnce({ linked_count: 199, already_linked_count: 1 })
+      .mockResolvedValueOnce({ linked_count: 99, already_linked_count: 1 })
       .mockRejectedValueOnce(failure)
     const { wrapper } = setup()
 
@@ -158,9 +155,9 @@ describe("useLinkCaseRows", () => {
       })
     )
 
-    expect(error.linkedCount).toBe(199)
+    expect(error.linkedCount).toBe(99)
     expect(error.alreadyLinkedCount).toBe(1)
-    expect(error.committedRowIds).toEqual(TWO_CHUNK_ROW_IDS.slice(0, 200))
+    expect(error.committedRowIds).toEqual(TWO_CHUNK_ROW_IDS.slice(0, 100))
     expect(error.cause).toBe(failure)
     expect(mockBatchLink).toHaveBeenCalledTimes(2)
   })
@@ -187,10 +184,12 @@ describe("useUnlinkCaseRows", () => {
     jest.clearAllMocks()
   })
 
-  it("chunks ids into batches of 200, sums counts and invalidates", async () => {
+  it("chunks ids into batches of 100, sums counts and invalidates", async () => {
     mockBatchUnlink
-      .mockResolvedValueOnce({ unlinked_count: 200 })
-      .mockResolvedValueOnce({ unlinked_count: 199 })
+      .mockResolvedValueOnce({ unlinked_count: 100 })
+      .mockResolvedValueOnce({ unlinked_count: 100 })
+      .mockResolvedValueOnce({ unlinked_count: 100 })
+      .mockResolvedValueOnce({ unlinked_count: 99 })
       .mockResolvedValueOnce({ unlinked_count: 50 })
     const { wrapper, invalidateSpy } = setup()
 
@@ -201,11 +200,13 @@ describe("useUnlinkCaseRows", () => {
     })
 
     expect(outcome).toEqual({ unlinkedCount: 449 })
-    expect(mockBatchUnlink).toHaveBeenCalledTimes(3)
+    expect(mockBatchUnlink).toHaveBeenCalledTimes(5)
     const batches = mockBatchUnlink.mock.calls.map(
       ([params]) => params.requestBody.row_ids
     )
-    expect(batches.map((batch) => batch.length)).toEqual([200, 200, 50])
+    expect(batches.map((batch) => batch.length)).toEqual([
+      100, 100, 100, 100, 50,
+    ])
     expect(batches.flat()).toEqual(ROW_IDS)
     for (const [params] of mockBatchUnlink.mock.calls) {
       expect(params.requestBody.table_id).toBe("table-1")
@@ -220,7 +221,7 @@ describe("useUnlinkCaseRows", () => {
   it("reports what committed when a later chunk fails", async () => {
     const failure = new Error("boom")
     mockBatchUnlink
-      .mockResolvedValueOnce({ unlinked_count: 200 })
+      .mockResolvedValueOnce({ unlinked_count: 100 })
       .mockRejectedValueOnce(failure)
     const { wrapper } = setup()
 
@@ -232,8 +233,8 @@ describe("useUnlinkCaseRows", () => {
       })
     )
 
-    expect(error.unlinkedCount).toBe(200)
-    expect(error.committedRowIds).toEqual(TWO_CHUNK_ROW_IDS.slice(0, 200))
+    expect(error.unlinkedCount).toBe(100)
+    expect(error.committedRowIds).toEqual(TWO_CHUNK_ROW_IDS.slice(0, 100))
     expect(error.cause).toBe(failure)
     expect(mockBatchUnlink).toHaveBeenCalledTimes(2)
   })
@@ -261,8 +262,8 @@ describe("useCaseLinkedTables", () => {
 
   it("returns the linked-tables summary", async () => {
     const summary: CaseLinkedTableRead[] = [
-      { table_id: "table-1", table_name: "Alerts", row_count: 3 },
-      { table_id: "table-2", table_name: null, row_count: 1 },
+      { table_id: "table-1", table_name: "Alerts", row_count: 3, columns: [] },
+      { table_id: "table-2", table_name: null, row_count: 1, columns: [] },
     ]
     mockListLinkedTables.mockResolvedValueOnce(summary)
     const { wrapper } = setup()
@@ -277,99 +278,5 @@ describe("useCaseLinkedTables", () => {
     expect(result.current.linkedTables).toEqual(summary)
     expect(result.current.linkedTablesError).toBeNull()
     expect(mockListLinkedTables).toHaveBeenCalledWith(SCOPE)
-  })
-})
-
-function makeRow(rowId: string): CaseTableRowRead {
-  return {
-    id: `link-${rowId}`,
-    case_id: "case-1",
-    table_id: "table-1",
-    table_name: "Alerts",
-    row_id: rowId,
-    row_data: { name: rowId },
-    is_row_available: true,
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:00:00Z",
-  }
-}
-
-function makePage(
-  items: CaseTableRowRead[],
-  hasMore: boolean,
-  nextCursor: string | null = null
-) {
-  return {
-    items,
-    next_cursor: nextCursor,
-    prev_cursor: null,
-    has_more: hasMore,
-    has_previous: false,
-    total_estimate: items.length,
-  }
-}
-
-describe("useCaseTableRows", () => {
-  beforeEach(() => {
-    jest.clearAllMocks()
-  })
-
-  it("returns a single page's items", async () => {
-    const rows = [makeRow("r1"), makeRow("r2")]
-    mockListCaseRows.mockResolvedValueOnce(makePage(rows, false))
-    const { wrapper } = setup()
-
-    const { result } = renderHook(
-      () => useCaseTableRows({ ...SCOPE, tableId: "table-1" }),
-      { wrapper }
-    )
-
-    await waitFor(() => {
-      expect(result.current.caseTableRowsIsLoading).toBe(false)
-    })
-    expect(result.current.caseTableRows).toEqual(rows)
-    expect(result.current.caseTableRowsError).toBeNull()
-    expect(mockListCaseRows).toHaveBeenCalledTimes(1)
-    expect(mockListCaseRows).toHaveBeenCalledWith(
-      expect.objectContaining({
-        caseId: "case-1",
-        workspaceId: "ws-1",
-        tableId: "table-1",
-        limit: 200,
-      })
-    )
-  })
-
-  it("follows the cursor and concatenates every page in order", async () => {
-    const firstPage = [makeRow("r1"), makeRow("r2")]
-    const secondPage = [makeRow("r3")]
-    mockListCaseRows
-      .mockResolvedValueOnce(makePage(firstPage, true, "c2"))
-      .mockResolvedValueOnce(makePage(secondPage, false))
-    const { wrapper } = setup()
-
-    const { result } = renderHook(
-      () => useCaseTableRows({ ...SCOPE, tableId: "table-1" }),
-      { wrapper }
-    )
-
-    await waitFor(() => {
-      expect(result.current.caseTableRowsIsLoading).toBe(false)
-    })
-    expect(result.current.caseTableRows).toEqual([...firstPage, ...secondPage])
-    expect(mockListCaseRows).toHaveBeenCalledTimes(2)
-    const [[firstParams], [secondParams]] = mockListCaseRows.mock.calls
-    expect(firstParams.cursor).toBeNull()
-    expect(secondParams.cursor).toBe("c2")
-    for (const [params] of mockListCaseRows.mock.calls) {
-      expect(params).toEqual(
-        expect.objectContaining({
-          caseId: "case-1",
-          workspaceId: "ws-1",
-          tableId: "table-1",
-          limit: 200,
-        })
-      )
-    }
   })
 })

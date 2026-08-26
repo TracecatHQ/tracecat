@@ -1,21 +1,19 @@
 "use client"
 
-import type { ApiError, CaseLinkedTableRead, CaseTableRowRead } from "@/client"
+import type { ApiError, CaseLinkedTableRead } from "@/client"
 import {
   casesBatchLinkCaseRows,
   casesBatchUnlinkCaseRows,
   casesListCaseLinkedTables,
-  casesListCaseRows,
 } from "@/client"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
-// Mirrors backend MAX_CASE_ROW_BATCH_SIZE, and TRACECAT__LIMIT_CURSOR_MAX for
-// the page size the list endpoint accepts.
-const CASE_ROW_BATCH_SIZE = 200
+// Mirrors backend MAX_CASE_ROW_BATCH_SIZE: the most row IDs one batch link or
+// unlink request accepts.
+const CASE_ROW_BATCH_SIZE = 100
 
 const EMPTY_LINKED_TABLES: CaseLinkedTableRead[] = []
-const EMPTY_CASE_TABLE_ROWS: CaseTableRowRead[] = []
 
 /** The case a rows hook operates on. */
 export interface CaseRowsScope {
@@ -125,51 +123,7 @@ export function useCaseLinkedTables(
 }
 
 /**
- * Every row of one table linked to this case, following the cursor until the
- * server runs out of pages. The case view shows the whole set, so the hook
- * fetches every page rather than exposing pagination controls.
- */
-export function useCaseTableRows({
-  caseId,
-  tableId,
-  workspaceId,
-}: CaseRowsScope & { tableId: string }) {
-  const {
-    data: caseTableRows,
-    isLoading: caseTableRowsIsLoading,
-    error: caseTableRowsError,
-  } = useQuery<CaseTableRowRead[], ApiError>({
-    queryKey: [...caseRowsQueryKey(caseId), "table", tableId],
-    queryFn: async () => {
-      const rows: CaseTableRowRead[] = []
-      let cursor: string | null = null
-      for (;;) {
-        const response = await casesListCaseRows({
-          caseId,
-          workspaceId,
-          tableId,
-          limit: CASE_ROW_BATCH_SIZE,
-          cursor,
-        })
-        rows.push(...response.items)
-        if (!response.has_more || !response.next_cursor) {
-          return rows
-        }
-        cursor = response.next_cursor
-      }
-    },
-    enabled: Boolean(caseId) && Boolean(tableId) && Boolean(workspaceId),
-  })
-
-  return {
-    caseTableRows: caseTableRows ?? EMPTY_CASE_TABLE_ROWS,
-    caseTableRowsIsLoading,
-    caseTableRowsError,
-  }
-}
-
-/**
- * Link rows from one table to a case (chunked into batches of 200).
+ * Link rows from one table to a case (chunked into batches of 100).
  *
  * Rejects with a {@link CaseRowsLinkError} carrying whatever the chunks before
  * the failure committed, so callers can report partial success and drop the
@@ -217,7 +171,7 @@ export function useLinkCaseRows({ caseId, workspaceId }: CaseRowsScope) {
 }
 
 /**
- * Unlink rows of one table from a case (chunked into batches of 200).
+ * Unlink rows of one table from a case (chunked into batches of 100).
  *
  * Rejects with a {@link CaseRowsUnlinkError} carrying whatever the chunks
  * before the failure committed, so callers can report partial success and drop

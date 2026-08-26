@@ -31,10 +31,18 @@ from tracecat.pagination import (
     paginate,
 )
 from tracecat.service import BaseWorkspaceService
+from tracecat.tables.schemas import TableColumnRead
 from tracecat.tables.service import TablesService
 
-MAX_LINKED_ROWS_PER_CASE = 5_000
+# Linked-row caps. The case page pages through every row linked to a case, so
+# these caps bound how much link data one case can accumulate:
+#   - MAX_LINKED_ROWS_PER_TABLE: rows of one table linked to one case.
+#   - MAX_TABLES_PER_CASE: distinct tables linked to one case.
+#   - MAX_LINKED_ROWS_PER_CASE: links on one case across all tables. It is the
+#     product of the other two caps, so it only binds once every table is full.
+MAX_LINKED_ROWS_PER_TABLE = 250
 MAX_TABLES_PER_CASE = 10
+MAX_LINKED_ROWS_PER_CASE = 2_500
 
 
 class CaseTableRowsService(BaseWorkspaceService):
@@ -54,6 +62,26 @@ class CaseTableRowsService(BaseWorkspaceService):
             CaseTableRow.row_id == row_id,
         )
         return (await self.session.execute(stmt)).scalars().first()
+
+    async def _existing_link_or_raise(
+        self,
+        *,
+        case_id: uuid.UUID,
+        table_id: uuid.UUID,
+        row_id: uuid.UUID,
+        message: str,
+    ) -> CaseTableRow:
+        """Re-check for a concurrent insert of this link before rejecting it.
+
+        A link that already exists adds nothing to the counts the caps guard, so
+        a request that lost the race to create it is still satisfiable.
+        """
+        existing = await self._get_existing_link(
+            case_id=case_id, table_id=table_id, row_id=row_id
+        )
+        if existing is not None:
+            return existing
+        raise ValueError(message)
 
     async def _lock_case(self, case_id: uuid.UUID) -> None:
         """Serialize concurrent link requests for the same case.
@@ -90,17 +118,40 @@ class CaseTableRowsService(BaseWorkspaceService):
         )
         return int((await self.session.scalar(stmt)) or 0)
 
-    async def _table_has_links(self, case_id: uuid.UUID, table_id: uuid.UUID) -> bool:
+    async def _count_table_links(self, case_id: uuid.UUID, table_id: uuid.UUID) -> int:
         stmt = (
-            select(CaseTableRow.id)
+            select(func.count())
+            .select_from(CaseTableRow)
             .where(
                 CaseTableRow.workspace_id == self.workspace_id,
                 CaseTableRow.case_id == case_id,
                 CaseTableRow.table_id == table_id,
             )
-            .limit(1)
         )
-        return (await self.session.execute(stmt)).scalars().first() is not None
+        return int((await self.session.scalar(stmt)) or 0)
+
+    async def _link_cap_violation(
+        self, case_id: uuid.UUID, table_id: uuid.UUID
+    ) -> str | None:
+        """First cap a new link from this table would break, or None.
+
+        Call under the case lock: the checks read aggregate state, so the counts
+        must not move between them and the insert they guard.
+        """
+        table_links = await self._count_table_links(case_id, table_id)
+        if table_links >= MAX_LINKED_ROWS_PER_TABLE:
+            return f"A case can link at most {MAX_LINKED_ROWS_PER_TABLE} rows from one table"
+
+        total_links = await self._count_links(case_id)
+        if total_links >= MAX_LINKED_ROWS_PER_CASE:
+            return f"A case can have at most {MAX_LINKED_ROWS_PER_CASE} linked rows"
+
+        if table_links == 0:
+            distinct_tables = await self._count_distinct_tables(case_id)
+            if distinct_tables >= MAX_TABLES_PER_CASE:
+                return f"A case can link rows from at most {MAX_TABLES_PER_CASE} tables"
+
+        return None
 
     async def list_rows(
         self,
@@ -159,7 +210,11 @@ class CaseTableRowsService(BaseWorkspaceService):
     async def list_linked_tables(
         self, *, case_id: uuid.UUID
     ) -> list[CaseLinkedTableRead]:
-        """List linked tables with link counts ordered by table name."""
+        """List linked tables with link counts and columns, ordered by table name.
+
+        Columns travel with the summary so a caller rendering linked rows does
+        not need a second, table-scoped read per table.
+        """
         stmt = (
             select(
                 CaseTableRow.table_id,
@@ -182,14 +237,30 @@ class CaseTableRowsService(BaseWorkspaceService):
             .order_by(Table.name.asc().nulls_last(), CaseTableRow.table_id.asc())
         )
         rows = (await self.session.execute(stmt)).tuples().all()
-        return [
-            CaseLinkedTableRead(
-                table_id=table_id,
-                table_name=table_name,
-                row_count=row_count,
+        tables_by_id = await self._get_tables_by_id(
+            [table_id for table_id, _, _ in rows]
+        )
+
+        linked_tables: list[CaseLinkedTableRead] = []
+        for table_id, table_name, row_count in rows:
+            table = tables_by_id.get(table_id)
+            columns = (
+                []
+                if table is None
+                else [
+                    TableColumnRead.model_validate(column, from_attributes=True)
+                    for column in table.columns
+                ]
             )
-            for table_id, table_name, row_count in rows
-        ]
+            linked_tables.append(
+                CaseLinkedTableRead(
+                    table_id=table_id,
+                    table_name=table_name,
+                    row_count=row_count,
+                    columns=columns,
+                )
+            )
+        return linked_tables
 
     async def link_row(
         self, *, case: Case, params: CaseTableRowLinkCreate
@@ -207,33 +278,13 @@ class CaseTableRowsService(BaseWorkspaceService):
 
         await self._lock_case(case.id)
 
-        total_links = await self._count_links(case.id)
-        if total_links >= MAX_LINKED_ROWS_PER_CASE:
-            existing = await self._get_existing_link(
+        if (message := await self._link_cap_violation(case.id, table.id)) is not None:
+            return await self._existing_link_or_raise(
                 case_id=case.id,
                 table_id=table.id,
                 row_id=params.row_id,
+                message=message,
             )
-            if existing is not None:
-                return existing
-            raise ValueError(
-                f"A case can have at most {MAX_LINKED_ROWS_PER_CASE} linked rows"
-            )
-
-        table_already_linked = await self._table_has_links(case.id, params.table_id)
-        if not table_already_linked:
-            distinct_tables = await self._count_distinct_tables(case.id)
-            if distinct_tables >= MAX_TABLES_PER_CASE:
-                existing = await self._get_existing_link(
-                    case_id=case.id,
-                    table_id=table.id,
-                    row_id=params.row_id,
-                )
-                if existing is not None:
-                    return existing
-                raise ValueError(
-                    f"A case can link rows from at most {MAX_TABLES_PER_CASE} tables"
-                )
 
         stmt = (
             insert(CaseTableRow)
@@ -313,14 +364,19 @@ class CaseTableRowsService(BaseWorkspaceService):
                 already_linked_count=len(requested),
             )
 
+        table_links = await self._count_table_links(case.id, table.id)
+        if table_links + len(to_link) > MAX_LINKED_ROWS_PER_TABLE:
+            raise ValueError(
+                f"A case can link at most {MAX_LINKED_ROWS_PER_TABLE} rows from one table"
+            )
+
         if await self._count_links(case.id) + len(to_link) > MAX_LINKED_ROWS_PER_CASE:
             raise ValueError(
                 f"A case can have at most {MAX_LINKED_ROWS_PER_CASE} linked rows"
             )
 
         if (
-            not already_linked
-            and not await self._table_has_links(case.id, table.id)
+            table_links == 0
             and await self._count_distinct_tables(case.id) >= MAX_TABLES_PER_CASE
         ):
             raise ValueError(
@@ -447,14 +503,30 @@ class CaseTableRowsService(BaseWorkspaceService):
         params: CaseTableRowInsertCreate,
     ) -> CaseTableRow:
         table = await self.tables.get_table(params.table_id)
-        row = await self.tables.insert_row(table, params.row)
+
+        # Take the case lock first so the whole operation runs under it, but
+        # leave the caps to ``link_row``, after the insert. That order is
+        # deliberate: with ``upsert`` the row can resolve to one that is already
+        # linked to this case, which adds no link and so must stay an allowed
+        # no-op even when the caps are full. ``commit=False`` keeps the insert
+        # and the link in one transaction, so a link the caps reject rolls the
+        # flushed row back and no orphan row can be left behind.
+        await self._lock_case(case.id)
+
+        row = await self.tables.insert_row(table, params.row, commit=False)
         row_id = row.get("id")
         if not isinstance(row_id, uuid.UUID):
             raise ValueError("Inserted row ID is invalid")
-        return await self.link_row(
+
+        link = await self.link_row(
             case=case,
             params=CaseTableRowLinkCreate(table_id=params.table_id, row_id=row_id),
         )
+        # ``link_row`` returns an existing link without committing, so commit
+        # here to persist an upsert's row update on that path (a second commit
+        # after ``link_row``'s own is a no-op).
+        await self.session.commit()
+        return link
 
     async def hydrate_case_rows(
         self,
