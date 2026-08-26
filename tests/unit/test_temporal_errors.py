@@ -514,6 +514,56 @@ def test_wrapping_unclassified_application_error_drops_original_details() -> Non
     assert extract_error_envelope(wrapped) == fallback
 
 
+@pytest.mark.parametrize(
+    ("retry_disposition", "expected_delay"),
+    [
+        (RetryDisposition.RETRYABLE, timedelta(seconds=5)),
+        (RetryDisposition.NON_RETRYABLE, None),
+    ],
+)
+def test_wrapping_applies_retry_delay_only_to_retryable_fallback(
+    retry_disposition: RetryDisposition,
+    expected_delay: timedelta | None,
+) -> None:
+    original_delay = timedelta(seconds=5)
+    fallback = ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the workflow",
+        retry_disposition=retry_disposition,
+    )
+    original = ApplicationError(
+        "Unclassified platform failure",
+        next_retry_delay=original_delay,
+    )
+
+    wrapped = _capture_wrapped_application_error(original, fallback=fallback)
+
+    assert wrapped.next_retry_delay == expected_delay
+    assert wrapped.non_retryable is (
+        retry_disposition is RetryDisposition.NON_RETRYABLE
+    )
+    assert extract_error_envelope(wrapped) == fallback
+
+
+def test_wrapping_clears_retry_delay_for_non_retryable_cause() -> None:
+    envelope = _user_envelope(RetryDisposition.NON_RETRYABLE)
+    classified = _capture_application_error(envelope)
+    try:
+        raise ApplicationError(
+            "Outer wrapper",
+            next_retry_delay=timedelta(seconds=5),
+        ) from classified
+    except ApplicationError as outer:
+        wrapped = _capture_wrapped_application_error(
+            outer,
+            fallback=_platform_envelope(),
+        )
+
+    assert wrapped.next_retry_delay is None
+    assert wrapped.non_retryable is True
+    assert extract_error_envelope(wrapped) == envelope
+
+
 def test_ambiguous_nested_envelope_does_not_override_fallback() -> None:
     nested_envelope = _user_envelope()
     fallback = _platform_envelope()
