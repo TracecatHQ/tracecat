@@ -178,6 +178,7 @@ with workflow.unsafe.imports_passed_through():
 _CHILD_RUN_ARG_PREP_YIELD_EVERY = 8
 ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH = "dsl-action-heartbeat-timeout-retry-v1"
 ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH = "dsl-error-owner-search-attribute-v1"
+ERROR_OWNER_CONTROL_FLOW_PATCH = "dsl-error-owner-control-flow-v1"
 
 
 def _raise_workflow_application_error(
@@ -881,6 +882,12 @@ class DSLWorkflow:
 
     @staticmethod
     def _has_user_error_cause(error: BaseException) -> bool:
+        envelopes = extract_error_envelopes(error)
+        if envelopes and all(
+            envelope.owner is RuntimeErrorOwner.USER for envelope in envelopes
+        ):
+            return workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH)
+
         current = error
         seen: set[int] = set()
         while True:
