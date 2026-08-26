@@ -1,0 +1,91 @@
+frontend/tests/use-case-rows-pagination.test.tsx
+  s_ca70cedb5d591c::t_f39a2ada7705a9 1-226
+tests/unit/api/test_api_case_rows.py
+  s_ca70cedb5d591c::t_347c704d77727d 17,28-29
+  s_ca70cedb5d591c::t_04d921b33d7d0a 258-299
+  s_ca70cedb5d591c::t_a8cb92f0684a1d 428-451
+  s_ca70cedb5d591c::t_afdb16d71940c4 257
+  s_ca70cedb5d591c::t_0c1d74bfb61bc2 427
+frontend/tests/use-case-rows.test.tsx
+  s_ca70cedb5d591c::t_176a985a686c25 44
+  s_ca70cedb5d591c::t_5df610fc463b18 158
+  s_ca70cedb5d591c::t_71b8f64ff8f74c 187,189-190
+  s_ca70cedb5d591c::t_07f9f00577f26b 103,105-109,119,123
+  s_ca70cedb5d591c::t_afecc3c8e34026 7
+  s_ca70cedb5d591c::t_55aba44db2ded5 124-125,146,160,191-192,203,207-209,224,236-237,265-266
+tracecat/cases/rows/service.py
+  s_ca70cedb5d591c::t_08d4650e165ccc 34
+  s_ca70cedb5d591c::t_a3f27bf043cdc7 43,45
+  s_ca70cedb5d591c::t_5c01f43037fcc9 37-38
+  s_ca70cedb5d591c::t_d0abee66052e7b 39-42
+  s_ca70cedb5d591c::t_a80367fda665ed 258-263,265-266,269,273,276,279,283
+  s_ca70cedb5d591c::t_48350db5079c29 121,123-124,131
+  s_ca70cedb5d591c::t_af063a51dbc1cb 264
+  s_ca70cedb5d591c::t_60089908ace7bc 364-369,376
+  s_ca70cedb5d591c::t_268394cf488dd4 190-194
+  s_ca70cedb5d591c::t_40c2625c2910f4 66-85
+  s_ca70cedb5d591c::t_e0bf91540e95ab 217-230,232-240
+frontend/tests/case-linked-rows-section.test.tsx
+  s_ca70cedb5d591c::t_79fa1bd0f9662f 7-11,15,30-31
+  s_ca70cedb5d591c::t_de342882dbe725 205-206,208-226
+  s_ca70cedb5d591c::t_8c2286e59a464c 83-86
+  s_ca70cedb5d591c::t_b240f6276d283a 45,51,57-61
+  s_ca70cedb5d591c::t_ee946e2a5fde13 110-111
+  s_ca70cedb5d591c::t_e767046b6d1668 138-149,151-162
+  s_ca70cedb5d591c::t_e4b7d9e3e0072f 275,279,283,287-292
+  s_ca70cedb5d591c::t_ad47fb0b9d1ee3 293-294
+docs/automations/cases.mdx
+  s_ca70cedb5d591c::t_5ba754c09d0158 184
+  s_ca70cedb5d591c::t_e3339b9d5926fa 185
+tracecat/cases/rows/schemas.py
+  s_ca70cedb5d591c::t_f982fa397a8b0c 49
+  s_ca70cedb5d591c::t_7290ce27acf14f 12-14
+  s_ca70cedb5d591c::t_317aa37abb7458 10,15
+  s_ca70cedb5d591c::t_09b4c31cfccdf2 39-43
+tests/unit/test_case_table_rows_service.py
+  s_ca70cedb5d591c::t_f68099b81826c6 168-207
+  s_ca70cedb5d591c::t_177ab77e690137 628-694
+  s_ca70cedb5d591c::t_ab6420be157d25 842-891
+  s_ca70cedb5d591c::t_f91b15581a6d32 167
+  s_ca70cedb5d591c::t_3e941d4f6c9c86 627
+  s_ca70cedb5d591c::t_4d2902325cb1a3 841
+frontend/src/hooks/use-case-rows.ts
+  s_ca70cedb5d591c::t_335a65c0e575e7 126
+  s_ca70cedb5d591c::t_37167d7fdb847d 3,12-14
+  s_ca70cedb5d591c::t_070a59f7a1c4f0 174
+frontend/src/hooks/pagination/use-case-rows-pagination.tsx
+  s_ca70cedb5d591c::t_09511bda0c9f31 1-50
+tracecat/cases/rows/router.py
+  s_ca70cedb5d591c::t_34db746746ff27 82-86
+frontend/src/components/cases/case-linked-rows-section.tsx
+  s_ca70cedb5d591c::t_1565586acf32e3 275,284
+  s_ca70cedb5d591c::t_7a9c10e55256e0 170-171
+  s_ca70cedb5d591c::t_127766b8261df6 5,14,19,29
+  s_ca70cedb5d591c::t_667f5703575428 102
+  s_ca70cedb5d591c::t_26f44836a66f48 188,193,198-210,217-218,222-226,233
+  s_ca70cedb5d591c::t_98a59721e858ad 40,45-50
+  s_ca70cedb5d591c::t_81dfb1acf68dbe 247
+  s_ca70cedb5d591c::t_0990fa2b48e08e 345-358
+frontend/src/client/schemas.gen.ts
+  s_ca70cedb5d591c::t_03ce22201d3ee8 8767-8773,8776,8780-8785,9150,9191
+frontend/src/client/services.gen.ts
+  s_ca70cedb5d591c::t_94ab8fce1e97b8 10372-10375
+frontend/src/client/types.gen.ts
+  s_ca70cedb5d591c::t_51e06bed16a155 2383-2387,2393
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "51704fd477cf23d9bd765fd7738599b161547585",
+  "prompts": {},
+  "sessions": {
+    "s_ca70cedb5d591c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "007cd624-4ad9-4928-b97a-6193bb1d46fe",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
