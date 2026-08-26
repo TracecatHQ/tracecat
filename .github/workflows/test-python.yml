@@ -177,6 +177,7 @@ jobs:
             TracecatAlias
             TracecatCorrelationId
             TracecatExecutionType
+            TracecatErrorOwner
           )
 
           add_args=()

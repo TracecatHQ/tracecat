@@ -27,7 +27,7 @@ from tracecat.dsl.schemas import (
     RunContext,
     TaskResult,
 )
-from tracecat.dsl.workflow import ERROR_OWNER_CONTROL_FLOW_PATCH, DSLWorkflow
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
@@ -559,10 +559,6 @@ async def test_run_skips_tier_limit_enforcement_when_flag_disabled() -> None:
     acquire_permit_mock = AsyncMock()
 
     with (
-        patch(
-            "tracecat.dsl.workflow.workflow.patched",
-            return_value=True,
-        ) as patched_mock,
         patch.object(
             workflow,
             "_resolve_organization_id",
@@ -581,8 +577,6 @@ async def test_run_skips_tier_limit_enforcement_when_flag_disabled() -> None:
     ):
         result = await workflow.run(run_args)
 
-    patched_mock.assert_called_once_with(ERROR_OWNER_CONTROL_FLOW_PATCH)
-    assert workflow.error_owner_control_flow_enabled is True
     assert workflow.workflow_concurrency_limits_enabled is False
     execute_activity_mock.assert_not_awaited()
     acquire_permit_mock.assert_not_awaited()

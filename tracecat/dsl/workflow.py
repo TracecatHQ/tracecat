@@ -274,7 +274,6 @@ class DSLWorkflow:
     # Tier limit tracking
     _tier_limits: EffectiveLimits | None = None
     workflow_concurrency_limits_enabled: bool
-    error_owner_control_flow_enabled: bool
     _workflow_permit_acquired: bool = False
     _workflow_permit_heartbeat_task: asyncio.Task[None] | None = None
     _action_execution_count: int = 0
@@ -363,11 +362,6 @@ class DSLWorkflow:
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> StoredObject:
-        # Record command-producing compatibility decisions from the workflow's
-        # top-level task, before the scheduler starts child asyncio tasks.
-        self.error_owner_control_flow_enabled = workflow.patched(
-            ERROR_OWNER_CONTROL_FLOW_PATCH
-        )
         self.organization_id = await self._resolve_organization_id()
 
         # Set DSL and registry_lock
@@ -886,12 +880,13 @@ class DSLWorkflow:
             [TemporalSearchAttr.ERROR_OWNER.key.value_set(owner.value)]
         )
 
-    def _has_user_error_cause(self, error: BaseException) -> bool:
+    @staticmethod
+    def _has_user_error_cause(error: BaseException) -> bool:
         envelopes = extract_error_envelopes(error)
         if envelopes and all(
             envelope.owner is RuntimeErrorOwner.USER for envelope in envelopes
         ):
-            return self.error_owner_control_flow_enabled
+            return workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH)
 
         current = error
         seen: set[int] = set()
