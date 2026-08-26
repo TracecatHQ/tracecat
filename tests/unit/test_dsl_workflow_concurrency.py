@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -14,6 +14,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 import tracecat.dsl.workflow as dsl_workflow_module
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_stream_id
 from tracecat.dsl.action import DSLActivities, _evaluate_loop_iterations
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import FailStrategy, PlatformAction, WaitStrategy
@@ -25,6 +26,7 @@ from tracecat.dsl.schemas import (
     DSLConfig,
     ExecutionContext,
     RunContext,
+    StreamID,
     TaskResult,
 )
 from tracecat.dsl.workflow import DSLWorkflow
@@ -98,6 +100,103 @@ def _child_dsl() -> DSLInput:
         ],
         triggers=[],
     )
+
+
+async def _run_failing_preset_preflight(
+    *,
+    patched: bool,
+    stream_id: StreamID,
+) -> tuple[AsyncMock, MagicMock, uuid.UUID]:
+    workflow = _build_workflow()
+    workflow.dsl = _child_dsl()
+    workflow.scheduler.streams[stream_id] = workflow.context
+    task = ActionStatement(
+        ref="preset_agent",
+        action=PlatformAction.AI_PRESET_AGENT,
+        args={"preset": "missing-preset", "user_prompt": "Investigate"},
+    )
+    session_id = uuid.uuid4()
+    uuid4_mock = MagicMock(return_value=session_id)
+    execute_activity_mock = AsyncMock()
+
+    async def execute_activity(activity: object, arg: object, **_: object) -> object:
+        if activity is DSLActivities.build_preset_agent_args_activity:
+            return SimpleNamespace(
+                preset="missing-preset",
+                session_id=None,
+            )
+
+        assert uuid4_mock.call_count == int(patched)
+        raise RuntimeError("preset preflight failed")
+
+    execute_activity_mock.side_effect = execute_activity
+    token = ctx_stream_id.set(stream_id)
+    try:
+        with (
+            patch.object(workflow, "_handle_timers", new=AsyncMock()),
+            patch.object(workflow, "_set_logical_time_context"),
+            patch.object(
+                workflow,
+                "_build_action_context",
+                return_value=workflow.context,
+            ),
+            patch(
+                "tracecat.dsl.workflow.workflow.execute_activity",
+                new=execute_activity_mock,
+            ),
+            patch(
+                "tracecat.dsl.workflow.workflow.patched",
+                return_value=patched,
+            ),
+            patch(
+                "tracecat.dsl.workflow.workflow.uuid4",
+                new=uuid4_mock,
+            ),
+            patch(
+                "tracecat.dsl.workflow.workflow.info",
+                return_value=SimpleNamespace(workflow_id=workflow.wf_exec_id),
+            ),
+        ):
+            with pytest.raises(ApplicationError, match="preset preflight failed"):
+                await workflow._execute_task(task)
+    finally:
+        ctx_stream_id.reset(token)
+
+    return execute_activity_mock, uuid4_mock, session_id
+
+
+@pytest.mark.anyio
+async def test_preset_preflight_patch_mints_stream_scoped_provenance_before_failure() -> (
+    None
+):
+    stream_id = StreamID.new("scatter", 2)
+
+    execute_activity, uuid4_mock, session_id = await _run_failing_preset_preflight(
+        patched=True,
+        stream_id=stream_id,
+    )
+
+    preflight_input = execute_activity.await_args_list[1].args[1]
+    assert preflight_input.session_id == session_id
+    assert preflight_input.wf_exec_id == (
+        "wf-00000000000000000000000000000001:"
+        "exec-00000000000000000000000000000001:"
+        f"preset_agent:{stream_id}:{session_id}"
+    )
+    uuid4_mock.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_preset_preflight_legacy_path_preserves_preflight_before_mint() -> None:
+    execute_activity, uuid4_mock, _ = await _run_failing_preset_preflight(
+        patched=False,
+        stream_id=ROOT_STREAM,
+    )
+
+    preflight_input = execute_activity.await_args_list[1].args[1]
+    assert preflight_input.session_id is None
+    assert preflight_input.wf_exec_id is None
+    uuid4_mock.assert_not_called()
 
 
 def _prepared_subflow_stub(

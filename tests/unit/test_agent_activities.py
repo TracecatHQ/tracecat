@@ -27,7 +27,10 @@ from tracecat_ee.agent.activities import (
     EmitSessionDoneInputs,
     EmitSessionErrorInputs,
 )
-from tracecat_ee.agent.workflows.durable import _preserved_agents_binding
+from tracecat_ee.agent.workflows.durable import (
+    _needs_empty_binding_provenance_activity,
+    _preserved_agents_binding,
+)
 
 from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.fs import force_rmtree
@@ -43,6 +46,7 @@ from tracecat.agent.executor.activity import (
     run_agent_activity,
 )
 from tracecat.agent.executor.loopback import LoopbackResult
+from tracecat.agent.preset.resolved_refs import ResolvedRef, ResolvedRefs
 from tracecat.agent.runtime.session_paths import job_uv_state_dir
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.activities import (
@@ -59,7 +63,7 @@ from tracecat.agent.session.activities import (
 )
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.types import ResolvedSkillRef
-from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAgentsConfig
 from tracecat.agent.tools import BuildToolsResult
 from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -1072,6 +1076,92 @@ class TestPreservedAgentsBinding:
             found=True, sdk_session_id="sdk-session-1", has_resume_state=True
         )
         assert _preserved_agents_binding(result) == ResolvedAgentsConfig()
+
+    def test_empty_preserved_bindings_need_deferred_provenance_activity(
+        self,
+    ) -> None:
+        cfg = AgentConfig(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            agents=AgentSubagentsConfig.model_validate(
+                {
+                    "enabled": True,
+                    "subagents": [{"preset": "analyst"}],
+                }
+            ),
+            resolved_refs=ResolvedRefs(
+                refs=[
+                    ResolvedRef(
+                        resource_kind="preset",
+                        resource_id=uuid.uuid4(),
+                        resolved_version_id=uuid.uuid4(),
+                        status="ok",
+                    )
+                ]
+            ),
+        )
+
+        assert _needs_empty_binding_provenance_activity(cfg, ResolvedAgentsConfig())
+        assert _needs_empty_binding_provenance_activity(
+            cfg, ResolvedAgentsConfig(enabled=True)
+        )
+
+    def test_nonempty_preserved_binding_does_not_force_provenance_activity(
+        self,
+    ) -> None:
+        cfg = AgentConfig(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            agents=AgentSubagentsConfig.model_validate(
+                {
+                    "enabled": True,
+                    "subagents": [{"preset": "analyst"}],
+                }
+            ),
+            resolved_refs=ResolvedRefs(
+                refs=[
+                    ResolvedRef(
+                        resource_kind="preset",
+                        resource_id=uuid.uuid4(),
+                        resolved_version_id=uuid.uuid4(),
+                        status="ok",
+                    )
+                ]
+            ),
+        )
+        binding = ResolvedAgentsConfig.model_validate(
+            {
+                "enabled": True,
+                "subagents": [
+                    {
+                        "preset": "analyst",
+                        "preset_version": 1,
+                        "preset_id": uuid.uuid4(),
+                        "preset_version_id": uuid.uuid4(),
+                    }
+                ],
+            }
+        )
+
+        assert not _needs_empty_binding_provenance_activity(cfg, binding)
+
+    def test_root_only_config_does_not_duplicate_provenance_activity(self) -> None:
+        cfg = AgentConfig(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            resolved_refs=ResolvedRefs(
+                refs=[
+                    ResolvedRef(
+                        resource_kind="preset",
+                        resource_id=uuid.uuid4(),
+                        resolved_version_id=uuid.uuid4(),
+                        status="ok",
+                    )
+                ]
+            ),
+        )
+
+        assert not _needs_empty_binding_provenance_activity(cfg, ResolvedAgentsConfig())
 
     def test_missing_session_resolves_fresh(self) -> None:
         assert _preserved_agents_binding(LoadSessionResult(found=False)) is None

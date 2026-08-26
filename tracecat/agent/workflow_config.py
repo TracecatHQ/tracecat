@@ -157,6 +157,7 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
             if config.resolved_skills
             else None
         ),
+        resolved_refs=config.resolved_refs,
         builtin_skills=config.builtin_skills,
     )
 
@@ -189,5 +190,6 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
             if payload.resolved_skills
             else None
         ),
+        resolved_refs=payload.resolved_refs,
         builtin_skills=payload.builtin_skills,
     )
