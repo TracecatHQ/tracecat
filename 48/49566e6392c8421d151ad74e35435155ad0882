@@ -1,0 +1,27 @@
+Caddyfile
+  s_c07dbd23596171::t_e53807f3e06b80 4-6,9
+docker-compose.dev.yml
+  s_c07dbd23596171::t_44158c5d2263e1 74-75,563
+docker-compose.local.yml
+  s_c07dbd23596171::t_937ca0ba64d15d 83-84,168,569
+docker-compose.yml
+  s_c07dbd23596171::t_eb75271376cf39 75-76,529-530,557
+docs/snippets/environment-variables.mdx
+  s_c07dbd23596171::t_9b343d7a486efe 86-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "4849566e6392c8421d151ad74e35435155ad0882",
+  "prompts": {},
+  "sessions": {
+    "s_c07dbd23596171": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a3dc2954-b580-4795-8a78-c26d438fb35d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
