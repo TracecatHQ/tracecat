@@ -18,15 +18,25 @@
 const POSTHOG_ORIGIN = "https://*.posthog.com"
 
 /**
+ * Shape an accepted origin must have after URL normalization: scheme, a
+ * hostname of letters, digits, `.` and `-` with an optional leading `*.`
+ * label, and an optional port. WHATWG URL parsing alone is not enough: it
+ * keeps characters such as `;` in a hostname, which would terminate the
+ * `connect-src` directive and inject another one.
+ */
+const HOST_SOURCE_PATTERN = /^https?:\/\/(\*\.)?[a-z0-9.-]+(:\d+)?$/i
+
+/**
  * Parse a space-, comma-, or newline-separated list of origins into normalized
  * HTTP(S) origins.
  *
- * Anything that is not a parseable `http:`/`https:` URL is dropped, so the
- * output can never contain a `;`, a `,`, or whitespace, and therefore can never
- * inject a stray directive into the policy. Userinfo, path, and query are
- * stripped, keeping only scheme, host, and port. Wildcard hosts such as
- * `https://*.example.com` parse cleanly and are passed through as-is, because
- * CSP host sources accept a leading `*.` label.
+ * A token is kept only if it parses as an `http:`/`https:` URL and its origin
+ * matches `HOST_SOURCE_PATTERN`: the hostname is restricted to letters,
+ * digits, `.` and `-`, with an optional leading `*.` label (CSP host sources
+ * accept one) and an optional port. Everything else, including IPv6 literals
+ * and any hostname carrying a `;`, is dropped, so the output can never inject
+ * a stray directive into the policy. Userinfo, path, and query are stripped,
+ * keeping only scheme, host, and port.
  *
  * This function never throws: it runs at module scope in the middleware, where
  * a throw would 500 every page.
@@ -56,6 +66,10 @@ export function parseOrigins(
       continue
     }
     if (url.protocol !== "http:" && url.protocol !== "https:") {
+      onReject?.(token)
+      continue
+    }
+    if (!HOST_SOURCE_PATTERN.test(url.origin)) {
       onReject?.(token)
       continue
     }

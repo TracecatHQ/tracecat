@@ -137,11 +137,33 @@ describe("parseOrigins", () => {
     expect(onReject).not.toHaveBeenCalled()
   })
 
+  it("drops a hostname carrying a directive delimiter and reports it", () => {
+    const rejected: string[] = []
+    expect(
+      parseOrigins("https://example.com;script-src", {
+        onReject: (token) => rejected.push(token),
+      })
+    ).toEqual([])
+    expect(rejected).toEqual(["https://example.com;script-src"])
+  })
+
+  it("drops an IPv6 literal", () => {
+    expect(parseOrigins("https://[::1]:9000")).toEqual([])
+  })
+
+  it("lowercases an uppercase hostname", () => {
+    expect(parseOrigins("https://EXAMPLE.com")).toEqual(["https://example.com"])
+  })
+
   it("never returns a token containing a separator or a directive delimiter", () => {
     const origins = parseOrigins(
-      "https://a.example.com/x;y https://b.example.com, foo https://c.example.com:9000"
+      "https://a.example.com/x;y https://example.com;script-src https://b.example.com, foo https://c.example.com:9000"
     )
-    expect(origins.length).toBeGreaterThan(0)
+    expect(origins).toEqual([
+      "https://a.example.com",
+      "https://b.example.com",
+      "https://c.example.com:9000",
+    ])
     for (const origin of origins) {
       expect(origin).not.toMatch(/[;,\s]/)
     }
