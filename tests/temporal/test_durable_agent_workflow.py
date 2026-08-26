@@ -10,7 +10,7 @@ These tests verify the end-to-end workflow behavior including:
 import asyncio
 import os
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from datetime import timedelta
 from typing import Any
 
@@ -399,12 +399,16 @@ async def replay_durable_agent_workflow_history(
     history: WorkflowHistory,
 ) -> None:
     """Replay a fetched durable-agent history against the current workflow code."""
-    replay_result = await Replayer(
+
+    async def histories() -> AsyncIterator[WorkflowHistory]:
+        yield history
+
+    replay_results = await Replayer(
         workflows=[DurableAgentWorkflow],
         workflow_runner=UnsandboxedWorkflowRunner(),
         data_converter=temporal_client.data_converter,
-    ).replay_workflow(history, raise_on_replay_failure=False)
-    assert replay_result.replay_failure is None
+    ).replay_workflows(histories(), raise_on_replay_failure=False)
+    assert not replay_results.replay_failures
 
 
 async def recorded_patch_ids(
