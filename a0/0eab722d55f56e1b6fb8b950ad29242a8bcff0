@@ -1,0 +1,35 @@
+frontend/tests/case-linked-rows-section.test.tsx
+  s_ca70cedb5d591c::t_6958881f55f219 212,220-221,234
+  s_ca70cedb5d591c::t_d22b41e9ed1fe8 353,571-596
+  s_ca70cedb5d591c::t_ce03630c6a7995 295-352
+  s_ca70cedb5d591c::t_bc09b946d7c90b 114-124
+  s_ca70cedb5d591c::t_c4bd392227950f 354
+docs/automations/cases.mdx
+  s_ca70cedb5d591c::t_34c2bf482da5a9 165
+frontend/src/components/cases/case-linked-rows-section.tsx
+  s_ca70cedb5d591c::t_bf8eb9b0f8804a 318-326
+  s_ca70cedb5d591c::t_2add0fa9c6a3e9 3,12
+  s_ca70cedb5d591c::t_53b7c5a681f9f5 238-240
+  s_ca70cedb5d591c::t_a7c91dc24028b3 34-42
+  s_ca70cedb5d591c::t_0c0a9c497b16a4 50-54
+  s_ca70cedb5d591c::t_9128455a7fa18a 227
+  s_ca70cedb5d591c::t_2630322c96e8b0 361-382
+  s_ca70cedb5d591c::t_53cd18df5fe366 29-30
+  s_ca70cedb5d591c::t_f53ecbdea72fcc 193-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "a00eab722d55f56e1b6fb8b950ad29242a8bcff0",
+  "prompts": {},
+  "sessions": {
+    "s_ca70cedb5d591c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "007cd624-4ad9-4928-b97a-6193bb1d46fe",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
