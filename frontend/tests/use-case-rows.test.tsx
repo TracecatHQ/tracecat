@@ -4,15 +4,17 @@
 
 import { renderHook, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
-import type { CaseLinkedTableRead } from "@/client"
+import type { CaseLinkedTableRead, CaseTableRowRead } from "@/client"
 import {
   casesBatchLinkCaseRows,
   casesBatchUnlinkCaseRows,
   casesListCaseLinkedTables,
+  casesListCaseRows,
 } from "@/client"
 import {
   caseRowsQueryKey,
   useCaseLinkedTables,
+  useCaseTableRows,
   useLinkCaseRows,
   useUnlinkCaseRows,
 } from "@/hooks/use-case-rows"
@@ -25,6 +27,7 @@ jest.mock("@/client", () => {
     casesBatchLinkCaseRows: jest.fn(),
     casesBatchUnlinkCaseRows: jest.fn(),
     casesListCaseLinkedTables: jest.fn(),
+    casesListCaseRows: jest.fn(),
   }
 })
 
@@ -36,6 +39,9 @@ const mockBatchUnlink = casesBatchUnlinkCaseRows as jest.MockedFunction<
 >
 const mockListLinkedTables = casesListCaseLinkedTables as jest.MockedFunction<
   typeof casesListCaseLinkedTables
+>
+const mockListCaseRows = casesListCaseRows as jest.MockedFunction<
+  typeof casesListCaseRows
 >
 
 const SCOPE = { caseId: "case-1", workspaceId: "ws-1" }
@@ -176,5 +182,99 @@ describe("useCaseLinkedTables", () => {
     expect(result.current.linkedTables).toEqual(summary)
     expect(result.current.linkedTablesError).toBeNull()
     expect(mockListLinkedTables).toHaveBeenCalledWith(SCOPE)
+  })
+})
+
+function makeRow(rowId: string): CaseTableRowRead {
+  return {
+    id: `link-${rowId}`,
+    case_id: "case-1",
+    table_id: "table-1",
+    table_name: "Alerts",
+    row_id: rowId,
+    row_data: { name: rowId },
+    is_row_available: true,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  }
+}
+
+function makePage(
+  items: CaseTableRowRead[],
+  hasMore: boolean,
+  nextCursor: string | null = null
+) {
+  return {
+    items,
+    next_cursor: nextCursor,
+    prev_cursor: null,
+    has_more: hasMore,
+    has_previous: false,
+    total_estimate: items.length,
+  }
+}
+
+describe("useCaseTableRows", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it("returns a single page's items", async () => {
+    const rows = [makeRow("r1"), makeRow("r2")]
+    mockListCaseRows.mockResolvedValueOnce(makePage(rows, false))
+    const { wrapper } = setup()
+
+    const { result } = renderHook(
+      () => useCaseTableRows({ ...SCOPE, tableId: "table-1" }),
+      { wrapper }
+    )
+
+    await waitFor(() => {
+      expect(result.current.caseTableRowsIsLoading).toBe(false)
+    })
+    expect(result.current.caseTableRows).toEqual(rows)
+    expect(result.current.caseTableRowsError).toBeNull()
+    expect(mockListCaseRows).toHaveBeenCalledTimes(1)
+    expect(mockListCaseRows).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caseId: "case-1",
+        workspaceId: "ws-1",
+        tableId: "table-1",
+        limit: 200,
+      })
+    )
+  })
+
+  it("follows the cursor and concatenates every page in order", async () => {
+    const firstPage = [makeRow("r1"), makeRow("r2")]
+    const secondPage = [makeRow("r3")]
+    mockListCaseRows
+      .mockResolvedValueOnce(makePage(firstPage, true, "c2"))
+      .mockResolvedValueOnce(makePage(secondPage, false))
+    const { wrapper } = setup()
+
+    const { result } = renderHook(
+      () => useCaseTableRows({ ...SCOPE, tableId: "table-1" }),
+      { wrapper }
+    )
+
+    await waitFor(() => {
+      expect(result.current.caseTableRowsIsLoading).toBe(false)
+    })
+    expect(result.current.caseTableRows).toEqual([...firstPage, ...secondPage])
+    expect(mockListCaseRows).toHaveBeenCalledTimes(2)
+    const [[firstParams], [secondParams]] = mockListCaseRows.mock.calls
+    expect(firstParams.cursor).toBeNull()
+    expect(secondParams.cursor).toBe("c2")
+    for (const [params] of mockListCaseRows.mock.calls) {
+      expect(params).toEqual(
+        expect.objectContaining({
+          caseId: "case-1",
+          workspaceId: "ws-1",
+          tableId: "table-1",
+          limit: 200,
+        })
+      )
+    }
   })
 })

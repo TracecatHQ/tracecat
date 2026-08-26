@@ -56,7 +56,7 @@ export function CaseLinkRowsDialog({
       <DialogContent
         {...nonDismissableDialogProps}
         title="Link rows"
-        className="flex h-[min(88dvh,720px)] w-[min(96vw,1200px)] max-w-none flex-col gap-0 overflow-hidden p-0"
+        className="flex h-[min(92dvh,960px)] w-[min(96vw,1440px)] max-w-none flex-col gap-0 overflow-hidden p-0"
       >
         {/* Radix unmounts the body on close, so every pick resets for free. */}
         <CaseLinkRowsDialogBody

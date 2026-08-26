@@ -1,27 +1,29 @@
 "use client"
 
-import { Plus, Unlink2 } from "lucide-react"
+import { Link2, Plus, Unlink2 } from "lucide-react"
 import { type ReactNode, useMemo, useState } from "react"
 import type { TableRowRead } from "@/client"
 import { CaseLinkRowsDialog } from "@/components/cases/case-link-rows-dialog"
 import {
+  CASE_PANEL_ACTION_BOX_CLASS,
+  CASE_PANEL_ACTION_ROW_CLASS,
   CASE_PANEL_BOX_CLASS,
-  CASE_TASK_ROW_CLASS,
 } from "@/components/cases/case-task-fields"
 import { Spinner } from "@/components/loading/spinner"
-import { AgGridPagination } from "@/components/tables/ag-grid-pagination"
 import { TableRowsGrid } from "@/components/tables/table-rows-grid"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
-import { useCaseRowsPagination } from "@/hooks/pagination/use-case-rows-pagination"
-import { useCaseLinkedTables, useUnlinkCaseRows } from "@/hooks/use-case-rows"
+import {
+  useCaseLinkedTables,
+  useCaseTableRows,
+  useUnlinkCaseRows,
+} from "@/hooks/use-case-rows"
 import { toGridRow, UNAVAILABLE_ROW_CLASS_RULES } from "@/lib/cases/case-rows"
 import { getApiErrorDetail } from "@/lib/errors"
 import { useGetTable } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
-const DEFAULT_PAGE_SIZE = 20
 const EMPTY_SELECTION: ReadonlySet<string> = new Set()
 const EMPTY_ROWS: readonly TableRowRead[] = []
 
@@ -32,9 +34,10 @@ export interface CaseLinkedRowsSectionProps {
 }
 
 /**
- * The case's Tables panel: one paged grid per table with rows linked to the
- * case, each with its own selection for unlinking, and a ghost row that opens
- * the link dialog. The ghost row doubles as the empty state.
+ * The case's Tables panel: one grid per table with every row linked to the
+ * case, each with its own selection for unlinking, and a compact action bar
+ * beneath them that opens the link dialog. The action bar doubles as the
+ * empty state.
  */
 export function CaseLinkedRowsSection({
   caseId,
@@ -72,7 +75,7 @@ export function CaseLinkedRowsSection({
 
   return (
     <>
-      <div className={cn(CASE_PANEL_BOX_CLASS, "flex flex-col gap-4")}>
+      <div className="flex flex-col gap-6">
         {linkedTables.map((linkedTable) => (
           <CaseLinkedTableSection
             key={linkedTable.table_id}
@@ -84,7 +87,9 @@ export function CaseLinkedRowsSection({
             onAddRows={() => openDialog(linkedTable.table_id)}
           />
         ))}
-        <LinkRowsRow onClick={() => openDialog()} />
+        <div className={CASE_PANEL_ACTION_BOX_CLASS}>
+          <LinkTableRow onClick={() => openDialog()} />
+        </div>
       </div>
       <CaseLinkRowsDialog
         open={linkDialogOpen}
@@ -97,29 +102,29 @@ export function CaseLinkedRowsSection({
   )
 }
 
-interface LinkRowsRowProps {
+interface LinkTableRowProps {
   onClick: () => void
 }
 
 /**
- * Muted ghost row that opens the link dialog. Built to the task row's
- * geometry, like the attachments panel's `+ Add attachment` row, and the
- * panel's only empty state.
+ * Muted ghost row that opens the link dialog. A compact action bar below the
+ * tables rather than a full task row: one line of text, boxed on its own,
+ * sharing its geometry with the attachments panel's empty state.
  */
-function LinkRowsRow({ onClick }: LinkRowsRowProps) {
+function LinkTableRow({ onClick }: LinkTableRowProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        CASE_TASK_ROW_CLASS,
-        "flex h-11 w-full items-center gap-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        CASE_PANEL_ACTION_ROW_CLASS,
+        "flex w-full items-center gap-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
       )}
     >
       <span className="flex size-6 shrink-0 items-center justify-center">
-        <Plus className="size-5" />
+        <Link2 className="size-4" />
       </span>
-      Link rows
+      Link table
     </button>
   )
 }
@@ -141,7 +146,6 @@ function CaseLinkedTableSection({
   rowCount,
   onAddRows,
 }: CaseLinkedTableSectionProps) {
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [selectedRowIds, setSelectedRowIds] =
     useState<ReadonlySet<string>>(EMPTY_SELECTION)
 
@@ -150,34 +154,21 @@ function CaseLinkedTableSection({
     workspaceId,
   })
   const {
-    data: caseRows,
-    isLoading: rowsIsLoading,
-    error: rowsError,
-    goToNextPage,
-    goToPreviousPage,
-    goToFirstPage,
-    hasNextPage,
-    hasPreviousPage,
-    currentPage,
-    totalEstimate,
-    startItem,
-    endItem,
-  } = useCaseRowsPagination({ caseId, tableId, workspaceId, limit: pageSize })
+    caseTableRows,
+    caseTableRowsIsLoading: rowsIsLoading,
+    caseTableRowsError: rowsError,
+  } = useCaseTableRows({ caseId, tableId, workspaceId })
   const { unlinkCaseRows, unlinkCaseRowsIsPending } = useUnlinkCaseRows({
     caseId,
     workspaceId,
   })
 
   const rows = useMemo<readonly TableRowRead[]>(
-    () => (caseRows.length > 0 ? caseRows.map(toGridRow) : EMPTY_ROWS),
-    [caseRows]
+    () =>
+      caseTableRows.length > 0 ? caseTableRows.map(toGridRow) : EMPTY_ROWS,
+    [caseTableRows]
   )
   const selectedCount = selectedRowIds.size
-
-  function handlePageSizeChange(size: number) {
-    setPageSize(size)
-    goToFirstPage()
-  }
 
   async function handleUnlink() {
     const rowIds = [...selectedRowIds]
@@ -185,7 +176,6 @@ function CaseLinkedTableSection({
     try {
       const { unlinkedCount } = await unlinkCaseRows({ tableId, rowIds })
       setSelectedRowIds(EMPTY_SELECTION)
-      goToFirstPage()
       toast({
         title: "Rows unlinked",
         description: `Unlinked ${unlinkedCount} ${
@@ -239,7 +229,7 @@ function CaseLinkedTableSection({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between px-3 py-1.5">
+      <div className="flex items-center justify-between px-1 py-1.5">
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-medium">{tableName ?? "Table"}</span>
           <span className="text-xs text-muted-foreground">
@@ -282,20 +272,6 @@ function CaseLinkedTableSection({
       <div className="overflow-x-auto rounded-md border">
         <div className="min-w-[1200px]">{gridContent}</div>
       </div>
-      <AgGridPagination
-        currentPage={currentPage}
-        hasNextPage={hasNextPage}
-        hasPreviousPage={hasPreviousPage}
-        pageSize={pageSize}
-        totalEstimate={totalEstimate}
-        startItem={startItem}
-        endItem={endItem}
-        onNextPage={goToNextPage}
-        onPreviousPage={goToPreviousPage}
-        onFirstPage={goToFirstPage}
-        onPageSizeChange={handlePageSizeChange}
-        isLoading={rowsIsLoading}
-      />
     </div>
   )
 }

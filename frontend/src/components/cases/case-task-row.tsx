@@ -337,7 +337,7 @@ function CaseTaskReadRow({
                   aria-label={`Change status: ${statusDefinition.label}`}
                   className={TASK_ICON_TRIGGER_CLASS}
                 >
-                  <CaseTaskStatusIcon status={status} className="size-5" />
+                  <CaseTaskStatusIcon status={status} className="size-4" />
                 </button>
               </CaseTaskFieldMenu>
               {/* Inert on purpose — editing goes through ⋯ → Edit. The title
@@ -403,7 +403,7 @@ function CaseTaskReadRow({
                   >
                     <PriorityIcon
                       className={cn(
-                        "size-5",
+                        "size-4",
                         showPriority
                           ? priorityIconTone(priority)
                           : "text-muted-foreground"
@@ -434,11 +434,11 @@ function CaseTaskReadRow({
                         alt={assignee.firstName || assignee.email}
                         email={assignee.email}
                         firstName={assignee.firstName}
-                        className="size-6"
-                        fallbackClassName="text-[11px]"
+                        className="size-5"
+                        fallbackClassName="text-[10px]"
                       />
                     ) : (
-                      <CircleUserRound className="size-5 text-muted-foreground/50" />
+                      <CircleUserRound className="size-4 text-muted-foreground/50" />
                     )}
                   </button>
                 </CaseTaskFieldPicker>

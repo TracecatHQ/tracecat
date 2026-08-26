@@ -7,17 +7,17 @@ import userEvent from "@testing-library/user-event"
 import type { CaseLinkedTableRead, CaseTableRowRead } from "@/client"
 import { CaseLinkedRowsSection } from "@/components/cases/case-linked-rows-section"
 import { toast } from "@/components/ui/use-toast"
-import { useCaseRowsPagination } from "@/hooks/pagination/use-case-rows-pagination"
-import { useCaseLinkedTables, useUnlinkCaseRows } from "@/hooks/use-case-rows"
+import {
+  useCaseLinkedTables,
+  useCaseTableRows,
+  useUnlinkCaseRows,
+} from "@/hooks/use-case-rows"
 import { useGetTable } from "@/lib/hooks"
 
 jest.mock("@/hooks/use-case-rows", () => ({
   useCaseLinkedTables: jest.fn(),
+  useCaseTableRows: jest.fn(),
   useUnlinkCaseRows: jest.fn(),
-}))
-
-jest.mock("@/hooks/pagination/use-case-rows-pagination", () => ({
-  useCaseRowsPagination: jest.fn(),
 }))
 
 jest.mock("@/lib/hooks", () => ({
@@ -61,10 +61,6 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
   ),
 }))
 
-jest.mock("@/components/tables/ag-grid-pagination", () => ({
-  AgGridPagination: () => <div data-testid="pagination" />,
-}))
-
 // The dialog is covered by its own suite; a marker records how it was opened.
 jest.mock("@/components/cases/case-link-rows-dialog", () => ({
   CaseLinkRowsDialog: ({
@@ -88,8 +84,8 @@ const mockUseCaseLinkedTables = useCaseLinkedTables as jest.MockedFunction<
 const mockUseUnlinkCaseRows = useUnlinkCaseRows as jest.MockedFunction<
   typeof useUnlinkCaseRows
 >
-const mockUseCaseRowsPagination = useCaseRowsPagination as jest.MockedFunction<
-  typeof useCaseRowsPagination
+const mockUseCaseTableRows = useCaseTableRows as jest.MockedFunction<
+  typeof useCaseTableRows
 >
 const mockUseGetTable = useGetTable as jest.MockedFunction<typeof useGetTable>
 const mockToast = toast as jest.MockedFunction<typeof toast>
@@ -143,28 +139,13 @@ beforeEach(() => {
     tableError: null,
     refetchTable: jest.fn(),
   }))
-  mockUseCaseRowsPagination.mockImplementation(
-    ({ tableId, limit }) =>
+  mockUseCaseTableRows.mockImplementation(
+    ({ tableId }) =>
       ({
-        data: LINKS_BY_TABLE[tableId] ?? [],
-        isLoading: false,
-        error: null,
-        refetch: jest.fn(),
-        goToNextPage: jest.fn(),
-        goToPreviousPage: jest.fn(),
-        goToFirstPage: jest.fn(),
-        setSorting: jest.fn(),
-        sortingState: { orderBy: null, sort: null },
-        hasNextPage: false,
-        hasPreviousPage: false,
-        currentPage: 0,
-        pageSize: limit ?? 20,
-        totalItems: 1,
-        startItem: 1,
-        endItem: 1,
-        totalEstimate: 1,
-        totalPages: 1,
-      }) as unknown as ReturnType<typeof useCaseRowsPagination>
+        caseTableRows: LINKS_BY_TABLE[tableId] ?? [],
+        caseTableRowsIsLoading: false,
+        caseTableRowsError: null,
+      }) as unknown as ReturnType<typeof useCaseTableRows>
   )
   mockUnlinkCaseRows.mockResolvedValue({ unlinkedCount: 1 })
   mockUseUnlinkCaseRows.mockReturnValue({
@@ -179,7 +160,7 @@ describe("CaseLinkedRowsSection", () => {
     renderSection()
 
     expect(
-      screen.getByRole("button", { name: "Link rows" })
+      screen.getByRole("button", { name: "Link table" })
     ).toBeInTheDocument()
     expect(screen.queryByText("No linked table rows")).not.toBeInTheDocument()
     expect(screen.queryByTestId("rows-grid")).not.toBeInTheDocument()
@@ -191,7 +172,7 @@ describe("CaseLinkedRowsSection", () => {
 
     expect(container.querySelectorAll(".animate-pulse")).toHaveLength(3)
     expect(
-      screen.queryByRole("button", { name: "Link rows" })
+      screen.queryByRole("button", { name: "Link table" })
     ).not.toBeInTheDocument()
   })
 
@@ -201,7 +182,7 @@ describe("CaseLinkedRowsSection", () => {
 
     expect(screen.getByText("Failed to load linked rows")).toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Link rows" })
+      screen.queryByRole("button", { name: "Link table" })
     ).not.toBeInTheDocument()
   })
 
@@ -213,14 +194,14 @@ describe("CaseLinkedRowsSection", () => {
     expect(screen.getByText("Table")).toBeInTheDocument()
     expect(screen.getByText("1 row")).toBeInTheDocument()
     expect(screen.getAllByTestId("rows-grid")).toHaveLength(2)
-    expect(mockUseCaseRowsPagination).toHaveBeenCalledWith(
-      expect.objectContaining({
-        caseId: "case-1",
-        tableId: "table-1",
-        workspaceId: "ws-1",
-        limit: 20,
-      })
-    )
+    expect(
+      screen.getByRole("button", { name: "Link table" })
+    ).toBeInTheDocument()
+    expect(mockUseCaseTableRows).toHaveBeenCalledWith({
+      caseId: "case-1",
+      tableId: "table-1",
+      workspaceId: "ws-1",
+    })
   })
 
   it("hands the grid rows keyed by row_id", () => {
@@ -293,7 +274,7 @@ describe("CaseLinkedRowsSection", () => {
     const dialog = screen.getByTestId("link-rows-dialog")
     expect(dialog).toHaveAttribute("data-open", "false")
 
-    await user.click(screen.getByRole("button", { name: "Link rows" }))
+    await user.click(screen.getByRole("button", { name: "Link table" }))
 
     expect(dialog).toHaveAttribute("data-open", "true")
     expect(dialog).toHaveAttribute("data-initial-table-id", "")
