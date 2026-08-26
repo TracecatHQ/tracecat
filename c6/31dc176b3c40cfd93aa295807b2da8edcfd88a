@@ -1,0 +1,52 @@
+frontend/src/components/cases/case-linked-rows-section.tsx
+  s_ca70cedb5d591c::t_4f3dda8013198d 167-168
+  s_ca70cedb5d591c::t_0226925ed188be 232
+  s_ca70cedb5d591c::t_c463ff821e39bd 157-160,169
+  s_ca70cedb5d591c::t_962e64cf0e003f 3,8-9,38-40,90-91,105,110-112,114,120-121,125,127
+  s_ca70cedb5d591c::t_4ef9ea0921035d 17-21
+  s_ca70cedb5d591c::t_77099d36ff1572 78,92
+  s_ca70cedb5d591c::t_ce1057072bf1af 37
+frontend/src/components/cases/case-attachments-section.tsx
+  s_ca70cedb5d591c::t_962e64cf0e003f 31-32,105,109-112,114-118,128,623-625,642
+  s_ca70cedb5d591c::t_60a753f464b29f 125-127
+  s_ca70cedb5d591c::t_61bc65401b40a0 132
+frontend/tests/case-linked-rows-section.test.tsx
+  s_ca70cedb5d591c::t_102ecb2d2579a3 163,175,185,198,277
+  s_ca70cedb5d591c::t_6ae24c5812b7dc 10-14,19,87-88,142-143,145-148,197,199-204
+frontend/src/components/cases/case-task-composer.tsx
+  s_ca70cedb5d591c::t_ff0b0e3be743ca 327-328
+  s_ca70cedb5d591c::t_61bc65401b40a0 85,256,296,331
+frontend/src/hooks/use-case-rows.ts
+  s_ca70cedb5d591c::t_4f3dda8013198d 3
+  s_ca70cedb5d591c::t_c1be2a6d74c17c 8,13-15,18
+  s_ca70cedb5d591c::t_3348bf9a5ca258 79-122
+frontend/src/components/cases/case-task-row.tsx
+  s_ca70cedb5d591c::t_ff0b0e3be743ca 437-438
+  s_ca70cedb5d591c::t_61bc65401b40a0 340,406,441
+frontend/src/components/cases/case-task-fields.tsx
+  s_ca70cedb5d591c::t_962e64cf0e003f 44-61
+  s_ca70cedb5d591c::t_1a5bcdce6d9e05 62
+frontend/tests/use-case-rows.test.tsx
+  s_ca70cedb5d591c::t_35f1f7405dc1de 7,12,17,30,43-45,188-237,246-279
+  s_ca70cedb5d591c::t_5495771d2f30d3 238-245
+  s_ca70cedb5d591c::t_ac468dbb4c83c1 187
+  s_ca70cedb5d591c::t_2ec92f8fb85a3d 280
+frontend/src/components/cases/case-link-rows-dialog.tsx
+  s_ca70cedb5d591c::t_59884160f8f266 59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "c631dc176b3c40cfd93aa295807b2da8edcfd88a",
+  "prompts": {},
+  "sessions": {
+    "s_ca70cedb5d591c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "007cd624-4ad9-4928-b97a-6193bb1d46fe",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
