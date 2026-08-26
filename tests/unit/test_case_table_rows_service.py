@@ -165,6 +165,47 @@ async def test_link_row_allows_existing_table_when_table_limit_reached(
 
 
 @pytest.mark.anyio
+async def test_link_row_enforces_per_table_row_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    monkeypatch.setattr(case_rows_service_module, "MAX_LINKED_ROWS_PER_TABLE", 2)
+    case = await _create_case(cases_service)
+    table_id, row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_table_cap_{uuid.uuid4().hex[:8]}",
+        values=["one", "two", "three"],
+    )
+    for row_id in row_ids[:2]:
+        await case_rows_service.link_row(
+            case=case,
+            params=CaseTableRowLinkCreate(table_id=table_id, row_id=row_id),
+        )
+
+    with pytest.raises(ValueError, match="at most 2 rows from one table"):
+        await case_rows_service.link_row(
+            case=case,
+            params=CaseTableRowLinkCreate(table_id=table_id, row_id=row_ids[2]),
+        )
+
+    # The cap is per table, so another table still has room.
+    other_table_id, other_row_id = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_table_cap_other_{uuid.uuid4().hex[:8]}",
+        value="other",
+    )
+    link = await case_rows_service.link_row(
+        case=case,
+        params=CaseTableRowLinkCreate(table_id=other_table_id, row_id=other_row_id),
+    )
+
+    assert link.table_id == other_table_id
+    assert link.row_id == other_row_id
+
+
+@pytest.mark.anyio
 async def test_link_row_returns_existing_link_for_duplicate(
     session: AsyncSession,
     cases_service: CasesService,
@@ -584,6 +625,74 @@ async def test_list_linked_tables_returns_counts_ordered_by_name(
 
 
 @pytest.mark.anyio
+async def test_list_linked_tables_returns_columns_in_order(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    column_names = ["alpha", "beta", "gamma"]
+    table = await tables_service.create_table(
+        TableCreate(
+            name=f"aaa_case_rows_columns_{uuid.uuid4().hex[:8]}",
+            columns=[
+                TableColumnCreate(
+                    name=name,
+                    type=SqlType.TEXT,
+                    nullable=True,
+                    default=None,
+                )
+                for name in column_names
+            ],
+        )
+    )
+    row = await tables_service.insert_row(table, TableRowInsert(data={"alpha": "a"}))
+    row_id = row.get("id")
+    assert isinstance(row_id, uuid.UUID)
+    await case_rows_service.link_row(
+        case=case,
+        params=CaseTableRowLinkCreate(table_id=table.id, row_id=row_id),
+    )
+
+    # Deleting a table cascades its links away, so a link whose table is not
+    # visible in this workspace is the only way a caller sees a missing table.
+    orphan_workspace = Workspace(
+        name=f"case-rows-orphan-{uuid.uuid4().hex[:8]}",
+        organization_id=TEST_ORG_ID,
+    )
+    session.add(orphan_workspace)
+    await session.flush()
+    orphan_table = Table(
+        workspace_id=orphan_workspace.id,
+        name=f"zzz_case_rows_orphan_{uuid.uuid4().hex[:8]}",
+    )
+    session.add(orphan_table)
+    await session.flush()
+    session.add(
+        CaseTableRow(
+            workspace_id=case_rows_service.workspace_id,
+            case_id=case.id,
+            table_id=orphan_table.id,
+            row_id=uuid.uuid4(),
+        )
+    )
+    await session.commit()
+
+    linked_tables = await case_rows_service.list_linked_tables(case_id=case.id)
+
+    assert [
+        (linked.table_id, [column.name for column in linked.columns])
+        for linked in linked_tables
+    ] == [
+        (table.id, column_names),
+        (orphan_table.id, []),
+    ]
+    assert [column.type for column in linked_tables[0].columns] == [SqlType.TEXT] * 3
+    assert linked_tables[1].table_name is None
+
+
+@pytest.mark.anyio
 async def test_link_rows_links_all_and_dedupes(
     session: AsyncSession,
     cases_service: CasesService,
@@ -727,6 +836,57 @@ async def test_link_rows_enforces_row_limit(
         row_ids=row_ids[:2],
     )
     assert result.linked_count == 2
+
+
+@pytest.mark.anyio
+async def test_link_rows_enforces_per_table_row_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    monkeypatch.setattr(case_rows_service_module, "MAX_LINKED_ROWS_PER_TABLE", 2)
+    case = await _create_case(cases_service)
+    table_id, row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_batch_table_cap_{uuid.uuid4().hex[:8]}",
+        values=["one", "two", "three"],
+    )
+
+    with pytest.raises(ValueError, match="at most 2 rows from one table"):
+        await case_rows_service.link_rows(
+            case=case,
+            table_id=table_id,
+            row_ids=row_ids,
+        )
+
+    count = await session.scalar(
+        select(func.count())
+        .select_from(CaseTableRow)
+        .where(CaseTableRow.case_id == case.id)
+    )
+    assert count == 0
+
+    result = await case_rows_service.link_rows(
+        case=case,
+        table_id=table_id,
+        row_ids=row_ids[:2],
+    )
+    assert result.linked_count == 2
+
+    # The cap is per table, so another table still has room.
+    other_table_id, other_row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_batch_table_cap_other_{uuid.uuid4().hex[:8]}",
+        values=["other"],
+    )
+    other_result = await case_rows_service.link_rows(
+        case=case,
+        table_id=other_table_id,
+        row_ids=other_row_ids,
+    )
+    assert other_result.linked_count == 1
 
 
 @pytest.mark.anyio

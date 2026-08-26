@@ -7,9 +7,12 @@ from typing import Any, Final
 from pydantic import Field
 
 from tracecat.core.schemas import Schema
-from tracecat.tables.schemas import TableRowInsert
+from tracecat.tables.schemas import TableColumnRead, TableRowInsert
 
-MAX_CASE_ROW_BATCH_SIZE: Final[int] = 200
+# Row IDs one batch link or unlink request may carry. This bounds a single
+# request only; ``MAX_LINKED_ROWS_PER_TABLE`` in ``tracecat.cases.rows.service``
+# bounds how many rows of a table a case can end up linked to.
+MAX_CASE_ROW_BATCH_SIZE: Final[int] = 100
 
 
 class CaseTableRowRead(Schema):
@@ -33,11 +36,17 @@ class CaseLinkedTableRead(Schema):
     """One table with at least one row linked to a case.
 
     ``row_count`` counts links, including links whose source row was deleted.
+
+    ``columns`` carries the table's column definitions so a caller can render
+    the linked rows without a separate table read. It is empty when the table
+    itself is gone. ``is_index`` is not populated here; read the table directly
+    when unique-index state matters.
     """
 
     table_id: uuid.UUID
     table_name: str | None = None
     row_count: int
+    columns: list[TableColumnRead]
 
 
 class CaseTableRowBatchLink(Schema):

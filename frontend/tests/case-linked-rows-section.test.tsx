@@ -4,29 +4,31 @@
 
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import type { CaseLinkedTableRead, CaseTableRowRead } from "@/client"
+import type {
+  CaseLinkedTableRead,
+  CaseTableRowRead,
+  TableColumnRead,
+} from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseLinkedRowsSection } from "@/components/cases/case-linked-rows-section"
 import { toast } from "@/components/ui/use-toast"
+import { useCaseRowsPagination } from "@/hooks/pagination/use-case-rows-pagination"
 import {
   CaseRowsUnlinkError,
   useCaseLinkedTables,
-  useCaseTableRows,
   useUnlinkCaseRows,
 } from "@/hooks/use-case-rows"
-import { useGetTable } from "@/lib/hooks"
 
 // Only the hooks are stubbed: the section branches on the real
 // CaseRowsUnlinkError.
 jest.mock("@/hooks/use-case-rows", () => ({
   ...jest.requireActual("@/hooks/use-case-rows"),
   useCaseLinkedTables: jest.fn(),
-  useCaseTableRows: jest.fn(),
   useUnlinkCaseRows: jest.fn(),
 }))
 
-jest.mock("@/lib/hooks", () => ({
-  useGetTable: jest.fn(),
+jest.mock("@/hooks/pagination/use-case-rows-pagination", () => ({
+  useCaseRowsPagination: jest.fn(),
 }))
 
 jest.mock("@/components/ui/use-toast", () => ({
@@ -40,17 +42,23 @@ jest.mock("@/components/auth/scope-guard", () => ({
 // AG Grid cannot mount under jsdom; a checkbox per row stands in for it.
 jest.mock("@/components/tables/table-rows-grid", () => ({
   TableRowsGrid: ({
+    columns,
     rows,
     selectable,
     selectedRowIds,
     onSelectedRowIdsChange,
   }: {
+    columns: readonly { name: string }[]
     rows: readonly { id: string }[]
     selectable?: boolean
     selectedRowIds?: ReadonlySet<string>
     onSelectedRowIdsChange?: (rowIds: string[]) => void
   }) => (
-    <div data-testid="rows-grid" data-selectable={String(Boolean(selectable))}>
+    <div
+      data-testid="rows-grid"
+      data-selectable={String(Boolean(selectable))}
+      data-columns={columns.map((column) => column.name).join(",")}
+    >
       {rows.map((row) => (
         <input
           key={row.id}
@@ -70,6 +78,10 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
       ))}
     </div>
   ),
+}))
+
+jest.mock("@/components/tables/ag-grid-pagination", () => ({
+  AgGridPagination: () => <div data-testid="pagination" />,
 }))
 
 // The dialog is covered by its own suite; a marker records how it was opened.
@@ -95,10 +107,9 @@ const mockUseCaseLinkedTables = useCaseLinkedTables as jest.MockedFunction<
 const mockUseUnlinkCaseRows = useUnlinkCaseRows as jest.MockedFunction<
   typeof useUnlinkCaseRows
 >
-const mockUseCaseTableRows = useCaseTableRows as jest.MockedFunction<
-  typeof useCaseTableRows
+const mockUseCaseRowsPagination = useCaseRowsPagination as jest.MockedFunction<
+  typeof useCaseRowsPagination
 >
-const mockUseGetTable = useGetTable as jest.MockedFunction<typeof useGetTable>
 const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
   typeof useScopeCheck
 >
@@ -124,9 +135,31 @@ const LINKS_BY_TABLE: Record<string, CaseTableRowRead[]> = {
   "table-2": [makeLink("table-2", "r3")],
 }
 
+function makeColumn(tableId: string): TableColumnRead {
+  return {
+    id: `col-${tableId}`,
+    name: "name",
+    type: "TEXT",
+    nullable: true,
+    default: null,
+    options: null,
+    is_index: false,
+  }
+}
+
 const SUMMARY: CaseLinkedTableRead[] = [
-  { table_id: "table-1", table_name: "Alerts", row_count: 2 },
-  { table_id: "table-2", table_name: null, row_count: 1 },
+  {
+    table_id: "table-1",
+    table_name: "Alerts",
+    row_count: 2,
+    columns: [makeColumn("table-1")],
+  },
+  {
+    table_id: "table-2",
+    table_name: null,
+    row_count: 1,
+    columns: [makeColumn("table-2")],
+  },
 ]
 
 function setLinkedTables(
@@ -169,19 +202,28 @@ beforeEach(() => {
     return required.some((name) => grantedScopes.has(name))
   })
   setLinkedTables(SUMMARY)
-  mockUseGetTable.mockImplementation(({ tableId }) => ({
-    table: { id: tableId, name: tableId, columns: [] },
-    tableIsLoading: false,
-    tableError: null,
-    refetchTable: jest.fn(),
-  }))
-  mockUseCaseTableRows.mockImplementation(
-    ({ tableId }) =>
+  mockUseCaseRowsPagination.mockImplementation(
+    ({ tableId, limit }) =>
       ({
-        caseTableRows: LINKS_BY_TABLE[tableId] ?? [],
-        caseTableRowsIsLoading: false,
-        caseTableRowsError: null,
-      }) as unknown as ReturnType<typeof useCaseTableRows>
+        data: LINKS_BY_TABLE[tableId] ?? [],
+        isLoading: false,
+        error: null,
+        refetch: jest.fn(),
+        goToNextPage: jest.fn(),
+        goToPreviousPage: jest.fn(),
+        goToFirstPage: jest.fn(),
+        setSorting: jest.fn(),
+        sortingState: { orderBy: null, sort: null },
+        hasNextPage: false,
+        hasPreviousPage: false,
+        currentPage: 0,
+        pageSize: limit ?? 20,
+        totalItems: 1,
+        startItem: 1,
+        endItem: 1,
+        totalEstimate: 1,
+        totalPages: 1,
+      }) as unknown as ReturnType<typeof useCaseRowsPagination>
   )
   mockUnlinkCaseRows.mockResolvedValue({ unlinkedCount: 1 })
   mockUseUnlinkCaseRows.mockReturnValue({
@@ -230,14 +272,24 @@ describe("CaseLinkedRowsSection", () => {
     expect(screen.getByText("Table")).toBeInTheDocument()
     expect(screen.getByText("1 row")).toBeInTheDocument()
     expect(screen.getAllByTestId("rows-grid")).toHaveLength(2)
+    expect(screen.getAllByTestId("pagination")).toHaveLength(2)
     expect(
       screen.getByRole("button", { name: "Link table" })
     ).toBeInTheDocument()
-    expect(mockUseCaseTableRows).toHaveBeenCalledWith({
+    expect(mockUseCaseRowsPagination).toHaveBeenCalledWith({
       caseId: "case-1",
       tableId: "table-1",
       workspaceId: "ws-1",
+      limit: 20,
     })
+  })
+
+  it("renders the grids off the summary's columns", () => {
+    renderSection()
+
+    for (const grid of screen.getAllByTestId("rows-grid")) {
+      expect(grid).toHaveAttribute("data-columns", "name")
+    }
   })
 
   it("hands the grid rows keyed by row_id", () => {
