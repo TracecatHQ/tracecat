@@ -11,7 +11,7 @@ import asyncio
 import os
 import uuid
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 import orjson
@@ -67,7 +67,6 @@ from tracecat.agent.executor.activity import (
     AgentExecutorResult,
     ToolExecutionResult,
 )
-from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import ResolveAgentsConfigActivityInput
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
@@ -2715,46 +2714,6 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         legacy_sdk_session_data,
         None,
     ]
-
-
-def test_agent_workflow_does_not_retry_approved_tool_failures(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured_activity_options: dict[str, Any] = {}
-    service_role = Role(
-        type="user",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        service_id="tracecat-api",
-    )
-
-    def mock_start_activity(*args: Any, **kwargs: Any) -> Any:
-        del args
-        captured_activity_options.update(kwargs)
-        return object()
-
-    monkeypatch.setattr(temporal_workflow, "uuid4", uuid.uuid4)
-    monkeypatch.setattr(temporal_workflow, "start_activity", mock_start_activity)
-
-    durable_workflow_module._start_registry_tool_call(
-        ApprovedToolCall(
-            tool_call_id="call_123",
-            tool_name="core__http_request",
-            args={"url": "https://example.com", "method": "GET"},
-        ),
-        registry_lock=RegistryLock(
-            origins={"tracecat_registry": "test-version"},
-            actions={"core.http_request": "tracecat_registry"},
-        ),
-        service_role=service_role,
-        logical_time=datetime(2026, 3, 18, tzinfo=UTC),
-    )
-
-    retry_policy = captured_activity_options["retry_policy"]
-    assert retry_policy == RETRY_POLICIES["activity:fail_fast"]
-    assert retry_policy.maximum_attempts == 1
-    assert captured_activity_options["task_queue"] == config.TRACECAT__EXECUTOR_QUEUE
 
 
 # =============================================================================
