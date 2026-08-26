@@ -96,7 +96,7 @@ with workflow.unsafe.imports_passed_through():
         StreamID,
         TaskResult,
     )
-    from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
+    from tracecat.dsl.types import ActionErrorInfo
     from tracecat.dsl.validation import format_input_schema_validation_error
     from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.ee.interactions.decorators import maybe_interactive
@@ -446,7 +446,7 @@ class DSLWorkflow:
                     ]
                 else:
                     errors = [
-                        ActionErrorInfoAdapter.validate_python(data)
+                        ActionErrorInfo.model_validate(data)
                         for data in err_info_map.values()
                     ]
             else:

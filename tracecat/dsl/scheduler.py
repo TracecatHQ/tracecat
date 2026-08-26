@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -17,6 +17,7 @@ _SCHEDULER_TASK_SPAWN_YIELD_EVERY = 16
 """Yield while spawning ready task coroutines to avoid long workflow activations."""
 
 with workflow.unsafe.imports_passed_through():
+    from pydantic import ValidationError
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
 
@@ -56,7 +57,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.types import (
         ActionErrorInfo,
-        ActionErrorInfoAdapter,
         Task,
         TaskExceptionInfo,
     )
@@ -64,6 +64,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
+    from tracecat.runtime.errors import ErrorEnvelope
     from tracecat.storage.object import (
         CollectionObject,
         InlineObject,
@@ -72,6 +73,7 @@ with workflow.unsafe.imports_passed_through():
         action_collection_prefix,
         action_key,
     )
+    from tracecat.temporal.errors import extract_error_envelope
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -89,6 +91,65 @@ def _get_collection_size(stored: StoredObject) -> int:
                 f"Expected CollectionObject or InlineObject with list data, "
                 f"got {type(stored).__name__}"
             )
+
+
+def _classified_action_error_info(
+    error: ApplicationError,
+    *,
+    ref: str,
+    stream_id: StreamID,
+) -> ActionErrorInfo | None:
+    """Adapt a classified activity failure into the scheduler error shape."""
+    envelope = extract_error_envelope(error)
+    if envelope is None:
+        return None
+
+    for detail in error.details:
+        for parsed in _validated_action_error_infos(detail):
+            if _action_error_contains_envelope(parsed, envelope):
+                return parsed
+
+    return ActionErrorInfo(
+        ref=ref,
+        message=envelope.message,
+        type=error.type or error.__class__.__name__,
+        stream_id=stream_id,
+        envelope=envelope,
+    )
+
+
+def _validated_action_error_infos(detail: object) -> tuple[ActionErrorInfo, ...]:
+    """Validate a direct action error or the established child-error map shape."""
+    try:
+        return (ActionErrorInfo.model_validate(detail),)
+    except ValidationError:
+        pass
+
+    if not isinstance(detail, Mapping):
+        return ()
+
+    parsed: list[ActionErrorInfo] = []
+    for ref, value in detail.items():
+        if not isinstance(ref, str):
+            return ()
+        try:
+            parsed.append(ActionErrorInfo.model_validate(value))
+        except ValidationError:
+            return ()
+    return tuple(parsed)
+
+
+def _action_error_contains_envelope(
+    detail: ActionErrorInfo,
+    envelope: ErrorEnvelope,
+) -> bool:
+    """Return whether an action error directly or transitively carries an envelope."""
+    if detail.envelope == envelope:
+        return True
+    return any(
+        _action_error_contains_envelope(child, envelope)
+        for child in detail.children or ()
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -443,7 +504,15 @@ class DSLScheduler:
                 self.logger.info("Task failed with no error paths", task=task)
             # XXX: This can sometimes return null because the exception isn't an ApplicationError
             # But rather a ChildWorkflowError or CancelledError
-            if isinstance(exc, ApplicationError) and exc.details:
+            if isinstance(exc, ApplicationError) and (
+                classified_details := _classified_action_error_info(
+                    exc,
+                    ref=ref,
+                    stream_id=task.stream_id,
+                )
+            ):
+                details = classified_details
+            elif isinstance(exc, ApplicationError) and exc.details:
                 self.logger.info(
                     "Task failed with application error",
                     ref=ref,
@@ -478,7 +547,7 @@ class DSLScheduler:
                     # it's of shape ActionErrorInfo()
                     try:
                         # This is normal action error
-                        details = ActionErrorInfo(**details)
+                        details = ActionErrorInfo.model_validate(details)
                     except Exception as e:
                         self.logger.info(
                             "Failed to parse regular application error details",
@@ -509,7 +578,7 @@ class DSLScheduler:
                     # try get the first element
                     try:
                         val = list(details.values())[0]
-                        details = ActionErrorInfo(**val)
+                        details = ActionErrorInfo.model_validate(val)
                     except Exception as e:
                         self.logger.info(
                             "Failed to parse child wf application error details",
@@ -1252,7 +1321,7 @@ class DSLScheduler:
             # Do not pass the full object as some exceptions aren't serializable
             # Access the raw list via get_data() and modify in place
             parent_action_context[gather_ref].get_data()[stream_idx] = InlineObject(
-                data=ActionErrorInfoAdapter.dump_python(err_info.details)
+                data=err_info.details.model_dump()
             )
             self.logger.debug("Set error object as result", task=task)
         else:
@@ -1569,7 +1638,7 @@ class DSLScheduler:
             )
             app_error = ApplicationError(
                 message,
-                {gather_ref: ActionErrorInfoAdapter.dump_python(gather_error)},
+                {gather_ref: gather_error.model_dump()},
                 non_retryable=True,
             )
             self.logger.warning(
