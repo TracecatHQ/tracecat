@@ -384,12 +384,10 @@ resource "aws_s3_bucket_policy" "skills" {
         ]
       },
       {
-        Sid    = "DenyInsecureConnections"
-        Effect = "Deny"
-        Principal = {
-          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
-        }
-        Action = "s3:*"
+        Sid       = "DenyInsecureConnections"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
         Resource = [
           aws_s3_bucket.skills.arn,
           "${aws_s3_bucket.skills.arn}/*"
@@ -494,12 +492,10 @@ resource "aws_s3_bucket_policy" "workflow" {
         ]
       },
       {
-        Sid    = "DenyInsecureConnections"
-        Effect = "Deny"
-        Principal = {
-          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
-        }
-        Action = "s3:*"
+        Sid       = "DenyInsecureConnections"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
         Resource = [
           aws_s3_bucket.workflow.arn,
           "${aws_s3_bucket.workflow.arn}/*"
