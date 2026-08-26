@@ -1,0 +1,22 @@
+tracecat/integrations/service.py
+  s_e4fe41696bd593::t_48221dff5da50b 1830,1837-1848
+tests/unit/test_mcp_integrations.py
+  s_e4fe41696bd593::t_13d7b5e721809e 3739-3754,3777
+  s_e4fe41696bd593::t_48221dff5da50b 3560-3738,3755-3776,3778-3790
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "384050e05188a41b19d925c8436cb6545c792790",
+  "prompts": {},
+  "sessions": {
+    "s_e4fe41696bd593": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0405a-4add-7230-bc9a-dccf62f1dba8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
