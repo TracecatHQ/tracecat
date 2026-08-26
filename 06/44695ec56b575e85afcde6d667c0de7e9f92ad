@@ -1,0 +1,30 @@
+tests/unit/test_google_api_credentials.py
+  s_8f29d88c44f5c5::t_99d96a370f4633 303-314
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/batch_delete_messages.yml
+  s_8f29d88c44f5c5::t_0940373868cbe3 6-8
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/threads/delete_thread.yml
+  s_8f29d88c44f5c5::t_6daf3f160c309b 7-9
+packages/tracecat-registry/tracecat_registry/templates/tools/gmail/messages/delete_message.yml
+  s_8f29d88c44f5c5::t_14d4ca78b3dcba 6-8
+packages/tracecat-registry/tracecat_registry/integrations/google_api.py
+  s_8f29d88c44f5c5::t_e1bbfa17af6479 40
+  s_8f29d88c44f5c5::t_24b53c83028301 214-216,218-222
+docs/tools/gmail.mdx
+  s_8f29d88c44f5c5::t_c5c5d202cd0fd8 11,287,320
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "0644695ec56b575e85afcde6d667c0de7e9f92ad",
+  "prompts": {},
+  "sessions": {
+    "s_8f29d88c44f5c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1b681ec-4d90-4916-a9d8-8cea401db9bc",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
