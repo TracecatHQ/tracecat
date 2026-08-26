@@ -9,6 +9,7 @@ from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 
+from tests.shared import capture_application_error as _capture_application_error
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import FinalizeGatherActivityResult
 from tracecat.dsl.types import ActionErrorInfo
@@ -47,20 +48,6 @@ def _platform_envelope() -> ErrorEnvelope:
         message="Tracecat could not execute the workflow",
         retry_disposition=RetryDisposition.RETRYABLE,
     )
-
-
-def _capture_application_error(
-    envelope: ErrorEnvelope,
-    *details: object,
-    next_retry_delay: timedelta | None = None,
-) -> ApplicationError:
-    with pytest.raises(ApplicationError) as exc_info:
-        raise_application_error_from_envelope(
-            envelope,
-            *details,
-            next_retry_delay=next_retry_delay,
-        )
-    return exc_info.value
 
 
 def _capture_wrapped_application_error(

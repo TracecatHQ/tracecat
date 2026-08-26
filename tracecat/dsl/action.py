@@ -76,8 +76,8 @@ from tracecat.storage.object import (
 from tracecat.storage.utils import is_retryable_storage_transport_error
 from tracecat.temporal.errors import (
     extract_error_envelope,
-    extract_error_envelopes_from_details,
-    raise_application_error_from_envelope,
+    is_classified_detail,
+    raise_wrapped_application_error,
 )
 from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
@@ -217,10 +217,6 @@ class BuildAgentArgsActivityInput(BaseModel):
     role: Role
     task_environment: str | None
     default_environment: str
-
-
-class BuildPresetAgentArgsActivityInput(BuildAgentArgsActivityInput):
-    """Input for building preset agent arguments with the shared wire shape."""
 
 
 class EvaluateTemplatedObjectActivityInput(BaseModel):
@@ -705,7 +701,7 @@ class DSLActivities:
     @staticmethod
     @activity.defn
     async def build_preset_agent_args_activity(
-        input: BuildPresetAgentArgsActivityInput,
+        input: BuildAgentArgsActivityInput,
     ) -> PresetAgentActionArgs:
         """Build PresetAgentActionArgs via the shared _evaluate_agent_args helper."""
         evaled_args = await _evaluate_agent_args(input)
@@ -862,19 +858,11 @@ def _raise_classified_subflow_application_error(
     if isinstance(error, ApplicationError):
         error_type = error.type or type(error).__name__
         legacy_details = tuple(
-            detail
-            for detail in error.details
-            if extract_error_envelopes_from_details((detail,))
-        )
-        next_retry_delay = (
-            error.next_retry_delay
-            if envelope.retry_disposition is RetryDisposition.RETRYABLE
-            else None
+            detail for detail in error.details if is_classified_detail(detail)
         )
     else:
         error_type = type(error).__name__
         legacy_details = ()
-        next_retry_delay = None
 
     detail = ActionErrorInfo(
         ref=input.task.ref,
@@ -882,11 +870,10 @@ def _raise_classified_subflow_application_error(
         type=error_type,
         envelope=envelope,
     )
-    raise_application_error_from_envelope(
-        envelope,
-        detail,
-        *legacy_details,
-        next_retry_delay=next_retry_delay,
+    raise_wrapped_application_error(
+        error,
+        fallback=envelope,
+        details=(detail, *legacy_details),
     )
 
 

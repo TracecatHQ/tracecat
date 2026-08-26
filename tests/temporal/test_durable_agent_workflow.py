@@ -10,7 +10,7 @@ These tests verify the end-to-end workflow behavior including:
 import asyncio
 import os
 import uuid
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
@@ -59,6 +59,7 @@ from tracecat_ee.agent.workflows.durable import (
     WorkflowCancelRequest,
 )
 
+from tests.shared import recorded_patch_ids
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
@@ -415,29 +416,6 @@ async def replay_durable_agent_workflow_history(
             data_converter=temporal_client.data_converter,
         ).replay_workflows(histories(), raise_on_replay_failure=False)
     assert not replay_results.replay_failures
-
-
-async def recorded_patch_ids(
-    temporal_client: Client,
-    history: WorkflowHistory,
-) -> set[str]:
-    """Decode patch IDs recorded in a workflow history."""
-    patch_ids: set[str] = set()
-    for event in history.events:
-        if not event.HasField("marker_recorded_event_attributes"):
-            continue
-        attributes = event.marker_recorded_event_attributes
-        if attributes.marker_name != "core_patch":
-            continue
-        if "patch-data" not in attributes.details:
-            continue
-        patch_data = await temporal_client.data_converter.decode(
-            attributes.details["patch-data"].payloads
-        )
-        for data in patch_data:
-            if isinstance(data, Mapping) and isinstance(data.get("id"), str):
-                patch_ids.add(data["id"])
-    return patch_ids
 
 
 async def fetch_history_after_completed_workflow_task(

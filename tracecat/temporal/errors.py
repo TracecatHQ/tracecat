@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Sequence
 from datetime import timedelta
 from typing import Any, Literal, Never
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from temporalio.exceptions import ApplicationError, FailureError
 
 from tracecat.dsl.types import ActionErrorInfo
@@ -14,7 +14,6 @@ from tracecat.runtime.errors import (
     ErrorEnvelope,
     RetryDisposition,
     TracecatRuntimeError,
-    parse_error_envelope,
 )
 
 TEMPORAL_ERROR_DETAILS_SCHEMA = "tracecat.temporal_error.v1"
@@ -25,10 +24,9 @@ class TemporalErrorDetails(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, serialize_by_alias=True)
 
-    schema_: Literal["tracecat.temporal_error.v1"] = Field(
-        default=TEMPORAL_ERROR_DETAILS_SCHEMA,
-        alias="schema",
-    )
+    # Required so validation itself rejects undiscriminated payloads and the
+    # discriminator always survives ``exclude_unset`` serialization.
+    schema_: Literal["tracecat.temporal_error.v1"] = Field(alias="schema")
     envelope: ErrorEnvelope
 
 
@@ -46,15 +44,17 @@ def _application_error_from_envelope(
     """
     existing_envelope = _envelope_from_details(details)
     resolved_envelope = existing_envelope or envelope
-    serialized_details = _serialized_error_details(
+    transported_details = _serialized_error_details(
         details,
         envelope=None if existing_envelope is not None else envelope,
     )
-    transported_details = (
-        serialized_details if serialized_details is not None else tuple(details)
-    )
-    if _envelope_from_details(transported_details) is None:
-        adapter = TemporalErrorDetails(envelope=resolved_envelope)
+    if (
+        existing_envelope is None
+        and _envelope_from_details(transported_details) is None
+    ):
+        adapter = TemporalErrorDetails.model_validate(
+            {"schema": TEMPORAL_ERROR_DETAILS_SCHEMA, "envelope": resolved_envelope}
+        )
         transported_details = (
             *transported_details,
             adapter.model_dump(mode="json"),
@@ -130,19 +130,27 @@ def raise_wrapped_application_error(
 
 def extract_error_envelope(error: BaseException) -> ErrorEnvelope | None:
     """Extract the first valid envelope from an exception chain."""
-    envelopes = extract_error_envelopes(error)
-    return envelopes[0] if envelopes else None
+    for current in _error_chain(error):
+        if isinstance(current, TracecatRuntimeError):
+            return current.envelope
+        if (
+            isinstance(current, ApplicationError)
+            and (envelope := _envelope_from_details(current.details)) is not None
+        ):
+            return envelope
+    return None
 
 
 def extract_error_envelopes(error: BaseException) -> tuple[ErrorEnvelope, ...]:
     """Extract every valid envelope from an exception chain in transport order."""
     envelopes: list[ErrorEnvelope] = []
+    seen: set[ErrorEnvelope] = set()
     for current in _error_chain(error):
         if isinstance(current, TracecatRuntimeError):
-            _append_unique_envelope(envelopes, current.envelope)
+            _append_unique_envelope(envelopes, seen, current.envelope)
         if isinstance(current, ApplicationError):
-            for envelope in _envelopes_from_details(current.details):
-                _append_unique_envelope(envelopes, envelope)
+            for envelope in extract_error_envelopes_from_details(current.details):
+                _append_unique_envelope(envelopes, seen, envelope)
     return tuple(envelopes)
 
 
@@ -150,31 +158,33 @@ def extract_error_envelopes_from_details(
     details: Sequence[Any],
 ) -> tuple[ErrorEnvelope, ...]:
     """Extract envelopes only from explicitly classified transport details."""
-    return _envelopes_from_details(details)
+    envelopes: list[ErrorEnvelope] = []
+    seen: set[ErrorEnvelope] = set()
+    for detail in details:
+        for envelope in _envelopes_from_detail(detail):
+            _append_unique_envelope(envelopes, seen, envelope)
+    return tuple(envelopes)
 
 
 def _envelope_from_details(details: Sequence[Any]) -> ErrorEnvelope | None:
-    envelopes = _envelopes_from_details(details)
-    return envelopes[0] if envelopes else None
-
-
-def _envelopes_from_details(details: Sequence[Any]) -> tuple[ErrorEnvelope, ...]:
-    envelopes: list[ErrorEnvelope] = []
     for detail in details:
-        for envelope in _envelopes_from_detail(detail):
-            _append_unique_envelope(envelopes, envelope)
-    return tuple(envelopes)
+        if envelopes := _envelopes_from_detail(detail):
+            return envelopes[0]
+    return None
+
+
+def is_classified_detail(detail: Any) -> bool:
+    """Return whether a single transport detail is explicitly classified."""
+    return bool(_envelopes_from_detail(detail))
 
 
 def _serialized_error_details(
     details: Sequence[Any], envelope: ErrorEnvelope | None
-) -> tuple[Any, ...] | None:
+) -> tuple[Any, ...]:
     serialized: list[Any] = []
-    changed = False
     for detail in details:
         if isinstance(detail, TemporalErrorDetails):
             serialized.append(detail.model_dump(mode="json"))
-            changed = True
         elif isinstance(detail, ActionErrorInfo) and (
             detail.envelope is not None or envelope is not None
         ):
@@ -189,80 +199,68 @@ def _serialized_error_details(
                 envelope=detail.envelope or envelope,
             )
             serialized.append(classified.model_dump(mode="json"))
-            changed = True
         else:
             serialized.append(detail)
-    return tuple(serialized) if changed else None
+    return tuple(serialized)
+
+
+# The three classified transport shapes: a per-action error (optionally
+# nesting children), a bare envelope adapter, and the established workflow
+# ``{ref: info}`` details map. Anything else is unclassified. Validation is the
+# classification gate: both model shapes require the explicit ``schema``
+# discriminator, so an undiscriminated payload fails to parse.
+_CLASSIFIED_DETAIL_ADAPTER: TypeAdapter[
+    ActionErrorInfo | TemporalErrorDetails | dict[str, ActionErrorInfo]
+] = TypeAdapter(ActionErrorInfo | TemporalErrorDetails | dict[str, ActionErrorInfo])
 
 
 def _envelopes_from_detail(detail: Any) -> tuple[ErrorEnvelope, ...]:
-    if isinstance(detail, ActionErrorInfo):
-        nested_envelopes: list[ErrorEnvelope] = []
-        if detail.envelope is not None:
-            _append_unique_envelope(nested_envelopes, detail.envelope)
-        for child in detail.children or ():
-            child_envelopes = _envelopes_from_detail(child)
-            if not child_envelopes:
-                return ()
-            for envelope in child_envelopes:
-                _append_unique_envelope(nested_envelopes, envelope)
-        return tuple(nested_envelopes)
-    if isinstance(detail, TemporalErrorDetails):
-        return (detail.envelope,)
-    if not isinstance(detail, Mapping):
-        return ()
-
-    if detail.get("schema") == TEMPORAL_ERROR_DETAILS_SCHEMA:
-        if parse_error_envelope(detail.get("envelope")) is None:
-            return ()
-        try:
-            return (TemporalErrorDetails.model_validate(detail).envelope,)
-        except ValidationError:
-            return ()
-
     try:
-        parsed = ActionErrorInfo.model_validate(detail)
+        parsed = _CLASSIFIED_DETAIL_ADAPTER.validate_python(detail)
     except ValidationError:
-        pass
-    else:
-        raw_envelopes: list[ErrorEnvelope] = []
-        if parsed.envelope is not None:
-            if envelope := parse_error_envelope(detail.get("envelope")):
-                _append_unique_envelope(raw_envelopes, envelope)
-
-        if parsed.children is not None:
-            children = detail.get("children")
-            if not isinstance(children, Sequence):
-                return ()
-            for child in children:
-                child_envelopes = _envelopes_from_detail(child)
-                if not child_envelopes:
+        return ()
+    match parsed:
+        case ActionErrorInfo():
+            return _envelopes_from_action_error(parsed)
+        case TemporalErrorDetails():
+            return (parsed.envelope,)
+        case _:
+            # Every map value must be a complete, classified ActionErrorInfo;
+            # accepting a partial match would let arbitrary user payloads
+            # override classification.
+            envelopes: list[ErrorEnvelope] = []
+            seen: set[ErrorEnvelope] = set()
+            for value in parsed.values():
+                value_envelopes = _envelopes_from_action_error(value)
+                if not value_envelopes:
                     return ()
-                for envelope in child_envelopes:
-                    _append_unique_envelope(raw_envelopes, envelope)
-        return tuple(raw_envelopes)
+                for envelope in value_envelopes:
+                    _append_unique_envelope(envelopes, seen, envelope)
+            return tuple(envelopes)
 
-    # Workflow-level action failures retain the established ``{ref: info}``
-    # details shape. Every value must be a complete ActionErrorInfo; accepting a
-    # partial match would let arbitrary user payloads override classification.
+
+def _envelopes_from_action_error(parsed: ActionErrorInfo) -> tuple[ErrorEnvelope, ...]:
+    """Collect envelopes from an action error tree, all-or-nothing."""
     envelopes: list[ErrorEnvelope] = []
-    for value in detail.values():
-        try:
-            ActionErrorInfo.model_validate(value)
-        except ValidationError:
+    seen: set[ErrorEnvelope] = set()
+    if parsed.envelope is not None:
+        _append_unique_envelope(envelopes, seen, parsed.envelope)
+    for child in parsed.children or ():
+        child_envelopes = _envelopes_from_action_error(child)
+        if not child_envelopes:
             return ()
-        value_envelopes = _envelopes_from_detail(value)
-        if not value_envelopes:
-            return ()
-        for envelope in value_envelopes:
-            _append_unique_envelope(envelopes, envelope)
+        for child_envelope in child_envelopes:
+            _append_unique_envelope(envelopes, seen, child_envelope)
     return tuple(envelopes)
 
 
 def _append_unique_envelope(
-    envelopes: list[ErrorEnvelope], envelope: ErrorEnvelope
+    envelopes: list[ErrorEnvelope],
+    seen: set[ErrorEnvelope],
+    envelope: ErrorEnvelope,
 ) -> None:
-    if envelope not in envelopes:
+    if envelope not in seen:
+        seen.add(envelope)
         envelopes.append(envelope)
 
 

@@ -81,10 +81,10 @@ class ErrorEnvelope(BaseModel):
 
     # The alias is the public contract. The suffix avoids overriding Pydantic's
     # deprecated ``BaseModel.schema()`` method while keeping the wire key exact.
-    schema_: Literal["tracecat.error.v1"] = Field(
-        default=ERROR_ENVELOPE_SCHEMA,
-        alias="schema",
-    )
+    # The field is deliberately required: validation itself then rejects
+    # undiscriminated payloads, and a required field always survives
+    # ``exclude_unset`` serialization onto the Temporal wire.
+    schema_: Literal["tracecat.error.v1"] = Field(alias="schema")
     owner: RuntimeErrorOwner
     kind: RuntimeErrorKind
     message: str
@@ -101,17 +101,12 @@ class ErrorEnvelope(BaseModel):
         cause: BaseException | None = None,
     ) -> ErrorEnvelope:
         """Construct a user-attributed error from an explicit enum kind."""
-        cls._require_kind(kind)
-        cls._require_retry_disposition(retry_disposition)
-        return cls.model_validate(
-            {
-                "schema": ERROR_ENVELOPE_SCHEMA,
-                "owner": RuntimeErrorOwner.USER,
-                "kind": kind,
-                "message": message,
-                "retry_disposition": retry_disposition,
-                "cause_type": type(cause).__name__ if cause is not None else None,
-            }
+        return cls._build(
+            RuntimeErrorOwner.USER,
+            kind=kind,
+            message=message,
+            retry_disposition=retry_disposition,
+            cause=cause,
         )
 
     @classmethod
@@ -124,12 +119,30 @@ class ErrorEnvelope(BaseModel):
         cause: BaseException | None = None,
     ) -> ErrorEnvelope:
         """Construct a platform-attributed error from an explicit enum kind."""
+        return cls._build(
+            RuntimeErrorOwner.PLATFORM,
+            kind=kind,
+            message=message,
+            retry_disposition=retry_disposition,
+            cause=cause,
+        )
+
+    @classmethod
+    def _build(
+        cls,
+        owner: RuntimeErrorOwner,
+        *,
+        kind: RuntimeErrorKind,
+        message: str,
+        retry_disposition: RetryDisposition,
+        cause: BaseException | None,
+    ) -> ErrorEnvelope:
         cls._require_kind(kind)
         cls._require_retry_disposition(retry_disposition)
         return cls.model_validate(
             {
                 "schema": ERROR_ENVELOPE_SCHEMA,
-                "owner": RuntimeErrorOwner.PLATFORM,
+                "owner": owner,
                 "kind": kind,
                 "message": message,
                 "retry_disposition": retry_disposition,
@@ -159,12 +172,14 @@ class TracecatRuntimeError(Exception):
 
 
 def parse_error_envelope(value: object) -> ErrorEnvelope | None:
-    """Parse only payloads carrying the explicit envelope discriminator."""
+    """Parse only payloads carrying the explicit envelope discriminator.
+
+    The required ``schema`` field makes validation the discriminator check:
+    payloads without it fail to parse.
+    """
     if isinstance(value, ErrorEnvelope):
         return value
     if not isinstance(value, Mapping):
-        return None
-    if value.get("schema") != ERROR_ENVELOPE_SCHEMA:
         return None
     try:
         return ErrorEnvelope.model_validate(value)

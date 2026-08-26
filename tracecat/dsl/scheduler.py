@@ -74,7 +74,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.temporal.errors import (
         extract_error_envelope,
-        extract_error_envelopes_from_details,
+        is_classified_detail,
     )
 
 
@@ -107,15 +107,14 @@ def _classified_action_error_info(
         return None
 
     for detail in error.details:
-        if not extract_error_envelopes_from_details((detail,)):
+        if not is_classified_detail(detail):
             continue
         try:
             parsed = ActionErrorInfo.model_validate(detail)
         except ValidationError:
             pass
         else:
-            if _action_error_contains_envelope(parsed):
-                return parsed.model_copy(update={"ref": ref, "stream_id": stream_id})
+            return parsed.model_copy(update={"ref": ref, "stream_id": stream_id})
 
         if children := _validated_action_error_map(detail):
             return ActionErrorInfo(
@@ -139,7 +138,7 @@ def _classified_action_error_info(
 def _validated_action_error_map(
     detail: object,
 ) -> tuple[ActionErrorInfo, ...] | None:
-    """Validate the established workflow ``{ref: ActionErrorInfo}`` shape."""
+    """Validate a classified workflow ``{ref: ActionErrorInfo}`` detail."""
     if not isinstance(detail, Mapping):
         return None
 
@@ -152,18 +151,7 @@ def _validated_action_error_map(
         except ValidationError:
             return None
 
-    if not parsed or not all(_action_error_contains_envelope(item) for item in parsed):
-        return None
     return tuple(parsed)
-
-
-def _action_error_contains_envelope(detail: ActionErrorInfo) -> bool:
-    """Return whether an action error directly or transitively is classified."""
-    if detail.envelope is not None:
-        return True
-    return any(
-        _action_error_contains_envelope(child) for child in detail.children or ()
-    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from temporalio.exceptions import ApplicationError
 
+from tests.shared import capture_application_error as _capture_application_error
 from tracecat.auth.types import Role
 from tracecat.dsl import scheduler as scheduler_module
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
@@ -32,17 +32,7 @@ from tracecat.runtime.errors import (
 )
 from tracecat.temporal.errors import (
     extract_error_envelopes,
-    raise_application_error_from_envelope,
 )
-
-
-def _capture_application_error(
-    envelope: ErrorEnvelope,
-    *details: object,
-) -> ApplicationError:
-    with pytest.raises(ApplicationError) as exc_info:
-        raise_application_error_from_envelope(envelope, *details)
-    return exc_info.value
 
 
 def _build_scheduler(

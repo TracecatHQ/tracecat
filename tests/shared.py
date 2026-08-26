@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
+from datetime import timedelta
 from pathlib import Path
 from types import ModuleType
 from typing import Any, TypeGuard
 
 import httpx
+import pytest
 import yaml
 from pydantic import ValidationError
+from temporalio.client import Client, WorkflowHistory
+from temporalio.exceptions import ApplicationError
 
 from tracecat.identifiers.action import ref
 from tracecat.identifiers.workflow import EXEC_ID_PREFIX, WorkflowUUID
 from tracecat.registry.actions.schemas import TemplateAction
+from tracecat.runtime.errors import ErrorEnvelope
 from tracecat.storage.object import (
     CollectionObject,
     ExternalObject,
@@ -22,6 +28,7 @@ from tracecat.storage.object import (
     StoredObjectValidator,
     get_object_storage,
 )
+from tracecat.temporal.errors import raise_application_error_from_envelope
 
 
 def user_client() -> httpx.AsyncClient:
@@ -33,6 +40,43 @@ def user_client() -> httpx.AsyncClient:
 
 
 TEST_WF_ID = WorkflowUUID(int=0)
+
+
+def capture_application_error(
+    envelope: ErrorEnvelope,
+    *details: object,
+    next_retry_delay: timedelta | None = None,
+) -> ApplicationError:
+    """Capture a classified Temporal application error raised by the helper."""
+    with pytest.raises(ApplicationError) as exc_info:
+        raise_application_error_from_envelope(
+            envelope,
+            *details,
+            next_retry_delay=next_retry_delay,
+        )
+    return exc_info.value
+
+
+async def recorded_patch_ids(
+    temporal_client: Client,
+    history: WorkflowHistory,
+) -> set[str]:
+    """Decode patch IDs recorded in a workflow history."""
+    patch_ids: set[str] = set()
+    for event in history.events:
+        if not event.HasField("marker_recorded_event_attributes"):
+            continue
+        attributes = event.marker_recorded_event_attributes
+        if attributes.marker_name != "core_patch":
+            continue
+        patch_payload = attributes.details.get("patch-data")
+        if patch_payload is None:
+            continue
+        patch_data = await temporal_client.data_converter.decode(patch_payload.payloads)
+        for data in patch_data:
+            if isinstance(data, Mapping) and isinstance(data.get("id"), str):
+                patch_ids.add(data["id"])
+    return patch_ids
 
 
 def generate_test_exec_id(name: str) -> str:

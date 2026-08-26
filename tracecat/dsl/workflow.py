@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Coroutine, Mapping
+from collections.abc import Awaitable, Coroutine, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Never
 
@@ -56,7 +56,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.action import (
         BuildAgentArgsActivityInput,
-        BuildPresetAgentArgsActivityInput,
         DSLActivities,
         EvaluateTemplatedObjectActivityInput,
         NormalizeTriggerInputsActivityInputs,
@@ -187,12 +186,13 @@ def _raise_workflow_application_error(
 ) -> Never:
     """Raise the terminal workflow error without changing legacy payloads."""
     n_exceptions = len(task_exceptions)
-    envelopes = tuple(
+    envelope_iter = (
         extract_error_envelope(info.exception) for info in task_exceptions.values()
     )
-    if envelopes and all(envelope is not None for envelope in envelopes):
-        primary_envelope = envelopes[0]
-        assert primary_envelope is not None
+    primary_envelope = next(envelope_iter, None)
+    if primary_envelope is not None and all(
+        envelope is not None for envelope in envelope_iter
+    ):
         error_details = {
             ref: info.details.model_dump(mode="json")
             for ref, info in task_exceptions.items()
@@ -1105,7 +1105,7 @@ class DSLWorkflow:
                     self._set_logical_time_context()
                     preset_action_args = await workflow.execute_activity(
                         DSLActivities.build_preset_agent_args_activity,
-                        arg=BuildPresetAgentArgsActivityInput(
+                        arg=BuildAgentArgsActivityInput(
                             args=dict(task.args),
                             operand=agent_operand,
                             role=self.role,
@@ -1942,6 +1942,28 @@ class DSLWorkflow:
             ),
         )
 
+    @staticmethod
+    def _adapt_handler_errors(
+        details: Sequence[Any],
+    ) -> list[ActionErrorInfo] | None:
+        """Adapt legacy application error details for an error handler."""
+        if not details:
+            return None
+
+        err_info_map = details[0]
+        if not isinstance(err_info_map, dict):
+            return [
+                ActionErrorInfo(
+                    ref="N/A",
+                    message=(
+                        "Unexpected error info object of type "
+                        f"{type(err_info_map).__name__}: {err_info_map}"
+                    ),
+                    type=type(err_info_map).__name__,
+                )
+            ]
+        return [ActionErrorInfo.model_validate(data) for data in err_info_map.values()]
+
     async def _handle_application_error(
         self,
         args: DSLRunArgs,
@@ -1968,21 +1990,7 @@ class DSLWorkflow:
                             err_info_map=err_info_map,
                             type=type(err_info_map).__name__,
                         )
-                        errors = [
-                            ActionErrorInfo(
-                                ref="N/A",
-                                message=(
-                                    "Unexpected error info object of type "
-                                    f"{type(err_info_map).__name__}: {err_info_map}"
-                                ),
-                                type=type(err_info_map).__name__,
-                            )
-                        ]
-                    else:
-                        errors = [
-                            ActionErrorInfo.model_validate(data)
-                            for data in err_info_map.values()
-                        ]
+                    errors = self._adapt_handler_errors(error.details)
                 else:
                     errors = None
 
