@@ -548,6 +548,12 @@ async def test_workflow_execution_stop_scope_guards(
         (case_dropdowns_router.reorder_dropdown_options, "case:update"),
         (case_dropdowns_router.list_case_dropdown_values, "case:read"),
         (case_dropdowns_router.set_case_dropdown_value, "case:update"),
+        (case_rows_router.list_case_rows, "case:read"),
+        (case_rows_router.list_case_linked_tables, "case:read"),
+        (case_rows_router.link_case_row, "case:update"),
+        (case_rows_router.batch_link_case_rows, "case:update"),
+        (case_rows_router.batch_unlink_case_rows, "case:update"),
+        (case_rows_router.unlink_case_row, "case:update"),
     ],
 )
 async def test_case_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:

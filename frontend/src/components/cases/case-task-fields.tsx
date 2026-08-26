@@ -18,6 +18,18 @@ import {
   priorityIconTone,
 } from "@/components/cases/case-task-status"
 import UserAvatar from "@/components/user-avatar"
+import { cn, INSET_SURFACE } from "@/lib/utils"
+
+/**
+ * The box a case panel's list lives in: the recessed, `border-border/60` card
+ * the attachments list and linked rows share with the tasks panel, so every
+ * panel reads as one box on one column. `p-2` around rows whose own `px-3`
+ * lands their text 20px in, on the comment cards' `px-5` inset.
+ */
+export const CASE_PANEL_BOX_CLASS = cn(
+  "overflow-hidden rounded-lg border border-border/60 p-2",
+  INSET_SURFACE
+)
 
 /**
  * The box a task line lives in, read and edit alike. Borderless and 44px tall:
@@ -29,7 +41,25 @@ import UserAvatar from "@/components/user-avatar"
 export const CASE_TASK_ROW_CLASS = "rounded-md px-3 transition-colors"
 
 /**
- * 24px hit target around a 20px glyph — the row's status and priority
+ * The box a lone action row lives in: the Tables panel's `Link table` row and
+ * the Attachments panel's empty state. The same recessed card as
+ * `CASE_PANEL_BOX_CLASS` with `p-1`, so one line of text does not sit in a
+ * 62px box; the row's own `px-4` keeps its text on the 20px inset.
+ */
+export const CASE_PANEL_ACTION_BOX_CLASS = cn(
+  "overflow-hidden rounded-lg border border-border/60 p-1",
+  INSET_SURFACE
+)
+
+/**
+ * Geometry of a lone action row inside `CASE_PANEL_ACTION_BOX_CLASS`: 36px
+ * tall, `px-4` inside the box's `p-1` for the shared 20px text inset.
+ */
+export const CASE_PANEL_ACTION_ROW_CLASS =
+  "h-9 rounded-md px-4 transition-colors"
+
+/**
+ * 24px hit target around a 16px glyph — the row's status and priority
  * triggers, and the composer's status trigger. 24px is the row's one control
  * height: the avatar and the workflow pill match it, so the whole metadata
  * cluster shares a baseline. Bare by design: the list is a flat stack of rows,

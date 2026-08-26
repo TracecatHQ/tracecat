@@ -8742,6 +8742,37 @@ export const $CaseFieldUpdate = {
   description: "Update a case field.",
 } as const
 
+export const $CaseLinkedTableRead = {
+  properties: {
+    table_id: {
+      type: "string",
+      format: "uuid",
+      title: "Table Id",
+    },
+    table_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Table Name",
+    },
+    row_count: {
+      type: "integer",
+      title: "Row Count",
+    },
+  },
+  type: "object",
+  required: ["table_id", "row_count"],
+  title: "CaseLinkedTableRead",
+  description: `One table with at least one row linked to a case.
+
+\`\`row_count\`\` counts links, including links whose source row was deleted.`,
+} as const
+
 export const $CasePriority = {
   type: "string",
   enum: ["unknown", "low", "medium", "high", "critical", "other"],
@@ -9089,6 +9120,83 @@ export const $CaseStatusGroupCounts = {
   },
   type: "object",
   title: "CaseStatusGroupCounts",
+} as const
+
+export const $CaseTableRowBatchLink = {
+  properties: {
+    table_id: {
+      type: "string",
+      format: "uuid",
+      title: "Table Id",
+    },
+    row_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 200,
+      minItems: 1,
+      title: "Row Ids",
+    },
+  },
+  type: "object",
+  required: ["table_id", "row_ids"],
+  title: "CaseTableRowBatchLink",
+} as const
+
+export const $CaseTableRowBatchLinkResponse = {
+  properties: {
+    linked_count: {
+      type: "integer",
+      title: "Linked Count",
+    },
+    already_linked_count: {
+      type: "integer",
+      title: "Already Linked Count",
+    },
+  },
+  type: "object",
+  required: ["linked_count", "already_linked_count"],
+  title: "CaseTableRowBatchLinkResponse",
+  description:
+    "linked_count + already_linked_count == number of distinct row IDs requested.",
+} as const
+
+export const $CaseTableRowBatchUnlink = {
+  properties: {
+    table_id: {
+      type: "string",
+      format: "uuid",
+      title: "Table Id",
+    },
+    row_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 200,
+      minItems: 1,
+      title: "Row Ids",
+    },
+  },
+  type: "object",
+  required: ["table_id", "row_ids"],
+  title: "CaseTableRowBatchUnlink",
+} as const
+
+export const $CaseTableRowBatchUnlinkResponse = {
+  properties: {
+    unlinked_count: {
+      type: "integer",
+      title: "Unlinked Count",
+    },
+  },
+  type: "object",
+  required: ["unlinked_count"],
+  title: "CaseTableRowBatchUnlinkResponse",
+  description: "Row IDs with no link are silently skipped.",
 } as const
 
 export const $CaseTableRowInsertCreate = {

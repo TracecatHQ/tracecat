@@ -1,155 +1,354 @@
 "use client"
 
-import { Table2 } from "lucide-react"
-import { useMemo } from "react"
-import type { CaseTableRowRead, TableRowRead } from "@/client"
-import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
-import { AgGridTable } from "@/components/tables/ag-grid-table"
-import { useGetTable, useListCaseRows } from "@/lib/hooks"
+import { Link2, Plus, Unlink2 } from "lucide-react"
+import { type ReactNode, useMemo, useState } from "react"
+import type { TableRowRead } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
+import { CaseLinkRowsDialog } from "@/components/cases/case-link-rows-dialog"
+import {
+  CASE_PANEL_ACTION_BOX_CLASS,
+  CASE_PANEL_ACTION_ROW_CLASS,
+  CASE_PANEL_BOX_CLASS,
+} from "@/components/cases/case-task-fields"
+import { Spinner } from "@/components/loading/spinner"
+import { TableRowsGrid } from "@/components/tables/table-rows-grid"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { toast } from "@/components/ui/use-toast"
+import {
+  CaseRowsUnlinkError,
+  useCaseLinkedTables,
+  useCaseTableRows,
+  useUnlinkCaseRows,
+} from "@/hooks/use-case-rows"
+import { toGridRow, UNAVAILABLE_ROW_CLASS_RULES } from "@/lib/cases/case-rows"
+import { getApiErrorDetail } from "@/lib/errors"
+import { useGetTable } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
 
-interface CaseLinkedRowsSectionProps {
+const EMPTY_SELECTION: ReadonlySet<string> = new Set()
+const EMPTY_ROWS: readonly TableRowRead[] = []
+
+/** Props for {@link CaseLinkedRowsSection}. */
+export interface CaseLinkedRowsSectionProps {
   caseId: string
   workspaceId: string
 }
 
-/** Display the hydrated table rows linked to a case. */
+/**
+ * The case's Tables panel: one grid per table with every row linked to the
+ * case, each with its own selection for unlinking, and a compact action bar
+ * beneath them that opens the link dialog. The action bar doubles as the
+ * empty state.
+ *
+ * Every mutation here is guarded by `case:update` on the API, so the select
+ * and unlink controls only render with that scope. The link and add controls
+ * additionally need `table:read`. Without those the grids stay read-only and
+ * the empty state is plain text.
+ */
 export function CaseLinkedRowsSection({
   caseId,
   workspaceId,
 }: CaseLinkedRowsSectionProps) {
-  const { caseRows, caseRowsIsLoading, caseRowsError } = useListCaseRows(
-    caseId,
-    workspaceId
-  )
-  const rows = caseRows.filter((row) => row.row_data)
+  const { linkedTables, linkedTablesIsLoading, linkedTablesError } =
+    useCaseLinkedTables({ caseId, workspaceId })
+  // Scopes still loading reads as "not permitted", so controls never flash.
+  const canUpdate = useScopeCheck("case:update") === true
+  // The link dialog lists tables, loads a schema and pages rows behind `table:read`.
+  const canLink =
+    useScopeCheck("case:update", ["table:read"], { all: true }) === true
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false)
+  const [linkDialogTableId, setLinkDialogTableId] = useState<string>()
 
-  const grouped = useMemo(() => {
-    const map = new Map<
-      string,
-      { tableName: string; rows: CaseTableRowRead[] }
-    >()
-    for (const row of rows) {
-      const existing = map.get(row.table_id)
-      if (existing) {
-        existing.rows.push(row)
-        continue
-      }
-      map.set(row.table_id, {
-        tableName: row.table_name ?? "Table",
-        rows: [row],
-      })
-    }
-    return Array.from(map.entries()).map(([tableId, value]) => ({
-      tableId,
-      tableName: value.tableName,
-      rows: value.rows,
-    }))
-  }, [rows])
-
-  if (caseRowsIsLoading) {
-    return <CenteredSpinner />
+  function openDialog(tableId?: string) {
+    setLinkDialogTableId(tableId)
+    setLinkDialogOpen(true)
   }
 
-  if (caseRowsError) {
+  if (linkedTablesIsLoading) {
     return (
-      <p className="p-2 text-sm text-destructive">
-        Failed to load linked table rows.
-      </p>
+      <div className={CASE_PANEL_BOX_CLASS}>
+        {[...Array(3)].map((_, index) => (
+          <Skeleton key={index} className="mx-2 my-1 h-7 rounded-md" />
+        ))}
+      </div>
     )
   }
 
-  if (grouped.length === 0) {
-    return <NoLinkedRows />
+  if (linkedTablesError) {
+    return (
+      <div className={CASE_PANEL_BOX_CLASS}>
+        <p className="px-3 py-2 text-sm text-muted-foreground">
+          Failed to load linked rows
+        </p>
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-4">
-      {grouped.map((group) => (
-        <LinkedTableGrid
-          key={group.tableId}
-          tableId={group.tableId}
-          tableName={group.tableName}
-          linkedRows={group.rows}
-          workspaceId={workspaceId}
-        />
-      ))}
-    </div>
-  )
-}
-
-function NoLinkedRows() {
-  return (
-    <div className="flex flex-col items-center justify-center py-4">
-      <div className="mb-3 rounded-full bg-muted/50 p-2">
-        <Table2 className="h-6 w-6 text-muted-foreground" />
+    <>
+      <div className="flex flex-col gap-6">
+        {linkedTables.map((linkedTable) => (
+          <CaseLinkedTableSection
+            key={linkedTable.table_id}
+            caseId={caseId}
+            workspaceId={workspaceId}
+            tableId={linkedTable.table_id}
+            tableName={linkedTable.table_name ?? null}
+            rowCount={linkedTable.row_count}
+            canUpdate={canUpdate}
+            canLink={canLink}
+            onAddRows={() => openDialog(linkedTable.table_id)}
+          />
+        ))}
+        {canLink && (
+          <div className={CASE_PANEL_ACTION_BOX_CLASS}>
+            <LinkTableRow onClick={() => openDialog()} />
+          </div>
+        )}
+        {!canLink && linkedTables.length === 0 && (
+          <div className={CASE_PANEL_ACTION_BOX_CLASS}>
+            <p
+              className={cn(
+                CASE_PANEL_ACTION_ROW_CLASS,
+                "flex items-center text-sm text-muted-foreground"
+              )}
+            >
+              No linked rows
+            </p>
+          </div>
+        )}
       </div>
-      <h3 className="mb-1 text-sm font-medium text-muted-foreground">
-        No linked table rows
-      </h3>
-      <p className="max-w-[250px] text-center text-xs text-muted-foreground/75">
-        Rows linked to this case will appear here
-      </p>
-    </div>
+      <CaseLinkRowsDialog
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        caseId={caseId}
+        workspaceId={workspaceId}
+        initialTableId={linkDialogTableId}
+      />
+    </>
   )
 }
 
-function LinkedTableGrid({
+interface LinkTableRowProps {
+  onClick: () => void
+}
+
+/**
+ * Muted ghost row that opens the link dialog. A compact action bar below the
+ * tables rather than a full task row: one line of text, boxed on its own,
+ * sharing its geometry with the attachments panel's empty state.
+ */
+function LinkTableRow({ onClick }: LinkTableRowProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        CASE_PANEL_ACTION_ROW_CLASS,
+        "flex w-full items-center gap-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+      )}
+    >
+      <span className="flex size-6 shrink-0 items-center justify-center">
+        <Link2 className="size-4" />
+      </span>
+      Link table
+    </button>
+  )
+}
+
+interface CaseLinkedTableSectionProps {
+  caseId: string
+  workspaceId: string
+  tableId: string
+  tableName: string | null
+  rowCount: number
+  /** Whether the viewer holds `case:update`; gates row selection and unlink. */
+  canUpdate: boolean
+  /**
+   * Whether the viewer holds both `case:update` and `table:read`; gates the
+   * add button, since the link dialog reads tables.
+   */
+  canLink: boolean
+  onAddRows: () => void
+}
+
+function CaseLinkedTableSection({
+  caseId,
+  workspaceId,
   tableId,
   tableName,
-  linkedRows,
-  workspaceId,
-}: {
-  tableId: string
-  tableName: string
-  linkedRows: CaseTableRowRead[]
-  workspaceId: string
-}) {
+  rowCount,
+  canUpdate,
+  canLink,
+  onAddRows,
+}: CaseLinkedTableSectionProps) {
+  const [selectedRowIds, setSelectedRowIds] =
+    useState<ReadonlySet<string>>(EMPTY_SELECTION)
+
   const { table, tableIsLoading, tableError } = useGetTable({
     tableId,
     workspaceId,
   })
+  const {
+    caseTableRows,
+    caseTableRowsIsLoading: rowsIsLoading,
+    caseTableRowsError: rowsError,
+  } = useCaseTableRows({ caseId, tableId, workspaceId })
+  const { unlinkCaseRows, unlinkCaseRowsIsPending } = useUnlinkCaseRows({
+    caseId,
+    workspaceId,
+  })
 
-  const rowData = useMemo<TableRowRead[]>(() => {
-    return linkedRows.map((row) => {
-      const payload =
-        row.row_data && typeof row.row_data === "object" ? row.row_data : {}
-      return {
-        ...(payload as Record<string, unknown>),
-        id: row.row_id,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
+  const rows = useMemo<readonly TableRowRead[]>(
+    () =>
+      caseTableRows.length > 0 ? caseTableRows.map(toGridRow) : EMPTY_ROWS,
+    [caseTableRows]
+  )
+  const selectedCount = selectedRowIds.size
+
+  async function handleUnlink() {
+    const rowIds = [...selectedRowIds]
+    if (rowIds.length === 0) return
+    try {
+      const { unlinkedCount } = await unlinkCaseRows({ tableId, rowIds })
+      setSelectedRowIds(EMPTY_SELECTION)
+      toast({
+        title: "Rows unlinked",
+        description: `Unlinked ${unlinkedCount} ${
+          unlinkedCount === 1 ? "row" : "rows"
+        } from this case.`,
+      })
+    } catch (error) {
+      // Every request commits on its own: deselect what landed before a retry.
+      if (error instanceof CaseRowsUnlinkError) {
+        const committedRowIds = new Set(error.committedRowIds)
+        setSelectedRowIds((previous) =>
+          dropCommitted(previous, committedRowIds)
+        )
+        const detail = getApiErrorDetail(error.cause) ?? "Try again."
+        if (error.unlinkedCount > 0) {
+          toast({
+            title: "Some rows were not unlinked",
+            description: `Unlinked ${error.unlinkedCount} ${
+              error.unlinkedCount === 1 ? "row" : "rows"
+            } before a request failed. ${detail}`,
+            variant: "destructive",
+          })
+          return
+        }
+        toast({
+          title: "Could not unlink rows",
+          description: detail,
+          variant: "destructive",
+        })
+        return
       }
-    })
-  }, [linkedRows])
+      toast({
+        title: "Could not unlink rows",
+        description: getApiErrorDetail(error) ?? "Try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  let gridContent: ReactNode
+  if (tableIsLoading) {
+    gridContent = (
+      <div className="flex h-20 items-center justify-center">
+        <Spinner className="size-4" />
+      </div>
+    )
+  } else if (tableError || !table) {
+    gridContent = (
+      <div className="p-3 text-sm text-destructive">
+        Failed to load table schema.
+      </div>
+    )
+  } else if (rowsError) {
+    gridContent = (
+      <div className="p-3 text-sm text-destructive">
+        Failed to load linked rows.
+      </div>
+    )
+  } else {
+    gridContent = (
+      <TableRowsGrid
+        columns={table.columns}
+        rows={rows}
+        tableId={tableId}
+        isLoading={rowsIsLoading}
+        selectable={canUpdate}
+        selectedRowIds={selectedRowIds}
+        onSelectedRowIdsChange={(ids) => setSelectedRowIds(new Set(ids))}
+        autoHeight
+        rowClassRules={UNAVAILABLE_ROW_CLASS_RULES}
+        widthScope="case-rows"
+      />
+    )
+  }
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium">{tableName}</p>
-        <span className="text-xs text-muted-foreground">
-          {rowData.length} linked row{rowData.length === 1 ? "" : "s"}
-        </span>
-      </div>
-      <div className="overflow-x-auto rounded-md border">
-        <div className="min-w-[1200px]">
-          {tableIsLoading ? (
-            <div className="flex h-20 items-center justify-center">
-              <Spinner className="size-4" />
-            </div>
-          ) : tableError || !table ? (
-            <div className="p-3 text-sm text-destructive">
-              Failed to load table schema.
-            </div>
-          ) : (
-            <AgGridTable
-              table={table}
-              rowsOverride={rowData}
-              readOnly={true}
-              hidePagination={true}
-            />
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between px-1 py-1.5">
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-medium">{tableName ?? "Table"}</span>
+          <span className="text-xs text-muted-foreground">
+            {rowCount} {rowCount === 1 ? "row" : "rows"}
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          {canUpdate && selectedCount > 0 && (
+            <>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {selectedCount} selected
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                disabled={unlinkCaseRowsIsPending}
+                onClick={handleUnlink}
+              >
+                {unlinkCaseRowsIsPending ? (
+                  <Spinner className="mr-1 size-3" />
+                ) : (
+                  <Unlink2 className="mr-1 size-3" />
+                )}
+                Unlink
+              </Button>
+            </>
+          )}
+          {canLink && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={onAddRows}
+            >
+              <Plus className="mr-1 size-3" />
+              Add rows
+            </Button>
           )}
         </div>
       </div>
+      <div className="overflow-x-auto rounded-md border">
+        <div className="min-w-[1200px]">{gridContent}</div>
+      </div>
     </div>
   )
+}
+
+/**
+ * The selection minus everything a failed multi-request unlink already
+ * committed, so a retry only re-sends what is left.
+ */
+function dropCommitted(
+  selected: ReadonlySet<string>,
+  committedRowIds: ReadonlySet<string>
+): ReadonlySet<string> {
+  const remaining = new Set(
+    [...selected].filter((rowId) => !committedRowIds.has(rowId))
+  )
+  return remaining.size === 0 ? EMPTY_SELECTION : remaining
 }
