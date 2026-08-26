@@ -18,6 +18,18 @@ import {
   priorityIconTone,
 } from "@/components/cases/case-task-status"
 import UserAvatar from "@/components/user-avatar"
+import { cn, INSET_SURFACE } from "@/lib/utils"
+
+/**
+ * The box a case panel's list lives in: the recessed, `border-border/60` card
+ * the attachments list and linked rows share with the tasks panel, so every
+ * panel reads as one box on one column. `p-2` around rows whose own `px-3`
+ * lands their text 20px in, on the comment cards' `px-5` inset.
+ */
+export const CASE_PANEL_BOX_CLASS = cn(
+  "overflow-hidden rounded-lg border border-border/60 p-2",
+  INSET_SURFACE
+)
 
 /**
  * The box a task line lives in, read and edit alike. Borderless and 44px tall:

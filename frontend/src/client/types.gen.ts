@@ -2377,6 +2377,17 @@ export type CaseFieldUpdate = {
 }
 
 /**
+ * One table with at least one row linked to a case.
+ *
+ * ``row_count`` counts links, including links whose source row was deleted.
+ */
+export type CaseLinkedTableRead = {
+  table_id: string
+  table_name?: string | null
+  row_count: number
+}
+
+/**
  * Case priority values aligned with urgency levels.
  *
  * Values:
@@ -2487,6 +2498,31 @@ export type CaseStatusGroupCounts = {
   closed?: number
   unknown?: number
   other?: number
+}
+
+export type CaseTableRowBatchLink = {
+  table_id: string
+  row_ids: Array<string>
+}
+
+/**
+ * linked_count + already_linked_count == number of distinct row IDs requested.
+ */
+export type CaseTableRowBatchLinkResponse = {
+  linked_count: number
+  already_linked_count: number
+}
+
+export type CaseTableRowBatchUnlink = {
+  table_id: string
+  row_ids: Array<string>
+}
+
+/**
+ * Row IDs with no link are silently skipped.
+ */
+export type CaseTableRowBatchUnlinkResponse = {
+  unlinked_count: number
 }
 
 export type CaseTableRowInsertCreate = {
@@ -13349,6 +13385,10 @@ export type CasesListCaseRowsData = {
   cursor?: string | null
   limit?: number
   reverse?: boolean
+  /**
+   * Restrict results to one linked table
+   */
+  tableId?: string | null
   workspaceId: string
 }
 
@@ -13363,6 +13403,13 @@ export type CasesLinkCaseRowData = {
 
 export type CasesLinkCaseRowResponse = CaseTableRowRead
 
+export type CasesListCaseLinkedTablesData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListCaseLinkedTablesResponse = Array<CaseLinkedTableRead>
+
 export type CasesInsertCaseRowData = {
   caseId: string
   requestBody: CaseTableRowInsertCreate
@@ -13370,6 +13417,22 @@ export type CasesInsertCaseRowData = {
 }
 
 export type CasesInsertCaseRowResponse = CaseTableRowRead
+
+export type CasesBatchLinkCaseRowsData = {
+  caseId: string
+  requestBody: CaseTableRowBatchLink
+  workspaceId: string
+}
+
+export type CasesBatchLinkCaseRowsResponse = CaseTableRowBatchLinkResponse
+
+export type CasesBatchUnlinkCaseRowsData = {
+  caseId: string
+  requestBody: CaseTableRowBatchUnlink
+  workspaceId: string
+}
+
+export type CasesBatchUnlinkCaseRowsResponse = CaseTableRowBatchUnlinkResponse
 
 export type CasesUnlinkCaseRowData = {
   caseId: string
@@ -19373,6 +19436,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/tables": {
+    get: {
+      req: CasesListCaseLinkedTablesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseLinkedTableRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/cases/{case_id}/rows/insert": {
     post: {
       req: CasesInsertCaseRowData
@@ -19381,6 +19459,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: CaseTableRowRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/batch-link": {
+    post: {
+      req: CasesBatchLinkCaseRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTableRowBatchLinkResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/batch-unlink": {
+    post: {
+      req: CasesBatchUnlinkCaseRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTableRowBatchUnlinkResponse
         /**
          * Validation Error
          */

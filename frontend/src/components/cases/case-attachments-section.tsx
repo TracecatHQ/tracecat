@@ -28,6 +28,7 @@ import {
   caseAttachmentsListAttachments,
 } from "@/client"
 import {
+  CASE_PANEL_BOX_CLASS,
   CASE_TASK_ROW_CLASS,
   TASK_HOVER_REVEAL_CLASS,
   TASK_ICON_TRIGGER_CLASS,
@@ -64,13 +65,7 @@ import { describeAttachmentUploadError } from "@/lib/cases/attachment-errors"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import { useAttachmentObjectUrl } from "@/lib/cases/use-attachment-object-url"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
-import {
-  cn,
-  copyToClipboard,
-  formatFileSize,
-  INSET_SURFACE,
-  shortTimeAgo,
-} from "@/lib/utils"
+import { cn, copyToClipboard, formatFileSize, shortTimeAgo } from "@/lib/utils"
 
 interface CaseAttachmentsSectionProps {
   caseId: string
@@ -81,10 +76,7 @@ interface CaseAttachmentsSectionProps {
  * The list's box: the same recessed card the tasks panel and comment threads
  * use, so all three read as boxes on one column.
  */
-const CASE_ATTACHMENTS_CONTAINER_CLASS = cn(
-  "overflow-hidden rounded-lg border border-border/60 p-2",
-  INSET_SURFACE
-)
+const CASE_ATTACHMENTS_CONTAINER_CLASS = CASE_PANEL_BOX_CLASS
 
 const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024 // 20MB
 

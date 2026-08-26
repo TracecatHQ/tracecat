@@ -14,6 +14,11 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.cases.rows.exceptions import raise_case_row_link_integrity_error
 from tracecat.cases.rows.schemas import (
+    CaseLinkedTableRead,
+    CaseTableRowBatchLink,
+    CaseTableRowBatchLinkResponse,
+    CaseTableRowBatchUnlink,
+    CaseTableRowBatchUnlinkResponse,
     CaseTableRowInsertCreate,
     CaseTableRowLinkCreate,
     CaseTableRowRead,
@@ -40,7 +45,15 @@ async def list_case_rows(
     ),
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),
+    table_id: uuid.UUID | None = Query(
+        default=None,
+        description="Restrict results to one linked table",
+    ),
 ) -> CursorPaginatedResponse[CaseTableRowRead]:
+    """List linked rows.
+
+    ``total_estimate`` is an exact count when ``table_id`` is set, null otherwise.
+    """
     service = CaseTableRowsService(session, role)
     try:
         await service.get_case_or_raise(case_id)
@@ -50,11 +63,29 @@ async def list_case_rows(
             cursor=cursor,
             reverse=reverse,
             include_row_data=True,
+            table_id=table_id,
         )
     except TracecatNotFoundError as exc:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/{case_id}/rows/tables")
+@require_scope("case:read")
+async def list_case_linked_tables(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+) -> list[CaseLinkedTableRead]:
+    """List the tables that have rows linked to a case."""
+    service = CaseTableRowsService(session, role)
+    try:
+        await service.get_case_or_raise(case_id)
+        return await service.list_linked_tables(case_id=case_id)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.post("/{case_id}/rows", status_code=HTTP_201_CREATED)
@@ -99,6 +130,53 @@ async def insert_case_row(
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/{case_id}/rows/batch-link")
+@require_scope("case:update")
+async def batch_link_case_rows(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    params: CaseTableRowBatchLink,
+) -> CaseTableRowBatchLinkResponse:
+    """Link rows in bulk; conflict handling makes an integrity error unreachable."""
+    service = CaseTableRowsService(session, role)
+    try:
+        case = await service.get_case_or_raise(case_id)
+        return await service.link_rows(
+            case=case,
+            table_id=params.table_id,
+            row_ids=params.row_ids,
+        )
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/{case_id}/rows/batch-unlink")
+@require_scope("case:update")
+async def batch_unlink_case_rows(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    params: CaseTableRowBatchUnlink,
+) -> CaseTableRowBatchUnlinkResponse:
+    """Unlink rows in bulk, returning zero for a fully no-op batch."""
+    service = CaseTableRowsService(session, role)
+    try:
+        case = await service.get_case_or_raise(case_id)
+        unlinked_count = await service.unlink_rows(
+            case=case,
+            table_id=params.table_id,
+            row_ids=params.row_ids,
+        )
+        return CaseTableRowBatchUnlinkResponse(unlinked_count=unlinked_count)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.delete("/{case_id}/rows/{table_id}/{row_id}", status_code=HTTP_204_NO_CONTENT)

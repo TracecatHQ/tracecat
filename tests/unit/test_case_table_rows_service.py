@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.rows import service as case_rows_service_module
 from tracecat.cases.rows.schemas import CaseTableRowLinkCreate
 from tracecat.cases.rows.service import (
@@ -17,7 +17,8 @@ from tracecat.cases.rows.service import (
 )
 from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
-from tracecat.db.models import CaseTableRow, Table
+from tracecat.db.models import CaseEvent, CaseTableRow, Table
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
@@ -80,6 +81,37 @@ async def _create_table_with_row(
     row_id = row.get("id")
     assert isinstance(row_id, uuid.UUID)
     return table.id, row_id
+
+
+async def _create_table_with_rows(
+    tables_service: TablesService,
+    *,
+    name: str,
+    values: Sequence[str],
+) -> tuple[uuid.UUID, list[uuid.UUID]]:
+    table = await tables_service.create_table(
+        TableCreate(
+            name=name,
+            columns=[
+                TableColumnCreate(
+                    name="value",
+                    type=SqlType.TEXT,
+                    nullable=True,
+                    default=None,
+                )
+            ],
+        )
+    )
+    row_ids: list[uuid.UUID] = []
+    for value in values:
+        row = await tables_service.insert_row(
+            table,
+            TableRowInsert(data={"value": value}),
+        )
+        row_id = row.get("id")
+        assert isinstance(row_id, uuid.UUID)
+        row_ids.append(row_id)
+    return table.id, row_ids
 
 
 @pytest.mark.anyio
@@ -442,3 +474,473 @@ async def test_list_rows_reverse_pagination_cursors_round_trip(
     assert [item.id for item in back_to_first.items] == expected_ids[:2]
     assert back_to_first.next_cursor is not None
     assert back_to_first.prev_cursor is None
+
+
+@pytest.mark.anyio
+async def test_list_rows_filters_by_table_and_returns_exact_total(
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table_a_id, table_a_row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_filter_a_{uuid.uuid4().hex[:8]}",
+        values=["a1", "a2", "a3"],
+    )
+    table_b_id, table_b_row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_filter_b_{uuid.uuid4().hex[:8]}",
+        values=["b1", "b2"],
+    )
+    await case_rows_service.link_rows(
+        case=case,
+        table_id=table_a_id,
+        row_ids=table_a_row_ids,
+    )
+    await case_rows_service.link_rows(
+        case=case,
+        table_id=table_b_id,
+        row_ids=table_b_row_ids,
+    )
+
+    first_page = await case_rows_service.list_rows(
+        case_id=case.id,
+        limit=2,
+        include_row_data=False,
+        table_id=table_a_id,
+    )
+    assert len(first_page.items) == 2
+    assert all(item.table_id == table_a_id for item in first_page.items)
+    assert first_page.total_estimate == 3
+    assert first_page.next_cursor is not None
+
+    second_page = await case_rows_service.list_rows(
+        case_id=case.id,
+        limit=2,
+        cursor=first_page.next_cursor,
+        include_row_data=False,
+        table_id=table_a_id,
+    )
+    assert len(second_page.items) == 1
+    assert second_page.items[0].table_id == table_a_id
+    assert second_page.total_estimate == 3
+
+    unfiltered = await case_rows_service.list_rows(
+        case_id=case.id,
+        limit=10,
+        include_row_data=False,
+    )
+    assert len(unfiltered.items) == 5
+    assert unfiltered.total_estimate is None
+
+
+@pytest.mark.anyio
+async def test_list_linked_tables_returns_counts_ordered_by_name(
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    zzz_table_id, zzz_row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"zzz_case_rows_{uuid.uuid4().hex[:8]}",
+        values=["z1", "z2", "z3"],
+    )
+    aaa_table_id, aaa_row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"aaa_case_rows_{uuid.uuid4().hex[:8]}",
+        values=["a1", "a2"],
+    )
+    await case_rows_service.link_rows(
+        case=case,
+        table_id=zzz_table_id,
+        row_ids=zzz_row_ids,
+    )
+    await case_rows_service.link_rows(
+        case=case,
+        table_id=aaa_table_id,
+        row_ids=aaa_row_ids,
+    )
+
+    linked_tables = await case_rows_service.list_linked_tables(case_id=case.id)
+
+    assert [(linked.table_id, linked.row_count) for linked in linked_tables] == [
+        (aaa_table_id, 2),
+        (zzz_table_id, 3),
+    ]
+
+    fresh_case = await _create_case(cases_service)
+    assert await case_rows_service.list_linked_tables(case_id=fresh_case.id) == []
+
+
+@pytest.mark.anyio
+async def test_link_rows_links_all_and_dedupes(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table_id, row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_batch_dedupe_{uuid.uuid4().hex[:8]}",
+        values=["one", "two", "three"],
+    )
+
+    result = await case_rows_service.link_rows(
+        case=case,
+        table_id=table_id,
+        row_ids=[row_ids[0], row_ids[1], row_ids[1], row_ids[2]],
+    )
+
+    assert result.linked_count == 3
+    assert result.already_linked_count == 0
+    count = await session.scalar(
+        select(func.count())
+        .select_from(CaseTableRow)
+        .where(CaseTableRow.case_id == case.id)
+    )
+    assert count == 3
+
+
+@pytest.mark.anyio
+async def test_link_rows_reports_already_linked(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table_id, row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_batch_existing_{uuid.uuid4().hex[:8]}",
+        values=["one", "two"],
+    )
+    await case_rows_service.link_row(
+        case=case,
+        params=CaseTableRowLinkCreate(table_id=table_id, row_id=row_ids[0]),
+    )
+
+    result = await case_rows_service.link_rows(
+        case=case,
+        table_id=table_id,
+        row_ids=row_ids,
+    )
+
+    assert result.linked_count == 1
+    assert result.already_linked_count == 1
+    count = await session.scalar(
+        select(func.count())
+        .select_from(CaseTableRow)
+        .where(CaseTableRow.case_id == case.id)
+    )
+    assert count == 2
+
+
+@pytest.mark.anyio
+async def test_link_rows_raises_not_found_for_missing_row(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table_id, row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_batch_missing_row_{uuid.uuid4().hex[:8]}",
+        values=["one"],
+    )
+
+    with pytest.raises(TracecatNotFoundError, match="1 of 2 rows not found"):
+        await case_rows_service.link_rows(
+            case=case,
+            table_id=table_id,
+            row_ids=[row_ids[0], uuid.uuid4()],
+        )
+
+    count = await session.scalar(
+        select(func.count())
+        .select_from(CaseTableRow)
+        .where(CaseTableRow.case_id == case.id)
+    )
+    assert count == 0
+
+
+@pytest.mark.anyio
+async def test_link_rows_raises_not_found_for_missing_table(
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+) -> None:
+    case = await _create_case(cases_service)
+
+    with pytest.raises(TracecatNotFoundError, match="Table not found"):
+        await case_rows_service.link_rows(
+            case=case,
+            table_id=uuid.uuid4(),
+            row_ids=[uuid.uuid4()],
+        )
+
+
+@pytest.mark.anyio
+async def test_link_rows_enforces_row_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    monkeypatch.setattr(case_rows_service_module, "MAX_LINKED_ROWS_PER_CASE", 2)
+    case = await _create_case(cases_service)
+    table_id, row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_batch_row_limit_{uuid.uuid4().hex[:8]}",
+        values=["one", "two", "three"],
+    )
+
+    with pytest.raises(ValueError, match="at most 2 linked rows"):
+        await case_rows_service.link_rows(
+            case=case,
+            table_id=table_id,
+            row_ids=row_ids,
+        )
+
+    count = await session.scalar(
+        select(func.count())
+        .select_from(CaseTableRow)
+        .where(CaseTableRow.case_id == case.id)
+    )
+    assert count == 0
+
+    result = await case_rows_service.link_rows(
+        case=case,
+        table_id=table_id,
+        row_ids=row_ids[:2],
+    )
+    assert result.linked_count == 2
+
+
+@pytest.mark.anyio
+async def test_link_rows_table_limit_blocks_new_table_but_allows_existing(
+    monkeypatch: pytest.MonkeyPatch,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    monkeypatch.setattr(case_rows_service_module, "MAX_TABLES_PER_CASE", 2)
+    case = await _create_case(cases_service)
+    table_a_id, table_a_row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_batch_limit_a_{uuid.uuid4().hex[:8]}",
+        values=["one", "extra"],
+    )
+    table_b_id, table_b_row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_batch_limit_b_{uuid.uuid4().hex[:8]}",
+        values=["two"],
+    )
+    table_c_id, table_c_row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_batch_limit_c_{uuid.uuid4().hex[:8]}",
+        values=["three"],
+    )
+    await case_rows_service.link_rows(
+        case=case,
+        table_id=table_a_id,
+        row_ids=[table_a_row_ids[0]],
+    )
+    await case_rows_service.link_rows(
+        case=case,
+        table_id=table_b_id,
+        row_ids=table_b_row_ids,
+    )
+
+    with pytest.raises(ValueError, match="at most 2 tables"):
+        await case_rows_service.link_rows(
+            case=case,
+            table_id=table_c_id,
+            row_ids=table_c_row_ids,
+        )
+
+    result = await case_rows_service.link_rows(
+        case=case,
+        table_id=table_a_id,
+        row_ids=[table_a_row_ids[1]],
+    )
+    assert result.linked_count == 1
+
+
+@pytest.mark.anyio
+async def test_link_rows_emits_one_event_per_new_link(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table_id, row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_batch_events_{uuid.uuid4().hex[:8]}",
+        values=["one", "two", "three"],
+    )
+
+    result = await case_rows_service.link_rows(
+        case=case,
+        table_id=table_id,
+        row_ids=row_ids,
+    )
+    event_count = await session.scalar(
+        select(func.count())
+        .select_from(CaseEvent)
+        .where(
+            CaseEvent.case_id == case.id,
+            CaseEvent.type == CaseEventType.TABLE_ROW_LINKED,
+        )
+    )
+    assert result.linked_count == 3
+    assert event_count == 3
+
+    duplicate_result = await case_rows_service.link_rows(
+        case=case,
+        table_id=table_id,
+        row_ids=row_ids,
+    )
+    event_count = await session.scalar(
+        select(func.count())
+        .select_from(CaseEvent)
+        .where(
+            CaseEvent.case_id == case.id,
+            CaseEvent.type == CaseEventType.TABLE_ROW_LINKED,
+        )
+    )
+    assert duplicate_result.linked_count == 0
+    assert event_count == 3
+
+
+@pytest.mark.anyio
+async def test_unlink_rows_deletes_matching_and_skips_missing(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table_id, row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_batch_unlink_{uuid.uuid4().hex[:8]}",
+        values=["one", "two"],
+    )
+    await case_rows_service.link_rows(
+        case=case,
+        table_id=table_id,
+        row_ids=row_ids,
+    )
+
+    unlinked_count = await case_rows_service.unlink_rows(
+        case=case,
+        table_id=table_id,
+        row_ids=[row_ids[0], uuid.uuid4()],
+    )
+
+    remaining = (
+        (
+            await session.execute(
+                select(CaseTableRow.row_id).where(CaseTableRow.case_id == case.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    event_count = await session.scalar(
+        select(func.count())
+        .select_from(CaseEvent)
+        .where(
+            CaseEvent.case_id == case.id,
+            CaseEvent.type == CaseEventType.TABLE_ROW_UNLINKED,
+        )
+    )
+    assert unlinked_count == 1
+    assert remaining == [row_ids[1]]
+    assert event_count == 1
+
+
+@pytest.mark.anyio
+async def test_unlink_rows_ignores_other_tables(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table_a_id, table_a_row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_unlink_other_a_{uuid.uuid4().hex[:8]}",
+        values=["one"],
+    )
+    table_b_id, table_b_row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_unlink_other_b_{uuid.uuid4().hex[:8]}",
+        values=["two"],
+    )
+    await case_rows_service.link_rows(
+        case=case,
+        table_id=table_a_id,
+        row_ids=table_a_row_ids,
+    )
+    await case_rows_service.link_rows(
+        case=case,
+        table_id=table_b_id,
+        row_ids=table_b_row_ids,
+    )
+
+    unlinked_count = await case_rows_service.unlink_rows(
+        case=case,
+        table_id=table_a_id,
+        row_ids=[table_a_row_ids[0], table_b_row_ids[0]],
+    )
+
+    remaining = (
+        (
+            await session.execute(
+                select(CaseTableRow.table_id, CaseTableRow.row_id).where(
+                    CaseTableRow.case_id == case.id
+                )
+            )
+        )
+        .tuples()
+        .all()
+    )
+    assert unlinked_count == 1
+    assert remaining == [(table_b_id, table_b_row_ids[0])]
+
+
+@pytest.mark.anyio
+async def test_unlink_rows_returns_zero_when_nothing_linked(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table_id, row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_unlink_empty_{uuid.uuid4().hex[:8]}",
+        values=["one"],
+    )
+
+    unlinked_count = await case_rows_service.unlink_rows(
+        case=case,
+        table_id=table_id,
+        row_ids=row_ids,
+    )
+
+    event_count = await session.scalar(
+        select(func.count())
+        .select_from(CaseEvent)
+        .where(
+            CaseEvent.case_id == case.id,
+            CaseEvent.type == CaseEventType.TABLE_ROW_UNLINKED,
+        )
+    )
+    assert unlinked_count == 0
+    assert event_count == 0

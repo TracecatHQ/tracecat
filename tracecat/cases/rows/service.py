@@ -15,6 +15,8 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.auth.types import Role
 from tracecat.cases.rows.schemas import (
+    CaseLinkedTableRead,
+    CaseTableRowBatchLinkResponse,
     CaseTableRowInsertCreate,
     CaseTableRowLinkCreate,
     CaseTableRowRead,
@@ -53,6 +55,36 @@ class CaseTableRowsService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalars().first()
 
+    async def _count_links(self, case_id: uuid.UUID) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(CaseTableRow)
+            .where(
+                CaseTableRow.workspace_id == self.workspace_id,
+                CaseTableRow.case_id == case_id,
+            )
+        )
+        return int((await self.session.scalar(stmt)) or 0)
+
+    async def _count_distinct_tables(self, case_id: uuid.UUID) -> int:
+        stmt = select(func.count(sa.distinct(CaseTableRow.table_id))).where(
+            CaseTableRow.workspace_id == self.workspace_id,
+            CaseTableRow.case_id == case_id,
+        )
+        return int((await self.session.scalar(stmt)) or 0)
+
+    async def _table_has_links(self, case_id: uuid.UUID, table_id: uuid.UUID) -> bool:
+        stmt = (
+            select(CaseTableRow.id)
+            .where(
+                CaseTableRow.workspace_id == self.workspace_id,
+                CaseTableRow.case_id == case_id,
+                CaseTableRow.table_id == table_id,
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalars().first() is not None
+
     async def list_rows(
         self,
         *,
@@ -61,13 +93,19 @@ class CaseTableRowsService(BaseWorkspaceService):
         cursor: str | None = None,
         reverse: bool = False,
         include_row_data: bool = True,
+        table_id: uuid.UUID | None = None,
     ) -> CursorPaginatedResponse[CaseTableRowRead]:
+        """List linked rows, with an exact total when filtered by table."""
+        filters = [
+            CaseTableRow.workspace_id == self.workspace_id,
+            CaseTableRow.case_id == case_id,
+        ]
+        if table_id is not None:
+            filters.append(CaseTableRow.table_id == table_id)
+
         stmt = (
             select(CaseTableRow)
-            .where(
-                CaseTableRow.workspace_id == self.workspace_id,
-                CaseTableRow.case_id == case_id,
-            )
+            .where(*filters)
             .options(selectinload(CaseTableRow.case))
         )
 
@@ -87,13 +125,54 @@ class CaseTableRowsService(BaseWorkspaceService):
             include_row_data=include_row_data,
         )
 
+        total_estimate = None
+        if table_id is not None:
+            count_stmt = select(func.count()).select_from(CaseTableRow).where(*filters)
+            total_estimate = int((await self.session.scalar(count_stmt)) or 0)
+
         return CursorPaginatedResponse(
             items=hydrated,
             next_cursor=page.next_cursor,
             prev_cursor=page.prev_cursor,
             has_more=page.has_more,
             has_previous=page.has_previous,
+            total_estimate=total_estimate,
         )
+
+    async def list_linked_tables(
+        self, *, case_id: uuid.UUID
+    ) -> list[CaseLinkedTableRead]:
+        """List linked tables with link counts ordered by table name."""
+        stmt = (
+            select(
+                CaseTableRow.table_id,
+                Table.name,
+                func.count().label("row_count"),
+            )
+            .join(
+                Table,
+                onclause=sa.and_(
+                    Table.id == CaseTableRow.table_id,
+                    Table.workspace_id == CaseTableRow.workspace_id,
+                ),
+                isouter=True,
+            )
+            .where(
+                CaseTableRow.workspace_id == self.workspace_id,
+                CaseTableRow.case_id == case_id,
+            )
+            .group_by(CaseTableRow.table_id, Table.name)
+            .order_by(Table.name.asc().nulls_last(), CaseTableRow.table_id.asc())
+        )
+        rows = (await self.session.execute(stmt)).tuples().all()
+        return [
+            CaseLinkedTableRead(
+                table_id=table_id,
+                table_name=table_name,
+                row_count=row_count,
+            )
+            for table_id, table_name, row_count in rows
+        ]
 
     async def link_row(
         self, *, case: Case, params: CaseTableRowLinkCreate
@@ -109,15 +188,7 @@ class CaseTableRowsService(BaseWorkspaceService):
         if existing is not None:
             return existing
 
-        total_links_stmt = (
-            select(func.count())
-            .select_from(CaseTableRow)
-            .where(
-                CaseTableRow.workspace_id == self.workspace_id,
-                CaseTableRow.case_id == case.id,
-            )
-        )
-        total_links = int((await self.session.scalar(total_links_stmt)) or 0)
+        total_links = await self._count_links(case.id)
         if total_links >= MAX_LINKED_ROWS_PER_CASE:
             existing = await self._get_existing_link(
                 case_id=case.id,
@@ -130,24 +201,9 @@ class CaseTableRowsService(BaseWorkspaceService):
                 f"A case can have at most {MAX_LINKED_ROWS_PER_CASE} linked rows"
             )
 
-        table_linked_stmt = select(CaseTableRow.id).where(
-            CaseTableRow.workspace_id == self.workspace_id,
-            CaseTableRow.case_id == case.id,
-            CaseTableRow.table_id == params.table_id,
-        )
-        table_already_linked = (
-            await self.session.execute(table_linked_stmt)
-        ).scalars().first() is not None
+        table_already_linked = await self._table_has_links(case.id, params.table_id)
         if not table_already_linked:
-            distinct_tables_stmt = select(
-                func.count(sa.distinct(CaseTableRow.table_id))
-            ).where(
-                CaseTableRow.workspace_id == self.workspace_id,
-                CaseTableRow.case_id == case.id,
-            )
-            distinct_tables = int(
-                (await self.session.scalar(distinct_tables_stmt)) or 0
-            )
+            distinct_tables = await self._count_distinct_tables(case.id)
             if distinct_tables >= MAX_TABLES_PER_CASE:
                 existing = await self._get_existing_link(
                     case_id=case.id,
@@ -197,6 +253,95 @@ class CaseTableRowsService(BaseWorkspaceService):
         await self.session.refresh(link)
         return link
 
+    async def link_rows(
+        self,
+        *,
+        case: Case,
+        table_id: uuid.UUID,
+        row_ids: Sequence[uuid.UUID],
+    ) -> CaseTableRowBatchLinkResponse:
+        """Link a batch of existing table rows to a case."""
+        requested = list(dict.fromkeys(row_ids))
+        if not requested:
+            return CaseTableRowBatchLinkResponse(
+                linked_count=0,
+                already_linked_count=0,
+            )
+
+        table = await self.tables.get_table(table_id)
+        found = await self.tables.get_rows(table, requested)
+        missing = [row_id for row_id in requested if row_id not in found]
+        if missing:
+            raise TracecatNotFoundError(
+                f"{len(missing)} of {len(requested)} rows not found in table {table.name}"
+            )
+
+        existing_stmt = select(CaseTableRow.row_id).where(
+            CaseTableRow.workspace_id == self.workspace_id,
+            CaseTableRow.case_id == case.id,
+            CaseTableRow.table_id == table.id,
+            CaseTableRow.row_id.in_(requested),
+        )
+        already_linked = set(
+            (await self.session.execute(existing_stmt)).scalars().all()
+        )
+        to_link = [row_id for row_id in requested if row_id not in already_linked]
+        if not to_link:
+            return CaseTableRowBatchLinkResponse(
+                linked_count=0,
+                already_linked_count=len(requested),
+            )
+
+        if await self._count_links(case.id) + len(to_link) > MAX_LINKED_ROWS_PER_CASE:
+            raise ValueError(
+                f"A case can have at most {MAX_LINKED_ROWS_PER_CASE} linked rows"
+            )
+
+        if (
+            not already_linked
+            and not await self._table_has_links(case.id, table.id)
+            and await self._count_distinct_tables(case.id) >= MAX_TABLES_PER_CASE
+        ):
+            raise ValueError(
+                f"A case can link rows from at most {MAX_TABLES_PER_CASE} tables"
+            )
+
+        stmt = (
+            insert(CaseTableRow)
+            .values(
+                [
+                    {
+                        "id": uuid.uuid4(),
+                        "workspace_id": self.workspace_id,
+                        "case_id": case.id,
+                        "table_id": table.id,
+                        "row_id": row_id,
+                    }
+                    for row_id in to_link
+                ]
+            )
+            .on_conflict_do_nothing(constraint="uq_case_table_row_link")
+            .returning(CaseTableRow.row_id)
+        )
+        inserted = list((await self.session.execute(stmt)).scalars().all())
+
+        events = CaseEventsService(self.session, self.role)
+        for row_id in inserted:
+            await events.create_event(
+                case,
+                TableRowLinkedEvent(
+                    table_id=table.id,
+                    table_name=table.name,
+                    row_id=row_id,
+                ),
+            )
+
+        await self.session.commit()
+        return CaseTableRowBatchLinkResponse(
+            linked_count=len(inserted),
+            already_linked_count=len(requested) - len(inserted),
+        )
+
     async def unlink_row(
         self, *, case: Case, table_id: uuid.UUID, row_id: uuid.UUID
     ) -> bool:
@@ -229,6 +374,50 @@ class CaseTableRowsService(BaseWorkspaceService):
         )
         await self.session.commit()
         return True
+
+    async def unlink_rows(
+        self,
+        *,
+        case: Case,
+        table_id: uuid.UUID,
+        row_ids: Sequence[uuid.UUID],
+    ) -> int:
+        """Unlink matching table rows from a case and skip missing links."""
+        requested = list(dict.fromkeys(row_ids))
+        if not requested:
+            return 0
+
+        stmt = (
+            sa.delete(CaseTableRow)
+            .where(
+                CaseTableRow.workspace_id == self.workspace_id,
+                CaseTableRow.case_id == case.id,
+                CaseTableRow.table_id == table_id,
+                CaseTableRow.row_id.in_(requested),
+            )
+            .returning(CaseTableRow.row_id)
+            .execution_options(synchronize_session=False)
+        )
+        deleted = list((await self.session.execute(stmt)).scalars().all())
+        if not deleted:
+            return 0
+
+        tables_by_id = await self._get_tables_by_id([table_id])
+        table = tables_by_id.get(table_id)
+        table_name = table.name if table is not None else None
+        events = CaseEventsService(self.session, self.role)
+        for row_id in deleted:
+            await events.create_event(
+                case,
+                TableRowUnlinkedEvent(
+                    table_id=table_id,
+                    table_name=table_name,
+                    row_id=row_id,
+                ),
+            )
+
+        await self.session.commit()
+        return len(deleted)
 
     async def insert_row_to_case(
         self,
