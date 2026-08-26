@@ -10377,7 +10377,10 @@ async def test_complete_skill_upload_replaces_the_entire_draft(
 ) -> None:
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"agent:update"}),
+    )
     skill_md_upload_id = uuid.uuid4()
     helper_upload_id = uuid.uuid4()
     existing_files = [
@@ -10470,7 +10473,10 @@ async def test_complete_skill_upload_reports_current_revision_on_conflict(
 ) -> None:
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"agent:update"}),
+    )
 
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
@@ -10504,6 +10510,39 @@ async def test_complete_skill_upload_reports_current_revision_on_conflict(
             workspace_id=str(workspace_id),
             skill_id=skill_id,
             base_revision=8,
+            files=[
+                mcp_server.SkillUploadedFile(path="SKILL.md", upload_id=uuid.uuid4())
+            ],
+            ctx=_fake_ctx(),
+        )
+
+
+@pytest.mark.anyio
+async def test_complete_skill_upload_checks_update_scope_before_reading_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id, scopes=frozenset())
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    def _unexpected_with_session(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("SkillService must not be opened before all scopes are checked")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        _unexpected_with_session,
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: agent:update"):
+        await _tool(mcp_server.complete_skill_upload)(
+            workspace_id=str(workspace_id),
+            skill_id=skill_id,
+            base_revision=7,
             files=[
                 mcp_server.SkillUploadedFile(path="SKILL.md", upload_id=uuid.uuid4())
             ],

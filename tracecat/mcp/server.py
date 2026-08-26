@@ -8574,6 +8574,7 @@ async def complete_skill_upload(
         _require_remote_mcp_context(ctx, tool_name="complete_skill_upload")
         normalized_paths = _validate_staged_skill_paths([file.path for file in files])
         _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "agent:update")
         async with SkillService.with_session(role=role) as svc:
             draft = await svc.get_draft(skill_id)
             if draft is None:
@@ -8608,6 +8609,9 @@ async def complete_skill_upload(
                     operations=operations,
                 ),
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValidationError as e:
