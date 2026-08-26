@@ -18,6 +18,7 @@ from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, Case
 from tracecat.cases.rows import service as case_rows_service_module
 from tracecat.cases.rows.schemas import (
     CaseTableRowBatchLinkResponse,
+    CaseTableRowInsertCreate,
     CaseTableRowLinkCreate,
 )
 from tracecat.cases.rows.service import (
@@ -28,6 +29,7 @@ from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.db.models import CaseEvent, CaseTableRow, Table, Workspace
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
@@ -123,6 +125,19 @@ async def _create_table_with_rows(
     return table.id, row_ids
 
 
+async def _count_physical_rows(
+    tables_service: TablesService,
+    table_id: uuid.UUID,
+) -> int:
+    """Count rows actually stored in the table, ignoring case links."""
+    table = await tables_service.get_table(table_id)
+    page = await tables_service.list_rows(
+        table,
+        params=CursorPaginationParams(limit=100),
+    )
+    return len(page.items)
+
+
 @pytest.mark.anyio
 async def test_link_row_allows_existing_table_when_table_limit_reached(
     cases_service: CasesService,
@@ -203,6 +218,118 @@ async def test_link_row_enforces_per_table_row_limit(
 
     assert link.table_id == other_table_id
     assert link.row_id == other_row_id
+
+
+@pytest.mark.anyio
+async def test_insert_row_to_case_rejects_before_inserting_when_table_is_full(
+    monkeypatch: pytest.MonkeyPatch,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    """A full table must reject the insert without writing the row."""
+    monkeypatch.setattr(case_rows_service_module, "MAX_LINKED_ROWS_PER_TABLE", 1)
+    case = await _create_case(cases_service)
+    table_id, row_id = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_insert_cap_{uuid.uuid4().hex[:8]}",
+        value="one",
+    )
+    await case_rows_service.link_row(
+        case=case,
+        params=CaseTableRowLinkCreate(table_id=table_id, row_id=row_id),
+    )
+
+    with pytest.raises(ValueError, match="at most 1 rows from one table"):
+        await case_rows_service.insert_row_to_case(
+            case=case,
+            params=CaseTableRowInsertCreate(
+                table_id=table_id,
+                row=TableRowInsert(data={"value": "two"}),
+            ),
+        )
+
+    assert await _count_physical_rows(tables_service, table_id) == 1
+
+
+@pytest.mark.anyio
+async def test_insert_row_to_case_rolls_back_the_row_when_linking_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    """A post-insert link failure must not leave an unlinked row behind."""
+    case = await _create_case(cases_service)
+    table_id, _ = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_insert_rollback_{uuid.uuid4().hex[:8]}",
+        value="one",
+    )
+
+    async def failing_link_row(**kwargs: Any) -> CaseTableRow:
+        raise ValueError("boom")
+
+    monkeypatch.setattr(case_rows_service, "link_row", failing_link_row)
+
+    with pytest.raises(ValueError, match="boom"):
+        await case_rows_service.insert_row_to_case(
+            case=case,
+            params=CaseTableRowInsertCreate(
+                table_id=table_id,
+                row=TableRowInsert(data={"value": "two"}),
+            ),
+        )
+
+    # The request lifecycle rolls the session back when the handler raises,
+    # which discards the flushed but uncommitted row.
+    await session.rollback()
+
+    assert await _count_physical_rows(tables_service, table_id) == 1
+
+
+@pytest.mark.anyio
+async def test_insert_row_to_case_links_the_inserted_row(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    """The inserted row is committed together with its case link."""
+    case = await _create_case(cases_service)
+    table_id, _ = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_insert_ok_{uuid.uuid4().hex[:8]}",
+        value="one",
+    )
+
+    link = await case_rows_service.insert_row_to_case(
+        case=case,
+        params=CaseTableRowInsertCreate(
+            table_id=table_id,
+            row=TableRowInsert(data={"value": "two"}),
+        ),
+    )
+
+    assert isinstance(link, CaseTableRow)
+    assert link.table_id == table_id
+    assert await _count_physical_rows(tables_service, table_id) == 2
+
+    table = await tables_service.get_table(table_id)
+    inserted = await tables_service.get_row(table, link.row_id)
+    assert inserted["value"] == "two"
+
+    link_count = await session.scalar(
+        select(func.count())
+        .select_from(CaseTableRow)
+        .where(
+            CaseTableRow.workspace_id == case_rows_service.workspace_id,
+            CaseTableRow.case_id == case.id,
+            CaseTableRow.table_id == table_id,
+        )
+    )
+    assert link_count == 1
 
 
 @pytest.mark.anyio
