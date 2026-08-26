@@ -123,8 +123,10 @@ export function buildBaseColumnDef(
 }
 
 /**
- * Column defs for a display-only grid: CellDisplay renderers, default sortable
- * AG Grid header, no editors.
+ * Column defs for a display-only grid: CellDisplay renderers, no editors, and
+ * no header sorting. The read-only grid is always fed one cursor page, so a
+ * client-side sort could only reorder the visible page and would silently
+ * revert on the next one; rows keep the API's order instead.
  */
 export function buildReadOnlyColumnDefs(
   columns: readonly TableColumnRead[],
@@ -138,6 +140,7 @@ export function buildReadOnlyColumnDefs(
         tableColumn: column,
       },
       editable: false,
+      sortable: false,
     }
   })
 }

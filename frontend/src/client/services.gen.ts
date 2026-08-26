@@ -10369,7 +10369,10 @@ export const casesLinkCaseRow = (
 
 /**
  * List Case Linked Tables
- * List the tables that have rows linked to a case.
+ * List the tables that have rows linked to a case, with their columns.
+ *
+ * Only ``case:read`` is required: the links, and the column definitions needed
+ * to render them, are case data.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.workspaceId

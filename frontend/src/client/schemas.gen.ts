@@ -8764,13 +8764,25 @@ export const $CaseLinkedTableRead = {
       type: "integer",
       title: "Row Count",
     },
+    columns: {
+      items: {
+        $ref: "#/components/schemas/TableColumnRead",
+      },
+      type: "array",
+      title: "Columns",
+    },
   },
   type: "object",
-  required: ["table_id", "row_count"],
+  required: ["table_id", "row_count", "columns"],
   title: "CaseLinkedTableRead",
   description: `One table with at least one row linked to a case.
 
-\`\`row_count\`\` counts links, including links whose source row was deleted.`,
+\`\`row_count\`\` counts links, including links whose source row was deleted.
+
+\`\`columns\`\` carries the table's column definitions so a caller can render
+the linked rows without a separate table read. It is empty when the table
+itself is gone. \`\`is_index\`\` is not populated here; read the table directly
+when unique-index state matters.`,
 } as const
 
 export const $CasePriority = {
@@ -9135,7 +9147,7 @@ export const $CaseTableRowBatchLink = {
         format: "uuid",
       },
       type: "array",
-      maxItems: 200,
+      maxItems: 100,
       minItems: 1,
       title: "Row Ids",
     },
@@ -9176,7 +9188,7 @@ export const $CaseTableRowBatchUnlink = {
         format: "uuid",
       },
       type: "array",
-      maxItems: 200,
+      maxItems: 100,
       minItems: 1,
       title: "Row Ids",
     },

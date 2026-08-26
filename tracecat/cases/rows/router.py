@@ -79,7 +79,11 @@ async def list_case_linked_tables(
     session: AsyncDBSession,
     case_id: uuid.UUID,
 ) -> list[CaseLinkedTableRead]:
-    """List the tables that have rows linked to a case."""
+    """List the tables that have rows linked to a case, with their columns.
+
+    Only ``case:read`` is required: the links, and the column definitions needed
+    to render them, are case data.
+    """
     service = CaseTableRowsService(session, role)
     try:
         await service.get_case_or_raise(case_id)

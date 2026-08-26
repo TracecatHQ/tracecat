@@ -1,33 +1,44 @@
 "use client"
 
-import { Link2, Plus, Unlink2 } from "lucide-react"
+import { ChevronLeft, ChevronRight, Link2, Plus, Unlink2 } from "lucide-react"
 import { type ReactNode, useMemo, useState } from "react"
-import type { TableRowRead } from "@/client"
+import type { TableColumnRead, TableRowRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseLinkRowsDialog } from "@/components/cases/case-link-rows-dialog"
 import {
   CASE_PANEL_ACTION_BOX_CLASS,
   CASE_PANEL_ACTION_ROW_CLASS,
   CASE_PANEL_BOX_CLASS,
+  TASK_ICON_TRIGGER_CLASS,
 } from "@/components/cases/case-task-fields"
 import { Spinner } from "@/components/loading/spinner"
 import { TableRowsGrid } from "@/components/tables/table-rows-grid"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
+import { useCaseRowsPagination } from "@/hooks/pagination/use-case-rows-pagination"
 import {
   CaseRowsUnlinkError,
   useCaseLinkedTables,
-  useCaseTableRows,
   useUnlinkCaseRows,
 } from "@/hooks/use-case-rows"
 import { toGridRow, UNAVAILABLE_ROW_CLASS_RULES } from "@/lib/cases/case-rows"
 import { getApiErrorDetail } from "@/lib/errors"
-import { useGetTable } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
+/** Rows per page, fixed: the case view pages with two header arrows, not a bar. */
+const PAGE_SIZE = 20
 const EMPTY_SELECTION: ReadonlySet<string> = new Set()
 const EMPTY_ROWS: readonly TableRowRead[] = []
+
+/**
+ * A header page arrow: the panel's shared 24px icon trigger, muted until
+ * hovered and faded out at the ends of the range.
+ */
+const PAGE_ARROW_CLASS = cn(
+  TASK_ICON_TRIGGER_CLASS,
+  "text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+)
 
 /** Props for {@link CaseLinkedRowsSection}. */
 export interface CaseLinkedRowsSectionProps {
@@ -36,15 +47,18 @@ export interface CaseLinkedRowsSectionProps {
 }
 
 /**
- * The case's Tables panel: one grid per table with every row linked to the
- * case, each with its own selection for unlinking, and a compact action bar
- * beneath them that opens the link dialog. The action bar doubles as the
- * empty state.
+ * The case's Tables panel: one grid per table with rows linked to the case,
+ * each with its own selection for unlinking, and a compact action bar beneath
+ * them that opens the link dialog. The action bar doubles as the empty state.
+ * Rows page {@link PAGE_SIZE} at a time behind two arrows in each table's
+ * header, so the panel carries no pagination bar.
  *
- * Every mutation here is guarded by `case:update` on the API, so the select
- * and unlink controls only render with that scope. The link and add controls
- * additionally need `table:read`. Without those the grids stay read-only and
- * the empty state is plain text.
+ * Column definitions ride along on the case-scoped linked-tables summary, so
+ * viewing and unlinking need no `table:read`. Every mutation here is guarded
+ * by `case:update` on the API, so the select and unlink controls only render
+ * with that scope. The link and add controls additionally need `table:read`,
+ * because the link dialog reads tables. Without those the grids stay read-only
+ * and the empty state is plain text.
  */
 export function CaseLinkedRowsSection({
   caseId,
@@ -96,6 +110,7 @@ export function CaseLinkedRowsSection({
             tableId={linkedTable.table_id}
             tableName={linkedTable.table_name ?? null}
             rowCount={linkedTable.row_count}
+            columns={linkedTable.columns}
             canUpdate={canUpdate}
             canLink={canLink}
             onAddRows={() => openDialog(linkedTable.table_id)}
@@ -163,6 +178,8 @@ interface CaseLinkedTableSectionProps {
   tableId: string
   tableName: string | null
   rowCount: number
+  /** Table schema from the case-scoped summary, not a `table:read`. */
+  columns: readonly TableColumnRead[]
   /** Whether the viewer holds `case:update`; gates row selection and unlink. */
   canUpdate: boolean
   /**
@@ -173,12 +190,21 @@ interface CaseLinkedTableSectionProps {
   onAddRows: () => void
 }
 
+/**
+ * One linked table: a header line and its grid. The header carries the table's
+ * name and row count on the left, and on the right the selection's unlink
+ * control, the add button, and — only once the rows outrun a single page — two
+ * borderless arrows. Paging is read-only, so the arrows ignore the scopes; the
+ * count text becomes the visible range once a paged request lands, standing in
+ * for the page number the arrows deliberately drop.
+ */
 function CaseLinkedTableSection({
   caseId,
   workspaceId,
   tableId,
   tableName,
   rowCount,
+  columns,
   canUpdate,
   canLink,
   onAddRows,
@@ -186,26 +212,43 @@ function CaseLinkedTableSection({
   const [selectedRowIds, setSelectedRowIds] =
     useState<ReadonlySet<string>>(EMPTY_SELECTION)
 
-  const { table, tableIsLoading, tableError } = useGetTable({
-    tableId,
-    workspaceId,
-  })
   const {
-    caseTableRows,
-    caseTableRowsIsLoading: rowsIsLoading,
-    caseTableRowsError: rowsError,
-  } = useCaseTableRows({ caseId, tableId, workspaceId })
+    data: caseRows,
+    isLoading: rowsIsLoading,
+    error: rowsError,
+    goToNextPage,
+    goToPreviousPage,
+    goToFirstPage,
+    hasNextPage,
+    hasPreviousPage,
+    totalEstimate,
+    startItem,
+    endItem,
+  } = useCaseRowsPagination({ caseId, tableId, workspaceId, limit: PAGE_SIZE })
   const { unlinkCaseRows, unlinkCaseRowsIsPending } = useUnlinkCaseRows({
     caseId,
     workspaceId,
   })
 
   const rows = useMemo<readonly TableRowRead[]>(
-    () =>
-      caseTableRows.length > 0 ? caseTableRows.map(toGridRow) : EMPTY_ROWS,
-    [caseTableRows]
+    () => (caseRows.length > 0 ? caseRows.map(toGridRow) : EMPTY_ROWS),
+    [caseRows]
   )
   const selectedCount = selectedRowIds.size
+  // One page of rows needs no arrows and no range: the count says it all.
+  const isPaged = hasPreviousPage || hasNextPage
+  // Stepping to a page reports the new page's bounds before its rows arrive, so
+  // an in-flight or failed page would read backwards ("21–20 of 0"): fall back
+  // to the summary count until the page has rows to describe.
+  const showRange =
+    isPaged &&
+    !rowsIsLoading &&
+    !rowsError &&
+    caseRows.length > 0 &&
+    endItem >= startItem
+  // A missing or zero estimate is the empty page talking, not a real total.
+  const totalRows =
+    totalEstimate && totalEstimate > 0 ? totalEstimate : rowCount
 
   async function handleUnlink() {
     const rowIds = [...selectedRowIds]
@@ -213,6 +256,7 @@ function CaseLinkedTableSection({
     try {
       const { unlinkedCount } = await unlinkCaseRows({ tableId, rowIds })
       setSelectedRowIds(EMPTY_SELECTION)
+      goToFirstPage()
       toast({
         title: "Rows unlinked",
         description: `Unlinked ${unlinkedCount} ${
@@ -226,6 +270,7 @@ function CaseLinkedTableSection({
         setSelectedRowIds((previous) =>
           dropCommitted(previous, committedRowIds)
         )
+        goToFirstPage()
         const detail = getApiErrorDetail(error.cause) ?? "Try again."
         if (error.unlinkedCount > 0) {
           toast({
@@ -253,19 +298,7 @@ function CaseLinkedTableSection({
   }
 
   let gridContent: ReactNode
-  if (tableIsLoading) {
-    gridContent = (
-      <div className="flex h-20 items-center justify-center">
-        <Spinner className="size-4" />
-      </div>
-    )
-  } else if (tableError || !table) {
-    gridContent = (
-      <div className="p-3 text-sm text-destructive">
-        Failed to load table schema.
-      </div>
-    )
-  } else if (rowsError) {
+  if (rowsError) {
     gridContent = (
       <div className="p-3 text-sm text-destructive">
         Failed to load linked rows.
@@ -274,7 +307,7 @@ function CaseLinkedTableSection({
   } else {
     gridContent = (
       <TableRowsGrid
-        columns={table.columns}
+        columns={columns}
         rows={rows}
         tableId={tableId}
         isLoading={rowsIsLoading}
@@ -293,9 +326,15 @@ function CaseLinkedTableSection({
       <div className="flex items-center justify-between px-1 py-1.5">
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-medium">{tableName ?? "Table"}</span>
-          <span className="text-xs text-muted-foreground">
-            {rowCount} {rowCount === 1 ? "row" : "rows"}
-          </span>
+          {showRange ? (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {startItem}–{endItem} of {totalRows}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              {rowCount} {rowCount === 1 ? "row" : "rows"}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           {canUpdate && selectedCount > 0 && (
@@ -329,6 +368,28 @@ function CaseLinkedTableSection({
               <Plus className="mr-1 size-3" />
               Add rows
             </Button>
+          )}
+          {isPaged && (
+            <span className="flex items-center">
+              <button
+                type="button"
+                aria-label="Previous page"
+                className={PAGE_ARROW_CLASS}
+                disabled={!hasPreviousPage || rowsIsLoading}
+                onClick={goToPreviousPage}
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+              <button
+                type="button"
+                aria-label="Next page"
+                className={PAGE_ARROW_CLASS}
+                disabled={!hasNextPage || rowsIsLoading}
+                onClick={goToNextPage}
+              >
+                <ChevronRight className="size-4" />
+              </button>
+            </span>
           )}
         </div>
       </div>
