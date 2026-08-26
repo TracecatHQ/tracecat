@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -17,7 +17,6 @@ _SCHEDULER_TASK_SPAWN_YIELD_EVERY = 16
 """Yield while spawning ready task coroutines to avoid long workflow activations."""
 
 with workflow.unsafe.imports_passed_through():
-    from pydantic import ValidationError
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
 
@@ -64,7 +63,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
-    from tracecat.runtime.errors import ErrorEnvelope
     from tracecat.storage.object import (
         CollectionObject,
         InlineObject,
@@ -105,9 +103,12 @@ def _classified_action_error_info(
         return None
 
     for detail in error.details:
-        for parsed in _validated_action_error_infos(detail):
-            if _action_error_contains_envelope(parsed, envelope):
-                return parsed
+        try:
+            parsed = ActionErrorInfo.model_validate(detail)
+        except Exception:
+            continue
+        if parsed.envelope is not None:
+            return parsed
 
     return ActionErrorInfo(
         ref=ref,
@@ -115,40 +116,6 @@ def _classified_action_error_info(
         type=error.type or error.__class__.__name__,
         stream_id=stream_id,
         envelope=envelope,
-    )
-
-
-def _validated_action_error_infos(detail: object) -> tuple[ActionErrorInfo, ...]:
-    """Validate a direct action error or the established child-error map shape."""
-    try:
-        return (ActionErrorInfo.model_validate(detail),)
-    except ValidationError:
-        pass
-
-    if not isinstance(detail, Mapping):
-        return ()
-
-    parsed: list[ActionErrorInfo] = []
-    for ref, value in detail.items():
-        if not isinstance(ref, str):
-            return ()
-        try:
-            parsed.append(ActionErrorInfo.model_validate(value))
-        except ValidationError:
-            return ()
-    return tuple(parsed)
-
-
-def _action_error_contains_envelope(
-    detail: ActionErrorInfo,
-    envelope: ErrorEnvelope,
-) -> bool:
-    """Return whether an action error directly or transitively carries an envelope."""
-    if detail.envelope == envelope:
-        return True
-    return any(
-        _action_error_contains_envelope(child, envelope)
-        for child in detail.children or ()
     )
 
 

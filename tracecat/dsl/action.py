@@ -4,7 +4,7 @@ import asyncio
 import threading
 import weakref
 from collections.abc import Callable, Coroutine, Mapping
-from typing import Any, cast
+from typing import Any, Never, cast
 
 import dateparser
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -53,6 +53,12 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.mcp_validation import MCPValidationError
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    ErrorEnvelope,
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.storage.collection import (
     materialize_collection_values,
     store_collection,
@@ -68,6 +74,10 @@ from tracecat.storage.object import (
     retrieve_stored_object,
 )
 from tracecat.storage.utils import is_retryable_storage_transport_error
+from tracecat.temporal.errors import (
+    extract_error_envelope,
+    raise_application_error_from_envelope,
+)
 from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
 
@@ -818,7 +828,76 @@ class DSLActivities:
 
         Returns PreparedSubflowResult containing all shared data needed to spawn child workflows.
         """
-        return await _prepare_subflow(input)
+        try:
+            return await _prepare_subflow(input)
+        except Exception as error:
+            envelope = _subflow_error_envelope(error)
+            if envelope.owner is RuntimeErrorOwner.PLATFORM:
+                logger.error(
+                    "Platform error preparing child workflow",
+                    error=error,
+                    ref=input.task.ref,
+                )
+            _raise_classified_subflow_application_error(
+                input=input,
+                error=error,
+                envelope=envelope,
+            )
+
+
+def _subflow_error_envelope(error: Exception) -> ErrorEnvelope:
+    """Classify a subflow error without overriding established semantics."""
+    if envelope := extract_error_envelope(error):
+        return envelope
+
+    retry_disposition = (
+        RetryDisposition.NON_RETRYABLE
+        if isinstance(error, ApplicationError) and error.non_retryable
+        else RetryDisposition.RETRYABLE
+    )
+    if isinstance(error, ApplicationError) and UserError.matches(error):
+        return ErrorEnvelope.user(
+            kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
+            message=error.message or "The child workflow could not be prepared",
+            retry_disposition=retry_disposition,
+            cause=error,
+        )
+    return ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.WORKFLOW_SUBFLOW_PREPARATION_FAILED,
+        message="Tracecat could not prepare the child workflow",
+        retry_disposition=retry_disposition,
+        cause=error,
+    )
+
+
+def _raise_classified_subflow_application_error(
+    *,
+    input: PrepareSubflowActivityInput,
+    error: BaseException,
+    envelope: ErrorEnvelope,
+) -> Never:
+    """Raise a history-safe classified failure for subflow preparation."""
+    if isinstance(error, ApplicationError):
+        error_type = error.type or type(error).__name__
+        legacy_details = tuple(error.details)
+        next_retry_delay = error.next_retry_delay
+    else:
+        error_type = type(error).__name__
+        legacy_details = ()
+        next_retry_delay = None
+
+    detail = ActionErrorInfo(
+        ref=input.task.ref,
+        message=envelope.message,
+        type=error_type,
+        envelope=envelope,
+    )
+    raise_application_error_from_envelope(
+        envelope,
+        detail,
+        *legacy_details,
+        next_retry_delay=next_retry_delay,
+    )
 
 
 def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:

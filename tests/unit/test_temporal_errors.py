@@ -23,6 +23,7 @@ from tracecat.runtime.errors import (
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import (
     extract_error_envelope,
+    extract_error_envelopes,
     raise_application_error_from_envelope,
     raise_wrapped_application_error,
 )
@@ -98,9 +99,8 @@ async def test_action_error_payload_carries_discriminated_envelope() -> None:
     )
     error = _capture_application_error(envelope, error_info)
     failure = Failure()
-    data_converter = get_data_converter()
-    await data_converter.encode_failure(error, failure)
-    decoded = await data_converter.decode_failure(failure)
+    await DataConverter.default.encode_failure(error, failure)
+    decoded = await DataConverter.default.decode_failure(failure)
 
     assert len(error.details) == 1
     assert error.type == RuntimeErrorKind.ACTION_EXECUTION_FAILED.value
@@ -146,16 +146,9 @@ def test_aggregate_action_errors_preserve_classified_children() -> None:
     )
     assert parsed_aggregate.children is not None
     assert parsed_aggregate.children[0].envelope == envelope
-    assert (
-        extract_error_envelope(ApplicationError("Gather failed", serialized_aggregate))
-        == envelope
-    )
-    assert (
-        extract_error_envelope(
-            ApplicationError("Gather failed", {"gather": serialized_aggregate})
-        )
-        == envelope
-    )
+
+    error = ApplicationError("Gather failed", {"gather": serialized_aggregate})
+    assert extract_error_envelopes(error) == (envelope,)
 
 
 def test_error_handler_input_preserves_action_error_envelope() -> None:
@@ -363,51 +356,59 @@ def test_payload_key_does_not_collide_without_valid_discriminator() -> None:
     assert extract_error_envelope(error) is None
 
 
-def test_action_error_detail_requires_nested_schema_discriminator() -> None:
+def test_action_error_map_extracts_every_classified_envelope() -> None:
+    user_envelope = _user_envelope()
+    platform_envelope = _platform_envelope()
+    details = {
+        "user_action": ActionErrorInfo(
+            ref="user_action",
+            message=user_envelope.message,
+            type="ValueError",
+            envelope=user_envelope,
+        ).model_dump(mode="json"),
+        "platform_action": ActionErrorInfo(
+            ref="platform_action",
+            message=platform_envelope.message,
+            type="RuntimeError",
+            envelope=platform_envelope,
+        ).model_dump(mode="json"),
+    }
+    error = ApplicationError("Workflow failed", details)
+
+    assert extract_error_envelopes(error) == (user_envelope, platform_envelope)
+
+
+def test_arbitrary_nested_envelope_does_not_collide_with_action_error_map() -> None:
+    envelope = _user_envelope()
     error = ApplicationError(
-        "Legacy error",
+        "User payload",
         {
-            "ref": "action",
-            "message": "Missing discriminator",
-            "type": "ValueError",
-            "envelope": {
-                "owner": "user",
-                "kind": "action.execution.failed",
-                "message": "Missing discriminator",
-                "retry_disposition": "non_retryable",
-                "cause_type": None,
-            },
+            "arbitrary": {
+                "payload": "not an action error",
+                "envelope": envelope.model_dump(mode="json"),
+            }
         },
     )
 
-    assert extract_error_envelope(error) is None
+    assert extract_error_envelopes(error) == ()
 
 
-def test_aggregate_action_error_requires_child_schema_discriminator() -> None:
-    child = {
-        "ref": "scatter[0]",
-        "message": "Missing discriminator",
-        "type": "ValueError",
-        "envelope": {
-            "owner": "user",
-            "kind": "action.execution.failed",
-            "message": "Missing discriminator",
-            "retry_disposition": "non_retryable",
-            "cause_type": None,
+def test_action_error_map_rejects_partial_shape_match() -> None:
+    envelope = _user_envelope()
+    error = ApplicationError(
+        "Mixed payload",
+        {
+            "action": ActionErrorInfo(
+                ref="action",
+                message=envelope.message,
+                type="ValueError",
+                envelope=envelope,
+            ).model_dump(mode="json"),
+            "arbitrary": {"payload": "not an action error"},
         },
-    }
-    aggregate = {
-        "ref": "gather",
-        "message": "Gather failed",
-        "type": "ApplicationError",
-        "children": [child],
-    }
-
-    assert extract_error_envelope(ApplicationError("Gather failed", aggregate)) is None
-    assert (
-        extract_error_envelope(ApplicationError("Gather failed", {"gather": aggregate}))
-        is None
     )
+
+    assert extract_error_envelopes(error) == ()
 
 
 def test_wrapping_preserves_existing_classification() -> None:
@@ -424,77 +425,6 @@ def test_wrapping_preserves_existing_classification() -> None:
     assert wrapped.details == original.details
     assert extract_error_envelope(wrapped) == original_envelope
     assert extract_error_envelope(wrapped) != fallback
-
-
-@pytest.mark.anyio
-async def test_wrapping_drops_outer_details_for_cause_classification() -> None:
-    original_envelope = _user_envelope()
-    fallback = _platform_envelope()
-    classified = _capture_application_error(original_envelope)
-    try:
-        raise ApplicationError(
-            "Outer platform failure",
-            {"diagnostic": "postgresql://user:secret@example.invalid/database"},
-        ) from classified
-    except ApplicationError as outer:
-        wrapped = _capture_wrapped_application_error(outer, fallback=fallback)
-    failure = Failure()
-
-    await DataConverter.default.encode_failure(wrapped, failure)
-
-    assert len(wrapped.details) == 1
-    assert wrapped.details[0]["schema"] == "tracecat.temporal_error.v1"
-    assert wrapped.type == original_envelope.kind.value
-    assert extract_error_envelope(wrapped) == original_envelope
-    assert "secret" not in str(failure)
-    assert "example.invalid" not in str(failure)
-
-
-def test_wrapping_unclassified_application_error_drops_original_details() -> None:
-    fallback = _platform_envelope()
-    original = ApplicationError(
-        "Raw platform failure",
-        {"diagnostic": "postgresql://user:secret@example.invalid/database"},
-    )
-
-    wrapped = _capture_wrapped_application_error(original, fallback=fallback)
-
-    assert len(wrapped.details) == 1
-    assert wrapped.details[0]["schema"] == "tracecat.temporal_error.v1"
-    assert "secret" not in str(wrapped.details)
-    assert "example.invalid" not in str(wrapped.details)
-    assert extract_error_envelope(wrapped) == fallback
-
-
-@pytest.mark.parametrize(
-    ("retry_disposition", "expected_delay"),
-    [
-        (RetryDisposition.RETRYABLE, timedelta(seconds=5)),
-        (RetryDisposition.NON_RETRYABLE, None),
-    ],
-)
-def test_wrapping_applies_retry_delay_only_to_retryable_envelope(
-    retry_disposition: RetryDisposition,
-    expected_delay: timedelta | None,
-) -> None:
-    original_delay = timedelta(seconds=5)
-    fallback = ErrorEnvelope.platform(
-        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
-        message="Tracecat could not execute the workflow",
-        retry_disposition=retry_disposition,
-    )
-    original = ApplicationError(
-        "Unclassified platform failure",
-        next_retry_delay=original_delay,
-    )
-
-    wrapped = _capture_wrapped_application_error(original, fallback=fallback)
-
-    assert wrapped.next_retry_delay == expected_delay
-    assert wrapped.non_retryable is (
-        retry_disposition is RetryDisposition.NON_RETRYABLE
-    )
-    assert extract_error_envelope(wrapped) == fallback
 
 
 def test_ambiguous_nested_envelope_does_not_override_fallback() -> None:

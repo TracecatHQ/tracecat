@@ -186,6 +186,7 @@ async def add_temporal_search_attributes():
         TemporalSearchAttr.ALIAS.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
         TemporalSearchAttr.CORRELATION_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
         TemporalSearchAttr.EXECUTION_TYPE.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
+        TemporalSearchAttr.ERROR_OWNER.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
     }
     try:
         await client.operator_service.add_search_attributes(
@@ -231,6 +232,7 @@ async def remove_temporal_search_attributes():
                     TemporalSearchAttr.ALIAS.value,
                     TemporalSearchAttr.CORRELATION_ID.value,
                     TemporalSearchAttr.EXECUTION_TYPE.value,
+                    TemporalSearchAttr.ERROR_OWNER.value,
                 ],
                 namespace=namespace,
             )
@@ -252,5 +254,6 @@ async def remove_temporal_search_attributes():
                 TemporalSearchAttr.ALIAS.value,
                 TemporalSearchAttr.CORRELATION_ID.value,
                 TemporalSearchAttr.EXECUTION_TYPE.value,
+                TemporalSearchAttr.ERROR_OWNER.value,
             ],
         )

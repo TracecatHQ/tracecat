@@ -23,6 +23,7 @@ async def test_add_temporal_search_attributes_registers_correlation_id(
         0
     ].search_attributes
     assert TemporalSearchAttr.CORRELATION_ID.value in search_attributes
+    assert TemporalSearchAttr.ERROR_OWNER.value in search_attributes
 
 
 @pytest.mark.anyio
@@ -39,3 +40,4 @@ async def test_remove_temporal_search_attributes_removes_correlation_id(
         0
     ].search_attributes
     assert TemporalSearchAttr.CORRELATION_ID.value in search_attributes
+    assert TemporalSearchAttr.ERROR_OWNER.value in search_attributes
