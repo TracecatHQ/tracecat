@@ -1,0 +1,24 @@
+frontend/src/components/tables/table-rows-grid.tsx
+  s_ca70cedb5d591c::t_32a0d2f93d6f95 69-70
+  s_ca70cedb5d591c::t_2f461c5e9f717e 182-183
+frontend/src/components/tables/ag-grid-clipboard.ts
+  s_ca70cedb5d591c::t_e7c5f33f1648ab 4-16,19-20,33
+frontend/tests/ag-grid-clipboard.test.ts
+  s_ca70cedb5d591c::t_6584bde021aa60 1-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "755981fef09a3f3835fc479425ff51be8f8cedef",
+  "prompts": {},
+  "sessions": {
+    "s_ca70cedb5d591c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "007cd624-4ad9-4928-b97a-6193bb1d46fe",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
