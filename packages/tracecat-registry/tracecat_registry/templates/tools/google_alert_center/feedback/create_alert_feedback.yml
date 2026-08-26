@@ -36,16 +36,6 @@ definition:
         `046psxkn`). Inferred from the caller identity if not provided.
       default: null
   steps:
-    - ref: build_body
-      action: core.script.run_python
-      args:
-        inputs:
-          feedback_type: ${{ inputs.type }}
-        script: |
-          def main(feedback_type):
-              # `type` is the only writable field on AlertFeedback; every other
-              # field on the resource is output only.
-              return {"type": feedback_type}
     - ref: create_alert_feedback
       action: tools.google_api.call_api
       args:
@@ -58,5 +48,8 @@ definition:
         params:
           alertId: ${{ inputs.alert_id }}
           customerId: ${{ inputs.customer_id }}
-          body: ${{ steps.build_body.result }}
+          # `type` is the only writable field on AlertFeedback; every other
+          # field on the resource is output only.
+          body:
+            type: ${{ inputs.type }}
   returns: ${{ steps.create_alert_feedback.result }}

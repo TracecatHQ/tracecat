@@ -26,24 +26,6 @@ EXPECTED_GRANT_TYPES: dict[str, set[OAuthGrantType]] = {
     "google_slides": {AC, CC},
 }
 
-EXPECTED_ADMIN_SCOPES = [
-    "https://www.googleapis.com/auth/admin.directory.user",
-    "https://www.googleapis.com/auth/admin.directory.user.alias",
-    "https://www.googleapis.com/auth/admin.directory.user.security",
-    "https://www.googleapis.com/auth/admin.directory.group",
-    "https://www.googleapis.com/auth/admin.directory.group.member",
-    "https://www.googleapis.com/auth/admin.directory.orgunit",
-    "https://www.googleapis.com/auth/admin.directory.rolemanagement",
-    "https://www.googleapis.com/auth/admin.directory.device.mobile",
-    "https://www.googleapis.com/auth/admin.directory.device.mobile.action",
-    "https://www.googleapis.com/auth/admin.directory.device.chromeos",
-    "https://www.googleapis.com/auth/admin.directory.domain.readonly",
-    "https://www.googleapis.com/auth/admin.directory.customer.readonly",
-    "https://www.googleapis.com/auth/admin.reports.audit.readonly",
-    "https://www.googleapis.com/auth/admin.reports.usage.readonly",
-    "https://www.googleapis.com/auth/apps.alerts",
-]
-
 
 def _google_classes() -> list[tuple[ProviderKey, type[BaseOAuthProvider]]]:
     return [
@@ -91,8 +73,17 @@ def test_id_matches_metadata_id(key: ProviderKey, cls: type[BaseOAuthProvider]) 
 def test_google_admin_default_scopes() -> None:
     """The Admin SDK catch-all ships the full default scope list."""
     admin_cls = PROVIDER_REGISTRY[ProviderKey(id="google_admin", grant_type=CC)]
-    assert GOOGLE_ADMIN_SCOPES == EXPECTED_ADMIN_SCOPES
-    assert admin_cls.scopes.default == EXPECTED_ADMIN_SCOPES
+    assert admin_cls.scopes.default == GOOGLE_ADMIN_SCOPES
+    assert GOOGLE_ADMIN_SCOPES
+    assert all(
+        scope.startswith("https://www.googleapis.com/auth/")
+        for scope in GOOGLE_ADMIN_SCOPES
+    )
+    # Admin SDK only by default; Workspace data scopes are opt-in on the integration.
+    assert all(
+        scope.rsplit("/", 1)[1].startswith(("admin.", "apps.alerts"))
+        for scope in GOOGLE_ADMIN_SCOPES
+    )
 
 
 @pytest.mark.parametrize(

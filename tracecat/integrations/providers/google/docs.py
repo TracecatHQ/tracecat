@@ -35,7 +35,7 @@ class GoogleDocsACProvider(GoogleAuthorizationCodeOAuthProvider):
     )
 
 
-class GoogleDocsOAuthProvider(GoogleServiceAccountOAuthProvider):
+class GoogleDocsCCProvider(GoogleServiceAccountOAuthProvider):
     """Google Docs provider using service account credentials."""
 
     id: ClassVar[str] = "google_docs"

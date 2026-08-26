@@ -37,7 +37,7 @@ class GoogleSheetsACProvider(GoogleAuthorizationCodeOAuthProvider):
     )
 
 
-class GoogleSheetsOAuthProvider(GoogleServiceAccountOAuthProvider):
+class GoogleSheetsCCProvider(GoogleServiceAccountOAuthProvider):
     """Google Sheets provider using service account credentials."""
 
     id: ClassVar[str] = "google_sheets"

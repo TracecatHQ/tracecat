@@ -6,19 +6,19 @@ from .common import (
     get_google_ac_metadata,
     get_google_cc_metadata,
 )
-from .docs import GoogleDocsACProvider, GoogleDocsOAuthProvider
+from .docs import GoogleDocsACProvider, GoogleDocsCCProvider
 from .drive import GoogleDriveACProvider, GoogleDriveCCProvider
 from .forms import GoogleFormsACProvider, GoogleFormsCCProvider
 from .gmail import GoogleGmailACProvider, GoogleGmailCCProvider
 from .service_account import GoogleServiceAccountOAuthProvider
-from .sheets import GoogleSheetsACProvider, GoogleSheetsOAuthProvider
+from .sheets import GoogleSheetsACProvider, GoogleSheetsCCProvider
 from .slides import GoogleSlidesACProvider, GoogleSlidesCCProvider
 
 __all__ = [
     "GoogleAdminCCProvider",
     "GoogleAuthorizationCodeOAuthProvider",
     "GoogleDocsACProvider",
-    "GoogleDocsOAuthProvider",
+    "GoogleDocsCCProvider",
     "GoogleDriveACProvider",
     "GoogleDriveCCProvider",
     "GoogleFormsACProvider",
@@ -27,7 +27,7 @@ __all__ = [
     "GoogleGmailCCProvider",
     "GoogleServiceAccountOAuthProvider",
     "GoogleSheetsACProvider",
-    "GoogleSheetsOAuthProvider",
+    "GoogleSheetsCCProvider",
     "GoogleSlidesACProvider",
     "GoogleSlidesCCProvider",
     "get_google_ac_metadata",

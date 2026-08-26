@@ -23,6 +23,8 @@ definition:
       keys: ["GOOGLE_API_CREDENTIALS"]
       optional_keys: ["GOOGLE_API_SUBJECT"]
       optional: true
+  # Legacy: ported from the tools.google_drive Python UDF. Inputs and output shape are a
+  # published contract; do not rename or reshape them. Not a pattern for new actions.
   expects:
     file_id:
       type: str
@@ -44,6 +46,8 @@ definition:
           fileId: ${{ inputs.file_id }}
           permissionId: ${{ inputs.permission_id }}
           supportsAllDrives: true
+    # Legacy: the Python UDF returned {"status_code": 204} on an empty response.
+    # Other delete actions in this PR return the SDK's empty body as-is.
     - ref: mark_deleted
       action: core.script.run_python
       args:

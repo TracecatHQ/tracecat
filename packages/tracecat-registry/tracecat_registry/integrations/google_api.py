@@ -135,6 +135,10 @@ def _get_google_credentials(
        delegation override that a minted token cannot apply, so it still
        requires the JSON.
     4. `GOOGLE_API_CREDENTIALS` service account JSON.
+
+    Every Google template passes `scopes`, which is what places the JSON key
+    (step 2) ahead of `GOOGLE_SERVICE_TOKEN` (step 3) for them; a call without
+    `scopes` or `subject` takes the token first (step 3, then 4).
     """
     if access_token:
         return OAuthCredentials(token=access_token)
@@ -265,6 +269,98 @@ def _build_google_service(
     )
 
 
+ServiceName = Annotated[
+    str,
+    Field(..., description="Google API service name, e.g. `drive` or `sheets`."),
+]
+Version = Annotated[
+    str,
+    Field(..., description="Google API version, e.g. `v3` or `v4`."),
+]
+ResourcePath = Annotated[
+    str,
+    Field(..., description="Resource path, e.g. `files` or `spreadsheets.values`."),
+]
+MethodName = Annotated[
+    str,
+    Field(..., description="Google API method name, e.g. `list` or `get`."),
+]
+MethodParams = Annotated[
+    GoogleAPIParams | None,
+    Field(..., description="Parameters for the Google API method."),
+]
+AccessToken = Annotated[
+    str | None,
+    Field(
+        ...,
+        description=(
+            "OAuth access token from a Tracecat OAuth integration, e.g. "
+            "`${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || "
+            "SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}`. When "
+            "set it is used as-is and `scopes`/`subject` are ignored."
+        ),
+    ),
+]
+Scopes = Annotated[
+    list[str] | None,
+    Field(
+        ...,
+        description=(
+            "Scopes used when minting a token from `GOOGLE_API_CREDENTIALS`. "
+            'Defaults to ["https://www.googleapis.com/auth/cloud-platform"].'
+        ),
+    ),
+]
+Subject = Annotated[
+    str | None,
+    Field(
+        ...,
+        description=(
+            "Optional domain-wide delegation subject (user email) applied "
+            "when minting from `GOOGLE_API_CREDENTIALS`. Defaults to the "
+            "`GOOGLE_API_SUBJECT` secret key, then the `subject` key inside "
+            "the JSON."
+        ),
+    ),
+]
+StaticDiscovery = Annotated[
+    bool | None,
+    Field(
+        ...,
+        description=(
+            "Whether to use the discovery document bundled with the client "
+            "library. Defaults to the library behaviour (bundled). Set to "
+            "false to fetch the discovery document at runtime, which is "
+            "required for API versions that are not bundled (e.g. "
+            "`securitycenter` `v2`)."
+        ),
+    ),
+]
+
+
+def _bound_method(
+    *,
+    service_name: str,
+    version: str,
+    resource: str,
+    method_name: str,
+    scopes: list[str] | None,
+    subject: str | None,
+    static_discovery: bool | None,
+    access_token: str | None,
+) -> GoogleAPIRequestBuilder:
+    """Build the client and return the callable for one API method."""
+    service = _build_google_service(
+        service_name=service_name,
+        version=version,
+        scopes=scopes,
+        subject=subject,
+        static_discovery=static_discovery,
+        access_token=access_token,
+    )
+    return getattr(_resolve_resource(service, resource), method_name)
+
+
 @registry.register(
     default_title="Call API",
     description="Instantiate a Google API client and call a Google API method.",
@@ -274,60 +370,14 @@ def _build_google_service(
     secrets=[google_oauth_secret, google_api_optional_secret],
 )
 def call_api(
-    service_name: Annotated[
-        str,
-        Field(..., description="Google API service name, e.g. `drive` or `sheets`."),
-    ],
-    version: Annotated[
-        str,
-        Field(..., description="Google API version, e.g. `v3` or `v4`."),
-    ],
-    resource: Annotated[
-        str,
-        Field(
-            ...,
-            description="Resource path, e.g. `files` or `spreadsheets.values`.",
-        ),
-    ],
-    method_name: Annotated[
-        str,
-        Field(..., description="Google API method name, e.g. `list` or `get`."),
-    ],
-    params: Annotated[
-        GoogleAPIParams | None,
-        Field(..., description="Parameters for the Google API method."),
-    ] = None,
-    access_token: Annotated[
-        str | None,
-        Field(
-            ...,
-            description=(
-                "OAuth access token from a Tracecat OAuth integration, e.g. "
-                "`${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || "
-                "SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}`. When "
-                "set it is used as-is and `scopes`/`subject` are ignored."
-            ),
-        ),
-    ] = None,
-    scopes: Annotated[
-        list[str] | None,
-        Field(
-            ...,
-            description='Service account scopes. Defaults to ["https://www.googleapis.com/auth/cloud-platform"].',
-        ),
-    ] = None,
-    subject: Annotated[
-        str | None,
-        Field(
-            ...,
-            description=(
-                "Optional domain-wide delegation subject (user email) applied "
-                "when minting from `GOOGLE_API_CREDENTIALS`. Defaults to the "
-                "`GOOGLE_API_SUBJECT` secret key, then the `subject` key inside "
-                "the JSON."
-            ),
-        ),
-    ] = None,
+    service_name: ServiceName,
+    version: Version,
+    resource: ResourcePath,
+    method_name: MethodName,
+    params: MethodParams = None,
+    access_token: AccessToken = None,
+    scopes: Scopes = None,
+    subject: Subject = None,
     media: Annotated[
         GoogleMediaUpload | None,
         Field(
@@ -338,19 +388,7 @@ def call_api(
             ),
         ),
     ] = None,
-    static_discovery: Annotated[
-        bool | None,
-        Field(
-            ...,
-            description=(
-                "Whether to use the discovery document bundled with the client "
-                "library. Defaults to the library behaviour (bundled). Set to "
-                "false to fetch the discovery document at runtime, which is "
-                "required for API versions that are not bundled (e.g. "
-                "`securitycenter` `v2`)."
-            ),
-        ),
-    ] = None,
+    static_discovery: StaticDiscovery = None,
 ) -> GoogleAPIResult:
     """Call a Google API method.
 
@@ -360,18 +398,17 @@ def call_api(
     method_params = _prune_none_params(params)
     if media is not None:
         method_params["media_body"] = _build_media_upload(media)
-    service = _build_google_service(
+    method = _bound_method(
         service_name=service_name,
         version=version,
+        resource=resource,
+        method_name=method_name,
         scopes=scopes,
         subject=subject,
         static_discovery=static_discovery,
         access_token=access_token,
     )
-    request = getattr(_resolve_resource(service, resource), method_name)(
-        **method_params
-    )
-    return request.execute()
+    return method(**method_params).execute()
 
 
 @registry.register(
@@ -383,60 +420,14 @@ def call_api(
     secrets=[google_oauth_secret, google_api_optional_secret],
 )
 def call_paginated_api(
-    service_name: Annotated[
-        str,
-        Field(..., description="Google API service name, e.g. `drive` or `sheets`."),
-    ],
-    version: Annotated[
-        str,
-        Field(..., description="Google API version, e.g. `v3` or `v4`."),
-    ],
-    resource: Annotated[
-        str,
-        Field(
-            ...,
-            description="Resource path, e.g. `files` or `spreadsheets.values`.",
-        ),
-    ],
-    method_name: Annotated[
-        str,
-        Field(..., description="Google API method name, e.g. `list` or `get`."),
-    ],
-    params: Annotated[
-        GoogleAPIParams | None,
-        Field(..., description="Parameters for the Google API method."),
-    ] = None,
-    access_token: Annotated[
-        str | None,
-        Field(
-            ...,
-            description=(
-                "OAuth access token from a Tracecat OAuth integration, e.g. "
-                "`${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || "
-                "SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}`. When "
-                "set it is used as-is and `scopes`/`subject` are ignored."
-            ),
-        ),
-    ] = None,
-    scopes: Annotated[
-        list[str] | None,
-        Field(
-            ...,
-            description='Service account scopes. Defaults to ["https://www.googleapis.com/auth/cloud-platform"].',
-        ),
-    ] = None,
-    subject: Annotated[
-        str | None,
-        Field(
-            ...,
-            description=(
-                "Optional domain-wide delegation subject (user email) applied "
-                "when minting from `GOOGLE_API_CREDENTIALS`. Defaults to the "
-                "`GOOGLE_API_SUBJECT` secret key, then the `subject` key inside "
-                "the JSON."
-            ),
-        ),
-    ] = None,
+    service_name: ServiceName,
+    version: Version,
+    resource: ResourcePath,
+    method_name: MethodName,
+    params: MethodParams = None,
+    access_token: AccessToken = None,
+    scopes: Scopes = None,
+    subject: Subject = None,
     page_token_param: Annotated[
         str,
         Field(
@@ -459,19 +450,7 @@ def call_paginated_api(
             description="Maximum number of pages to fetch. If null, fetches every page.",
         ),
     ] = None,
-    static_discovery: Annotated[
-        bool | None,
-        Field(
-            ...,
-            description=(
-                "Whether to use the discovery document bundled with the client "
-                "library. Defaults to the library behaviour (bundled). Set to "
-                "false to fetch the discovery document at runtime, which is "
-                "required for API versions that are not bundled (e.g. "
-                "`securitycenter` `v2`)."
-            ),
-        ),
-    ] = None,
+    static_discovery: StaticDiscovery = None,
 ) -> list[GoogleAPIResponse]:
     """Call a paginated Google API method and return every page fetched.
 
@@ -485,18 +464,19 @@ def call_paginated_api(
 
     request_params = _prune_none_params(params)
     pages: list[GoogleAPIResponse] = []
-    service = _build_google_service(
+    method = _bound_method(
         service_name=service_name,
         version=version,
+        resource=resource,
+        method_name=method_name,
         scopes=scopes,
         subject=subject,
         static_discovery=static_discovery,
         access_token=access_token,
     )
-    target_resource = _resolve_resource(service, resource)
 
     while True:
-        response = getattr(target_resource, method_name)(**request_params).execute()
+        response = method(**request_params).execute()
         if not isinstance(response, dict):
             raise ValueError(
                 "Expected Google API response to be a dict, "
