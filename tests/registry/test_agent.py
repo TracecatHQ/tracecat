@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from tracecat_registry import ActionIsInterfaceError
-from tracecat_registry.core.agent import action, agent, bedrock_secret
+from tracecat_registry.core.agent import action, agent, bedrock_secret, preset_agent
 from tracecat_registry.fields import ModelSelection
 
 from tracecat.auth.types import Role
@@ -61,6 +61,13 @@ def test_agent_schema_marks_legacy_model_fields_deprecated() -> None:
         properties["model_provider"]["x-tracecat-deprecation-message"]
         == "Use `model` instead."
     )
+
+
+def test_preset_agent_schema_accepts_deprecated_version_selector() -> None:
+    schema = _input_schema_for(preset_agent)
+
+    assert "preset_version" not in schema.get("required", [])
+    assert schema["properties"]["preset_version"]["deprecated"] is True
 
 
 @pytest.mark.anyio

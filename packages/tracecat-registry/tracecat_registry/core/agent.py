@@ -332,6 +332,13 @@ async def preset_agent(
         Doc("User prompt to the agent."),
         TextArea(),
     ],
+    preset_version: Annotated[
+        int | None,
+        Doc(
+            "Deprecated and ignored. Accepted so existing workflows keep validating; preset resources resolve through their current heads."
+        ),
+        Field(deprecated=True),
+    ] = None,
     actions: Annotated[
         list[str] | None,
         Doc(
