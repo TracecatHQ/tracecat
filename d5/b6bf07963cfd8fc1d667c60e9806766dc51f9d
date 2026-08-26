@@ -1,0 +1,1727 @@
+.github/workflows/run-integration-tests.yml
+  s_c07dbd23596171::t_08b2649497b7d9 253-254
+Dockerfile
+  s_c07dbd23596171::t_199aabd75a5a7d 26-34,204-213
+alembic/versions/598b32358ec5_add_case_versions.py
+  s_c07dbd23596171::t_3b8b733692e68d 1-161
+deployments/fargate/main.tf
+  s_c07dbd23596171::t_ae2e78f911bed4 157,159-160,169-170
+deployments/fargate/modules/ecs/ecs-agent-executor.tf
+  s_c07dbd23596171::t_dc15b00dc2e0bc 8,30
+deployments/fargate/modules/ecs/iam.tf
+  s_c07dbd23596171::t_740439af07abef 272-310,700-704
+deployments/fargate/modules/ecs/locals.tf
+  s_c07dbd23596171::t_74bdfa15aed123 65-67,181-187,218-219,232-233
+deployments/fargate/modules/ecs/secrets.tf
+  s_c07dbd23596171::t_dc84da53b282e6 288-294,297-304
+deployments/fargate/modules/ecs/variables.tf
+  s_c07dbd23596171::t_baa45b3d9a9c7d 619-624,631-652,714-725
+deployments/fargate/variables.tf
+  s_c07dbd23596171::t_6dd2179901d79f 587-592,599-620,682-693
+docker-compose.dev.yml
+  s_c07dbd23596171::t_0a900348be0d2f 42,126,199,214-215,293,402,418-419,459-461,502
+docker-compose.local.yml
+  s_c07dbd23596171::t_063406e3be53bd 50,135,215,230-231,311,424,440-441,481-483,524
+docker-compose.yml
+  s_c07dbd23596171::t_43e8f9a50f66ea 43,128,207,222-223,304,415,431-432,472-474,516
+docker/loop-device-sync.cc
+  s_c07dbd23596171::t_899e6a19840d15 1-244
+docker/nsjail/nstun-bounded-memory.patch
+  s_c07dbd23596171::t_6d9a149e701564 1-12,14,25-33,56,61,84,103,112,120,124,126,128-133,392,419-450,625-660,707-715
+docs/agents/ai-action.mdx
+  s_c07dbd23596171::t_fbf5035837a2e3 24-27
+docs/agents/ai-agent.mdx
+  s_c07dbd23596171::t_949dfc4ab99213 38-45,226,228,230
+docs/agents/custom-llm-providers.mdx
+  s_c07dbd23596171::t_a65fe74ff24c89 100-105,112
+docs/api-reference/authentication.mdx
+  s_c07dbd23596171::t_a144c461644182 32-35
+docs/audit-logs/agents.mdx
+  s_c07dbd23596171::t_8b56a38c03adf3 4,7,9-93
+docs/authentication/basic.mdx
+  s_c07dbd23596171::t_4dad6d4a0826b6 6-7,32-35,40-65
+docs/automations/actions.mdx
+  s_c07dbd23596171::t_778e92096851f9 3,7-8,14-19,96,122,125,171-193
+docs/automations/cases.mdx
+  s_c07dbd23596171::t_039a1270d10ed8 2,95-103
+docs/automations/cases/agent-mentions.mdx
+  s_c07dbd23596171::t_705b94ec872275 1-74
+docs/automations/core-actions/_examples.yaml
+  s_c07dbd23596171::t_b75c82ecedf99f 704-712,745-836
+docs/automations/core-actions/_manifest.yaml
+  s_c07dbd23596171::t_8b5b86f3bf0688 1-17,66-68,81-82,102,136-171,176-177,200-201,209-210,365-394,532-536,543-654,659-660,670-690
+docs/automations/core-actions/case-actions/cases.mdx
+  s_c07dbd23596171::t_c7ec713a774e71 1450-1474
+docs/automations/core-actions/memory-actions/tables.mdx
+  s_c07dbd23596171::t_ff78ff56823acc 5-6,12,29-44,47-50,60-61,79-80,82,84-100,106,123-127,138,241-427
+docs/automations/core-actions/request-actions/http.mdx
+  s_c07dbd23596171::t_3347a8c9b277dc 84-91,116,195-197,210-211,272,376,431
+docs/automations/core-actions/request-actions/ssh.mdx
+  s_c07dbd23596171::t_6806aed42f581c 31,33,37,39-49
+docs/automations/core-actions/transform-actions/data-transforms.mdx
+  s_c07dbd23596171::t_c06b1a96f8ea86 444-473
+docs/automations/core-actions/transform-actions/python-script.mdx
+  s_c07dbd23596171::t_d31f20d67ba8e5 13-48,53-54,77-78,86-87,187,211
+docs/automations/core-actions/workflow-actions/run-subflow.mdx
+  s_c07dbd23596171::t_1ee50b71e18b61 113-121
+docs/automations/core-concepts/expressions.mdx
+  s_c07dbd23596171::t_11a4b8b36f3fc7 25-26,29-52,54,56,58-82,95-99,102,104-105,107,109,113-114,119-120,125,127,172,210
+docs/automations/core-concepts/functions.mdx
+  s_c07dbd23596171::t_8890563f548130 9-10,33-34,39,44
+docs/automations/core-concepts/workflow-definition.mdx
+  s_c07dbd23596171::t_aba078ee40f8ad 292
+docs/automations/core-concepts/workflow-metadata.mdx
+  s_c07dbd23596171::t_70d8c83f801765 1-48
+docs/automations/tables.mdx
+  s_c07dbd23596171::t_f05ab002a03612 79-81,97-153
+docs/automations/triggers/comment-triggers.mdx
+  s_c07dbd23596171::t_6e9e29cf799e7d 9-10,14-22,31-36,48-50,74-77
+docs/automations/triggers/webhooks.mdx
+  s_c07dbd23596171::t_d3088160adec5f 59
+docs/automations/triggers/workflows-as-apis.mdx
+  s_c07dbd23596171::t_0358f429be7126 1-69
+docs/automations/workflows.mdx
+  s_c07dbd23596171::t_268dc8014ffa74 3,6-9,167
+docs/cheatsheets/common-mistakes.mdx
+  s_c07dbd23596171::t_73d53b70d5dd11 1-288
+docs/cheatsheets/functions.mdx
+  s_c07dbd23596171::t_988daf90a72c76 24-25,30,35,69,90-91
+docs/cheatsheets/transformations.mdx
+  s_c07dbd23596171::t_9d9da4c5b5baa7 1-254
+docs/cheatsheets/workflow-metadata.mdx
+  s_c07dbd23596171::t_cc090aea87820f 1-42
+docs/docs.json
+  s_c07dbd23596171::t_f0a05b06aedd00 34,36-38,42,50,54,69-75,77,92,108-109,114-124,148,151-172,175,184-185,191-192,198,201,214-215,218-219,222-223,239,241,245-246,248,255,258,264,271,285-288
+docs/integrations/overview.mdx
+  s_c07dbd23596171::t_683e4c8ec1f9f5 1-23
+docs/manage-platform/custom-roles.mdx
+  s_c07dbd23596171::t_5207dfd126ac33 1-65
+docs/manage-platform/git-sync.mdx
+  s_c07dbd23596171::t_8cb9d70bc9a1b8 1-90
+docs/manage-platform/rbac.mdx
+  s_c07dbd23596171::t_323364290da6fd 1-57
+docs/manage-platform/service-accounts.mdx
+  s_c07dbd23596171::t_f5ebb9fc587953 1-45
+docs/manage-platform/users.mdx
+  s_c07dbd23596171::t_75566b1b0d2a37 1-58
+docs/overview/getting-started.mdx
+  s_c07dbd23596171::t_f7c6cb2eb7efd4 5,8-16,20-21,39,41
+docs/overview/introduction.mdx
+  s_c07dbd23596171::t_ef24119b2a1c89 7,9-10,13-14,16-23,27-28,30-31,33-34,36-37,39-40,42-46,48-49,51-52
+docs/security/architecture.mdx
+  s_c07dbd23596171::t_00bf6878c9160e 232-233,488,510-511
+docs/self-hosting/aws-fargate.mdx
+  s_c07dbd23596171::t_5bd0f575715527 6-8,34,55,68,85-88
+docs/self-hosting/docker-compose.mdx
+  s_c07dbd23596171::t_638dd4a77adade 6-8,26,84-87
+docs/self-hosting/kubernetes.mdx
+  s_c07dbd23596171::t_bd143fd255b656 6-8,29,365-368
+docs/self-hosting/security.mdx
+  s_c07dbd23596171::t_30b7c8fa9aedb5 3,6-7,51,158-159
+docs/snippets/core-actions-list.mdx
+  s_c07dbd23596171::t_7e4a9d2f4ac0e9 1-5
+docs/snippets/core-actions-pointer.mdx
+  s_c07dbd23596171::t_1311dd7e3b5a1a 1-4
+docs/snippets/environment-variables.mdx
+  s_c07dbd23596171::t_637519cc5f23a2 34,36,77-86
+docs/snippets/first-superadmin.mdx
+  s_c07dbd23596171::t_45aad44028ef70 1-12
+docs/tools/censys.mdx
+  s_c07dbd23596171::t_908f6104bb4cb5 1-481
+docs/tools/cisa_kev.mdx
+  s_c07dbd23596171::t_ce0372298cd739 1-23
+docs/tools/dehashed.mdx
+  s_c07dbd23596171::t_8f084a2ce3025f 1-147
+docs/tools/domscan.mdx
+  s_c07dbd23596171::t_10e89cc492593a 1-563
+docs/tools/elastic_security.mdx
+  s_c07dbd23596171::t_65d6df0f89ab2c 96,98,102,104,108,110,162,164,204,460-476,478,582-590,592,632,724,770,918-925,942-958,960,1000,1052,1054,1060,1062,1068,1070,1072,1076,1078,1084,1086,1092,1094,1100,1102,1104,1108,1110,1112,1114,1116,1118,1124,1126,1148,1150,1152,1154,1172,1174,1180,1182,1188,1190,1192,1196,1198,1204,1206,1228,1230,1232,1234,1244,1246,1250,1252,1258,1260,1266,1268,1270,1274,1276,1278,1282,1284,1290,1292,1314,1316,1318,1320,1330,1332,1344,1346,1352-1708,1742,1788,1834,1926,1970-1977,1986-2082,2084,2098-2113,2122-2129,2200-2240,2242-2282,2368,2414,2458,2460,2464,2466,2470,2472
+docs/tools/emailrep.mdx
+  s_c07dbd23596171::t_1379b82070cd4f 55
+docs/tools/first_epss.mdx
+  s_c07dbd23596171::t_6481817a8442dc 1-175
+docs/tools/gitguardian.mdx
+  s_c07dbd23596171::t_03ae8ce125449f 1-933
+docs/tools/github.mdx
+  s_c07dbd23596171::t_6e54d701f6caaf 91-99,101,145,167-172,243,287,337,387,431,595,877-885,887,935,937,939-961,1059-1066,1075-1091,1093-1109,1271,1273,1355,1357,1483,1485,1569,1571,1683,1685-1709,1743-1750,1759,1761,1767,1769,1771,1773,1775,1777,1779,1781,1783,1785,1787,1791,1793,1799,1801,1803-1819,1831,1833,1837,1839,1841,1845,1847,1849,1853,1855,1861,1863,1865,1877,1879-1889,1901,1903,1909,1911,1913,1915,1917,1919,1921,1923,1925,1927-1929,1933,1935,1937,1941,1943,1949,1951,1953,1955,1957,1959,1961,1963,1965,1967-1969,1973,1975,1977,1981,1983,1989,1991,1993,1995,1997,1999,2001,2003,2005,2007-2009,2013,2015,2017,2021,2023,2029,2031,2033,2045,2047,2051,2053,2071,2073,2079,2081,2083-2099,2111,2113,2117,2119-2121,2125,2127-2129,2141,2143,2149,2151,2153,2155,2157,2159,2161,2163,2165,2167-2169,2173,2175-2177,2181,2183,2185,2189,2191,2197,2199,2201,2203,2205,2207,2209-3343,3359-3374,3383,3385,3391,3393,3395-3531,3555-3562,3571,3573,3579,3581,3583-3615,3625-3695,3697,3699,3703,3705-3707,3711,3713,3715,3719,3721,3727,3729,3731,3763,3765,3771,3773,3775-3783,3795-3800,3821,3823,3829,3831,3833-3841,3865-3870,3879,3881,3887,3889,3891-3907,3925-3930,3945,3947,3953,3955,3957,3969,3971,3995,3997,3999,4037,4039,4045,4047,4049,4061,4063,4067,4069-4071,4075,4077-4079,4083,4085,4087,4091,4093,4099,4101,4107,4109,4111,4123,4125,4129,4131-4133,4137,4139-4141,4145,4147,4149,4153,4155,4161,4163,4169,4171,4173,4185,4187,4191,4193,4195,4207,4209,4215,4217,4223,4225,4227-4251,4263-4268,4277-4301,4303,4347,4397,4447,4491,4541,4591,4641,4691,4741
+docs/tools/gitlab.mdx
+  s_c07dbd23596171::t_aa6d3f20605204 59-76,83-106,115,117,123,125-149,177-198,207-271,273-297,311-334,363-374,383,385,415-420,441,443-459,505,549,577-582,591,593,599,601,639,791,793-801,843,845,851,853,855,857,859,861,863-879,897,899-915,979,981,985,987,989,1045-1060,1069-1117,1119-1151,1185-1192,1201-1225,1227,1269,1271-1279,1321-1337,1339,1381-1405,1407,1449-1457,1459,1487,1489,1491,1495,1497,1503,1505,1507,1509,1511,1513,1515,1517,1519,1521-1523,1527,1529-1539,1551,1553,1559,1561,1563,1565,1567,1569,1571,1573,1575,1577-1579,1583,1585,1587,1591,1593,1599,1601,1603,1605,1607,1609,1611,1613,1615,1617-1619,1623,1625,1627,1631,1633-2073,2081-2193,2195-2471,2491-2507,2509,2513,2515,2521,2523,2525,2551,2553,2559,2561,2563,2565,2567,2569,2571,2573,2575,2577-2579,2583,2585,2587,2591,2593,2599,2601,2603-2619,2631-2636,2651,2653,2659,2661,2663,2675-2680,2695,2697,2699,2717-2728,2737,2739,2745,2747,2749,2751,2753,2755,2757,2759,2761,2763-2765,2769,2771,2773,2777,2779,2785,2787,2789,2791,2793,2795,2797,2799,2801,2803-2805,2809,2811,2813,2817,2819,2825,2827,2829-2837,2849,2851,2855,2857,2869,2871,2877,2879,2885,2887,2889-2897,2909,2911,2921,2923,2925,2929,2931,2937,2939,2941,2945,2947,2949,2951,2953,2955,2957,2961,2963,2965,2969,2971,2977,2979,2981,2983,2985,2987,2989,2991,2993,2995-2997,3001,3003,3005,3009,3011,3017,3019,3021,3023,3025,3027,3029,3031,3033,3035-3037,3041,3043-3045,3049,3051,3053,3057,3059,3065,3067,3095,3097,3101,3103,3105
+docs/tools/greynoise.mdx
+  s_c07dbd23596171::t_54b254acc5aec8 1-365
+docs/tools/hackernews.mdx
+  s_c07dbd23596171::t_6fa3bf66540cc0 1-185
+docs/tools/hudsonrock.mdx
+  s_c07dbd23596171::t_beef6e5b01a89c 1-925
+docs/tools/hunter.mdx
+  s_c07dbd23596171::t_9d9f3b0e5f72c3 1-407
+docs/tools/iru.mdx
+  s_c07dbd23596171::t_aa1d8a89bb7983 1-1291
+docs/tools/jamf.mdx
+  s_c07dbd23596171::t_ab20157d88f187 1-849
+docs/tools/leakcheck.mdx
+  s_c07dbd23596171::t_5eab49c9501281 50-103
+docs/tools/openphish.mdx
+  s_c07dbd23596171::t_e2e8854d58da5c 1-23
+docs/tools/osv.mdx
+  s_c07dbd23596171::t_1b7b3a4802a673 1-119
+docs/tools/pipe0.mdx
+  s_c07dbd23596171::t_df1e435b27c7a7 1-103
+docs/tools/project_discovery.mdx
+  s_c07dbd23596171::t_2532bca908adb8 1-2109
+docs/tools/rippling.mdx
+  s_c07dbd23596171::t_09eb6d0ccf0e10 1-1113
+docs/tools/shodan.mdx
+  s_c07dbd23596171::t_df97d375aa579c 1-257
+docs/tools/socket.mdx
+  s_c07dbd23596171::t_4e66ae0795ff38 1-823
+docs/tools/sublime.mdx
+  s_c07dbd23596171::t_d074ad3b352ecb 59,61,115,151,305-317,319,347-349,351-355,385,415,509,511,515,517,577,613,643,775-783,785,873,875,879,881,903-908,917-925,927,963-971,973,1045-1053,1055,1121,1123,1159-1175,1177,1207-1239,1241,1277-1285,1287,1323-1347,1349,1415-1431,1433,1487,1515-1522,1531-1547,1549,1571,1573,1579,1581,1587,1589,1591,1593,1595,1597,1599,1601,1603,1605,1611,1613,1619,1621,1623,1625,1627,1629,1631,1633,1635,1637,1643,1645,1651,1653,1655,1657,1667,1669,1675,1677,1683,1685,1687,1689,1691,1693,1695,1697,1707,1709,1715,1717,1719,1721,1723,1725,1727,1729,1731,1733-1735,1739,1741-1743,1747,1749,1755,1757,1759,1761,1763,1765,1767,1769,1771,1773-1775,1779-1781,1783,1787,1789,1795,1797,1799,1801,1803,1805,1807,1809,1811,1813,1815-2135,2139-2175,2205,2235,2301,2331,2421,2485-2516,2525-2533,2535-2631,2653,2655,2659,2661,2697,2733,2763,2829,2859,2895,2925
+docs/tools/terraform.mdx
+  s_c07dbd23596171::t_511bf000be8bec 181,189,219,227,279,287
+docs/tools/threatfox.mdx
+  s_c07dbd23596171::t_b74ba2f9624f92 1-283
+docs/tools/urlhaus.mdx
+  s_c07dbd23596171::t_e495a848cb212c 7-38,62-151
+docs/tools/urlscan.mdx
+  s_c07dbd23596171::t_6cb6318c80deb8 7-66,96-151
+docs/tools/x.mdx
+  s_c07dbd23596171::t_11cbc8b1f333e0 1-279
+frontend/AGENTS.md
+  s_c07dbd23596171::t_b4717c35012070 59-64
+frontend/biome.json
+  s_c07dbd23596171::t_1f85aa64f3deeb 55-62,141-150
+frontend/jest.config.cjs
+  s_c07dbd23596171::t_5c7d591df48314 25-27
+frontend/package.json
+  s_c07dbd23596171::t_7720a682c3d047 102
+frontend/pnpm-lock.yaml
+  s_c07dbd23596171::t_e2efe86eddc7b6 267-269
+frontend/src/app/invitations/accept/page.tsx
+  s_c07dbd23596171::t_1328d6ecebf353 25
+frontend/src/app/workspaces/[workspaceId]/cases/[caseId]/layout.tsx
+  s_c07dbd23596171::t_9dda1dbf129a6d 10,13-22,39
+frontend/src/app/workspaces/[workspaceId]/mcp-servers/page.tsx
+  s_c07dbd23596171::t_268cd6aec750e0 48
+frontend/src/app/workspaces/[workspaceId]/skills/layout.tsx
+  s_c07dbd23596171::t_6108be6bf7048f 1-14
+frontend/src/app/workspaces/layout.tsx
+  s_c07dbd23596171::t_f148339f5bf084 25,65,70,190-193
+frontend/src/components/agents/agent-approvals-dialog.tsx
+  s_c07dbd23596171::t_3bc3eca6f87ec8 40
+frontend/src/components/agents/agent-preset-detail-actions.tsx
+  s_c07dbd23596171::t_5b553b60cb8cc3 3-5,7-12,14-26,29-78,80-90,94-103
+frontend/src/components/agents/agent-preset-version-history.tsx
+  s_c07dbd23596171::t_42242fb699e7bf 3,6-7,11-22,24-25,29-37,39-40,42-53,56-68,71-86,88-103,106-112,114-127,129-130,132-133,135-139,141,143-147,149-170,172-178,180,182-187,189-201,203-213,215-223,227,229-237,241,243-245,251-259,263-282,284-297,299-309,311-317,319-335,337-344,346-350,352-374
+frontend/src/components/agents/agent-presets-builder.tsx
+  s_c07dbd23596171::t_7f1a9ae84ae817 63,152,168-171,1156-1241,1707-1753,1756-1781,1783-1789,1791-1793,1824-1827,1830-1831,1919-1922,1925-1926,1929-1932,1935-1936,1938-1941,1996-2009,2270,2554-2579,2825-2846,2855-2856,2859-2868,2883
+frontend/src/components/agents/agents-dashboard.tsx
+  s_c07dbd23596171::t_6508835f9f2781 139
+frontend/src/components/agents/agents-table.tsx
+  s_c07dbd23596171::t_634e23cbd4816e 45
+frontend/src/components/builder/canvas/canvas-toolbar.tsx
+  s_c07dbd23596171::t_296b5e20073f35 7,70,475
+frontend/src/components/builder/events/events-workflow.tsx
+  s_c07dbd23596171::t_fb365200a44bae 60,74-80,83
+frontend/src/components/builder/panel/action-panel-tooltips.tsx
+  s_c07dbd23596171::t_cc0becd5f93872 2,141,154-176,180-192
+frontend/src/components/builder/panel/action-panel.tsx
+  s_c07dbd23596171::t_2c5c15d19ea6cf 114-117,329,347,378-379,1572-1579,1598-1603
+frontend/src/components/cases/add-case-duration-dialog.tsx
+  s_c07dbd23596171::t_4045ce2f5b8e0b 10
+frontend/src/components/cases/add-custom-field-dialog.tsx
+  s_c07dbd23596171::t_41b59773ff3946 37-41,44-45,93,95,97,99-100,161,167,178-183,311-315,326,341,370,373,375,378
+frontend/src/components/cases/case-actions.tsx
+  s_c07dbd23596171::t_eabeb7aa8aef70 19
+frontend/src/components/cases/case-attachments-section.tsx
+  s_c07dbd23596171::t_a012b2df401f49 4,18-23,30-51,54,63,65-73,80-87,89,92-93,95,97-100,103-104,107-110,113-134,137-142,145-190,192-384,391-393,396-400,440-441,457,466,471,480,482-485,489-506,510,518,520,525,527-530,534,541,543,545,550-555,580-582,585-587,590-592,595-598,605-608,614-632,634-647,649-666,668-711
+frontend/src/components/cases/case-closure-dialog.tsx
+  s_c07dbd23596171::t_da86273450f40e 10,22,38,184,290-296,299-301,308,312,320,345,352,370,392,420,429,433,456,509,551,578-583
+frontend/src/components/cases/case-column-picker.tsx
+  s_c07dbd23596171::t_077f501e3110ed 17,58,60,192-193
+frontend/src/components/cases/case-comment-agent.tsx
+  s_c07dbd23596171::t_7f1da7c0f1c144 7,28
+frontend/src/components/cases/case-comments-section.tsx
+  s_c07dbd23596171::t_7a956d8548b713 20,23,34,60,84,86-90,92-102,270-275,307-312,407-409,411-413,421,427-460,529,539-541,648-684,715,733-734,750,770,772-773,776-778,789,815-819,831,833,863,866,883,890-895,940
+frontend/src/components/cases/case-duration-dialog.tsx
+  s_c07dbd23596171::t_6260d8fcd68429 405-406
+frontend/src/components/cases/case-duration-metrics.tsx
+  s_c07dbd23596171::t_e83f22f96b5e66 3,15-32,40-41,44,47-63,65-77,86,88-89,130-136,144-146,152-170,187-190,201-214,216-223,229,235,240,242-249,252,255,259-260,265,268,287,290
+frontend/src/components/cases/case-durations-table.tsx
+  s_c07dbd23596171::t_bc132a3acc71e8 51-52,115,129-132,176-177
+frontend/src/components/cases/case-durations-view.tsx
+  s_c07dbd23596171::t_9d37f6f8876ff3 26
+frontend/src/components/cases/case-field-kind-dialogs.tsx
+  s_c07dbd23596171::t_fa41dcc41319e1 17,21,23-26,63-67,69-71,73,75,81,175,185-189,191-193,195-223
+frontend/src/components/cases/case-item.tsx
+  s_c07dbd23596171::t_a422c128fe007b 72-73,138-141,156,209-210,219-223,231,253-255
+frontend/src/components/cases/case-panel-common.tsx
+  s_c07dbd23596171::t_1baf3de5ef5c78 22-39
+frontend/src/components/cases/case-panel-content.tsx
+  s_c07dbd23596171::t_42a3d27c1cf613 1-72
+frontend/src/components/cases/case-panel-custom-fields.tsx
+  s_c07dbd23596171::t_5605813c0652fa 1,11-14,17,47,51,193,214,220,223,233-237,273,288-341,513-529,531-583,683,712,741-749,786-787,792-794,851,860,863-864,872-880
+frontend/src/components/cases/case-panel-description.tsx
+  s_c07dbd23596171::t_a24a5f9a88a6b5 10,164-165,168-169
+frontend/src/components/cases/case-panel-fields-group.tsx
+  s_c07dbd23596171::t_dca645cf889ea6 1-97
+frontend/src/components/cases/case-panel-selectors.tsx
+  s_c07dbd23596171::t_15aab3ade3275f 4,20-33,40,290-310,320-326,335-358,360-402,404-460,464,469,474-478,484-486
+frontend/src/components/cases/case-panel-switcher.tsx
+  s_c07dbd23596171::t_3061f786f3ee0f 1-283
+frontend/src/components/cases/case-panel-view.tsx
+  s_c07dbd23596171::t_e41092b13459d2 4,14-16,26-36,38,50,52,55-58,63,68,71-89,96,102,107,139-140,143,146-179,182-192,198-200,202-214,216-245,248-250,252,255-263,356-358,360,410-412,414-419,517-532,539-542,544,546,550-609,611-626,628-646,655-656,667-671,675-707,711-712,716-725,727-753,756-765
+frontend/src/components/cases/case-panels.ts
+  s_c07dbd23596171::t_bae9ab4af1a751 1-83
+frontend/src/components/cases/case-tag-picker.tsx
+  s_c07dbd23596171::t_54ccab57329439 1-194
+frontend/src/components/cases/case-task-composer.tsx
+  s_c07dbd23596171::t_0eba16f0c9c637 1-412
+frontend/src/components/cases/case-task-field-menu.tsx
+  s_c07dbd23596171::t_686acdadebb0bf 1-123
+frontend/src/components/cases/case-task-field-picker.tsx
+  s_c07dbd23596171::t_23b1b73ebb201d 1-174
+frontend/src/components/cases/case-task-fields.tsx
+  s_c07dbd23596171::t_e0c703f27d7093 1-191
+frontend/src/components/cases/case-task-progress-ring.tsx
+  s_c07dbd23596171::t_63e8fe208957ae 1-62
+frontend/src/components/cases/case-task-row.tsx
+  s_c07dbd23596171::t_1f5858274a458d 1-652
+frontend/src/components/cases/case-task-status.tsx
+  s_c07dbd23596171::t_f505d921d54251 3-64,66-70,72-76,78-85,89-109,112-151,153-166,168,170-171,173-256,258-266
+frontend/src/components/cases/case-tasks-panel.tsx
+  s_c07dbd23596171::t_113fb5a801437f 6-36,42-53,57-61,63-71,79-81,84-90,93,95-98,103,105-108,114-153,155-158,162
+frontend/src/components/cases/case-url-field-popover.tsx
+  s_c07dbd23596171::t_52e0e638f37f92 1-259
+frontend/src/components/cases/cases-accordion.tsx
+  s_c07dbd23596171::t_5460578f2ee66f 34-35,129,159,175,286,307,501
+frontend/src/components/cases/cases-feed-event.tsx
+  s_c07dbd23596171::t_c0a17df34dab38 16,60,351,355,365-366,371,386
+frontend/src/components/cases/cases-feed.tsx
+  s_c07dbd23596171::t_95df1db201e33f 13,61,104,108,131-135,350,354,370-373,378,393,408,429,432,453-458
+frontend/src/components/cases/cases-layout.tsx
+  s_c07dbd23596171::t_474737ea903b91 34,340-342,348-353,489
+frontend/src/components/cases/closure-requirements-view.tsx
+  s_c07dbd23596171::t_b49f1ae200d731 27,72,119,222
+frontend/src/components/cases/comment-mention-overlay.tsx
+  s_c07dbd23596171::t_2a21ec7d9af8c6 18-20,49,51
+frontend/src/components/cases/comment-mention-popover.tsx
+  s_c07dbd23596171::t_9fc089b39c69f0 7-11,15-19,21,23-26,28,30,40-41,47,59,90,95,102,112,116,119-123
+frontend/src/components/cases/custom-fields-table.tsx
+  s_c07dbd23596171::t_cdd43c7d05b8fb 64,69,74-76,117-133,228,261-263,303-304
+frontend/src/components/cases/custom-fields-view.tsx
+  s_c07dbd23596171::t_667ef418caefe8 17,19,38-39
+frontend/src/components/cases/delete-case-task-dialog.tsx
+  s_c07dbd23596171::t_c12edbfbc13424 67
+frontend/src/components/cases/edit-custom-field-dialog.tsx
+  s_c07dbd23596171::t_059b5ce2c8daa8 37,40,80,82,84-92,147-148,162-163,173-174,346-347,356,369,371,403,406,411-429
+frontend/src/components/cases/editor.css
+  s_c07dbd23596171::t_7d677e77b8cf0c 33-42,54-154
+frontend/src/components/cases/multiselect-case-filters.tsx
+  s_c07dbd23596171::t_18f023445dc909 3,7,103,112
+frontend/src/components/cases/workflow-trigger-dialog.tsx
+  s_c07dbd23596171::t_797f7ad1af6f7f 28,61,201
+frontend/src/components/cases/workflow-trigger-form.tsx
+  s_c07dbd23596171::t_8cff6619938e1d 60,183,459,630,641,690,704,710-718,746
+frontend/src/components/chat/action-multiselect.tsx
+  s_c07dbd23596171::t_653c6504c7b128 170
+frontend/src/components/chat/chat-history-dropdown.tsx
+  s_c07dbd23596171::t_e9f378797013a8 30-41,138-141,170-177
+frontend/src/components/chat/chat-interface.tsx
+  s_c07dbd23596171::t_ceb1982da1b79e 60
+frontend/src/components/chat/chat-session-pane.test.tsx
+  s_c07dbd23596171::t_04f9e47251bbba 5
+frontend/src/components/chat/chat-session-pane.tsx
+  s_c07dbd23596171::t_97a6a07ab6c036 128
+frontend/src/components/chat/messages.tsx
+  s_c07dbd23596171::t_066e6db54b9537 13
+frontend/src/components/dashboard/workflows-header.tsx
+  s_c07dbd23596171::t_f824ef18af846d 28,283,285,375,377
+frontend/src/components/data-table/faceted-filter.tsx
+  s_c07dbd23596171::t_222f2b0beae748 1,6,93,106
+frontend/src/components/diff/inline-diff-view.tsx
+  s_c07dbd23596171::t_ce67159e8f043a 1-272
+frontend/src/components/diff/prose-diff.tsx
+  s_c07dbd23596171::t_e0be5d5e73ef63 1-72
+frontend/src/components/diff/unified-diff.tsx
+  s_c07dbd23596171::t_8b2bf010509b1b 1-135
+frontend/src/components/executions/nav.tsx
+  s_c07dbd23596171::t_2e80b2695b7df3 40
+frontend/src/components/filters/filter-multi-select.tsx
+  s_c07dbd23596171::t_6dda87a5bfd982 18,225,227
+frontend/src/components/icons.tsx
+  s_c07dbd23596171::t_a1f683f6c79ea8 20,22-23,28,30-31,33,35,37,40,46,52-53,60,69-70,73,663-665,681-683,701-708,713-724,733-748,765-772,777-796,805-808,957,1070-1071
+frontend/src/components/nav/controls-header.tsx
+  s_c07dbd23596171::t_b8d8da86f46ae9 38,89,1809,1811,1961-1968,2223-2227
+frontend/src/components/organization/org-settings-agent.tsx
+  s_c07dbd23596171::t_437205c2a75ade 109,2236,2244,2252,2260,2278,2313
+frontend/src/components/organization/service-accounts-manager.tsx
+  s_c07dbd23596171::t_34cb9dbac4f99a 78
+frontend/src/components/registry/dialogs/repository-versions-dialog.tsx
+  s_c07dbd23596171::t_876012c75345fc 57
+frontend/src/components/registry/workspace-actions-inventory.tsx
+  s_c07dbd23596171::t_eff01b12725751 69
+frontend/src/components/settings/workspace-model-settings.tsx
+  s_c07dbd23596171::t_a97e3c13b90aab 39
+frontend/src/components/settings/workspace-settings-container.tsx
+  s_c07dbd23596171::t_c5a5e380bfb1d9 14
+frontend/src/components/sidebar/admin-sidebar.tsx
+  s_c07dbd23596171::t_f2d4352d94174d 9,63
+frontend/src/components/sidebar/app-sidebar.tsx
+  s_c07dbd23596171::t_fda6e71866a6e7 444-446
+frontend/src/components/sidebar/organization-sidebar.tsx
+  s_c07dbd23596171::t_62d3261f430752 11,92
+frontend/src/components/tables/cell-editors.tsx
+  s_c07dbd23596171::t_1b993ed72f31a6 3,8,390,399
+frontend/src/components/tables/table-link-rows-to-case-command.tsx
+  s_c07dbd23596171::t_941aad5b3250e0 3,9,21,155,169-171
+frontend/src/components/tiptap-node/image-node/attachment-image-node.tsx
+  s_c07dbd23596171::t_eae300e6ee6a7a 12
+frontend/src/components/tiptap-node/table-node/table-node-extension.ts
+  s_c07dbd23596171::t_93cfdcf4b30753 1-120
+frontend/src/components/tiptap-templates/simple/simple-editor.scss
+  s_c07dbd23596171::t_a845d3a9f80e51 69
+frontend/src/components/tiptap-templates/simple/simple-editor.tsx
+  s_c07dbd23596171::t_a4aa35c63664c8 30-34,51-55,57-58,104-108,158,167,179,186,193,200,205-228,255,298-308,348-388,619,674-685,863-865
+frontend/src/components/tiptap-ui-primitive/popover/popover.tsx
+  s_c07dbd23596171::t_d9fc1707e29d2f 20-25,44
+frontend/src/components/tiptap-ui/link-popover/link-popover.scss
+  s_c07dbd23596171::t_f41240da3758df 1-16
+frontend/src/components/tiptap-ui/link-popover/link-popover.tsx
+  s_c07dbd23596171::t_4e168b6c06f12c 3,6,26,34-94,200-205,292-295,341-376,383-399,415-419
+frontend/src/components/ui/check-indicator.tsx
+  s_c07dbd23596171::t_594ebdecb67958 1-46
+frontend/src/components/ui/checkbox.tsx
+  s_c07dbd23596171::t_d291d42fc6adf2 16,25
+frontend/src/components/ui/command.tsx
+  s_c07dbd23596171::t_f91ae618591cfe 62-65
+frontend/src/components/ui/dialog.tsx
+  s_c07dbd23596171::t_9d081c63db79e2 11-20
+frontend/src/components/ui/dropdown-menu.tsx
+  s_c07dbd23596171::t_42604a1bc96982 4,7,104,110-111
+frontend/src/components/ui/scroll-area.tsx
+  s_c07dbd23596171::t_58bb076c8a2a91 10-18,27-30
+frontend/src/components/ui/sidebar.tsx
+  s_c07dbd23596171::t_297b1d75915409 53-56,104-107,115-120,164-170,358-366,451-459
+frontend/src/components/version-history/types.ts
+  s_c07dbd23596171::t_018a31d4c10bd8 1-118
+frontend/src/components/version-history/version-diff-body.tsx
+  s_c07dbd23596171::t_a634bc8d191dad 3-10,12-35,38-53,55-56,61-82,88-105,107-112
+frontend/src/components/version-history/version-diff-file-tree.tsx
+  s_c07dbd23596171::t_d05b20e65eff6c 1-131
+frontend/src/components/version-history/version-history-menu.tsx
+  s_c07dbd23596171::t_4f4ad25558abf0 1-311
+frontend/src/components/workflow-runs/workflow-runs-layout.tsx
+  s_c07dbd23596171::t_20fd3fdd9e92ca 863-870
+frontend/src/components/workspace-chat/artifacts/artifact-content.tsx
+  s_c07dbd23596171::t_eb89663bff595f 9,126-129
+frontend/src/components/workspace-chat/artifacts/artifact-registry.tsx
+  s_c07dbd23596171::t_ce054a18eb254c 16
+frontend/src/components/workspace-chat/workspace-chat-view.tsx
+  s_c07dbd23596171::t_3db30ad7a75a43 28
+frontend/src/components/workspace-sync/mapping-requirements-card.tsx
+  s_c07dbd23596171::t_6b19ba99551656 1-121
+frontend/src/components/workspace-sync/pull-tab.tsx
+  s_c07dbd23596171::t_8db2db072135d2 17-18,29-33,76-79,85,99-106,112-113,116-117,138-139,160,164-166,171,201,209-210,214-216,220-222,224,256-266,308-310,323,415-417,428-433,493-502,530,532,549,555-562,568-577,597-669,681-691
+frontend/src/components/workspaces/workspace-members-table.tsx
+  s_c07dbd23596171::t_ab679711f69bc7 52
+frontend/src/hooks/pagination/use-cursor-pagination.tsx
+  s_c07dbd23596171::t_69da7b63cab5bb 5
+frontend/src/hooks/use-admin.ts
+  s_c07dbd23596171::t_dfb881bde262a8 95
+frontend/src/hooks/use-agent-channels.ts
+  s_c07dbd23596171::t_7c5be808f1de6a 17
+frontend/src/hooks/use-agent-presets.ts
+  s_c07dbd23596171::t_1b8cc60a497f05 38-43,568,616,655,693,706,818,831,867
+frontend/src/hooks/use-auth.ts
+  s_c07dbd23596171::t_663bb683c7c241 15
+frontend/src/hooks/use-auto-collapse-sidebar.ts
+  s_c07dbd23596171::t_95559dc5ade833 1-67
+frontend/src/hooks/use-case-task-form.ts
+  s_c07dbd23596171::t_031cccaf65e0dc 4-5,7-41,46-76,78-95,98-100,102-103,106-112,114-121,124,126-127,132-133,137,140-144,147-151,153,155-163,165-169
+frontend/src/hooks/use-cases.ts
+  s_c07dbd23596171::t_5a6789f1df99b8 26
+frontend/src/hooks/use-chat.ts
+  s_c07dbd23596171::t_8b944aa9e13e5e 35-41,306
+frontend/src/hooks/use-comment-mentions.ts
+  s_c07dbd23596171::t_64dbc55f5312ed 8,15-16,18,29-30,33-35,37-42,46,48,50-51,73-74,85-88,91-92,99,102-103,124,130-132,134-142,149,160-169,171,175,178,180-181,190-210,213-220,225,236,247,251,256-264,274,321,339-344,399-405,408-409,411,416-417
+frontend/src/hooks/use-comment-workflows.ts
+  s_c07dbd23596171::t_352bea6297dc07 1-84
+frontend/src/hooks/use-digit-shortcuts.ts
+  s_c07dbd23596171::t_a2233f6c927c9c 1-113
+frontend/src/hooks/use-entitlements.ts
+  s_c07dbd23596171::t_24c583a190dc56 3
+frontend/src/hooks/use-feature-flags.ts
+  s_c07dbd23596171::t_6ba6e7c6cb0888 2
+frontend/src/hooks/use-inbox.ts
+  s_c07dbd23596171::t_815d3d1a0f8649 21-27
+frontend/src/hooks/use-integration-actions.ts
+  s_c07dbd23596171::t_33eff09e2196a9 12
+frontend/src/hooks/use-is-at-least-width.ts
+  s_c07dbd23596171::t_2a1b3ed53c7287 1-50
+frontend/src/hooks/use-local-storage.ts
+  s_c07dbd23596171::t_69997080c43041 1,5-10,33-43,45-48,59-64,67,74-78,82,94,111-116
+frontend/src/hooks/use-mcp-personal-access-tokens.ts
+  s_c07dbd23596171::t_0d99f1697ef9dd 10
+frontend/src/hooks/use-media-query.ts
+  s_c07dbd23596171::t_7fa6b1b4ab533c 1-39
+frontend/src/hooks/use-org-domains.ts
+  s_c07dbd23596171::t_79b4d23ea89fd5 4
+frontend/src/hooks/use-org-membership.ts
+  s_c07dbd23596171::t_94e730652ed95b 4
+frontend/src/hooks/use-organization.ts
+  s_c07dbd23596171::t_c08d1804776f77 9
+frontend/src/hooks/use-pending-approvals-count.ts
+  s_c07dbd23596171::t_e7ee9b730977b4 4
+frontend/src/hooks/use-pending-org-invitations.ts
+  s_c07dbd23596171::t_7cc090f4ef4812 7
+frontend/src/hooks/use-service-accounts.ts
+  s_c07dbd23596171::t_8885ee6b8694c5 29
+frontend/src/hooks/use-skills.ts
+  s_c07dbd23596171::t_d7a6c82fcdafa5 35
+frontend/src/hooks/use-stdio-mcp-verification-status.test.tsx
+  s_c07dbd23596171::t_babd7ee9e6aee7 9
+frontend/src/hooks/use-stdio-mcp-verification-status.ts
+  s_c07dbd23596171::t_b4e6efbf60ccde 8-13
+frontend/src/hooks/use-watchtower.ts
+  s_c07dbd23596171::t_dcb02874ec7265 13,111,123,135
+frontend/src/hooks/use-workflow-definitions.ts
+  s_c07dbd23596171::t_7aa8897cd19dbc 9
+frontend/src/hooks/use-workflow-runs.ts
+  s_c07dbd23596171::t_a63b055f08b85f 25
+frontend/src/hooks/use-workflow-trigger-inputs.ts
+  s_c07dbd23596171::t_7b39021ac563bf 6,23-26,44
+frontend/src/hooks/use-workspace-sync.ts
+  s_c07dbd23596171::t_7c1e756de37dca 6,20,27,50-52
+frontend/src/hooks/use-workspace.ts
+  s_c07dbd23596171::t_9d4921ad83ca8f 14
+frontend/src/lib/action-timeout.ts
+  s_c07dbd23596171::t_3e619aa054bfb9 1-14
+frontend/src/lib/agent-preset-document.ts
+  s_c07dbd23596171::t_e392e1fb53827c 1-436
+frontend/src/lib/agent-presets.ts
+  s_c07dbd23596171::t_1352e7d6a21575 10-31
+frontend/src/lib/case-field-display.ts
+  s_c07dbd23596171::t_d21e0af29af601 1-2,5-49,130-165
+frontend/src/lib/cases/comment-queries.test.tsx
+  s_c07dbd23596171::t_8bf09f34073640 22
+frontend/src/lib/cases/comment-queries.ts
+  s_c07dbd23596171::t_23808c83afecd9 2
+frontend/src/lib/cases/invalidation.ts
+  s_c07dbd23596171::t_f1280ea4e4661a 1-15
+frontend/src/lib/cases/use-attachment-object-url.ts
+  s_c07dbd23596171::t_5d93e8efdff63f 1-71
+frontend/src/lib/cases/use-case-image-upload.ts
+  s_c07dbd23596171::t_6c99a08b999d89 8
+frontend/src/lib/chat.ts
+  s_c07dbd23596171::t_be04c24c65cec5 14
+frontend/src/lib/comment-mentions.ts
+  s_c07dbd23596171::t_500f9279f25a33 4-10,13-18,23,42-47,49-50,54,70-76,88-93,217-225,229,232-238,242-243,248,254,257,261-282,291,293-295,300-301,303-327,330-333,335-337,341-343,348
+frontend/src/lib/csp.ts
+  s_c07dbd23596171::t_1c3cf155ff159f 11-12
+frontend/src/lib/diff.ts
+  s_c07dbd23596171::t_7acca091343563 1-450
+frontend/src/lib/errors.test.ts
+  s_c07dbd23596171::t_922f39f67d00a9 1-11,54-129
+frontend/src/lib/errors.ts
+  s_c07dbd23596171::t_a89160682ba997 2-9,77-139
+frontend/src/lib/file-tree.ts
+  s_c07dbd23596171::t_0c1f43af68cd86 1-142
+frontend/src/lib/hooks.tsx
+  s_c07dbd23596171::t_77ee9fd6b9c7f1 408-414,503,848,875,882,900,916,933,1038,1063,1070,2082,2110,2139,2145,2230,2236,2263,2269,2419,2432,2460,2560,2573,2602,2700,2803,2875,2955,3013,3073,3131,3331,3337,3432,3918,3968,4013,4216,4259,4301,4314-4318,4327-4330,4365,4410,4454,4540,4586,4623,4659,4672,5958
+frontend/src/lib/query.ts
+  s_c07dbd23596171::t_c193bd3242857d 1-46
+frontend/src/lib/rbac.test.ts
+  s_c07dbd23596171::t_4f10acc6587305 1-36
+frontend/src/lib/rbac.ts
+  s_c07dbd23596171::t_a12ff7bff70001 63-67
+frontend/src/lib/time.ts
+  s_c07dbd23596171::t_18b8f23eab3d8c 1,125-205,207-216,218-231,233-315,318-327
+frontend/src/lib/utils.ts
+  s_c07dbd23596171::t_6b59e3dc4e9f26 66-78,105,108,149-165,181,183,185
+frontend/src/lib/version-diff.ts
+  s_c07dbd23596171::t_5cb188ec14d72e 1-61
+frontend/src/providers/agent-preset-detail.tsx
+  s_c07dbd23596171::t_6b12e41d7b4ec4 1-68
+frontend/src/providers/query.test.tsx
+  s_c07dbd23596171::t_e50089ffa32fc3 1-162
+frontend/src/providers/query.tsx
+  s_c07dbd23596171::t_ff312228112a74 6-7,16-36
+frontend/src/providers/workflow.tsx
+  s_c07dbd23596171::t_262c4c872e1075 27-32
+frontend/src/styles/globals.scss
+  s_c07dbd23596171::t_683bac7767bf8d 56-65,114-123
+frontend/tailwind.config.js
+  s_c07dbd23596171::t_deba40885a795b 61-80
+frontend/tests/agent-preset-document.test.ts
+  s_c07dbd23596171::t_ba36fc6dee254b 1-468
+frontend/tests/agent-preset-version-history.test.tsx
+  s_c07dbd23596171::t_b5a6e57f212387 1,3-7,9-10,14,17-18,23-24,27-37,39-40,42-65,69-78,80,82-85,87,91-102,104-106,108-109,112-114,116-117,121-132,134-207,210-230,233,235-294,296-307,309-314,316-319,321-328,330-353,355,357-363,365-366
+frontend/tests/agent-presets-builder.test.tsx
+  s_c07dbd23596171::t_9d0ab8ad6bb026 2,17-43
+frontend/tests/app-sidebar.test.tsx
+  s_c07dbd23596171::t_d5a86cc04a811f 10,18,35-55,96,102,106,148,217-234
+frontend/tests/case-closure-dialog.test.tsx
+  s_c07dbd23596171::t_5d349891288c7f 1-148
+frontend/tests/case-comments-section.test.tsx
+  s_c07dbd23596171::t_c67e2b3d117c8f 35,90-92,332-347,439-470,659,665-672,674-679,681-696,699-701,703,705,707-712,715-721,723-725,727-755,758-771,774-797,800,803-936,938-1027,1031-1087,1152-1212,1484,1494,1499,1503,1508,1526,1540,1554,1563,1570,1591,1619,1636,1653,1658,1684,1703,1720,1723,1732,1740,1751,1766
+frontend/tests/case-duration-dialog.test.tsx
+  s_c07dbd23596171::t_f291c5c171ad45 1-53
+frontend/tests/case-field-display.test.ts
+  s_c07dbd23596171::t_2742e94a2b0c39 5-6,46-113
+frontend/tests/case-field-kind-dialogs.test.tsx
+  s_c07dbd23596171::t_84c5ec1bff3ba0 1-225
+frontend/tests/case-item.test.tsx
+  s_c07dbd23596171::t_ad3762d5a18886 8,87-94,130
+frontend/tests/case-panel-custom-fields.test.tsx
+  s_c07dbd23596171::t_47ae1214fff0c3 1-325
+frontend/tests/case-panel-fields-group.test.tsx
+  s_c07dbd23596171::t_a1f8f87cd1dac1 1-183
+frontend/tests/case-panel-view-locked-tabs.test.tsx
+  s_c07dbd23596171::t_ec75e929d1b095 1-254
+frontend/tests/case-tag-picker.test.tsx
+  s_c07dbd23596171::t_c1da303f53fdb9 1-139
+frontend/tests/case-task-status.test.ts
+  s_c07dbd23596171::t_ab8440feb7be42 1-62
+frontend/tests/case-tasks-panel.test.tsx
+  s_c07dbd23596171::t_fb76fab6be8baf 1-836
+frontend/tests/case-url-field-popover.test.tsx
+  s_c07dbd23596171::t_a93c96a8fc4ca9 1-413
+frontend/tests/chat-history-dropdown.test.tsx
+  s_c07dbd23596171::t_ea4132a8650321 70-156
+frontend/tests/chat-session-pane.test.tsx
+  s_c07dbd23596171::t_1e602afc74cbe2 18
+frontend/tests/comment-mentions.test.ts
+  s_c07dbd23596171::t_7f10e7cf988a5b 7,9-10,20-21,25-26,32-48,95-125,241,243,247,252,256,260-263,267,271-310,320-321,333-334,341-392
+frontend/tests/copy-to-clipboard.test.ts
+  s_c07dbd23596171::t_41c52cb36a1968 1-44
+frontend/tests/custom-field-metadata-dialogs.test.tsx
+  s_c07dbd23596171::t_129ce1b79e1a5d 1-157
+frontend/tests/custom-fields-table.test.tsx
+  s_c07dbd23596171::t_9721aa7bea890b 1-52
+frontend/tests/diff-tokens.test.ts
+  s_c07dbd23596171::t_93254a6ff5bdc4 1-106
+frontend/tests/file-tree.test.ts
+  s_c07dbd23596171::t_7a229bba9b3eda 1-106
+frontend/tests/github-app-credentials-hooks.test.tsx
+  s_c07dbd23596171::t_522999e9af9e1d 16
+frontend/tests/inline-diff-view.test.tsx
+  s_c07dbd23596171::t_7ae7a42da9ada6 1-224
+frontend/tests/inline-diff.test.ts
+  s_c07dbd23596171::t_27077cfaf1dfb3 1-373
+frontend/tests/memo-render-count.test.tsx
+  s_c07dbd23596171::t_097000de3332ea 7,12
+frontend/tests/mission-control-view.test.tsx
+  s_c07dbd23596171::t_3a98c69fecfd12 7
+frontend/tests/service-accounts-manager.test.tsx
+  s_c07dbd23596171::t_3adc4b6d54311a 15
+frontend/tests/table-move-column.test.ts
+  s_c07dbd23596171::t_e638d5ff0ebaa4 1-302
+frontend/tests/time.test.ts
+  s_c07dbd23596171::t_2dd12c58945271 1-10,29-216
+frontend/tests/use-admin-org-invitations.test.tsx
+  s_c07dbd23596171::t_e3f8ef2cf29aaa 14
+frontend/tests/use-auto-collapse-sidebar.test.tsx
+  s_c07dbd23596171::t_fa026c22269355 1-150
+frontend/tests/use-batch-cases.test.tsx
+  s_c07dbd23596171::t_02f576d3b83e56 6
+frontend/tests/use-builder-registry-actions.test.tsx
+  s_c07dbd23596171::t_4504296459eabc 5
+frontend/tests/use-case-task-form.test.tsx
+  s_c07dbd23596171::t_3832bf29ea27f4 1-224
+frontend/tests/use-cases.test.tsx
+  s_c07dbd23596171::t_07b19f5a1e0449 14
+frontend/tests/use-chat.test.tsx
+  s_c07dbd23596171::t_80b8ea6eb017e2 9
+frontend/tests/use-digit-shortcuts.test.tsx
+  s_c07dbd23596171::t_8e27b111ce4757 1-173
+frontend/tests/use-graph-operations.test.tsx
+  s_c07dbd23596171::t_89b80603143c67 8
+frontend/tests/use-list-case-rows.test.tsx
+  s_c07dbd23596171::t_b1498fac7d0685 10
+frontend/tests/use-local-storage.test.tsx
+  s_c07dbd23596171::t_363364f78cd7de 1-104
+frontend/tests/use-workspace-sync.test.tsx
+  s_c07dbd23596171::t_d97c75122ea5be 11
+frontend/tests/utils.test.ts
+  s_c07dbd23596171::t_924a0bff5e81d8 2-8,135-189
+frontend/tests/version-diff.test.ts
+  s_c07dbd23596171::t_60e6d86bd5c26e 1-95
+frontend/tests/version-history-menu.test.tsx
+  s_c07dbd23596171::t_89a8a39d1dc3f0 1-276
+frontend/tests/workspace-chat-artifacts.test.ts
+  s_c07dbd23596171::t_33ef8e9d31bc4f 8
+frontend/tests/workspace-sync-settings.test.tsx
+  s_c07dbd23596171::t_1d43d44b79b25f 12,139-164,714,732-734,746,895,914,1040-1379
+packages/tracecat-admin/tracecat_admin/services/bootstrap.py
+  s_c07dbd23596171::t_eb1f5489332c69 148,173,469
+packages/tracecat-ee/tracecat_ee/admin/users/service.py
+  s_c07dbd23596171::t_18560811656b8d 55,98
+packages/tracecat-ee/tracecat_ee/agent/workflows/durable.py
+  s_c07dbd23596171::t_53cec286fc5272 30,89,93,160-176,700,715,723,730,741,757,793,858,895,1214-1219,1291,1334,1342-1346,1359,1366-1369,1381,1391,1515,1527-1532,1559-1561,1602-1621,1636,1644-1647,1846-1848,1878-1884,1889
+packages/tracecat-registry/AGENTS.md
+  s_c07dbd23596171::t_02199bedaca18d 17-22,28-48,51-201,207-225,231-249
+packages/tracecat-registry/tracecat_registry/core/http.py
+  s_c07dbd23596171::t_234bd0f08a40d4 126,627-635,671-672,752-760,839-840
+packages/tracecat-registry/tracecat_registry/core/python.py
+  s_c07dbd23596171::t_a03dacc118ebd3 28-30,48-50
+packages/tracecat-registry/tracecat_registry/integrations/google_drive.py
+  s_c07dbd23596171::t_f07a40168cf1bd 66-79,92-97,107,111-115,151,214-218,260,292,323,357,403,442,474
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_certificate.yml
+  s_c07dbd23596171::t_99037ede59de9f 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_certificate_raw.yml
+  s_c07dbd23596171::t_f400bc38803218 1-37
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_certificates.yml
+  s_c07dbd23596171::t_516755a2f702fa 1-38
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_host.yml
+  s_c07dbd23596171::t_f9b18ade80271c 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_host_timeline.yml
+  s_c07dbd23596171::t_24c515d3a1992f 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_hosts.yml
+  s_c07dbd23596171::t_58711893a40a6e 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_web_properties.yml
+  s_c07dbd23596171::t_8a600a0e2ddaf3 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/assets/get_web_property.yml
+  s_c07dbd23596171::t_e4bcff6c8fa7db 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/search/aggregate_search.yml
+  s_c07dbd23596171::t_a91f19e78f7a62 1-56
+packages/tracecat-registry/tracecat_registry/templates/tools/censys/search/search_assets.yml
+  s_c07dbd23596171::t_e0dc34e2741a69 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/cisa_kev/vulnerabilities/list_known_exploited_vulnerabilities.yml
+  s_c07dbd23596171::t_38e57c7a30a7f1 1-24
+packages/tracecat-registry/tracecat_registry/templates/tools/dehashed/catalog/list_data_wells.yml
+  s_c07dbd23596171::t_9316fdc26ace21 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/dehashed/search/check_password_hash.yml
+  s_c07dbd23596171::t_f71e0dcf764ec0 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/dehashed/search/search_breaches.yml
+  s_c07dbd23596171::t_a5f23af3f87ac5 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/availability/check_domain_availability.yml
+  s_c07dbd23596171::t_e844ee1b17a5fe 1-46
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/brand/check_social_handles.yml
+  s_c07dbd23596171::t_7344610d6d8348 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/brand/detect_typosquatting.yml
+  s_c07dbd23596171::t_14920f0ee7bbf7 1-45
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/brand/suggest_domains.yml
+  s_c07dbd23596171::t_eee4921ed4c8e3 1-60
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/certificates/find_subdomains.yml
+  s_c07dbd23596171::t_8434f6355c3a7e 1-55
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/certificates/get_certificates.yml
+  s_c07dbd23596171::t_29752f9e7d7322 1-50
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/dns/check_dns_security.yml
+  s_c07dbd23596171::t_b4ea10ab87451b 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/dns/get_dns_records.yml
+  s_c07dbd23596171::t_a02029883537a8 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/domain/get_domain_overview.yml
+  s_c07dbd23596171::t_e72df2ecbf23bb 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/meta/get_coverage.yml
+  s_c07dbd23596171::t_ee5bc39879f660 1-26
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/security/check_domain_health.yml
+  s_c07dbd23596171::t_92903b0d259eb1 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/domscan/security/get_domain_reputation.yml
+  s_c07dbd23596171::t_988a6110b7dc3a 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/attack_discovery/search_attack_discoveries.yml
+  s_c07dbd23596171::t_43a0bd8dab5ae4 13-79,112-129
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/assign_detection_alert_users.yml
+  s_c07dbd23596171::t_1e2ace0ddfad43 13-15,17-20,57-59
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/bulk_action_detection_rules.yml
+  s_c07dbd23596171::t_dceba0097e1348 14-15,18-20,53-54
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/create_detection_rule.yml
+  s_c07dbd23596171::t_7366f466f35b48 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/export_detection_rules.yml
+  s_c07dbd23596171::t_93b34495e83929 14-15,18-24,57-59
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/import_detection_rules.yml
+  s_c07dbd23596171::t_001f2138467c10 20-34,67-71
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/list_detection_rules.yml
+  s_c07dbd23596171::t_f868e4eb538c57 13-51,84-94
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/patch_detection_rule.yml
+  s_c07dbd23596171::t_cbe6a74af77c9e 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/preview_detection_rule.yml
+  s_c07dbd23596171::t_a6f0c523998b29 14-15,18-20,53-54
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/search_detection_alerts.yml
+  s_c07dbd23596171::t_1cac9c0225f361 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/set_detection_alert_status.yml
+  s_c07dbd23596171::t_8fecea3aae574a 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/update_detection_alert_tags.yml
+  s_c07dbd23596171::t_494b5a33b54fad 13-18,20,57-59
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/cancel_response_action.yml
+  s_c07dbd23596171::t_8765027610c34a 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/create_endpoint_script.yml
+  s_c07dbd23596171::t_92e6712108aa90 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/generate_endpoint_memory_dump.yml
+  s_c07dbd23596171::t_faccbb60735d1e 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/get_endpoint_file.yml
+  s_c07dbd23596171::t_ce79ede0921a83 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/get_endpoint_processes.yml
+  s_c07dbd23596171::t_e61b5c27c0fc87 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/isolate_endpoint.yml
+  s_c07dbd23596171::t_454b4fee79ef88 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/list_endpoint_scripts.yml
+  s_c07dbd23596171::t_d7a27fbb4906ab 13-31,64-69
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/list_endpoints.yml
+  s_c07dbd23596171::t_6a60916c0746a7 13-34,67-73
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/list_response_actions.yml
+  s_c07dbd23596171::t_acf74f05c28568 13-51,84-94
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/release_endpoint.yml
+  s_c07dbd23596171::t_c65b6bc804753b 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/run_endpoint_command.yml
+  s_c07dbd23596171::t_397568f6571b80 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/run_endpoint_script.yml
+  s_c07dbd23596171::t_ad7ea833751b04 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/scan_endpoint_path.yml
+  s_c07dbd23596171::t_e5c0fa552f2d5e 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/suspend_endpoint_process.yml
+  s_c07dbd23596171::t_878763113cbaac 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/terminate_endpoint_process.yml
+  s_c07dbd23596171::t_672de1264e9bd3 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/upload_endpoint_file.yml
+  s_c07dbd23596171::t_4d4a287e4f82eb 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/entity_analytics/search_entities.yml
+  s_c07dbd23596171::t_1eebbb6373b0bc 13-55,88-99
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/create_exception_list.yml
+  s_c07dbd23596171::t_af57084e2387f8 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/create_exception_list_item.yml
+  s_c07dbd23596171::t_feb5b2fdb24d5d 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/delete_exception_list_item.yml
+  s_c07dbd23596171::t_1bb665c6998a8a 13-23,56-59
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/list_exception_list_items.yml
+  s_c07dbd23596171::t_9e7d2b59f06c90 13-42,75-83
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/list_exception_lists.yml
+  s_c07dbd23596171::t_42ff405285cb2f 13-35,68-74
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/osquery/run_osquery_live_query.yml
+  s_c07dbd23596171::t_eabbde188c83b7 14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/emailrep/report_email_address.yml
+  s_c07dbd23596171::t_836b679762f27e 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/first_epss/scores/get_time_series.yml
+  s_c07dbd23596171::t_e55e58554010e9 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/first_epss/scores/lookup_cve_scores.yml
+  s_c07dbd23596171::t_723df740edc8fb 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/first_epss/scores/search_scores.yml
+  s_c07dbd23596171::t_05afedf1b6b9d6 1-69
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/incidents/get_public_secret_incident.yml
+  s_c07dbd23596171::t_d22133379ffde3 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/incidents/get_secret_incident.yml
+  s_c07dbd23596171::t_7b3dab7ac4d98d 1-36
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/incidents/list_public_secret_incidents.yml
+  s_c07dbd23596171::t_05adba765b0723 1-158
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/incidents/list_secret_incidents.yml
+  s_c07dbd23596171::t_345ed960e41ff8 1-163
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/occurrences/list_public_secret_occurrences.yml
+  s_c07dbd23596171::t_a03bb0a4946e37 1-102
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/occurrences/list_secret_occurrences.yml
+  s_c07dbd23596171::t_6a1994161c90b0 1-138
+packages/tracecat-registry/tracecat_registry/templates/tools/gitguardian/scan/scan_content.yml
+  s_c07dbd23596171::t_bc78dee1f9d144 1-38
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/dispatch_workflow.yml
+  s_c07dbd23596171::t_f3aecc8121bfff 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/get_workflow_run.yml
+  s_c07dbd23596171::t_b070343b151afd 23-25,41-42
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/list_repository_workflow_runs.yml
+  s_c07dbd23596171::t_0a419dfc24b0fa 20-58,74-84
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/list_repository_workflows.yml
+  s_c07dbd23596171::t_aa7fcf24955f11 20-26,42-44
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/list_workflow_run_jobs.yml
+  s_c07dbd23596171::t_50e37dc3ca54dc 23-33,49-52
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/rerun_failed_workflow_jobs.yml
+  s_c07dbd23596171::t_67de12873e6587 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/compare_commits.yml
+  s_c07dbd23596171::t_10f7403afbdf3c 23-29,45-47
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/create_or_update_repository_content.yml
+  s_c07dbd23596171::t_35dbdc3fd88ca7 24-25,27-28
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/get_commit.yml
+  s_c07dbd23596171::t_88e5a13912c746 23-29,45-47
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/get_repository_content.yml
+  s_c07dbd23596171::t_79b3925a3216e8 23-25,41-42
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/list_commits.yml
+  s_c07dbd23596171::t_aad858d8cc44be 20-50,66-74
+packages/tracecat-registry/tracecat_registry/templates/tools/github/gists/get_gist.yml
+  s_c07dbd23596171::t_f8a35babc734b9 1-31
+packages/tracecat-registry/tracecat_registry/templates/tools/github/gists/list_gist_commits.yml
+  s_c07dbd23596171::t_f8d969d2de9ca9 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/create_issue.yml
+  s_c07dbd23596171::t_10969f86985bcf 21-22,24
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/create_issue_comment.yml
+  s_c07dbd23596171::t_9c72bd3882c897 23-25,40-41
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_issue_comments.yml
+  s_c07dbd23596171::t_363535c2f2b0f9 23-33,49-52
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_repository_issues.yml
+  s_c07dbd23596171::t_0ec78564509258 20-70,86-99
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/update_issue.yml
+  s_c07dbd23596171::t_fc46e5097afe09 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/organization/get_organization_audit_log.yml
+  s_c07dbd23596171::t_fbdca3131a394f 17-39,55-61
+packages/tracecat-registry/tracecat_registry/templates/tools/github/posture/update_branch_protection.yml
+  s_c07dbd23596171::t_74b6e302e71d5e 24-25,27-28
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/create_pull_request.yml
+  s_c07dbd23596171::t_6e9ec586135be7 21-22,24
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/create_pull_request_review.yml
+  s_c07dbd23596171::t_0604cf6640e87a 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/create_pull_request_review_comment.yml
+  s_c07dbd23596171::t_291bc87dfe3d9f 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/list_pull_request_files.yml
+  s_c07dbd23596171::t_ae1b3b3f1f8fa2 23-29,45-47
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/list_pull_request_review_comments.yml
+  s_c07dbd23596171::t_f8258f89d6ac5c 23-41,57-62
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/list_pull_requests.yml
+  s_c07dbd23596171::t_96774170668b27 20-46,62-69
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/merge_pull_request.yml
+  s_c07dbd23596171::t_a6c473fe41ccdd 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/update_pull_request.yml
+  s_c07dbd23596171::t_67cea746cfdada 24-25,27
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_code.yml
+  s_c07dbd23596171::t_5f5482cf15e429 14-31,47-52
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_commits.yml
+  s_c07dbd23596171::t_1cd7381d088740 1-53
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_issues.yml
+  s_c07dbd23596171::t_4be926ff384f55 1-63
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_repositories.yml
+  s_c07dbd23596171::t_1a08260439dc61 1-53
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/get_secret_scanning_alert.yml
+  s_c07dbd23596171::t_bd98f661125f88 23-25,41-42
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_code_scanning_alert_instances.yml
+  s_c07dbd23596171::t_836e12f9f8c58f 23-37,53-57
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_org_code_scanning_alerts.yml
+  s_c07dbd23596171::t_2c74d45bd12547 17-59,75-86
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_org_dependabot_alerts.yml
+  s_c07dbd23596171::t_3b054e6fdb10ab 17-87,103-121
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_org_secret_scanning_alerts.yml
+  s_c07dbd23596171::t_b192d8deb3a9e5 17-95,111-131
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_repo_code_scanning_alerts.yml
+  s_c07dbd23596171::t_bf9dc45305fe1a 20-70,86-99
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_repo_dependabot_alerts.yml
+  s_c07dbd23596171::t_b0760153cfe212 20-82,98-114
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_repo_secret_scanning_alerts.yml
+  s_c07dbd23596171::t_7bae2f4d89d3f1 20-98,114-134
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_secret_scanning_alert_locations.yml
+  s_c07dbd23596171::t_1f834928d7aad9 23-29,45-47
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/update_code_scanning_alert.yml
+  s_c07dbd23596171::t_e423b7f240e51e 24-25,27-28
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/update_code_scanning_default_setup.yml
+  s_c07dbd23596171::t_dae608de404ab4 21-22,24-25
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/update_dependabot_alert.yml
+  s_c07dbd23596171::t_e66128d5cecbf7 24-25,27-28
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/update_secret_scanning_alert.yml
+  s_c07dbd23596171::t_31bd5dc64d4186 24-25,27-28
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/create_repository_security_advisory.yml
+  s_c07dbd23596171::t_9cbb2cd19a69a6 21-22,24-25
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/list_global_security_advisories.yml
+  s_c07dbd23596171::t_c70d6b5a41f6c3 14-84,100-118
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/list_organization_security_advisories.yml
+  s_c07dbd23596171::t_c6600257a7381c 17-39,55-61
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/list_repo_security_advisories.yml
+  s_c07dbd23596171::t_7d07aac5c6a3f9 20-42,58-64
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/submit_private_vulnerability_report.yml
+  s_c07dbd23596171::t_b09f13ae48f3d1 21-22,24-25
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/update_repo_security_advisory.yml
+  s_c07dbd23596171::t_bed4fe44869080 24-25,27-28
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/create_pipeline.yml
+  s_c07dbd23596171::t_cef381d18afa78 18-23,25,27,42-45
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/get_job_trace.yml
+  s_c07dbd23596171::t_697d7ce367fe84 21-27,42-44
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/list_pipeline_jobs.yml
+  s_c07dbd23596171::t_8b0e554dae8ff2 21-35,50-54
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/list_pipelines.yml
+  s_c07dbd23596171::t_800ad75eef8082 18-80,95-111
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/create_commit.yml
+  s_c07dbd23596171::t_8a4a76af6a14a6 18-55,57-59,74-85
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/get_project.yml
+  s_c07dbd23596171::t_b4589477fc96b2 18-28,43-46
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/get_repository_file.yml
+  s_c07dbd23596171::t_e4b2d7da3c1fb1 21-23,37-38
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/list_commits.yml
+  s_c07dbd23596171::t_5a48c4844f937a 18-68,83-96
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/list_project_wiki_pages.yml
+  s_c07dbd23596171::t_83fc5ce5d4fe21 18-20,35-36
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/list_repository_tree.yml
+  s_c07dbd23596171::t_b50737581efb4f 18-48,63-71
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/search_project.yml
+  s_c07dbd23596171::t_765cdb501bc9d8 18-70,85-99
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/semantic_code_search.yml
+  s_c07dbd23596171::t_6a90550767bba3 18-31,46-50
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/create_issue.yml
+  s_c07dbd23596171::t_96a51e00c309b7 18-87,90-93,110-128
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/create_issue_link.yml
+  s_c07dbd23596171::t_b85334355ae358 21-29,32-35,52-55
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/create_issue_note.yml
+  s_c07dbd23596171::t_120e600a699a02 21-34,37-40,57-61
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/list_issue_notes.yml
+  s_c07dbd23596171::t_916eb22d4820e3 21-39,54-59
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/list_project_labels.yml
+  s_c07dbd23596171::t_339ed7bb597b16 18-40,55-61
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/update_issue.yml
+  s_c07dbd23596171::t_266f77f384c04e 21-87,90-93,110-127
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/create_merge_request.yml
+  s_c07dbd23596171::t_864bedb60f45a3 19-20,22-23
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/create_merge_request_note.yml
+  s_c07dbd23596171::t_e4bea936f2a1b8 22-23,25-26
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/get_merge_request.yml
+  s_c07dbd23596171::t_c85f9e3257bce2 21-31,46-49
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_request_commits.yml
+  s_c07dbd23596171::t_a8fc7ef134a678 21-27,42-44
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_request_diffs.yml
+  s_c07dbd23596171::t_3bc994b614153b 21-31,46-49
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_request_notes.yml
+  s_c07dbd23596171::t_aea8e725b2009a 21-35,50-54
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_request_pipelines.yml
+  s_c07dbd23596171::t_879424a5b4d7b3 21-27,42-44
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_requests.yml
+  s_c07dbd23596171::t_8df275bb90165b 18-172,187-226
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/merge_merge_request.yml
+  s_c07dbd23596171::t_8eed83a929297f 22-23,25-26
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/posture/list_project_approval_rules.yml
+  s_c07dbd23596171::t_1d93b288ad6543 18-24,39-41
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/posture/list_project_members_with_inherited_access.yml
+  s_c07dbd23596171::t_9689ce461371cc 18-40,55-61
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/posture/list_protected_branches.yml
+  s_c07dbd23596171::t_65da3b96325449 18-28,43-46
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/create_project_vulnerability_export_and_wait.yml
+  s_c07dbd23596171::t_e6d434f077ad7b 19-20,22-23
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/list_project_audit_events.yml
+  s_c07dbd23596171::t_230127ee53dc9b 18-32,47-51
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/list_project_dependencies.yml
+  s_c07dbd23596171::t_3affcb5fe4d600 18-28,43-46
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/list_project_vulnerability_findings.yml
+  s_c07dbd23596171::t_dffb9eb90ebce6 18-40,55-61
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/update_project_security_settings.yml
+  s_c07dbd23596171::t_fb56ff9f760384 18-20,34-35
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/gnql/gnql_stats.yml
+  s_c07dbd23596171::t_a4c192e9ceadd0 1-38
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/gnql/query_gnql.yml
+  s_c07dbd23596171::t_f5465e0d2de64e 1-69
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/ip/lookup_ip_context.yml
+  s_c07dbd23596171::t_d5035b0de63bc5 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/ip/lookup_ips_context.yml
+  s_c07dbd23596171::t_00b56f6ad7bf28 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/ip/lookup_riot_ip.yml
+  s_c07dbd23596171::t_568745999be70c 1-41
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/ip/quick_ip.yml
+  s_c07dbd23596171::t_c546d9a558b871 1-41
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/ip/quick_ips.yml
+  s_c07dbd23596171::t_8dff4c4b619c13 1-44
+packages/tracecat-registry/tracecat_registry/templates/tools/greynoise/timeline/get_ip_timeline.yml
+  s_c07dbd23596171::t_d4e4b467bd7446 1-63
+packages/tracecat-registry/tracecat_registry/templates/tools/hackernews/firebase/get_item.yml
+  s_c07dbd23596171::t_0b70f1c1059bf3 1-26
+packages/tracecat-registry/tracecat_registry/templates/tools/hackernews/firebase/get_user.yml
+  s_c07dbd23596171::t_c94b71aaf95204 1-26
+packages/tracecat-registry/tracecat_registry/templates/tools/hackernews/search/search.yml
+  s_c07dbd23596171::t_a5c3ae207529a8 1-54
+packages/tracecat-registry/tracecat_registry/templates/tools/hackernews/search/search_by_date.yml
+  s_c07dbd23596171::t_d060d04fac44b3 1-54
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/account/get_account_info.yml
+  s_c07dbd23596171::t_3b84aaaae64511 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/domain/assess_third_party_risk.yml
+  s_c07dbd23596171::t_6cd93daa963cae 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/domain/discover_assets.yml
+  s_c07dbd23596171::t_08cc57726e9ffc 1-53
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/domain/get_domain_overview.yml
+  s_c07dbd23596171::t_446c361152c1ff 1-88
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/domain/search_domain_compromises.yml
+  s_c07dbd23596171::t_174803f9e404b0 1-93
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/identity/search_email_compromises.yml
+  s_c07dbd23596171::t_baa4294e32e70e 1-88
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/identity/search_ip_compromises.yml
+  s_c07dbd23596171::t_8228fb936ef7b6 1-69
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/identity/search_pc_compromises.yml
+  s_c07dbd23596171::t_1afb210e8985a1 1-88
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/identity/search_stealer_compromises.yml
+  s_c07dbd23596171::t_d40bacf3cf9f7f 1-88
+packages/tracecat-registry/tracecat_registry/templates/tools/hudsonrock/identity/search_username_compromises.yml
+  s_c07dbd23596171::t_0688c6dce5285c 1-88
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/enrichment/combined_enrichment.yml
+  s_c07dbd23596171::t_5ce68aa19cbd38 1-36
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/enrichment/company_enrichment.yml
+  s_c07dbd23596171::t_f35b1157e0ad88 1-36
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/enrichment/find_person.yml
+  s_c07dbd23596171::t_16c01a081a8df9 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/search/domain_search.yml
+  s_c07dbd23596171::t_7bade6eda4f629 1-87
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/search/email_count.yml
+  s_c07dbd23596171::t_ab1049690b4a94 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/search/email_finder.yml
+  s_c07dbd23596171::t_816a05d3053caa 1-62
+packages/tracecat-registry/tracecat_registry/templates/tools/hunter/search/email_verifier.yml
+  s_c07dbd23596171::t_3482fde5424d0c 1-31
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/actions/erase_device.yml
+  s_c07dbd23596171::t_88ffd63816cbc5 1-68
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/actions/lock_device.yml
+  s_c07dbd23596171::t_1e186a9483d5d6 1-48
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/actions/send_device_action.yml
+  s_c07dbd23596171::t_05ccd773f7ab82 1-31
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/audit/list_audit_events.yml
+  s_c07dbd23596171::t_17bab526896c96 1-59
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/blueprints/list_blueprints.yml
+  s_c07dbd23596171::t_f5bf435a3d2c60 1-59
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/add_device_note.yml
+  s_c07dbd23596171::t_1253795fc5be1a 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/delete_device.yml
+  s_c07dbd23596171::t_90916472ba5506 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/get_device.yml
+  s_c07dbd23596171::t_053b69257931d9 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/get_device_details.yml
+  s_c07dbd23596171::t_31aadc25a5c3f3 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_activity.yml
+  s_c07dbd23596171::t_7846681437b5f0 1-47
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_apps.yml
+  s_c07dbd23596171::t_0fc1f9617a7b76 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_commands.yml
+  s_c07dbd23596171::t_8803687d176a0a 1-47
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_library_items.yml
+  s_c07dbd23596171::t_e279c9722ba6fd 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_device_parameters.yml
+  s_c07dbd23596171::t_d7a539e0d26b83 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/list_devices.yml
+  s_c07dbd23596171::t_7db87699362c3a 1-144
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/devices/update_device.yml
+  s_c07dbd23596171::t_1366936c4d65f0 1-66
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/prism/query_prism.yml
+  s_c07dbd23596171::t_58ec9b9d697e01 1-85
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/secrets/get_activation_lock_bypass_code.yml
+  s_c07dbd23596171::t_83a3eddc2b3712 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/secrets/get_filevault_key.yml
+  s_c07dbd23596171::t_08844f7e93eed6 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/secrets/get_recovery_password.yml
+  s_c07dbd23596171::t_ad36d212d6576b 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/threats/list_device_behavioral_detections.yml
+  s_c07dbd23596171::t_c0b4618bf23aaa 1-93
+packages/tracecat-registry/tracecat_registry/templates/tools/iru/threats/list_threat_details.yml
+  s_c07dbd23596171::t_1a546378388467 1-98
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/commands/list_mdm_commands.yml
+  s_c07dbd23596171::t_487f8a219ccd5a 1-69
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/commands/send_mdm_command.yml
+  s_c07dbd23596171::t_b2cee0bbd11296 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/delete_computer.yml
+  s_c07dbd23596171::t_cf82a13777b0a6 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/erase_computer.yml
+  s_c07dbd23596171::t_90f84f627ab1e4 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/get_computer_device_lock_pin.yml
+  s_c07dbd23596171::t_799eb677e74226 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/get_computer_filevault_key.yml
+  s_c07dbd23596171::t_c03ea5f90534f9 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/get_computer_inventory_detail.yml
+  s_c07dbd23596171::t_044c7fa913c640 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/get_computer_recovery_lock_password.yml
+  s_c07dbd23596171::t_424d57d3b06369 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/list_computer_inventory.yml
+  s_c07dbd23596171::t_4dbfaf30bc9fda 1-78
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/redeploy_management_framework.yml
+  s_c07dbd23596171::t_4eed80c29fa9ce 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/remove_computer_mdm_profile.yml
+  s_c07dbd23596171::t_d469ff456d7bd4 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/computers/update_computer_inventory_detail.yml
+  s_c07dbd23596171::t_ff3748a63e907f 1-38
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/enrollment/list_device_enrollment_devices.yml
+  s_c07dbd23596171::t_253cf7a1cfeccc 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/groups/get_smart_group_membership.yml
+  s_c07dbd23596171::t_4139bf921ccd17 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/groups/list_computer_groups.yml
+  s_c07dbd23596171::t_056c0e323b9218 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/groups/update_static_group.yml
+  s_c07dbd23596171::t_23f4fbf207030a 1-62
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/mobile_devices/get_mobile_device_detail.yml
+  s_c07dbd23596171::t_8da92cf3449fbd 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/mobile_devices/list_mobile_devices.yml
+  s_c07dbd23596171::t_5564cecbb5d124 1-61
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/prestage/add_computer_prestage_scope.yml
+  s_c07dbd23596171::t_6ec161e787075b 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/prestage/get_computer_prestage_scope.yml
+  s_c07dbd23596171::t_e433b3ed3877fb 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/prestage/list_computer_prestages.yml
+  s_c07dbd23596171::t_8a80ec8fb7b1ce 1-61
+packages/tracecat-registry/tracecat_registry/templates/tools/jamf/prestage/remove_computer_prestage_scope.yml
+  s_c07dbd23596171::t_972c2bf1037458 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/leakcheck/search_leak.yml
+  s_c07dbd23596171::t_23add4987f4191 1-46
+packages/tracecat-registry/tracecat_registry/templates/tools/openphish/feed/get_public_feed.yml
+  s_c07dbd23596171::t_52e5eb1d957ec4 1-23
+packages/tracecat-registry/tracecat_registry/templates/tools/osv/vulnerabilities/get_vulnerability.yml
+  s_c07dbd23596171::t_8c80edc5de3b7b 1-26
+packages/tracecat-registry/tracecat_registry/templates/tools/osv/vulnerabilities/query_vulnerabilities.yml
+  s_c07dbd23596171::t_ad7e9b60af5c86 1-62
+packages/tracecat-registry/tracecat_registry/templates/tools/osv/vulnerabilities/query_vulnerabilities_batch.yml
+  s_c07dbd23596171::t_76ca283af00843 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/pipe0/enrichment/enrich_records.yml
+  s_c07dbd23596171::t_6ee28db962c011 1-51
+packages/tracecat-registry/tracecat_registry/templates/tools/pipe0/search/search_records.yml
+  s_c07dbd23596171::t_f9e78969510661 1-37
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/create_enumeration.yml
+  s_c07dbd23596171::t_d0751966faa53c 1-123
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/get_associated_domains.yml
+  s_c07dbd23596171::t_05a6ef813261c8 1-67
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/get_enumeration.yml
+  s_c07dbd23596171::t_b539641530dd24 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/get_enumeration_contents.yml
+  s_c07dbd23596171::t_f807efa5627211 1-175
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/list_enumeration_contents.yml
+  s_c07dbd23596171::t_f4e7ff80a8b724 1-162
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/list_enumerations.yml
+  s_c07dbd23596171::t_162b0dd033495c 1-92
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/enumerations/rescan_enumeration.yml
+  s_c07dbd23596171::t_a6f0d2867feee6 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/leaks/get_domain_leak_stats.yml
+  s_c07dbd23596171::t_85d63795cdb714 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/leaks/get_email_leak_stats.yml
+  s_c07dbd23596171::t_d5c0717366576e 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/leaks/get_leak_info.yml
+  s_c07dbd23596171::t_481e0a2893a621 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/leaks/list_leaks.yml
+  s_c07dbd23596171::t_a3ff8ebc217e40 1-117
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/scans/create_scan.yml
+  s_c07dbd23596171::t_3ccc2ae0054c84 1-166
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/scans/get_scan.yml
+  s_c07dbd23596171::t_85748386cb4d0f 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/scans/list_scans.yml
+  s_c07dbd23596171::t_b36e82f3dd55e4 1-67
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/scans/rescan_scan.yml
+  s_c07dbd23596171::t_567ec8be096f5b 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/vulnerabilities/get_vulnerability.yml
+  s_c07dbd23596171::t_2997675b917dd5 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/vulnerabilities/get_vulnerability_filters.yml
+  s_c07dbd23596171::t_832981c3086c82 1-26
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/vulnerabilities/get_vulnerability_timeline.yml
+  s_c07dbd23596171::t_21f8a79c760539 1-36
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/vulnerabilities/list_scan_results.yml
+  s_c07dbd23596171::t_92e312fe63b37c 1-127
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/vulnerabilities/list_vulnerability_changelogs.yml
+  s_c07dbd23596171::t_6976d939e1d32a 1-62
+packages/tracecat-registry/tracecat_registry/templates/tools/project_discovery/vulnerabilities/search_vulnerabilities.yml
+  s_c07dbd23596171::t_78380c9fa3331c 1-77
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/create_software_deployment.yml
+  s_c07dbd23596171::t_b485e7a09d3229 1-37
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/delete_software_deployment.yml
+  s_c07dbd23596171::t_5d89bd6d59b518 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/list_app_users.yml
+  s_c07dbd23596171::t_cf2c0c2e1de743 1-75
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/list_software_deployments.yml
+  s_c07dbd23596171::t_49ef6e012e64a9 1-73
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/list_supergroup_members.yml
+  s_c07dbd23596171::t_911a22990b8dad 1-54
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/list_supergroups.yml
+  s_c07dbd23596171::t_53395544e6cb2d 1-48
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/update_supergroup_exclusion_members.yml
+  s_c07dbd23596171::t_b40e288d5678da 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/access/update_supergroup_inclusion_members.yml
+  s_c07dbd23596171::t_800b7334035f66 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/devices/list_devices.yml
+  s_c07dbd23596171::t_b49fab85565aeb 1-77
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/leave/list_leave_balances.yml
+  s_c07dbd23596171::t_36bbc2c16a0466 1-73
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/leave/list_leave_requests.yml
+  s_c07dbd23596171::t_dee21259d73fec 1-75
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/leave/update_leave_request.yml
+  s_c07dbd23596171::t_afa452fc71b6b7 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/meta/get_sso_me.yml
+  s_c07dbd23596171::t_7b66073a893f0d 1-49
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/meta/list_entitlements.yml
+  s_c07dbd23596171::t_bbeec77131c2c6 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/onboarding/create_draft_hires.yml
+  s_c07dbd23596171::t_7e0b01fdbce3dd 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/org/list_departments.yml
+  s_c07dbd23596171::t_9abdcde7190a49 1-64
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/org/list_teams.yml
+  s_c07dbd23596171::t_c796eee66ef436 1-64
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/org/list_work_locations.yml
+  s_c07dbd23596171::t_694d93b91dd951 1-55
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/reports/get_report_run.yml
+  s_c07dbd23596171::t_2aa61aab252062 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/reports/trigger_report_run.yml
+  s_c07dbd23596171::t_3afaddf690b8dc 1-38
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/workers/get_worker.yml
+  s_c07dbd23596171::t_9493b2c0544e77 1-45
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/workers/list_users.yml
+  s_c07dbd23596171::t_6303fddd2ab15e 1-54
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/workers/list_worker_changes.yml
+  s_c07dbd23596171::t_77c20c1fc3f269 1-75
+packages/tracecat-registry/tracecat_registry/templates/tools/rippling/workers/list_workers.yml
+  s_c07dbd23596171::t_4c2895c98e79d5 1-75
+packages/tracecat-registry/tracecat_registry/templates/tools/shodan/dns/resolve_dns.yml
+  s_c07dbd23596171::t_a40bc728bc129c 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/shodan/dns/reverse_dns.yml
+  s_c07dbd23596171::t_236c55a266d542 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/shodan/exploits/search_exploits.yml
+  s_c07dbd23596171::t_2210ea6a4bfc3a 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/shodan/hosts/lookup_host.yml
+  s_c07dbd23596171::t_ba73adf3331ba5 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/shodan/search/count_hosts.yml
+  s_c07dbd23596171::t_f5ba9592df5901 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/shodan/search/search_hosts.yml
+  s_c07dbd23596171::t_e0a851af4a3172 1-50
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/packages/fetch_packages_by_purl.yml
+  s_c07dbd23596171::t_d7e16ae92ab6c0 1-125
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/scans/create_full_scan.yml
+  s_c07dbd23596171::t_35404d9bfe085b 1-117
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/scans/create_full_scan_from_archive.yml
+  s_c07dbd23596171::t_637b8673a52fda 1-118
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/scans/get_full_scan_metadata.yml
+  s_c07dbd23596171::t_aa46cb97ad01b4 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/scans/list_full_scans.yml
+  s_c07dbd23596171::t_ee58f4852bd83c 1-104
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/scans/list_supported_files.yml
+  s_c07dbd23596171::t_33bb2293bcf723 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/scans/stream_full_scan.yml
+  s_c07dbd23596171::t_02e2d9aa6a62d2 1-74
+packages/tracecat-registry/tracecat_registry/templates/tools/socket/threat_feed/list_threat_feed_items.yml
+  s_c07dbd23596171::t_53a282cd2de7cf 1-104
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/email_bombs/create_email_bomb.yml
+  s_c07dbd23596171::t_e9034a74e4c860 13-21,34-37
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/email_bombs/dismiss_email_bomb.yml
+  s_c07dbd23596171::t_16e95bd8a7e18b 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/email_bombs/list_email_bombs.yml
+  s_c07dbd23596171::t_102912d802be28 13-27,39-43
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/eml_analyze.yml
+  s_c07dbd23596171::t_cfe720b9b25465 11-12,14-15
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/hunt_jobs/get_hunt_job_results.yml
+  s_c07dbd23596171::t_4d5f76b49fdaa6 16-22,34-36
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/hunt_jobs/start_hunt_job.yml
+  s_c07dbd23596171::t_90aa16e5ef6f64 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/add_list_entry.yml
+  s_c07dbd23596171::t_bed20c2fcf4be4 16-18,31-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/create_list.yml
+  s_c07dbd23596171::t_98df97e29213b2 13-18,31-33
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/delete_list_entry.yml
+  s_c07dbd23596171::t_8023da4a6a5ef6 16-18,29-30
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/get_list_entry.yml
+  s_c07dbd23596171::t_2e380911657e94 16-18,29-30
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/get_lists.yml
+  s_c07dbd23596171::t_81b9309c6c16f1 13-22,34-37
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/patch_list.yml
+  s_c07dbd23596171::t_97d677bff01dc5 16-18,31-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/set_list_entries.yml
+  s_c07dbd23596171::t_0dd20d6f9039b4 16-18,31-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/mailboxes/list_mailboxes.yml
+  s_c07dbd23596171::t_177c714ae32c49 13-47,59-68
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/dismiss_message_canonical_group.yml
+  s_c07dbd23596171::t_253ebcb277c8ca 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/dismiss_multiple_message_groups.yml
+  s_c07dbd23596171::t_4e664750a4d8ee 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/get_message_group.yml
+  s_c07dbd23596171::t_d00b53e7012eec 16-18,30-31
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/get_message_group_siem_summary.yml
+  s_c07dbd23596171::t_7eb7420669437d 13-31,43-48
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/graymail_multiple_message_groups.yml
+  s_c07dbd23596171::t_2f6e2cfbbfb39f 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/list_message_groups.yml
+  s_c07dbd23596171::t_e9d31e980d3ff4 13-123,135-163
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/quarantine_message_canonical_group.yml
+  s_c07dbd23596171::t_8c1dd0901fa714 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/quarantine_multiple_message_groups.yml
+  s_c07dbd23596171::t_0488de84e4f3a1 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/restore_message_canonical_group.yml
+  s_c07dbd23596171::t_d307094a10057b 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/restore_multiple_message_groups.yml
+  s_c07dbd23596171::t_acba57d45b674f 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/review_message_groups.yml
+  s_c07dbd23596171::t_66b7b3c72a27c7 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/search_message_groups.yml
+  s_c07dbd23596171::t_fa40cef54c8035 13-83,95-113
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/share_with_sublime_public.yml
+  s_c07dbd23596171::t_de88be387f7b00 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/trash_message_canonical_group.yml
+  s_c07dbd23596171::t_b7eccb7c5493ff 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/trash_multiple_message_groups.yml
+  s_c07dbd23596171::t_bb7290a4fa0d20 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/action_message.yml
+  s_c07dbd23596171::t_1d67ece56bc6f9 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/analyze_message_by_id.yml
+  s_c07dbd23596171::t_cc2e18ccd57e80 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/create_message.yml
+  s_c07dbd23596171::t_3e96d2c741bd97 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message.yml
+  s_c07dbd23596171::t_fef04b977b4ad1 16-22,34-36
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_attachment_image_raw.yml
+  s_c07dbd23596171::t_1bad0b30befb05 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_canonical_group_action_state.yml
+  s_c07dbd23596171::t_0a0b827c0c2333 16-26,38-41
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_data_model.yml
+  s_c07dbd23596171::t_aa5d07e023cea9 16-22,34-36
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_image.yml
+  s_c07dbd23596171::t_8e54224a395394 16-22,34-36
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_image_link.yml
+  s_c07dbd23596171::t_637b9a84b35ec4 16-30,42-46
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/set_message_access_justification.yml
+  s_c07dbd23596171::t_d0f77671df54e5 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/create_rule.yml
+  s_c07dbd23596171::t_4984caba184a5e 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/get_rule_history.yml
+  s_c07dbd23596171::t_21ffb193fd03db 16-26,38-41
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/list_rule_history.yml
+  s_c07dbd23596171::t_c82674a9c880b5 13-37,49-56
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/list_rules.yml
+  s_c07dbd23596171::t_de5ce6982bacdb 13-27,39-43
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/update_rule.yml
+  s_c07dbd23596171::t_9d5b21455e760a 17-18,20-21
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/validate_rule.yml
+  s_c07dbd23596171::t_540c3bc3abcd72 14-15,17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/user_reports/list_user_reports.yml
+  s_c07dbd23596171::t_5a050c0e309e95 13-23,35-38
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/list_projects.yml
+  s_c07dbd23596171::t_b42e68acd8b03f 16,20,34-35
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/list_runs.yml
+  s_c07dbd23596171::t_08c3c6fa753196 16,20,34-35
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/list_workspaces.yml
+  s_c07dbd23596171::t_ee3a4afea4a58f 20,24,50-51
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/iocs/get_ioc.yml
+  s_c07dbd23596171::t_1252c261782b53 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/iocs/list_recent_iocs.yml
+  s_c07dbd23596171::t_71f87217417973 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/iocs/lookup_ioc.yml
+  s_c07dbd23596171::t_0ff9a312468d8c 1-41
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/iocs/query_malware_family.yml
+  s_c07dbd23596171::t_a23dc9e0987f98 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/iocs/query_tag.yml
+  s_c07dbd23596171::t_e7aa2e127fb8ef 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/iocs/search_file_hash.yml
+  s_c07dbd23596171::t_36b8b48f141e38 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/metadata/list_ioc_types.yml
+  s_c07dbd23596171::t_062ec0501aad60 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/metadata/list_malware_families.yml
+  s_c07dbd23596171::t_0ad8fd5c7caab3 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/threatfox/metadata/list_tags.yml
+  s_c07dbd23596171::t_b6e87fbe180674 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/urlhaus/list_recent_payloads.yml
+  s_c07dbd23596171::t_e4b14c41c9251c 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/urlhaus/lookup_host.yml
+  s_c07dbd23596171::t_8a831052960c09 1-31
+packages/tracecat-registry/tracecat_registry/templates/tools/urlhaus/lookup_payload.yml
+  s_c07dbd23596171::t_b24d5e6b17863d 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/urlhaus/lookup_url.yml
+  s_c07dbd23596171::t_f40564c9c77173 1-31
+packages/tracecat-registry/tracecat_registry/templates/tools/urlscan/get_result.yml
+  s_c07dbd23596171::t_f5f2ea55d759b5 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/urlscan/get_screenshot.yml
+  s_c07dbd23596171::t_35e3c9b1c2c331 1-31
+packages/tracecat-registry/tracecat_registry/templates/tools/urlscan/search_scans.yml
+  s_c07dbd23596171::t_16ca07d5015a07 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/x/posts/get_tweet.yml
+  s_c07dbd23596171::t_7e82ff19c6de45 1-60
+packages/tracecat-registry/tracecat_registry/templates/tools/x/posts/search_recent_tweets.yml
+  s_c07dbd23596171::t_8124397654cc08 1-101
+packages/tracecat-registry/tracecat_registry/templates/tools/x/users/get_user.yml
+  s_c07dbd23596171::t_5db6aac44cb3fc 1-45
+packages/tracecat-registry/tracecat_registry/types.py
+  s_c07dbd23596171::t_550a9f0b424bea 50
+scripts/generate_ai_docs.py
+  s_c07dbd23596171::t_6fe0dc05836fae 143,145,147,195-198,253-260
+scripts/generate_core_action_docs.py
+  s_c07dbd23596171::t_09adbe82cedf0e 331-333,394-400,406-408,410-417,429-438
+scripts/generate_tool_docs.py
+  s_c07dbd23596171::t_96a5f2eed46751 361,365,367,369-376,379
+tests/integration/conftest.py
+  s_c07dbd23596171::t_4e9040b14de8f4 183-184
+tests/integration/test_case_versions.py
+  s_c07dbd23596171::t_e8254fe4ffc025 1-578
+tests/integration/test_registry_artifact_cache_mount_lifecycle.py
+  s_c07dbd23596171::t_168d0e01bd85a8 1-791
+tests/integration/test_registry_artifact_cache_temporal_worker.py
+  s_c07dbd23596171::t_5230684acbb6de 1-175
+tests/integration/test_registry_artifact_loop_hotplug.py
+  s_c07dbd23596171::t_e7b2156becfded 1-519
+tests/integration/test_syncv2_execv2_e2e.py
+  s_c07dbd23596171::t_5cf3edc987a5b9 868-878
+tests/migration/test_case_versions_migration.py
+  s_c07dbd23596171::t_1fce0a0eeb4116 1-204
+tests/registry/test_core_http.py
+  s_c07dbd23596171::t_ec7d0dd4746f08 8,20-23,1623-1782
+tests/registry/test_templates.py
+  s_c07dbd23596171::t_a106fb934e7d07 3,7,17-31,96-102
+tests/temporal/test_durable_agent_workflow.py
+  s_c07dbd23596171::t_9921c5493276a1 19,107,825-941,2046-2055,2315-2317
+tests/temporal/test_workflows.py
+  s_c07dbd23596171::t_cf3d2ad41156b8 74,6215
+tests/unit/api/test_api_cases.py
+  s_c07dbd23596171::t_1da23591390888 22-23,34-42,48,772-974
+tests/unit/executor/test_action_gateway_signal_lifecycle.py
+  s_c07dbd23596171::t_978c52788adb62 1-136
+tests/unit/executor/test_process_supervisor.py
+  s_c07dbd23596171::t_e2a60a1ed0f453 1-303
+tests/unit/executor/test_registry_artifact_budget.py
+  s_c07dbd23596171::t_eadcbe135b0026 1-60
+tests/unit/executor/test_run_python_sdk_context.py
+  s_c07dbd23596171::t_091e1c1634106b 13-14,17,470-472,476-477,479-485,487-505,1200-1242,1295-1296,1298,1301-1303
+tests/unit/executor/test_test_backend_no_registry_action.py
+  s_c07dbd23596171::t_60b0959eaef697 11-13,15-16,18,32-36,255-436
+tests/unit/test_action_runner.py
+  s_c07dbd23596171::t_feb1b79cb0502a 9-10,13,28,37,95-111,117,120,124-125,127-133,151-154,157-158,160-163,213-265,558,561,604-606,609-614,674-874
+tests/unit/test_agent_action_timeout.py
+  s_c07dbd23596171::t_464f4be289fa68 1-408
+tests/unit/test_agent_activities.py
+  s_c07dbd23596171::t_110c2078d6ec5e 63,1234-1239,1241-1244,1260-1273,1441,1666,1812,2248-2268
+tests/unit/test_agent_otel_config.py
+  s_c07dbd23596171::t_b6d293e91acc27 1-297
+tests/unit/test_agent_otel_relay.py
+  s_c07dbd23596171::t_db8487ceac9d10 1-1334
+tests/unit/test_agent_runtime.py
+  s_c07dbd23596171::t_95d5e5f1baf5ee 53-55,1301-1325,1329-1332,1334-1336,1508-1537,2925-2942
+tests/unit/test_agent_runtime_broker.py
+  s_c07dbd23596171::t_54f1532e592e4f 21-24,27,42,68-72,481-484,540-548
+tests/unit/test_agent_sandbox_entrypoint.py
+  s_c07dbd23596171::t_99d3a92f54ab78 5-6,17-18,20,71,74-75,77-80,92,96-101,188-194,331-450
+tests/unit/test_agent_sandbox_litellm.py
+  s_c07dbd23596171::t_302f4068cc6c34 9,14,17,24,34,43-44,74-79,97-104,106,108-110,123-236,264,285,317-432,447,450-467,613,629,679-682,685-713,720-721,1075-1077,1085-1088,1111-1115,1146,1156-1157,1159,1168,1183-1316,1500,1584,1622-1632,1643,1649,1736-1752,1930,2277,2447,2571,2685-2707,2957-2961,2968,2987-3067,3107,3122-3126,3148-3149,3157-3158,3169
+tests/unit/test_agent_sandbox_nsjail.py
+  s_c07dbd23596171::t_0bc95bb3757d5c 10-13,459-513
+tests/unit/test_agent_session_messages.py
+  s_c07dbd23596171::t_f75de7a045e375 10,12-14,171-243
+tests/unit/test_agent_tokens.py
+  s_c07dbd23596171::t_d9dd050ab0a02c 4-7,11-13,15,17,20,156-233
+tests/unit/test_agent_types.py
+  s_c07dbd23596171::t_32a96f2ceaf1b4 1,4-5,33-60
+tests/unit/test_auth_middleware.py
+  s_c07dbd23596171::t_f5ce759054aa26 296-338
+tests/unit/test_case_comment_mentions.py
+  s_c07dbd23596171::t_48a5e5cec6116b 6-10,132-146
+tests/unit/test_case_comment_schemas.py
+  s_c07dbd23596171::t_e07deb3f128094 1-31
+tests/unit/test_case_comments_service.py
+  s_c07dbd23596171::t_bb35c282e54d87 9,243,248,258-274,475,489-492,494-496,502,515-519,522,527-530,907-908,910-911,917-927,1430-1450
+tests/unit/test_case_fields_service.py
+  s_c07dbd23596171::t_7597d4d1df6b97 171-211,230-279,415-419
+tests/unit/test_case_table_rows_service.py
+  s_c07dbd23596171::t_44f8e54c14f6a3 384-397,399-444
+tests/unit/test_case_versions_service.py
+  s_c07dbd23596171::t_1f271919c94f32 1-134
+tests/unit/test_cases_service.py
+  s_c07dbd23596171::t_8bbe80adb94faa 253-263,1952-1999
+tests/unit/test_concurrency.py
+  s_c07dbd23596171::t_2d932460ff632e 13,589-642
+tests/unit/test_config.py
+  s_c07dbd23596171::t_610229a81d70e5 339-371
+tests/unit/test_dsl_scheduler_concurrency.py
+  s_c07dbd23596171::t_6aae147052ceaf 10,16-27,29-43,85-166
+tests/unit/test_dsl_workflow_activity_retry.py
+  s_c07dbd23596171::t_858c51cbbcb028 1-167
+tests/unit/test_durable_agent_workflow_search_attributes.py
+  s_c07dbd23596171::t_19d02edb4d2649 26-27,33,42,96-136,650,803-873
+tests/unit/test_executor_sandbox_nsjail.py
+  s_c07dbd23596171::t_2933c22b3a129e 10,52,67-69,103-110,137-144,203-212,227,705-708,836,845-846,864,897,899-903,907-913,927-929,969,988-994,1004-1101,1144-1146,1170-1172
+tests/unit/test_executor_service.py
+  s_c07dbd23596171::t_68d12e11db0b8c 1-2,4,16-17,20-29,31,33,398-1161
+tests/unit/test_export.py
+  s_c07dbd23596171::t_591a32963cc927 11,131-165
+tests/unit/test_expression_policy.py
+  s_c07dbd23596171::t_5be46561b9d8da 1-1313
+tests/unit/test_multitenant_registry.py
+  s_c07dbd23596171::t_bad211ac1bd81f 11,36-49,87,98-101,134,145,172,175,185,188-190,194,216,226,230
+tests/unit/test_org_enrollment_policy.py
+  s_c07dbd23596171::t_adb495b0846abd 1-221
+tests/unit/test_organization_settings.py
+  s_c07dbd23596171::t_c376153d6f9b09 7-8,12,25,37,450-552,561,805
+tests/unit/test_pagination.py
+  s_c07dbd23596171::t_a94fd6613ddf05 4-7,10-11,13,15,20-24,30-130,233-1076
+tests/unit/test_registry_artifact_mounts.py
+  s_c07dbd23596171::t_88d6b549810684 1-272
+tests/unit/test_registry_artifacts.py
+  s_c07dbd23596171::t_9791b0544b70c2 6-8,11-13,15,21-28,32-36,38,40-41,43,49-243,303-311,334-337,339-342,360,379-380,383,406-407,410,418-419,445-464,498-501,503-507,509-520,525,527-528,531-536,538-594,596-597,600-662,664,667,680,717-751,766,825-829,852,856,860-870,883,885,888-890,892-902,906,908-910,912-913,915-917,919-932,935,938-939,941-953,955-970,974-975,978-979,982-983,985-987,989-999,1002,1005-1014,1016-1018,1020-1024,1026-1068,1072-1073,1076-1079,1081-1083,1085,1087-1093,1095-1100,1103-1131,1133-1137,1140-1142,1144-1149,1151-1411,1417-1419,1422-1426,1434-1435,1442,1452-1454,1460-1723,1725-1726,1728-1754,1756-1766,1768-1769,1772-1775,1777-1785,1787-4545,4547
+tests/unit/test_route_scope_guards.py
+  s_c07dbd23596171::t_6c6255976356fc 21,370-384
+tests/unit/test_runtime_errors.py
+  s_c07dbd23596171::t_35dd25091f11a7 1-119
+tests/unit/test_single_tenant_user_defaults.py
+  s_c07dbd23596171::t_1fa8310f925dff 89,106,125,150,179,204,262,341,383,430
+tests/unit/test_storage_blob.py
+  s_c07dbd23596171::t_e87f665684cad1 6,842-905,924-926,955-957,977-1100,1112-1114,1135-1294
+tests/unit/test_tables_service.py
+  s_c07dbd23596171::t_13d0a1b6996d75 1409-1455,1468-1474,1476-1477,1482,1486-1488,1496-1554
+tests/unit/test_temporal_errors.py
+  s_c07dbd23596171::t_07552d65d3ad7a 1-532
+tests/unit/test_unsafe_pid_executor.py
+  s_c07dbd23596171::t_dcc3f41ae2027c 8,10,74-92,95-121,124-166,186-188,197-198,200-227,232,256-257,259-260,381-416
+tests/unit/test_worker_activity_registration.py
+  s_c07dbd23596171::t_e190a562c7c6c2 65-127,357,366
+tests/unit/test_workflow_management.py
+  s_c07dbd23596171::t_cb232231731ed5 340-345,453,1345-1379
+tests/unit/test_workspace_sync_acceptance_contract.py
+  s_c07dbd23596171::t_61907c42e06e56 24,48,64,74,95-96,110-113,145-152,199-203,226-265,5390-6139,7201,7220,7228,7635-7700
+tests/unit/test_workspace_sync_service.py
+  s_c07dbd23596171::t_0956be81308bc1 35,59-62,720-744
+tracecat/agent/common/config.py
+  s_c07dbd23596171::t_50d478a4a8dd3b 16,18,89-94,112-116
+tracecat/agent/common/protocol.py
+  s_c07dbd23596171::t_2cc83b0f101ff9 53-59,95,123-124
+tracecat/agent/constants.py
+  s_c07dbd23596171::t_5408a8e421119f 1-7
+tracecat/agent/executor/activity.py
+  s_c07dbd23596171::t_f4ab05795ac893 61-66,81,85,98,111-143,171-174,290,297-299,447-490,538-567,588,690,707-721,733,762-765,768,773,1171-1178,1365-1369
+tracecat/agent/otel_config.py
+  s_c07dbd23596171::t_5f93bc412c8033 1-311
+tracecat/agent/runtime/claude_code/broker.py
+  s_c07dbd23596171::t_aa40c87790e4c0 59,181
+tracecat/agent/runtime/claude_code/runtime.py
+  s_c07dbd23596171::t_86a9a07e8e3fb5 91,223-224,809-813,1350-1351,1500-1510
+tracecat/agent/runtime/claude_code/session_lines.py
+  s_c07dbd23596171::t_319f6906090da9 8-9,33-51
+tracecat/agent/runtime/claude_code/transport.py
+  s_c07dbd23596171::t_66ca266a84b5b4 105,116,194
+tracecat/agent/sandbox/config.py
+  s_c07dbd23596171::t_3cc63e6cbb2864 39,46,59-63,96-100,112,117,246,292-293,421-429
+tracecat/agent/sandbox/llm_proxy.py
+  s_c07dbd23596171::t_7d6e0cd8c97902 539-540
+tracecat/agent/sandbox/nsjail.py
+  s_c07dbd23596171::t_a039411b61bb9f 37,149,240,264,312,357-358,363-364,409,479,497-501
+tracecat/agent/sandbox/otel_relay.py
+  s_c07dbd23596171::t_4ef9accf52488e 1-766
+tracecat/agent/sandbox/shim_entrypoint.py
+  s_c07dbd23596171::t_7c8f90cd99e678 18,25,29-30,32-33,46-51,58-60,65-67,78,89,95-96,117,130,137,148,154-156,159-160,163,165-172,178-192,206,211,213-214,217,255,275-277,284-291,293,296-298,314-344,389-390
+tracecat/agent/schemas.py
+  s_c07dbd23596171::t_bbac78d7a57d9a 75-77
+tracecat/agent/session/service.py
+  s_c07dbd23596171::t_a7b3ecba9ba5d2 36,73,76-77,1291-1295,1886-1936
+tracecat/agent/tokens.py
+  s_c07dbd23596171::t_0a80897496e6c2 8,430-531
+tracecat/agent/types.py
+  s_c07dbd23596171::t_6eabab05fb241f 20,23-26,41-53
+tracecat/api/app.py
+  s_c07dbd23596171::t_a209c93f22f689 94,577
+tracecat/cases/agent_invocations/activities.py
+  s_c07dbd23596171::t_a0420cdce02734 58,61-64
+tracecat/cases/agent_invocations/dispatcher.py
+  s_c07dbd23596171::t_e3ae75fb4aab42 13,23-24,66,73-76,78-93,95-97,102-103
+tracecat/cases/agent_invocations/prompts.py
+  s_c07dbd23596171::t_0d7582ac2a4cd8 1,7-9,11,15,18,31-32,38,51-53,55,61-65,74-79
+tracecat/cases/agent_invocations/types.py
+  s_c07dbd23596171::t_d3371a912eca18 46-53,61
+tracecat/cases/enums.py
+  s_c07dbd23596171::t_412f10c5c6ae36 60-74
+tracecat/cases/mentions.py
+  s_c07dbd23596171::t_162fd3e902b887 34,38-39,41-73
+tracecat/cases/router.py
+  s_c07dbd23596171::t_a413dc9ea0d0c8 26-30
+tracecat/cases/rows/service.py
+  s_c07dbd23596171::t_cac9f24cca3072 11,26-30,74-88,92-95
+tracecat/cases/schemas.py
+  s_c07dbd23596171::t_3d10c2524e97b5 188,217,220,231,247,267,357,363-369,371,383
+tracecat/cases/service.py
+  s_c07dbd23596171::t_b64097af2979e0 11,26,45,100-101,140-141,225,430,451-455,495-498,501,503,506,508,510-516,518,581-584,747-754,799-804,932-938,944-945,955-965,974-1013,1120-1130,1138,1141-1144,1515-1518,1715-1721,2115-2118,2580-2593,2663
+tracecat/cases/versions/__init__.py
+  s_c07dbd23596171::t_14b7a8b773b281 1
+tracecat/cases/versions/diff.py
+  s_c07dbd23596171::t_24ea24bb0c51db 1-83
+tracecat/cases/versions/router.py
+  s_c07dbd23596171::t_2c41985c10339e 1-119
+tracecat/cases/versions/schemas.py
+  s_c07dbd23596171::t_cbcab9067d392a 1-75
+tracecat/cases/versions/service.py
+  s_c07dbd23596171::t_142ba02e9dbb5e 1-276
+tracecat/concurrency.py
+  s_c07dbd23596171::t_ca73716f25ac65 2,14-74
+tracecat/config.py
+  s_c07dbd23596171::t_a3f2bcba14f411 8,205-220,859,861-864,868,872-873,881-894
+tracecat/db/models.py
+  s_c07dbd23596171::t_27d3f7a61343d9 64,86,2344-2350,2398-2456
+tracecat/db/tenant_rls.py
+  s_c07dbd23596171::t_da3ea4172568ae 76
+tracecat/dsl/action.py
+  s_c07dbd23596171::t_03cfbb500bddd4 39,862-864,881,889
+tracecat/dsl/enums.py
+  s_c07dbd23596171::t_02b6eee34a038d 15-22
+tracecat/dsl/scheduler.py
+  s_c07dbd23596171::t_054bcd0560fe00 5,20,67,76,96-154,507-515,550,581,1324,1641
+tracecat/dsl/schemas.py
+  s_c07dbd23596171::t_c57baa4a9f2c39 17,19-23,297-301,395-406
+tracecat/dsl/types.py
+  s_c07dbd23596171::t_6b71c57cc11b7f 6,9,55,58-59,65,67-77
+tracecat/dsl/workflow.py
+  s_c07dbd23596171::t_df0c07fef72fe3 21,24-26,99,170,449,1000,1069,1146,1806-1835,1838
+tracecat/executor/action_gateway/server.py
+  s_c07dbd23596171::t_cd02ad0762ed3d 7-8,10-11,18-28,34,53,84
+tracecat/executor/action_runner.py
+  s_c07dbd23596171::t_674f6aa087cb4f 48-51,115,121,127-131,181-182,187-197,200-217,382-386,418,457
+tracecat/executor/backends/base.py
+  s_c07dbd23596171::t_6bfb210c6b5dfe 17,135-188,218,221-228,230-242
+tracecat/executor/backends/test.py
+  s_c07dbd23596171::t_f5e3aa7bd18af6 21,24,32,44-46,62,130-134,136-146,236,243-256,273-277,279-292,301,306-310,315-316,318-319
+tracecat/executor/process_supervisor.py
+  s_c07dbd23596171::t_601ad6cf1b7e3c 1-276
+tracecat/executor/registry_artifact_budget.py
+  s_c07dbd23596171::t_4683ef53c03e7a 1-85
+tracecat/executor/registry_artifact_mounts.py
+  s_c07dbd23596171::t_a8958411365d25 1-253
+tracecat/executor/registry_artifact_storage.py
+  s_c07dbd23596171::t_1b43e4b99ee527 1-1373
+tracecat/executor/registry_artifacts.py
+  s_c07dbd23596171::t_4afbad959f2837 6,14-15,18-20,24-30,33-62,66,69-91,101-103,109-110,113-114,116-117,120-136,139-141,173,215-225,230-234,248-258,262,266-268,270-272,280-284,287,291-297,305-308,315-328,330-339,342-343,348,362,375,377-380,383,388,396-405,417,424-427,431,437-440,445,447-450,452-454,456-459,462-467,480,482-483,487-515,529-533,544,549,558,564-579,591,598-601,605,611-620,629-634,637-642,652-656,664-671,673-694,700-703,706-707,710,720-721,787-788,790-793,796-977,979-1048,1050-1057,1059-1086,1088-1184,1186-1191,1195-1289,1302,1306-1325,1327,1339,1346-1355,1364-1420,1430,1434-1435,1442-1443,1445
+tracecat/executor/service.py
+  s_c07dbd23596171::t_c9f529ca6e8c60 64-69,455,471,503-516,543-547,559-565,574,607,621,635,664,716-721,761,801-805,856
+tracecat/executor/worker.py
+  s_c07dbd23596171::t_7542ef05c0fb02 57,134-145
+tracecat/expressions/core.py
+  s_c07dbd23596171::t_feac5b4768e903 6,8,25-52,62-64,70-72,112-123,127,190-191,204-210
+tracecat/expressions/eval.py
+  s_c07dbd23596171::t_be6c2246f9f201 6,13,20-24,30-32,34-47,49,54-58,60-65,72-88,94-95,98-111,113,143
+tracecat/expressions/policy.py
+  s_c07dbd23596171::t_059edcffb6c93b 1-724
+tracecat/integrations/providers/__init__.py
+  s_c07dbd23596171::t_9abf39167495c1 13,51
+tracecat/integrations/providers/jamf/oauth.py
+  s_c07dbd23596171::t_1f57165989587b 1-55
+tracecat/mcp/server.py
+  s_c07dbd23596171::t_699f816b0e734b 3166,3175-3176,6419-6421,6455,6468,6487,6508,6519,6535
+tracecat/organization/management.py
+  s_c07dbd23596171::t_bf280795ea6bb6 356,361-367,379,391,397-400,411,416,418-419,422,432-438,449-452
+tracecat/pagination.py
+  s_c07dbd23596171::t_fe08c15cd6c931 1-9,12-13,15-17,19-21,24,26-36,38-40,43-44,48-784
+tracecat/runtime/__init__.py
+  s_c07dbd23596171::t_02c0564d4f1c09 1
+tracecat/runtime/errors.py
+  s_c07dbd23596171::t_6849e60ac20739 1-170
+tracecat/sandbox/unsafe_pid_executor.py
+  s_c07dbd23596171::t_b923b1d0939b13 14,17,38,246-253,321,324-327,334-341,354,357,394,398-399,488-491,493,504-508
+tracecat/sandbox/utils.py
+  s_c07dbd23596171::t_1424d0b8270aef 14,18,46-79,85,93-94,96,98-99,104-105,107-109,111-124
+tracecat/settings/constants.py
+  s_c07dbd23596171::t_3517af7ae74836 12
+tracecat/settings/router.py
+  s_c07dbd23596171::t_755bb19867d60a 19-20,33-36,293-324
+tracecat/settings/schemas.py
+  s_c07dbd23596171::t_d2a32b20d0f7bc 2,6,234-259
+tracecat/settings/service.py
+  s_c07dbd23596171::t_56c90cda3679a4 29,34,52-55,78,348-365
+tracecat/storage/blob.py
+  s_c07dbd23596171::t_3d196663bdb8a5 6,11,20,23,39-71,255,761-763,778,785,788-792,801-802,805-806,808-809,811-819,827-837,848-850,864-868,878-882,885-889,896,900-921,926,928-930,932-933,936-938,944,949,952-954,958,964-965
+tracecat/sync.py
+  s_c07dbd23596171::t_3957f3a2bc250e 41-43,155-208,330-334
+tracecat/tables/service.py
+  s_c07dbd23596171::t_57236cd7ce24ac 44-46,1393-1394,1480-1486,1488,1490-1491,1493-1494,1497,1499,1502,1504-1506,1508-1509,1512-1520,1540-1544
+tracecat/temporal/errors.py
+  s_c07dbd23596171::t_ad37a080460baa 1-235
+tracecat/workflow/actions/router.py
+  s_c07dbd23596171::t_bb2582695f7819 6,10,77-104,117,225
+tracecat/workflow/actions/schemas.py
+  s_c07dbd23596171::t_2a15eb9f3bef84 1,5-13,15,103-110
+tracecat/workflow/actions/service.py
+  s_c07dbd23596171::t_d6873be03ab9ee 6,9,14,47-53,61
+tracecat/workflow/graph/service.py
+  s_c07dbd23596171::t_926e037386c7d4 16,20,57-73,297-299,307,333-345
+tracecat/workflow/management/management.py
+  s_c07dbd23596171::t_213db365c40e4e 1490-1491,1593
+tracecat/workflow/store/router.py
+  s_c07dbd23596171::t_38090860d5a189 335-338
+tracecat/workflow/store/schemas.py
+  s_c07dbd23596171::t_c4d9bfe27f580d 88-94,120-124,134-146
+tracecat/workspace_sync/adapters/agent_preset.py
+  s_c07dbd23596171::t_e240f10a93472e 19,28,41-45,66,74,77-79,81,88-97,345-352,355-362,377-378,385-422,968-1401
+tracecat/workspace_sync/adapters/case_field.py
+  s_c07dbd23596171::t_6f144b44c22c25 78,128,139-142,157
+tracecat/workspace_sync/enums.py
+  s_c07dbd23596171::t_c82565a1e391bc 17-21
+tracecat/workspace_sync/schemas.py
+  s_c07dbd23596171::t_621e9e8cc7e61f 217-230,290-297,313-329,677-682
+tracecat/workspace_sync/service.py
+  s_c07dbd23596171::t_a28ff6d8e74d03 40,403,422-424,446,896,905-912,915-916,921,923,932,945,954-956,2059-2061,2076
+tracecat/workspace_sync/types.py
+  s_c07dbd23596171::t_fc0da001e8e957 5,10-14,17,55-99,106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d5b6bf07963cfd8fc1d667c60e9806766dc51f9d",
+  "prompts": {},
+  "sessions": {
+    "s_c07dbd23596171": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a3dc2954-b580-4795-8a78-c26d438fb35d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
