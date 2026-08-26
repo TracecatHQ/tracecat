@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -10,7 +11,11 @@ from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
-from tracecat.dsl.action import DSLActivities, PrepareSubflowActivityInput
+from tracecat.dsl.action import (
+    DSLActivities,
+    PrepareSubflowActivityInput,
+    SubflowDefinitionNotFoundError,
+)
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement, ExecutionContext
 from tracecat.dsl.types import (
@@ -93,6 +98,7 @@ async def test_prepare_subflow_platform_failure_is_classified_and_history_safe()
             "tracecat.dsl.action._prepare_subflow",
             new=AsyncMock(side_effect=sensitive),
         ),
+        patch("tracecat.dsl.action.logger.error") as logger_error_mock,
         pytest.raises(ApplicationError) as exc_info,
     ):
         await DSLActivities.prepare_subflow_activity(_prepare_subflow_input())
@@ -116,11 +122,17 @@ async def test_prepare_subflow_platform_failure_is_classified_and_history_safe()
     serialized_failure = str(failure)
     assert "secret" not in serialized_failure
     assert "example.invalid" not in serialized_failure
+    logger_error_mock.assert_called_once()
+    log_fields = logger_error_mock.call_args.kwargs
+    assert "error" not in log_fields
+    assert log_fields["error_type"] == "RuntimeError"
+    assert log_fields["error_kind"] == envelope.kind.value
+    assert "secret" not in str(logger_error_mock.call_args)
 
 
 @pytest.mark.anyio
-async def test_prepare_subflow_user_failure_keeps_user_semantics() -> None:
-    user_error = UserError("Workflow alias 'child' was not found")
+async def test_prepare_subflow_input_failure_keeps_user_semantics() -> None:
+    user_error = UserError("Invalid child workflow arguments")
 
     with (
         patch(
@@ -135,11 +147,32 @@ async def test_prepare_subflow_user_failure_keeps_user_semantics() -> None:
     envelope = extract_error_envelope(error)
     assert envelope is not None
     assert envelope.owner is RuntimeErrorOwner.USER
-    assert envelope.kind is RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND
+    assert envelope.kind is RuntimeErrorKind.WORKFLOW_SUBFLOW_INPUT_INVALID
     assert envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
     assert envelope.message == user_error.message
     assert error.non_retryable is True
     assert error.type == envelope.kind.value
+
+
+@pytest.mark.anyio
+async def test_prepare_subflow_missing_definition_uses_not_found_kind() -> None:
+    user_error = SubflowDefinitionNotFoundError(
+        "The child workflow definition could not be found"
+    )
+
+    with (
+        patch(
+            "tracecat.dsl.action._prepare_subflow",
+            new=AsyncMock(side_effect=user_error),
+        ),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await DSLActivities.prepare_subflow_activity(_prepare_subflow_input())
+
+    envelope = extract_error_envelope(exc_info.value)
+    assert envelope is not None
+    assert envelope.owner is RuntimeErrorOwner.USER
+    assert envelope.kind is RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND
 
 
 def test_subflow_user_envelope_control_flow_is_replay_gated() -> None:
@@ -216,6 +249,61 @@ async def test_prepare_subflow_keeps_existing_non_retryable_semantics() -> None:
     assert envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
     assert error.non_retryable is True
     assert error.type == envelope.kind.value
+
+
+@pytest.mark.anyio
+async def test_prepare_subflow_drops_unclassified_application_error_details() -> None:
+    sensitive = "postgresql://user:secret@example.invalid/database"
+    original_error = ApplicationError(
+        "Dependency failed",
+        {"diagnostic": sensitive},
+        type="DependencyError",
+        non_retryable=True,
+    )
+
+    with (
+        patch(
+            "tracecat.dsl.action._prepare_subflow",
+            new=AsyncMock(side_effect=original_error),
+        ),
+        patch("tracecat.dsl.action.logger.error"),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await DSLActivities.prepare_subflow_activity(_prepare_subflow_input())
+
+    failure = Failure()
+    await DataConverter.default.encode_failure(exc_info.value, failure)
+    assert sensitive not in str(failure)
+
+
+@pytest.mark.anyio
+async def test_prepare_subflow_clears_retry_delay_for_non_retryable_envelope() -> None:
+    envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    classified = _capture_application_error(envelope)
+    original_error = ApplicationError(
+        classified.message,
+        *classified.details,
+        type=classified.type,
+        non_retryable=True,
+        next_retry_delay=timedelta(seconds=5),
+    )
+
+    with (
+        patch(
+            "tracecat.dsl.action._prepare_subflow",
+            new=AsyncMock(side_effect=original_error),
+        ),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await DSLActivities.prepare_subflow_activity(_prepare_subflow_input())
+
+    assert exc_info.value.non_retryable is True
+    assert exc_info.value.next_retry_delay is None
+    assert extract_error_envelope(exc_info.value) == envelope
 
 
 @pytest.mark.anyio
