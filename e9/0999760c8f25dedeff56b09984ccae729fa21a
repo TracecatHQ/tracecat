@@ -1,0 +1,19 @@
+frontend/src/lib/csp.test.ts
+  s_c07dbd23596171::t_040472d16a2eba 214-218,220-223,225-229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "e90999760c8f25dedeff56b09984ccae729fa21a",
+  "prompts": {},
+  "sessions": {
+    "s_c07dbd23596171": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a3dc2954-b580-4795-8a78-c26d438fb35d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
