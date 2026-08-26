@@ -18,6 +18,7 @@ from tracecat.dsl.types import (
     TaskExceptionInfo,
 )
 from tracecat.dsl.workflow import (
+    ERROR_OWNER_CONTROL_FLOW_PATCH,
     ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
     DSLWorkflow,
     _raise_workflow_application_error,
@@ -152,12 +153,19 @@ def test_subflow_user_envelope_control_flow_is_replay_gated() -> None:
         _classified_error_info(envelope, ref="call_child"),
     )
 
-    workflow = object.__new__(DSLWorkflow)
-    workflow.error_owner_control_flow_enabled = False
-    assert workflow._has_user_error_cause(error) is False
+    with patch(
+        "tracecat.dsl.workflow.workflow.patched",
+        return_value=False,
+    ) as patched_mock:
+        assert DSLWorkflow._has_user_error_cause(error) is False
+        patched_mock.assert_called_once_with(ERROR_OWNER_CONTROL_FLOW_PATCH)
 
-    workflow.error_owner_control_flow_enabled = True
-    assert workflow._has_user_error_cause(error) is True
+    with patch(
+        "tracecat.dsl.workflow.workflow.patched",
+        return_value=True,
+    ) as patched_mock:
+        assert DSLWorkflow._has_user_error_cause(error) is True
+        patched_mock.assert_called_once_with(ERROR_OWNER_CONTROL_FLOW_PATCH)
 
 
 @pytest.mark.anyio
