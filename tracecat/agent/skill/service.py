@@ -152,6 +152,14 @@ class SkillBlobPublicationClaim:
 
 
 @dataclass(frozen=True, slots=True)
+class PublishedBlobObject:
+    """Object written for a blob row that has not been committed yet."""
+
+    bucket: str
+    key: str
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedSkillUploadFile:
     """Normalized one-shot upload file ready for validation and persistence."""
 
@@ -206,7 +214,9 @@ type PreparedDraftPatchOperation = (
     | PreparedDraftDeleteFileOp
     | PreparedDraftMoveFileOp
 )
-type SkillDraftBlobMapFactory = Callable[[], Awaitable[dict[str, SkillFileBlobRef]]]
+type SkillDraftBlobMapFactory = Callable[
+    [list[PublishedBlobObject]], Awaitable[dict[str, SkillFileBlobRef]]
+]
 type SkillBeforeCreateCommit = Callable[[Skill], Awaitable[None]]
 
 
@@ -565,7 +575,11 @@ class SkillService(BaseWorkspaceService):
         )
 
     async def _build_default_draft_blob_map(
-        self, *, name: str, description: str | None
+        self,
+        *,
+        name: str,
+        description: str | None,
+        published: list[PublishedBlobObject] | None = None,
     ) -> dict[str, SkillFileBlobRef]:
         """Materialize the seeded root manifest for a new skill."""
 
@@ -574,7 +588,8 @@ class SkillService(BaseWorkspaceService):
             description=description,
         )
         root_blob = await self._get_or_create_blob(
-            content=root_markdown.encode("utf-8")
+            content=root_markdown.encode("utf-8"),
+            published=published,
         )
         return {
             "SKILL.md": SkillFileBlobRef(
@@ -732,11 +747,19 @@ class SkillService(BaseWorkspaceService):
             )
         return SkillBlobPublicationClaim(blob=existing, is_owner=False)
 
-    async def _get_or_create_blob(self, *, content: bytes) -> SkillBlob:
+    async def _get_or_create_blob(
+        self,
+        *,
+        content: bytes,
+        published: list[PublishedBlobObject] | None = None,
+    ) -> SkillBlob:
         """Create or reuse a content-addressed skill blob.
 
         Args:
             content: Blob payload.
+            published: Collector for objects this call writes for a new,
+                still-uncommitted blob row, so a caller that rolls back can
+                delete them. Reused rows are never recorded.
 
         Returns:
             The deduplicated blob row.
@@ -767,7 +790,36 @@ class SkillService(BaseWorkspaceService):
         except Exception:
             await self.session.delete(claim.blob)
             raise
+        if published is not None:
+            published.append(
+                PublishedBlobObject(
+                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                    key=storage_key,
+                )
+            )
         return claim.blob
+
+    async def _delete_published_blob_objects_best_effort(
+        self, published: Sequence[PublishedBlobObject]
+    ) -> None:
+        """Delete objects written for blob rows that are about to roll back.
+
+        Call this before the SQL rollback. The uncommitted rows still hold the
+        workspace/digest uniqueness claim, so no concurrent writer can have
+        published the same key yet and the delete cannot remove another
+        transaction's object.
+        """
+
+        for obj in published:
+            try:
+                await blob.delete_file(key=obj.key, bucket=obj.bucket)
+            except Exception as exc:
+                self.logger.warning(
+                    "Failed to delete rolled-back skill blob object",
+                    key=obj.key,
+                    bucket=obj.bucket,
+                    error=str(exc),
+                )
 
     async def _stream_verify_object(
         self,
@@ -1282,17 +1334,23 @@ class SkillService(BaseWorkspaceService):
         *,
         validation: ManifestValidationResult,
         prepared_files: Sequence[PreparedSkillUploadFile],
+        published: list[PublishedBlobObject] | None = None,
     ) -> PreparedSkillUploadDraft:
         """Materialize validated upload files into draft blob refs."""
 
-        path_to_blob = await self._materialize_prepared_files(prepared_files)
+        path_to_blob = await self._materialize_prepared_files(
+            prepared_files, published=published
+        )
         return PreparedSkillUploadDraft(
             validation=validation,
             path_to_blob=path_to_blob,
         )
 
     async def _materialize_prepared_files(
-        self, prepared_files: Sequence[PreparedSkillUploadFile]
+        self,
+        prepared_files: Sequence[PreparedSkillUploadFile],
+        *,
+        published: list[PublishedBlobObject] | None = None,
     ) -> dict[str, SkillFileBlobRef]:
         """Materialize file blobs in stable digest order to avoid lock cycles."""
 
@@ -1302,7 +1360,9 @@ class SkillService(BaseWorkspaceService):
             key=lambda item: (self._compute_sha256(item.content), item.path),
         ):
             path_to_blob[file.path] = SkillFileBlobRef(
-                blob=await self._get_or_create_blob(content=file.content),
+                blob=await self._get_or_create_blob(
+                    content=file.content, published=published
+                ),
                 content_type=file.content_type,
             )
         return path_to_blob
@@ -1546,20 +1606,31 @@ class SkillService(BaseWorkspaceService):
                 description=description,
             )
             self.session.add(skill)
+            # Objects the factory writes for new blob rows live outside the
+            # SQL transaction, so a rollback has to delete them explicitly.
+            # A failed commit is ambiguous (the rows may have landed), so its
+            # objects are left in place rather than risk orphaning a row.
+            published: list[PublishedBlobObject] = []
+            committing = False
             try:
                 await self.session.flush()
                 await self._replace_draft_with_blob_map(
                     skill=skill,
-                    path_to_blob=await path_to_blob_factory(),
+                    path_to_blob=await path_to_blob_factory(published),
                 )
                 if before_commit is not None:
                     await before_commit(skill)
+                committing = True
                 await self.session.commit()
             except IntegrityError as exc:
+                if not committing:
+                    await self._delete_published_blob_objects_best_effort(published)
                 await self.session.rollback()
                 if not _is_skill_slug_unique_violation(exc):
                     raise
             except Exception:
+                if not committing:
+                    await self._delete_published_blob_objects_best_effort(published)
                 await self.session.rollback()
                 raise
             else:
@@ -1792,10 +1863,13 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        async def default_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+        async def default_draft_blob_map(
+            published: list[PublishedBlobObject],
+        ) -> dict[str, SkillFileBlobRef]:
             return await self._build_default_draft_blob_map(
                 name=params.name,
                 description=params.description,
+                published=published,
             )
 
         skill = await self._create_skill_with_slug_retry(
@@ -1819,10 +1893,13 @@ class SkillService(BaseWorkspaceService):
 
         validation, prepared_files = self._validate_upload_draft(params)
 
-        async def uploaded_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+        async def uploaded_draft_blob_map(
+            published: list[PublishedBlobObject],
+        ) -> dict[str, SkillFileBlobRef]:
             prepared_draft = await self._materialize_upload_draft(
                 validation=validation,
                 prepared_files=prepared_files,
+                published=published,
             )
             return prepared_draft.path_to_blob
 
@@ -2569,10 +2646,13 @@ class SkillService(BaseWorkspaceService):
         prepared_uploads: list[SkillUploadSessionRead] = []
         expired_uploads: list[SkillUploadModel] = []
 
-        async def default_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+        async def default_draft_blob_map(
+            published: list[PublishedBlobObject],
+        ) -> dict[str, SkillFileBlobRef]:
             return await self._build_default_draft_blob_map(
                 name=skill_params.name,
                 description=skill_params.description,
+                published=published,
             )
 
         async def prepare_before_commit(skill: Skill) -> None:

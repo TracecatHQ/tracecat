@@ -59,7 +59,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
-from tracecat.storage.blob import ensure_bucket_exists
+from tracecat.storage.blob import ensure_bucket_exists, file_exists
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -1714,6 +1714,71 @@ class TestSkillService:
         ).scalars()
         assert skill is None
         assert uploads.all() == []
+        # The seed SKILL.md object was written outside the SQL transaction and
+        # must not be left behind as an orphan.
+        seed_markdown = SkillService._build_default_skill_markdown(
+            name="atomic-prepare", description=None
+        )
+        seed_key = skill_service._storage_key_for(
+            hashlib.sha256(seed_markdown.encode("utf-8")).hexdigest()
+        )
+        assert not await file_exists(
+            key=seed_key, bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS
+        )
+        await skill_service.session.refresh(svc_workspace)
+
+    async def test_prepare_new_skill_uploads_rollback_keeps_reused_blob_object(
+        self,
+        skill_service: SkillService,
+        svc_workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A rollback must only delete objects it published, never reused ones."""
+
+        existing = await skill_service.create_skill(SkillCreate(name="shared-seed"))
+        seed_markdown = SkillService._build_default_skill_markdown(
+            name="shared-seed", description=None
+        )
+        seed_sha256 = hashlib.sha256(seed_markdown.encode("utf-8")).hexdigest()
+        seed_key = skill_service._storage_key_for(seed_sha256)
+        assert await file_exists(
+            key=seed_key, bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS
+        )
+
+        async def generate_presigned_upload_url(**_kwargs: Any) -> str:
+            raise RuntimeError("signing failed")
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.generate_presigned_upload_url",
+            generate_presigned_upload_url,
+        )
+        content = b"payload"
+        with pytest.raises(RuntimeError, match="signing failed"):
+            await skill_service.prepare_new_skill_draft_uploads(
+                skill_params=SkillCreate(name="shared-seed"),
+                params=[
+                    SkillUploadSessionCreate(
+                        sha256=hashlib.sha256(content).hexdigest(),
+                        size_bytes=len(content),
+                        content_type="application/octet-stream",
+                    )
+                ],
+                url_expiry_seconds=60,
+            )
+
+        # The second skill reused the committed seed blob, so the rollback must
+        # leave both the row and its object for the first skill.
+        assert await file_exists(
+            key=seed_key, bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS
+        )
+        blob_row = await skill_service.session.scalar(
+            select(SkillBlob).where(
+                SkillBlob.workspace_id == skill_service.workspace_id,
+                SkillBlob.sha256 == seed_sha256,
+            )
+        )
+        assert blob_row is not None
+        assert await skill_service.get_skill(existing.id) is not None
         await skill_service.session.refresh(svc_workspace)
 
     async def test_prepare_draft_uploads_rejects_aggregate_limit_before_writes(
