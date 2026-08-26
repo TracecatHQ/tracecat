@@ -1,0 +1,40 @@
+frontend/src/lib/csp.test.ts
+  s_c07dbd23596171::t_554dcb65f89e8d 215-217
+  s_c07dbd23596171::t_a11c74de18dea7 1-5,13-18,71-82,122-139,187-190,201-204,247-296
+deployments/fargate/modules/ecs/locals.tf
+  s_c07dbd23596171::t_3280e2b084ad0a 74-84,291-297
+docker-compose.dev.yml
+  s_c07dbd23596171::t_0b05ddc4ff5463 563
+docker-compose.local.yml
+  s_c07dbd23596171::t_a6cd171dfb28b5 569
+docker-compose.yml
+  s_c07dbd23596171::t_06f3b98ef1247d 557
+docs/snippets/environment-variables.mdx
+  s_c07dbd23596171::t_ef18760ca41cd1 86-87
+frontend/next.config.mjs
+  s_c07dbd23596171::t_e3a7e7ff6e3211 17-20
+frontend/src/components/tiptap-node/image-node/attachment-image-node.tsx
+  s_c07dbd23596171::t_e7f44a9a633c43 54
+frontend/src/lib/csp.ts
+  s_c07dbd23596171::t_22ae2f23370755 6-15,25-32,35,38-41,45,55,59,108-135
+frontend/src/lib/skills-studio.tsx
+  s_c07dbd23596171::t_2b1fd85b0b277f 314
+frontend/src/middleware.ts
+  s_c07dbd23596171::t_c0baad845bbe56 2,4-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "7b89197dc3f74648b4637b599d5e2dd3818b5647",
+  "prompts": {},
+  "sessions": {
+    "s_c07dbd23596171": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a3dc2954-b580-4795-8a78-c26d438fb35d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
