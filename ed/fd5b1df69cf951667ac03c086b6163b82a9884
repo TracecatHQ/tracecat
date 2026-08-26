@@ -1,0 +1,21 @@
+frontend/tests/ag-grid-column-defs.test.ts
+  s_ca70cedb5d591c::t_81bec0fb857465 1-35
+frontend/src/components/tables/ag-grid-column-defs.tsx
+  s_ca70cedb5d591c::t_90e18ba831cac4 126-129,143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "edfd5b1df69cf951667ac03c086b6163b82a9884",
+  "prompts": {},
+  "sessions": {
+    "s_ca70cedb5d591c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "007cd624-4ad9-4928-b97a-6193bb1d46fe",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
