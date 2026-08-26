@@ -1,0 +1,26 @@
+tracecat/cases/rows/service.py
+  s_ca70cedb5d591c::t_7654d5cb2b160b 507-513
+  s_ca70cedb5d591c::t_da832296a5bc6f 521,525-529
+tests/unit/test_case_table_rows_service.py
+  s_ca70cedb5d591c::t_fdc6aa0829005f 58-126
+  s_ca70cedb5d591c::t_b2e911ce2b2219 294,296,301,323-326,330-392
+  s_ca70cedb5d591c::t_ba3d46d9964971 3-4
+  s_ca70cedb5d591c::t_9656dc0bce66b9 1388,1403-1404,1406-1414,1416-1428,1431-1435,1437-1453,1455,1457-1485,1487-1530
+  s_ca70cedb5d591c::t_b7f6271b15b800 393-394,1531-1532
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "b9939042f495536d7ec80079229fa22e8adbb41e",
+  "prompts": {},
+  "sessions": {
+    "s_ca70cedb5d591c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "007cd624-4ad9-4928-b97a-6193bb1d46fe",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
