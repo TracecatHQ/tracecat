@@ -1,0 +1,32 @@
+frontend/src/app/workspaces/[workspaceId]/variables/layout.tsx
+  s_6dcb5f548db580::t_a120694b210c64 1-14
+frontend/src/app/workspaces/[workspaceId]/mcp-servers/page.tsx
+  s_6dcb5f548db580::t_929433b83510c8 662,670
+  s_6dcb5f548db580::t_df536de1c462c1 482-486
+  s_6dcb5f548db580::t_09308211478aec 5,76-86,810-811,864,867,870,873,876,880,891,893-894,897,915-928,937-938,941
+frontend/src/components/mcp-catalog-icons.tsx
+  s_6dcb5f548db580::t_ded1cdd7531bbd 8-16,34,36-44,91-93,95-96,132,164-167,174-176,199,205-206
+  s_6dcb5f548db580::t_6489a9e9131be6 64-65
+  s_6dcb5f548db580::t_c1c0c8dee6ac2c 80
+tracecat/integrations/catalog/mcp_catalog.json
+  s_6dcb5f548db580::t_94172867a8cc06 193
+  s_6dcb5f548db580::t_8c8d4d81921ce3 72,79,107,236,299,327,355
+frontend/src/app/workspaces/[workspaceId]/mcp-servers/layout.tsx
+  s_6dcb5f548db580::t_a120694b210c64 1-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "8d88432400bb48d5a5a262722794cc179344e1c3",
+  "prompts": {},
+  "sessions": {
+    "s_6dcb5f548db580": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9db746c4-73dc-40cf-9781-7a8aee14013e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
