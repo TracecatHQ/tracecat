@@ -1,6 +1,6 @@
 "use client"
 
-import { Link2, Plus, Unlink2 } from "lucide-react"
+import { ChevronLeft, ChevronRight, Link2, Plus, Unlink2 } from "lucide-react"
 import { type ReactNode, useMemo, useState } from "react"
 import type { TableColumnRead, TableRowRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -9,9 +9,9 @@ import {
   CASE_PANEL_ACTION_BOX_CLASS,
   CASE_PANEL_ACTION_ROW_CLASS,
   CASE_PANEL_BOX_CLASS,
+  TASK_ICON_TRIGGER_CLASS,
 } from "@/components/cases/case-task-fields"
 import { Spinner } from "@/components/loading/spinner"
-import { AgGridPagination } from "@/components/tables/ag-grid-pagination"
 import { TableRowsGrid } from "@/components/tables/table-rows-grid"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -26,9 +26,19 @@ import { toGridRow, UNAVAILABLE_ROW_CLASS_RULES } from "@/lib/cases/case-rows"
 import { getApiErrorDetail } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 
-const DEFAULT_PAGE_SIZE = 20
+/** Rows per page, fixed: the case view pages with two header arrows, not a bar. */
+const PAGE_SIZE = 20
 const EMPTY_SELECTION: ReadonlySet<string> = new Set()
 const EMPTY_ROWS: readonly TableRowRead[] = []
+
+/**
+ * A header page arrow: the panel's shared 24px icon trigger, muted until
+ * hovered and faded out at the ends of the range.
+ */
+const PAGE_ARROW_CLASS = cn(
+  TASK_ICON_TRIGGER_CLASS,
+  "text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+)
 
 /** Props for {@link CaseLinkedRowsSection}. */
 export interface CaseLinkedRowsSectionProps {
@@ -37,10 +47,11 @@ export interface CaseLinkedRowsSectionProps {
 }
 
 /**
- * The case's Tables panel: one paged grid per table with rows linked to the
- * case, each with its own selection for unlinking, and a compact action bar
- * beneath them that opens the link dialog. The action bar doubles as the
- * empty state.
+ * The case's Tables panel: one grid per table with rows linked to the case,
+ * each with its own selection for unlinking, and a compact action bar beneath
+ * them that opens the link dialog. The action bar doubles as the empty state.
+ * Rows page {@link PAGE_SIZE} at a time behind two arrows in each table's
+ * header, so the panel carries no pagination bar.
  *
  * Column definitions ride along on the case-scoped linked-tables summary, so
  * viewing and unlinking need no `table:read`. Every mutation here is guarded
@@ -179,6 +190,14 @@ interface CaseLinkedTableSectionProps {
   onAddRows: () => void
 }
 
+/**
+ * One linked table: a header line and its grid. The header carries the table's
+ * name and row count on the left, and on the right the selection's unlink
+ * control, the add button, and — only once the rows outrun a single page — two
+ * borderless arrows. Paging is read-only, so the arrows ignore the scopes; the
+ * count text becomes the visible range while paged, standing in for the page
+ * number the arrows deliberately drop.
+ */
 function CaseLinkedTableSection({
   caseId,
   workspaceId,
@@ -190,7 +209,6 @@ function CaseLinkedTableSection({
   canLink,
   onAddRows,
 }: CaseLinkedTableSectionProps) {
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [selectedRowIds, setSelectedRowIds] =
     useState<ReadonlySet<string>>(EMPTY_SELECTION)
 
@@ -203,11 +221,10 @@ function CaseLinkedTableSection({
     goToFirstPage,
     hasNextPage,
     hasPreviousPage,
-    currentPage,
     totalEstimate,
     startItem,
     endItem,
-  } = useCaseRowsPagination({ caseId, tableId, workspaceId, limit: pageSize })
+  } = useCaseRowsPagination({ caseId, tableId, workspaceId, limit: PAGE_SIZE })
   const { unlinkCaseRows, unlinkCaseRowsIsPending } = useUnlinkCaseRows({
     caseId,
     workspaceId,
@@ -218,11 +235,9 @@ function CaseLinkedTableSection({
     [caseRows]
   )
   const selectedCount = selectedRowIds.size
-
-  function handlePageSizeChange(size: number) {
-    setPageSize(size)
-    goToFirstPage()
-  }
+  // One page of rows needs no arrows and no range: the count says it all.
+  const isPaged = hasPreviousPage || hasNextPage
+  const totalRows = totalEstimate ?? rowCount
 
   async function handleUnlink() {
     const rowIds = [...selectedRowIds]
@@ -300,9 +315,15 @@ function CaseLinkedTableSection({
       <div className="flex items-center justify-between px-1 py-1.5">
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-medium">{tableName ?? "Table"}</span>
-          <span className="text-xs text-muted-foreground">
-            {rowCount} {rowCount === 1 ? "row" : "rows"}
-          </span>
+          {isPaged ? (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {startItem}–{endItem} of {totalRows}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              {rowCount} {rowCount === 1 ? "row" : "rows"}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           {canUpdate && selectedCount > 0 && (
@@ -337,25 +358,33 @@ function CaseLinkedTableSection({
               Add rows
             </Button>
           )}
+          {isPaged && (
+            <span className="flex items-center">
+              <button
+                type="button"
+                aria-label="Previous page"
+                className={PAGE_ARROW_CLASS}
+                disabled={!hasPreviousPage || rowsIsLoading}
+                onClick={goToPreviousPage}
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+              <button
+                type="button"
+                aria-label="Next page"
+                className={PAGE_ARROW_CLASS}
+                disabled={!hasNextPage || rowsIsLoading}
+                onClick={goToNextPage}
+              >
+                <ChevronRight className="size-4" />
+              </button>
+            </span>
+          )}
         </div>
       </div>
       <div className="overflow-x-auto rounded-md border">
         <div className="min-w-[1200px]">{gridContent}</div>
       </div>
-      <AgGridPagination
-        currentPage={currentPage}
-        hasNextPage={hasNextPage}
-        hasPreviousPage={hasPreviousPage}
-        pageSize={pageSize}
-        totalEstimate={totalEstimate}
-        startItem={startItem}
-        endItem={endItem}
-        onNextPage={goToNextPage}
-        onPreviousPage={goToPreviousPage}
-        onFirstPage={goToFirstPage}
-        onPageSizeChange={handlePageSizeChange}
-        isLoading={rowsIsLoading}
-      />
     </div>
   )
 }

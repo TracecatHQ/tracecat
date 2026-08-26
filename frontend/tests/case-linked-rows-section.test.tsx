@@ -80,10 +80,6 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
   ),
 }))
 
-jest.mock("@/components/tables/ag-grid-pagination", () => ({
-  AgGridPagination: () => <div data-testid="pagination" />,
-}))
-
 // The dialog is covered by its own suite; a marker records how it was opened.
 jest.mock("@/components/cases/case-link-rows-dialog", () => ({
   CaseLinkRowsDialog: ({
@@ -115,6 +111,17 @@ const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
 >
 const mockToast = toast as jest.MockedFunction<typeof toast>
 const mockUnlinkCaseRows = jest.fn()
+const mockGoToNextPage = jest.fn()
+const mockGoToPreviousPage = jest.fn()
+
+type PageState = Partial<ReturnType<typeof useCaseRowsPagination>>
+
+const pageOverrides = new Map<string, PageState>()
+
+/** Overrides the page the mocked pagination hook reports for one table. */
+function setPage(tableId: string, overrides: PageState) {
+  pageOverrides.set(tableId, overrides)
+}
 
 function makeLink(tableId: string, rowId: string): CaseTableRowRead {
   return {
@@ -202,6 +209,7 @@ beforeEach(() => {
     return required.some((name) => grantedScopes.has(name))
   })
   setLinkedTables(SUMMARY)
+  pageOverrides.clear()
   mockUseCaseRowsPagination.mockImplementation(
     ({ tableId, limit }) =>
       ({
@@ -209,8 +217,8 @@ beforeEach(() => {
         isLoading: false,
         error: null,
         refetch: jest.fn(),
-        goToNextPage: jest.fn(),
-        goToPreviousPage: jest.fn(),
+        goToNextPage: mockGoToNextPage,
+        goToPreviousPage: mockGoToPreviousPage,
         goToFirstPage: jest.fn(),
         setSorting: jest.fn(),
         sortingState: { orderBy: null, sort: null },
@@ -223,6 +231,7 @@ beforeEach(() => {
         endItem: 1,
         totalEstimate: 1,
         totalPages: 1,
+        ...pageOverrides.get(tableId),
       }) as unknown as ReturnType<typeof useCaseRowsPagination>
   )
   mockUnlinkCaseRows.mockResolvedValue({ unlinkedCount: 1 })
@@ -272,7 +281,6 @@ describe("CaseLinkedRowsSection", () => {
     expect(screen.getByText("Table")).toBeInTheDocument()
     expect(screen.getByText("1 row")).toBeInTheDocument()
     expect(screen.getAllByTestId("rows-grid")).toHaveLength(2)
-    expect(screen.getAllByTestId("pagination")).toHaveLength(2)
     expect(
       screen.getByRole("button", { name: "Link table" })
     ).toBeInTheDocument()
@@ -282,6 +290,66 @@ describe("CaseLinkedRowsSection", () => {
       workspaceId: "ws-1",
       limit: 20,
     })
+  })
+
+  it("pages at a fixed size, with no rows-per-page control", () => {
+    renderSection()
+
+    for (const call of mockUseCaseRowsPagination.mock.calls) {
+      expect(call[0]).toMatchObject({ limit: 20 })
+    }
+    expect(screen.queryByText(/rows per page/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/page 1 of/i)).not.toBeInTheDocument()
+  })
+
+  it("hides the page arrows when everything fits on one page", () => {
+    renderSection()
+
+    expect(
+      screen.queryByRole("button", { name: "Previous page" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Next page" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByText("2 rows")).toBeInTheDocument()
+  })
+
+  it("shows the visible range and pages forward when there is more", async () => {
+    const user = userEvent.setup()
+    setPage("table-1", {
+      hasNextPage: true,
+      hasPreviousPage: false,
+      startItem: 1,
+      endItem: 20,
+      totalEstimate: 45,
+    })
+    renderSection()
+
+    expect(screen.getByText("1–20 of 45")).toBeInTheDocument()
+    expect(screen.queryByText("2 rows")).not.toBeInTheDocument()
+
+    const previous = screen.getByRole("button", { name: "Previous page" })
+    const next = screen.getByRole("button", { name: "Next page" })
+    expect(previous).toBeDisabled()
+    expect(next).toBeEnabled()
+
+    await user.click(next)
+    expect(mockGoToNextPage).toHaveBeenCalled()
+  })
+
+  it("disables both arrows while a page loads", () => {
+    setPage("table-1", {
+      isLoading: true,
+      hasNextPage: true,
+      hasPreviousPage: true,
+      startItem: 21,
+      endItem: 40,
+      totalEstimate: 45,
+    })
+    renderSection()
+
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled()
   })
 
   it("renders the grids off the summary's columns", () => {
@@ -497,6 +565,32 @@ describe("CaseLinkedRowsSection", () => {
       expect(screen.getByText("No linked rows")).toBeInTheDocument()
       expect(
         screen.queryByRole("button", { name: "Link table" })
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  describe("without any scopes", () => {
+    beforeEach(() => {
+      grantScopes()
+    })
+
+    it("still pages, because paging reads nothing new", () => {
+      setPage("table-1", {
+        hasNextPage: true,
+        hasPreviousPage: false,
+        startItem: 1,
+        endItem: 20,
+        totalEstimate: 45,
+      })
+      renderSection()
+
+      expect(screen.getByText("1–20 of 45")).toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: "Previous page" })
+      ).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled()
+      expect(
+        screen.queryByRole("button", { name: "Add rows" })
       ).not.toBeInTheDocument()
     })
   })
