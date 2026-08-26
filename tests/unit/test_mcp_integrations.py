@@ -1470,6 +1470,281 @@ class TestMCPIntegrationCRUD:
         assert legacy.catalog_slug is None
         assert legacy.auth_type == MCPAuthType.CUSTOM
 
+    async def test_connect_platform_mcp_catalog_skips_detached_stdio_row(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A stdio row detached from a retired recipe stays a workspace row."""
+        catalog = _catalog_entry(
+            slug="detached-stdio-mcp",
+            name="Detached Stdio MCP",
+            description="Recipe replaced by a remote HTTP server",
+            connection_spec={
+                "kind": "http_none",
+                "server_type": "http",
+                "auth_type": "NONE",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+            },
+            sort_key="0003:detached-stdio-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        # Mirrors a legacy row whose stale catalog binding was cleared on
+        # update: same slug, catalog_slug None, still running the old local
+        # stdio package.
+        legacy = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Detached Stdio MCP",
+            slug=catalog.slug,
+            catalog_slug=None,
+            server_type="stdio",
+            auth_type=MCPAuthType.CUSTOM,
+            stdio_command="uvx",
+            stdio_args=["mcp-detached"],
+        )
+        session.add(legacy)
+        await session.flush()
+
+        result = await integration_service.connect_platform_mcp_catalog(
+            catalog_slug=catalog.slug
+        )
+
+        created = result.mcp_integration
+        assert created is not None
+        assert created.id != legacy.id
+        assert created.slug == f"{catalog.slug}-1"
+        assert created.catalog_slug == catalog.slug
+        await session.refresh(legacy)
+        assert legacy.catalog_slug is None
+
+        workspace_rows = await integration_service.list_mcp_integrations(
+            source="workspace"
+        )
+        platform_rows = await integration_service.list_mcp_integrations(
+            source="platform"
+        )
+        assert {row.id for row in workspace_rows} == {legacy.id}
+        assert {row.id for row in platform_rows} == {created.id}
+
+    async def test_row_bound_to_missing_catalog_entry_is_custom(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+    ) -> None:
+        """A binding to a retired slug no longer hides the row."""
+        stale = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Retired Recipe MCP",
+            slug="retired-recipe-test-mcp",
+            catalog_slug="retired-recipe-test-mcp",
+            server_type="stdio",
+            auth_type=MCPAuthType.CUSTOM,
+            stdio_command="uvx",
+            stdio_args=["mcp-retired"],
+        )
+        session.add(stale)
+        await session.commit()
+
+        assert not integration_service._is_platform_managed_mcp_integration(stale)
+        workspace_rows = await integration_service.list_mcp_integrations(
+            source="workspace"
+        )
+        platform_rows = await integration_service.list_mcp_integrations(
+            source="platform"
+        )
+        assert {row.id for row in workspace_rows} == {stale.id}
+        assert platform_rows == []
+
+    async def test_stdio_row_bound_to_http_only_entry_is_custom(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A stdio row on a now HTTP-only slug is custom and does not shadow it."""
+        catalog = _catalog_entry(
+            slug="rehosted-mcp",
+            name="Rehosted MCP",
+            description="Recipe moved from stdio to a hosted HTTP server",
+            connection_spec={
+                "kind": "http_none",
+                "server_type": "http",
+                "auth_type": "NONE",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+            },
+            sort_key="0003:rehosted-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        stale = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Rehosted MCP",
+            slug=catalog.slug,
+            catalog_slug=catalog.slug,
+            server_type="stdio",
+            auth_type=MCPAuthType.CUSTOM,
+            stdio_command="uvx",
+            stdio_args=["mcp-rehosted"],
+        )
+        session.add(stale)
+        await session.commit()
+
+        assert not integration_service._is_platform_managed_mcp_integration(stale)
+        workspace_rows = await integration_service.list_mcp_integrations(
+            source="workspace"
+        )
+        assert {row.id for row in workspace_rows} == {stale.id}
+
+        result = await integration_service.connect_platform_mcp_catalog(
+            catalog_slug=catalog.slug
+        )
+
+        created = result.mcp_integration
+        assert created is not None
+        assert created.id != stale.id
+        assert created.slug == f"{catalog.slug}-1"
+        assert created.catalog_slug == catalog.slug
+        assert created.server_type == "http"
+        platform_rows = await integration_service.list_mcp_integrations(
+            source="platform"
+        )
+        assert {row.id for row in platform_rows} == {created.id}
+
+    async def test_catalog_state_ignores_stale_bound_row(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The card stays not_configured while only a stale-bound row exists."""
+        catalog = _catalog_entry(
+            slug="rehosted-state-mcp",
+            name="Rehosted State MCP",
+            description="Recipe moved from stdio to a hosted HTTP server",
+            connection_spec={
+                "kind": "http_none",
+                "server_type": "http",
+                "auth_type": "NONE",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+            },
+            sort_key="0003:rehosted-state-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        stale = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Rehosted State MCP",
+            slug=catalog.slug,
+            catalog_slug=catalog.slug,
+            server_type="stdio",
+            auth_type=MCPAuthType.CUSTOM,
+            stdio_command="uvx",
+            stdio_args=["mcp-rehosted"],
+        )
+        session.add(stale)
+        await session.commit()
+
+        catalog_service = PlatformMCPCatalogService(session=session)
+        items, _ = await catalog_service.list_catalog(
+            workspace_id=integration_service.workspace_id,
+            agent_addons_entitled=True,
+            q=catalog.slug,
+        )
+        item = next(item for item in items if item.slug == catalog.slug)
+        assert item.state == "not_configured"
+        assert item.mcp_integration_id is None
+
+    async def test_coming_soon_entry_keeps_row_platform_managed(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Entries without connect options keep their bound rows as before."""
+        catalog = _catalog_entry(
+            slug="soon-mcp",
+            name="Soon MCP",
+            description="Not connectable yet",
+            status="coming_soon",
+            sort_key="0003:soon-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        bound = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Soon MCP",
+            slug=catalog.slug,
+            catalog_slug=catalog.slug,
+            server_type="http",
+            server_uri="https://mcp.example.com/mcp",
+            auth_type=MCPAuthType.NONE,
+        )
+        session.add(bound)
+        await session.commit()
+
+        assert integration_service._is_platform_managed_mcp_integration(bound)
+        platform_rows = await integration_service.list_mcp_integrations(
+            source="platform"
+        )
+        assert {row.id for row in platform_rows} == {bound.id}
+
+    async def test_update_skips_catalog_validation_for_stale_bound_row(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Editing a stale-bound row succeeds without touching the binding."""
+        catalog = _catalog_entry(
+            slug="rehosted-update-mcp",
+            name="Rehosted Update MCP",
+            description="Recipe moved from stdio to a hosted HTTP server",
+            connection_spec={
+                "kind": "http_none",
+                "server_type": "http",
+                "auth_type": "NONE",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+            },
+            sort_key="0003:rehosted-update-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        stale = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Rehosted Update MCP",
+            slug=catalog.slug,
+            catalog_slug=catalog.slug,
+            server_type="stdio",
+            auth_type=MCPAuthType.CUSTOM,
+            stdio_command="uvx",
+            stdio_args=["mcp-rehosted"],
+        )
+        session.add(stale)
+        await session.commit()
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=stale.id,
+            params=MCPIntegrationUpdate(stdio_args=["mcp-rehosted", "--verbose"]),
+        )
+
+        assert updated is not None
+        assert updated.stdio_args == ["mcp-rehosted", "--verbose"]
+        # The marker stays; read paths already treat the binding as stale, and
+        # a transient catalog load failure must never unbind a row for good.
+        await session.refresh(stale)
+        assert stale.catalog_slug == catalog.slug
+        listed = await integration_service.list_mcp_integrations(source="workspace")
+        assert stale.id in {row.id for row in listed}
+
     async def test_platform_mcp_catalog_existing_row_connects_without_entitlement(
         self,
         integration_service: IntegrationService,

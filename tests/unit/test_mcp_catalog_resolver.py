@@ -159,6 +159,55 @@ def test_user_supplied_uri_rejects_embedded_credentials() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("slug", "auth_type", "server_uri"),
+    [
+        pytest.param(
+            "iru-mcp",
+            MCPAuthType.CUSTOM,
+            "https://customer.connect.iru.dev/mcp-server/connector/tracecat/tools",
+            id="iru-real-tenant-behind-sentinel-template",
+        ),
+        pytest.param(
+            "freshservice-mcp",
+            MCPAuthType.OAUTH2,
+            "https://acme.freshservice.com/mcp",
+            id="freshservice-domain-placeholder",
+        ),
+        pytest.param(
+            "scanner-mcp",
+            MCPAuthType.CUSTOM,
+            "http://localhost:8080/v1/mcp",
+            id="scanner-local-server",
+        ),
+        pytest.param(
+            "freshservice-mcp",
+            MCPAuthType.OAUTH2,
+            "https://mcp.internal.example/proxy/freshservice",
+            id="freshservice-host-outside-template",
+        ),
+        pytest.param(
+            "servicenow-mcp",
+            MCPAuthType.OAUTH2,
+            "https://acme.service-now.com/sncapps/mcp-server/mcp/itsm",
+            id="servicenow-instance-and-server-placeholders",
+        ),
+    ],
+)
+def test_user_supplied_uri_accepts_any_host(
+    slug: str, auth_type: MCPAuthType, server_uri: str
+) -> None:
+    """Templated recipes never pin the host: local servers, proxies and vendor
+    URL changes must keep working, so only the user's URI is checked for shape."""
+    resolved = resolve_catalog_connection(
+        _entry(slug),
+        server_type="http",
+        auth_type=auth_type,
+        server_uri=server_uri,
+    )
+    assert resolved.option.connection_spec.server_type == "http"
+
+
 def test_mixed_transport_row_disambiguates_by_server_type() -> None:
     """Panther ships both a remote HTTP option and a stdio package option."""
     entry = _entry("panther-mcp")

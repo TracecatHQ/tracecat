@@ -62,6 +62,7 @@ from tracecat.integrations.catalog.loader import (
 from tracecat.integrations.catalog.resolver import (
     CatalogConnectionError,
     ResolvedCatalogConnection,
+    catalog_binding_is_current,
     connect_options,
     resolve_available_catalog_entry,
     resolve_catalog_connection,
@@ -3133,8 +3134,14 @@ class IntegrationService(BaseWorkspaceService):
             MCPIntegration.catalog_slug == catalog.slug,
         )
         result = await self.session.execute(statement)
-        if mcp_integration := result.scalars().first():
-            return mcp_integration
+        # A row bound during a rolling deploy may carry a recipe this entry no
+        # longer offers (e.g. stdio on a now HTTP-only slug). Such a row is a
+        # custom server and must not shadow the hosted replacement.
+        for mcp_integration in result.scalars():
+            if catalog_binding_is_current(
+                catalog_slug=catalog.slug, server_type=mcp_integration.server_type
+            ):
+                return mcp_integration
 
         # Legacy rows predate the ``catalog_slug`` column, so they carry no
         # marker. Adopt a null-slug row only when its slug matches the catalog
@@ -3384,9 +3391,14 @@ class IntegrationService(BaseWorkspaceService):
 
         Platform-managed rows are auto-created by ``MCPAuthProvider`` flows in
         ``_auto_create_mcp_integration_if_needed`` or created from catalog
-        recipes carrying a ``catalog_slug`` marker.
+        recipes carrying a ``catalog_slug`` marker. A marker whose recipe no
+        longer exists for the row's transport is stale and does not count,
+        so the row surfaces as a custom server instead of disappearing.
         """
-        if mcp_integration.catalog_slug is not None:
+        if mcp_integration.catalog_slug is not None and catalog_binding_is_current(
+            catalog_slug=mcp_integration.catalog_slug,
+            server_type=mcp_integration.server_type,
+        ):
             return True
 
         oauth_integration = mcp_integration.oauth_integration
@@ -4178,6 +4190,19 @@ class IntegrationService(BaseWorkspaceService):
         previous_stdio_tools: list[dict[str, Any]] | None = None
         previous_auth_type = mcp_integration.auth_type
         previous_server_type = cast(MCPServerType, mcp_integration.server_type)
+        # A binding left behind by a retired or re-transported recipe makes the
+        # row a custom server: skip catalog validation for it. The marker is
+        # left in place; every read path already ignores a stale binding.
+        binding_is_current = (
+            mcp_integration.catalog_slug is None
+            or catalog_binding_is_current(
+                catalog_slug=mcp_integration.catalog_slug,
+                server_type=previous_server_type,
+            )
+        )
+        bound_catalog_slug = (
+            mcp_integration.catalog_slug if binding_is_current else None
+        )
         target_server_type = params.server_type or previous_server_type
         server_type_changed = (
             params.server_type is not None
@@ -4239,9 +4264,9 @@ class IntegrationService(BaseWorkspaceService):
             )
             # Only revalidate against the catalog when the connection itself
             # moved; a drifted recipe must never block a rename or timeout edit.
-            if connection_changed and mcp_integration.catalog_slug:
+            if connection_changed and bound_catalog_slug:
                 self._resolve_catalog_connection_for_update(
-                    catalog_slug=mcp_integration.catalog_slug,
+                    catalog_slug=bound_catalog_slug,
                     server_type="http",
                     auth_type=target_auth_type,
                     server_uri=target_server_uri,
@@ -4312,7 +4337,7 @@ class IntegrationService(BaseWorkspaceService):
             )
             if target_stdio_env is not None:
                 self._validate_stdio_env_against_catalog(
-                    catalog_slug=mcp_integration.catalog_slug,
+                    catalog_slug=bound_catalog_slug,
                     stdio_env=target_stdio_env,
                 )
             stdio_connection_changed = server_type_changed or (

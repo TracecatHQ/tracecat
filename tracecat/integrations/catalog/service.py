@@ -10,6 +10,7 @@ import sqlalchemy as sa
 
 from tracecat.db.models import MCPIntegration, OAuthIntegration
 from tracecat.integrations.catalog.loader import get_platform_mcp_catalog_entries
+from tracecat.integrations.catalog.resolver import catalog_binding_is_current
 from tracecat.integrations.catalog.types import PlatformMCPCatalogEntry
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.schemas import (
@@ -224,6 +225,12 @@ class PlatformMCPCatalogService(BaseService):
                 encrypted_refresh_token=encrypted_refresh_token,
                 expires_at=token_expires_at,
             )
+            # A stale binding (retired or re-transported recipe) makes the row
+            # a custom server; it must not attach to the card.
+            if isinstance(catalog_slug, str) and not catalog_binding_is_current(
+                catalog_slug=catalog_slug, server_type=mcp_integration.server_type
+            ):
+                continue
             if isinstance(catalog_slug, str) and (
                 slug_catalog_id := catalog_slug_to_id.get(catalog_slug)
             ):
