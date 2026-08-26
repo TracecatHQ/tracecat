@@ -102,12 +102,15 @@ class ErrorEnvelope(BaseModel):
         """Construct a user-attributed error from an explicit enum kind."""
         cls._require_kind(kind)
         cls._require_retry_disposition(retry_disposition)
-        return cls(
-            owner=RuntimeErrorOwner.USER,
-            kind=kind,
-            message=message,
-            retry_disposition=retry_disposition,
-            cause_type=type(cause).__name__ if cause is not None else None,
+        return cls.model_validate(
+            {
+                "schema": ERROR_ENVELOPE_SCHEMA,
+                "owner": RuntimeErrorOwner.USER,
+                "kind": kind,
+                "message": message,
+                "retry_disposition": retry_disposition,
+                "cause_type": type(cause).__name__ if cause is not None else None,
+            }
         )
 
     @classmethod
@@ -122,12 +125,15 @@ class ErrorEnvelope(BaseModel):
         """Construct a platform-attributed error from an explicit enum kind."""
         cls._require_kind(kind)
         cls._require_retry_disposition(retry_disposition)
-        return cls(
-            owner=RuntimeErrorOwner.PLATFORM,
-            kind=kind,
-            message=message,
-            retry_disposition=retry_disposition,
-            cause_type=type(cause).__name__ if cause is not None else None,
+        return cls.model_validate(
+            {
+                "schema": ERROR_ENVELOPE_SCHEMA,
+                "owner": RuntimeErrorOwner.PLATFORM,
+                "kind": kind,
+                "message": message,
+                "retry_disposition": retry_disposition,
+                "cause_type": type(cause).__name__ if cause is not None else None,
+            }
         )
 
     @staticmethod

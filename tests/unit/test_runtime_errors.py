@@ -58,6 +58,18 @@ def test_error_envelope_serializes_exact_contract() -> None:
     }
 
 
+def test_named_constructor_keeps_schema_when_excluding_unset_fields() -> None:
+    envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+    assert envelope.model_dump(mode="json", exclude_unset=True)["schema"] == (
+        ERROR_ENVELOPE_SCHEMA
+    )
+
+
 def test_error_envelope_rejects_extra_version_field() -> None:
     with pytest.raises(ValidationError):
         ErrorEnvelope.model_validate(
