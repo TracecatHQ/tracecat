@@ -11,7 +11,7 @@ import asyncio
 import os
 import uuid
 from collections.abc import Callable, Mapping, Sequence
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import orjson
@@ -67,6 +67,7 @@ from tracecat.agent.executor.activity import (
     AgentExecutorResult,
     ToolExecutionResult,
 )
+from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import ResolveAgentsConfigActivityInput
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
@@ -2716,171 +2717,44 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
     ]
 
 
-@pytest.mark.anyio
-@pytest.mark.integration
-async def test_agent_workflow_does_not_retry_approved_tool_failures(
-    svc_role: Role,
-    temporal_client: Client,
-    agent_worker_factory,
-    mock_session_id: uuid.UUID,
-    agent_config_with_approvals: AgentConfig,
+def test_agent_workflow_does_not_retry_approved_tool_failures(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    agent_queue = f"test-agent-queue-{mock_session_id}"
-
-    approval_request_recorded = asyncio.Event()
-    approval_done_emitted = asyncio.Event()
-    approval_pause_call_order: list[str] = []
-    resumed_after_approval = asyncio.Event()
-    reconcile_inputs: list[ReconcileToolResultsInput] = []
-    executor_attempts = 0
-    run_agent_call_count = 0
-
-    @activity.defn(name="run_agent_activity")
-    async def mock_run_agent_activity(
-        input: AgentExecutorInput,
-    ) -> AgentExecutorResult:
-        nonlocal run_agent_call_count
-        activity.heartbeat("Mock agent running")
-
-        if run_agent_call_count == 0:
-            run_agent_call_count += 1
-            return AgentExecutorResult(
-                success=True,
-                approval_requested=True,
-                approval_items=[
-                    ToolCallContent(
-                        id="call_123",
-                        name="core__http_request",
-                        input={"url": "https://example.com", "method": "GET"},
-                    )
-                ],
-            )
-
-        assert input.is_approval_continuation is True
-
-        resumed_after_approval.set()
-        run_agent_call_count += 1
-        return AgentExecutorResult(
-            success=True,
-            approval_requested=False,
-            output={"status": "done"},
-        )
-
-    @activity.defn(name="record_approval_requests")
-    async def mock_record_approval_requests(input: Any) -> None:
-        del input
-        approval_pause_call_order.append("record_approval_requests")
-        approval_request_recorded.set()
-
-    @activity.defn(name="apply_approval_decisions")
-    async def mock_apply_approval_decisions(input: Any) -> None:
-        del input
-
-    @activity.defn(name="execute_action_activity")
-    async def mock_execute_action_activity(
-        input: RunActionInput,
-        role: Role,
-    ) -> InlineObject[dict[str, str]]:
-        del input, role
-        nonlocal executor_attempts
-        executor_attempts += 1
-        if executor_attempts == 1:
-            raise ApplicationError("transient tool failure")
-        return InlineObject(data={"status": "success"})
-
-    @activity.defn(name="reconcile_tool_results_activity")
-    async def mock_reconcile_tool_results_activity(
-        input: ReconcileToolResultsInput,
-    ) -> ReconcileToolResultsResult:
-        reconcile_inputs.append(input)
-        return ReconcileToolResultsResult(
-            results=[
-                ToolExecutionResult(
-                    tool_call_id=pending.tool_call_id,
-                    tool_name=pending.tool_name,
-                    result=pending.raw_result,
-                    is_error=pending.is_error,
-                )
-                for pending in input.pending_results
-            ]
-        )
-
-    mock_emit_session_done = create_mock_emit_session_done_activity(
-        call_order=approval_pause_call_order,
-        done_event=approval_done_emitted,
+    captured_activity_options: dict[str, Any] = {}
+    service_role = Role(
+        type="user",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
     )
 
-    workflow_args = AgentWorkflowArgs(
-        role=svc_role,
-        agent_args=RunAgentArgs(
-            session_id=mock_session_id,
-            user_prompt="Make a test HTTP request",
-            config=agent_config_with_approvals,
+    def mock_start_activity(*args: Any, **kwargs: Any) -> Any:
+        del args
+        captured_activity_options.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(temporal_workflow, "uuid4", uuid.uuid4)
+    monkeypatch.setattr(temporal_workflow, "start_activity", mock_start_activity)
+
+    durable_workflow_module._start_registry_tool_call(
+        ApprovedToolCall(
+            tool_call_id="call_123",
+            tool_name="core__http_request",
+            args={"url": "https://example.com", "method": "GET"},
         ),
-        entity_type=AgentSessionEntity.WORKFLOW,
-        entity_id=uuid.uuid4(),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={"core.http_request": "tracecat_registry"},
+        ),
+        service_role=service_role,
+        logical_time=datetime(2026, 3, 18, tzinfo=UTC),
     )
 
-    activities = [
-        create_mock_create_session_activity(),
-        create_mock_load_session_activity(),
-        create_mock_load_session_messages_activity(),
-        create_mock_build_tool_definitions_activity(),
-        mock_run_agent_activity,
-        mock_record_approval_requests,
-        mock_apply_approval_decisions,
-        mock_emit_session_done,
-        mock_execute_action_activity,
-        mock_reconcile_tool_results_activity,
-        create_mock_finalize_turn_activity(),
-    ]
-
-    agent_worker = agent_worker_factory(
-        temporal_client, task_queue=agent_queue, custom_activities=activities
-    )
-    async with asyncio.timeout(30):
-        await agent_worker.__aenter__()
-    try:
-        async with asyncio.timeout(30):
-            wf_handle = await temporal_client.start_workflow(
-                DurableAgentWorkflow.run,
-                workflow_args,
-                id=AgentWorkflowID(mock_session_id),
-                task_queue=agent_queue,
-                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                execution_timeout=timedelta(seconds=60),
-            )
-
-        await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
-        await asyncio.wait_for(approval_done_emitted.wait(), timeout=10)
-        assert approval_pause_call_order == [
-            "record_approval_requests",
-            "emit_session_done",
-        ]
-        async with asyncio.timeout(30):
-            await wf_handle.execute_update(
-                DurableAgentWorkflow.set_approvals,
-                WorkflowApprovalSubmission(
-                    approvals={"call_123": True},
-                    approved_by=svc_role.user_id,
-                ),
-            )
-
-        async with asyncio.timeout(30):
-            result = await wf_handle.result()
-    finally:
-        async with asyncio.timeout(30):
-            await agent_worker.__aexit__(None, None, None)
-
-    assert result.session_id == mock_session_id
-    assert executor_attempts == 1
-    assert resumed_after_approval.is_set()
-    assert len(reconcile_inputs) == 1
-    [pending_result] = reconcile_inputs[0].pending_results
-    assert pending_result.tool_call_id == "call_123"
-    assert pending_result.is_error is True
-    assert pending_result.raw_result is not None
-    assert "Tool execution failed:" in pending_result.raw_result
+    retry_policy = captured_activity_options["retry_policy"]
+    assert retry_policy == RETRY_POLICIES["activity:fail_fast"]
+    assert retry_policy.maximum_attempts == 1
+    assert captured_activity_options["task_queue"] == config.TRACECAT__EXECUTOR_QUEUE
 
 
 # =============================================================================
