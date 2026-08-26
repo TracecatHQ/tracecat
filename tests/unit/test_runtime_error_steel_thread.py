@@ -24,6 +24,7 @@ from tracecat.dsl.types import (
     TaskExceptionInfo,
 )
 from tracecat.dsl.workflow import (
+    ERROR_OWNER_AFTER_HANDLER_PATCH,
     ERROR_OWNER_CONTROL_FLOW_PATCH,
     ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
     DSLWorkflow,
@@ -470,7 +471,11 @@ async def test_error_handler_runs_before_original_owner_is_stamped() -> None:
         ),
         pytest.raises(ApplicationError) as exc_info,
     ):
-        await instance._handle_application_error(args, error)
+        await instance._handle_application_error(
+            args,
+            error,
+            stamp_terminal_owner=True,
+        )
 
     assert exc_info.value is error
     run_handler_mock.assert_awaited_once_with(args)
@@ -528,7 +533,11 @@ async def test_error_handler_failure_replaces_original_terminal_owner() -> None:
         ),
         pytest.raises(ApplicationError) as exc_info,
     ):
-        await instance._handle_application_error(args, original_error)
+        await instance._handle_application_error(
+            args,
+            original_error,
+            stamp_terminal_owner=True,
+        )
 
     assert exc_info.value is handler_error
     upsert_mock.assert_called_once_with(handler_error)
@@ -591,6 +600,13 @@ def test_terminal_owner_upsert_is_replay_gated() -> None:
 
     patched_mock.assert_called_once_with(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH)
     upsert_mock.assert_not_called()
+
+
+def test_error_handler_owner_timing_has_distinct_replay_patch() -> None:
+    assert ERROR_OWNER_AFTER_HANDLER_PATCH not in {
+        ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
+        ERROR_OWNER_CONTROL_FLOW_PATCH,
+    }
 
 
 def test_legacy_terminal_error_does_not_add_patch_marker_or_owner() -> None:
