@@ -116,7 +116,7 @@ with workflow.unsafe.imports_passed_through():
         exec_id_to_parts,
     )
     from tracecat.registry.lock.types import RegistryLock
-    from tracecat.runtime.errors import RuntimeErrorOwner
+    from tracecat.runtime.errors import ErrorEnvelope, RuntimeErrorOwner
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -131,7 +131,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.temporal.errors import (
         extract_error_envelope,
         extract_error_envelopes,
+        parse_classified_detail,
         raise_application_error_from_envelope,
+        wrap_error,
     )
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
@@ -186,21 +188,24 @@ def _raise_workflow_application_error(
 ) -> Never:
     """Raise the terminal workflow error without changing legacy payloads."""
     n_exceptions = len(task_exceptions)
-    envelope_iter = (
-        extract_error_envelope(info.exception) for info in task_exceptions.values()
-    )
-    primary_envelope = next(envelope_iter, None)
-    if primary_envelope is not None and all(
-        envelope is not None for envelope in envelope_iter
-    ):
-        error_details = {
-            ref: info.details.model_dump(mode="json")
-            for ref, info in task_exceptions.items()
-        }
-        raise_application_error_from_envelope(
-            primary_envelope,
-            error_details,
-        )
+    task_envelopes: dict[str, ErrorEnvelope] = {}
+    for ref, info in task_exceptions.items():
+        envelope = extract_error_envelope(info.exception)
+        if envelope is None:
+            break
+        task_envelopes[ref] = envelope
+    else:
+        if task_envelopes:
+            error_details = {
+                ref: wrap_error(task_envelopes[ref], info.details).model_dump(
+                    mode="json"
+                )
+                for ref, info in task_exceptions.items()
+            }
+            raise_application_error_from_envelope(
+                next(iter(task_envelopes.values())),
+                error_details,
+            )
 
     formatted_exceptions = "\n".join(
         f"{'=' * 10} ({i + 1}/{n_exceptions}) {details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
@@ -1961,6 +1966,19 @@ class DSLWorkflow:
                     ),
                     type=type(err_info_map).__name__,
                 )
+            ]
+        if isinstance(parsed := parse_classified_detail(err_info_map), dict):
+            # Classified terminal map: hand the handler the unwrapped payloads
+            # so its established input shape is unchanged.
+            return [
+                wrapped.error
+                if wrapped.error is not None
+                else ActionErrorInfo(
+                    ref=child_ref,
+                    message=wrapped.envelope.message,
+                    type=wrapped.envelope.kind.value,
+                )
+                for child_ref, wrapped in parsed.items()
             ]
         return [ActionErrorInfo.model_validate(data) for data in err_info_map.values()]
 

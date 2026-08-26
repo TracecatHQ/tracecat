@@ -1,4 +1,14 @@
-"""Temporal transport for the versioned Tracecat runtime error contract."""
+"""Temporal transport for the versioned Tracecat runtime error contract.
+
+Classified failures travel as ``ClassifiedErrorDetail`` transport details: a
+required-discriminator wrapper carrying the ``ErrorEnvelope`` attribution
+stamp plus an optional ``ActionErrorInfo`` payload. Terminal workflow errors
+use the established ``{ref: ClassifiedErrorDetail}`` map. Classification is
+structural — a payload either parses as one of those shapes or it is
+unclassified; there is no partially classified state. Bare legacy payloads
+(pre-envelope histories) therefore fall through as unclassified by
+construction.
+"""
 
 from __future__ import annotations
 
@@ -19,8 +29,8 @@ from tracecat.runtime.errors import (
 TEMPORAL_ERROR_DETAILS_SCHEMA = "tracecat.temporal_error.v1"
 
 
-class TemporalErrorDetails(BaseModel):
-    """Strict adapter for envelopes without an ``ActionErrorInfo`` payload."""
+class ClassifiedErrorDetail(BaseModel):
+    """A classified transport detail: envelope stamp plus optional payload."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, serialize_by_alias=True)
 
@@ -28,36 +38,64 @@ class TemporalErrorDetails(BaseModel):
     # discriminator always survives ``exclude_unset`` serialization.
     schema_: Literal["tracecat.temporal_error.v1"] = Field(alias="schema")
     envelope: ErrorEnvelope
+    error: ActionErrorInfo | None = None
 
 
-def _application_error_from_envelope(
+# The two classified transport shapes: a single wrapped detail, or the
+# established terminal workflow ``{ref: detail}`` map. Anything else —
+# including bare legacy ``ActionErrorInfo`` payloads — is unclassified.
+_CLASSIFIED_DETAIL_ADAPTER: TypeAdapter[
+    ClassifiedErrorDetail | dict[str, ClassifiedErrorDetail]
+] = TypeAdapter(ClassifiedErrorDetail | dict[str, ClassifiedErrorDetail])
+
+
+def wrap_error(
+    envelope: ErrorEnvelope, error: ActionErrorInfo | None = None
+) -> ClassifiedErrorDetail:
+    """Build a classified transport detail from an envelope and payload."""
+    return ClassifiedErrorDetail.model_validate(
+        {
+            "schema": TEMPORAL_ERROR_DETAILS_SCHEMA,
+            "envelope": envelope,
+            "error": error,
+        }
+    )
+
+
+def parse_classified_detail(
+    detail: Any,
+) -> ClassifiedErrorDetail | dict[str, ClassifiedErrorDetail] | None:
+    """Parse a transport detail into its classified shape, or None."""
+    try:
+        return _CLASSIFIED_DETAIL_ADAPTER.validate_python(detail)
+    except ValidationError:
+        return None
+
+
+def is_classified_detail(detail: Any) -> bool:
+    """Return whether a single transport detail is explicitly classified."""
+    return bool(_envelopes_from_detail(detail))
+
+
+def application_error_from_envelope(
     envelope: ErrorEnvelope,
     *details: Any,
     next_retry_delay: timedelta | None = None,
 ) -> ApplicationError:
     """Build an ``ApplicationError`` with transport fields derived from its envelope.
 
-    Existing details remain in their original order. If they already contain a
-    fully validated envelope, they are left unchanged; otherwise a strict
-    non-action detail is appended. Temporal's error type mirrors the stable
-    product kind and is never supplied as a second classification input.
+    Existing details remain in their original order. If none of them is a
+    classified detail, a bare wrapper is appended. Temporal's error type
+    mirrors the stable product kind and is never supplied as a second
+    classification input.
     """
     existing_envelope = _envelope_from_details(details)
     resolved_envelope = existing_envelope or envelope
-    transported_details = _serialized_error_details(
-        details,
-        envelope=None if existing_envelope is not None else envelope,
-    )
-    if (
-        existing_envelope is None
-        and _envelope_from_details(transported_details) is None
-    ):
-        adapter = TemporalErrorDetails.model_validate(
-            {"schema": TEMPORAL_ERROR_DETAILS_SCHEMA, "envelope": resolved_envelope}
-        )
+    transported_details = tuple(_serialized_detail(detail) for detail in details)
+    if existing_envelope is None:
         transported_details = (
             *transported_details,
-            adapter.model_dump(mode="json"),
+            wrap_error(resolved_envelope).model_dump(mode="json"),
         )
 
     non_retryable = (
@@ -86,7 +124,7 @@ def raise_application_error_from_envelope(
     here ensures callers cannot accidentally attach a sensitive caught exception
     through implicit chaining.
     """
-    raise _application_error_from_envelope(
+    raise application_error_from_envelope(
         envelope,
         *details,
         next_retry_delay=next_retry_delay,
@@ -173,85 +211,20 @@ def _envelope_from_details(details: Sequence[Any]) -> ErrorEnvelope | None:
     return None
 
 
-def is_classified_detail(detail: Any) -> bool:
-    """Return whether a single transport detail is explicitly classified."""
-    return bool(_envelopes_from_detail(detail))
-
-
-def _serialized_error_details(
-    details: Sequence[Any], envelope: ErrorEnvelope | None
-) -> tuple[Any, ...]:
-    serialized: list[Any] = []
-    for detail in details:
-        if isinstance(detail, TemporalErrorDetails):
-            serialized.append(detail.model_dump(mode="json"))
-        elif isinstance(detail, ActionErrorInfo) and (
-            detail.envelope is not None or envelope is not None
-        ):
-            classified = ActionErrorInfo(
-                ref=detail.ref,
-                message=detail.message,
-                type=detail.type,
-                expr_context=detail.expr_context,
-                attempt=detail.attempt,
-                stream_id=detail.stream_id,
-                children=detail.children,
-                envelope=detail.envelope or envelope,
-            )
-            serialized.append(classified.model_dump(mode="json"))
-        else:
-            serialized.append(detail)
-    return tuple(serialized)
-
-
-# The three classified transport shapes: a per-action error (optionally
-# nesting children), a bare envelope adapter, and the established workflow
-# ``{ref: info}`` details map. Anything else is unclassified. Validation is the
-# classification gate: both model shapes require the explicit ``schema``
-# discriminator, so an undiscriminated payload fails to parse.
-_CLASSIFIED_DETAIL_ADAPTER: TypeAdapter[
-    ActionErrorInfo | TemporalErrorDetails | dict[str, ActionErrorInfo]
-] = TypeAdapter(ActionErrorInfo | TemporalErrorDetails | dict[str, ActionErrorInfo])
-
-
 def _envelopes_from_detail(detail: Any) -> tuple[ErrorEnvelope, ...]:
-    try:
-        parsed = _CLASSIFIED_DETAIL_ADAPTER.validate_python(detail)
-    except ValidationError:
-        return ()
-    match parsed:
-        case ActionErrorInfo():
-            return _envelopes_from_action_error(parsed)
-        case TemporalErrorDetails():
-            return (parsed.envelope,)
-        case _:
-            # Every map value must be a complete, classified ActionErrorInfo;
-            # accepting a partial match would let arbitrary user payloads
-            # override classification.
-            envelopes: list[ErrorEnvelope] = []
-            seen: set[ErrorEnvelope] = set()
-            for value in parsed.values():
-                value_envelopes = _envelopes_from_action_error(value)
-                if not value_envelopes:
-                    return ()
-                for envelope in value_envelopes:
-                    _append_unique_envelope(envelopes, seen, envelope)
-            return tuple(envelopes)
-
-
-def _envelopes_from_action_error(parsed: ActionErrorInfo) -> tuple[ErrorEnvelope, ...]:
-    """Collect envelopes from an action error tree, all-or-nothing."""
-    envelopes: list[ErrorEnvelope] = []
-    seen: set[ErrorEnvelope] = set()
-    if parsed.envelope is not None:
-        _append_unique_envelope(envelopes, seen, parsed.envelope)
-    for child in parsed.children or ():
-        child_envelopes = _envelopes_from_action_error(child)
-        if not child_envelopes:
+    match parse_classified_detail(detail):
+        case None:
             return ()
-        for child_envelope in child_envelopes:
-            _append_unique_envelope(envelopes, seen, child_envelope)
-    return tuple(envelopes)
+        case ClassifiedErrorDetail() as parsed:
+            return (parsed.envelope,)
+        case parsed:
+            return tuple(wrapped.envelope for wrapped in parsed.values())
+
+
+def _serialized_detail(detail: Any) -> Any:
+    if isinstance(detail, ClassifiedErrorDetail):
+        return detail.model_dump(mode="json")
+    return detail
 
 
 def _append_unique_envelope(

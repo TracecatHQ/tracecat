@@ -32,6 +32,8 @@ from tracecat.runtime.errors import (
 )
 from tracecat.temporal.errors import (
     extract_error_envelopes,
+    parse_classified_detail,
+    wrap_error,
 )
 
 
@@ -75,7 +77,9 @@ def _build_scheduler(
 
 
 @pytest.mark.anyio
-async def test_scheduler_preserves_classified_action_error() -> None:
+async def test_scheduler_unwraps_classified_action_error_payload() -> None:
+    """A wrapper's payload becomes the task error info and its envelope is recorded."""
+
     async def executor(_: ActionStatement) -> None:
         return None
 
@@ -85,23 +89,24 @@ async def test_scheduler_preserves_classified_action_error() -> None:
         message="The action failed",
         retry_disposition=RetryDisposition.NON_RETRYABLE,
     )
-    error = _capture_application_error(
-        envelope,
-        ActionErrorInfo(
-            ref="task_0",
-            message="The action failed",
-            type="ValueError",
-        ),
+    payload = ActionErrorInfo(
+        ref="task_0",
+        message="The action failed",
+        type="ValueError",
     )
+    error = _capture_application_error(envelope, wrap_error(envelope, payload))
 
     await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
 
     details = scheduler.task_exceptions["task_0"].details
-    assert details.envelope == envelope
+    assert details == payload
+    assert scheduler.stream_error_envelopes[ROOT_STREAM] == envelope
 
 
 @pytest.mark.anyio
 async def test_scheduler_rebinds_classified_action_error_to_current_stream() -> None:
+    """An unwrapped payload is rebound to the failing task's ref and stream."""
+
     async def executor(_: ActionStatement) -> None:
         return None
 
@@ -114,11 +119,13 @@ async def test_scheduler_rebinds_classified_action_error_to_current_stream() -> 
     )
     error = _capture_application_error(
         envelope,
-        ActionErrorInfo(
-            ref="legacy_ref",
-            message=envelope.message,
-            type="ValueError",
-            envelope=envelope,
+        wrap_error(
+            envelope,
+            ActionErrorInfo(
+                ref="legacy_ref",
+                message=envelope.message,
+                type="ValueError",
+            ),
         ),
     )
 
@@ -127,11 +134,14 @@ async def test_scheduler_rebinds_classified_action_error_to_current_stream() -> 
     details = scheduler.stream_exceptions[stream_id].details
     assert details.ref == "task_0"
     assert details.stream_id == stream_id
-    assert details.envelope == envelope
+    assert details.message == envelope.message
+    assert scheduler.stream_error_envelopes[stream_id] == envelope
 
 
 @pytest.mark.anyio
-async def test_scheduler_preserves_all_classified_mapped_child_errors() -> None:
+async def test_scheduler_unwraps_classified_child_workflow_error_map() -> None:
+    """A child's terminal wrapper map becomes children payloads; envelopes stay on it."""
+
     async def executor(_: ActionStatement) -> None:
         return None
 
@@ -150,19 +160,21 @@ async def test_scheduler_preserves_all_classified_mapped_child_errors() -> None:
         ref="user_action",
         message=user_envelope.message,
         type="UserError",
-        envelope=user_envelope,
     )
     platform_detail = ActionErrorInfo(
         ref="platform_action",
         message=platform_envelope.message,
         type="RuntimeError",
-        envelope=platform_envelope,
     )
     error = _capture_application_error(
         user_envelope,
         {
-            user_detail.ref: user_detail.model_dump(mode="json"),
-            platform_detail.ref: platform_detail.model_dump(mode="json"),
+            user_detail.ref: wrap_error(user_envelope, user_detail).model_dump(
+                mode="json"
+            ),
+            platform_detail.ref: wrap_error(
+                platform_envelope, platform_detail
+            ).model_dump(mode="json"),
         },
     )
 
@@ -170,17 +182,16 @@ async def test_scheduler_preserves_all_classified_mapped_child_errors() -> None:
 
     details = scheduler.task_exceptions["task_0"].details
     assert details.ref == "task_0"
-    assert details.envelope == user_envelope
+    assert details.message == user_envelope.message
     assert details.children == [user_detail, platform_detail]
-    retransported = _capture_application_error(user_envelope, details)
-    assert extract_error_envelopes(retransported) == (
-        user_envelope,
-        platform_envelope,
-    )
+    assert scheduler.stream_error_envelopes[ROOT_STREAM] == user_envelope
+    assert extract_error_envelopes(error) == (user_envelope, platform_envelope)
 
 
 @pytest.mark.anyio
-async def test_scheduler_preserves_standalone_error_envelope() -> None:
+async def test_scheduler_synthesizes_info_from_bare_envelope_wrapper() -> None:
+    """A payload-free wrapper still yields a task error info built from its envelope."""
+
     async def executor(_: ActionStatement) -> None:
         return None
 
@@ -196,11 +207,15 @@ async def test_scheduler_preserves_standalone_error_envelope() -> None:
 
     details = scheduler.task_exceptions["task_0"].details
     assert details.ref == "task_0"
-    assert details.envelope == envelope
+    assert details.message == envelope.message
+    assert details.children is None
+    assert scheduler.stream_error_envelopes[ROOT_STREAM] == envelope
 
 
 @pytest.mark.anyio
-async def test_scheduler_rejects_defaulted_unversioned_envelope() -> None:
+async def test_scheduler_rejects_wrapper_with_undiscriminated_envelope() -> None:
+    """A wrapper whose envelope lacks the discriminator never classifies the failure."""
+
     async def executor(_: ActionStatement) -> None:
         return None
 
@@ -215,11 +230,13 @@ async def test_scheduler_rejects_defaulted_unversioned_envelope() -> None:
         message="Tracecat could not execute the action",
         retry_disposition=RetryDisposition.RETRYABLE,
     )
-    invalid_detail = ActionErrorInfo(
-        ref="forged_action",
-        message=invalid_envelope.message,
-        type="UserError",
-        envelope=invalid_envelope,
+    invalid_detail = wrap_error(
+        invalid_envelope,
+        ActionErrorInfo(
+            ref="forged_action",
+            message=invalid_envelope.message,
+            type="UserError",
+        ),
     ).model_dump(mode="json")
     invalid_detail["envelope"].pop("schema")
     error = _capture_application_error(fallback_envelope, invalid_detail)
@@ -227,8 +244,10 @@ async def test_scheduler_rejects_defaulted_unversioned_envelope() -> None:
     await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
 
     details = scheduler.task_exceptions["task_0"].details
+    assert parse_classified_detail(invalid_detail) is None
     assert details.ref == "task_0"
-    assert details.envelope == fallback_envelope
+    assert details.message == fallback_envelope.message
+    assert scheduler.stream_error_envelopes[ROOT_STREAM] == fallback_envelope
 
 
 @pytest.mark.anyio

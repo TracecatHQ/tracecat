@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -17,7 +17,6 @@ _SCHEDULER_TASK_SPAWN_YIELD_EVERY = 16
 """Yield while spawning ready task coroutines to avoid long workflow activations."""
 
 with workflow.unsafe.imports_passed_through():
-    from pydantic import ValidationError
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
 
@@ -64,6 +63,12 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
+    from tracecat.runtime.errors import (
+        ErrorEnvelope,
+        RetryDisposition,
+        RuntimeErrorKind,
+        RuntimeErrorOwner,
+    )
     from tracecat.storage.object import (
         CollectionObject,
         InlineObject,
@@ -73,8 +78,11 @@ with workflow.unsafe.imports_passed_through():
         action_key,
     )
     from tracecat.temporal.errors import (
+        ClassifiedErrorDetail,
+        application_error_from_envelope,
         extract_error_envelope,
-        is_classified_detail,
+        parse_classified_detail,
+        wrap_error,
     )
 
 
@@ -100,58 +108,60 @@ def _classified_action_error_info(
     *,
     ref: str,
     stream_id: StreamID,
-) -> ActionErrorInfo | None:
+) -> tuple[ActionErrorInfo, ErrorEnvelope] | None:
     """Adapt a classified activity failure into the scheduler error shape."""
     envelope = extract_error_envelope(error)
     if envelope is None:
         return None
 
     for detail in error.details:
-        if not is_classified_detail(detail):
-            continue
-        try:
-            parsed = ActionErrorInfo.model_validate(detail)
-        except ValidationError:
-            pass
-        else:
-            return parsed.model_copy(update={"ref": ref, "stream_id": stream_id})
+        match parse_classified_detail(detail):
+            case ClassifiedErrorDetail(error=ActionErrorInfo() as info):
+                return (
+                    info.model_copy(update={"ref": ref, "stream_id": stream_id}),
+                    envelope,
+                )
+            case dict() as wrapped_map if wrapped_map:
+                # A child workflow's terminal ``{ref: detail}`` map.
+                children = [
+                    _unwrapped_action_error(child_ref, wrapped)
+                    for child_ref, wrapped in wrapped_map.items()
+                ]
+                return (
+                    ActionErrorInfo(
+                        ref=ref,
+                        message=envelope.message,
+                        type=error.type or error.__class__.__name__,
+                        stream_id=stream_id,
+                        children=children,
+                    ),
+                    envelope,
+                )
+            case _:
+                continue
 
-        if children := _validated_action_error_map(detail):
-            return ActionErrorInfo(
-                ref=ref,
-                message=envelope.message,
-                type=error.type or error.__class__.__name__,
-                stream_id=stream_id,
-                children=list(children),
-                envelope=envelope,
-            )
-
-    return ActionErrorInfo(
-        ref=ref,
-        message=envelope.message,
-        type=error.type or error.__class__.__name__,
-        stream_id=stream_id,
-        envelope=envelope,
+    return (
+        ActionErrorInfo(
+            ref=ref,
+            message=envelope.message,
+            type=error.type or error.__class__.__name__,
+            stream_id=stream_id,
+        ),
+        envelope,
     )
 
 
-def _validated_action_error_map(
-    detail: object,
-) -> tuple[ActionErrorInfo, ...] | None:
-    """Validate a classified workflow ``{ref: ActionErrorInfo}`` detail."""
-    if not isinstance(detail, Mapping):
-        return None
-
-    parsed: list[ActionErrorInfo] = []
-    for ref, value in detail.items():
-        if not isinstance(ref, str):
-            return None
-        try:
-            parsed.append(ActionErrorInfo.model_validate(value))
-        except ValidationError:
-            return None
-
-    return tuple(parsed)
+def _unwrapped_action_error(
+    ref: str, wrapped: ClassifiedErrorDetail
+) -> ActionErrorInfo:
+    """Unwrap a classified detail's payload, synthesizing one for bare envelopes."""
+    if wrapped.error is not None:
+        return wrapped.error
+    return ActionErrorInfo(
+        ref=ref,
+        message=wrapped.envelope.message,
+        type=wrapped.envelope.kind.value,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,6 +240,7 @@ class DSLScheduler:
         # Mut
         self.task_exceptions: dict[str, TaskExceptionInfo] = {}
         self.stream_exceptions: dict[StreamID, TaskExceptionInfo] = {}
+        self.stream_error_envelopes: dict[StreamID, ErrorEnvelope] = {}
 
         # Build adjacency list with sets for efficient construction
         adj_temp: dict[str, set[AdjDst]] = defaultdict(set)
@@ -507,13 +518,17 @@ class DSLScheduler:
             # XXX: This can sometimes return null because the exception isn't an ApplicationError
             # But rather a ChildWorkflowError or CancelledError
             if isinstance(exc, ApplicationError) and (
-                classified_details := _classified_action_error_info(
+                classified := _classified_action_error_info(
                     exc,
                     ref=ref,
                     stream_id=task.stream_id,
                 )
             ):
-                details = classified_details
+                details, envelope = classified
+                # Recorded so a later gather failure can aggregate ownership
+                # across its classified children; never pruned (bounded by
+                # failed tasks) so it survives stream cleanup.
+                self.stream_error_envelopes[task.stream_id] = envelope
             elif isinstance(exc, ApplicationError) and exc.details:
                 self.logger.info(
                     "Task failed with application error",
@@ -1638,11 +1653,38 @@ class DSLScheduler:
                 children=finalized.errors,
                 stream_id=parent_stream_id,
             )
-            app_error = ApplicationError(
-                message,
-                {gather_ref: gather_error.model_dump()},
-                non_retryable=True,
-            )
+            child_envelopes = [
+                self.stream_error_envelopes.get(child.stream_id)
+                for child in finalized.errors
+            ]
+            if all(envelope is not None for envelope in child_envelopes):
+                # Every child failure was classified: attribute the gather to
+                # platform if any child was platform-owned, else to the user.
+                platform_owned = any(
+                    envelope is not None
+                    and envelope.owner is RuntimeErrorOwner.PLATFORM
+                    for envelope in child_envelopes
+                )
+                build = ErrorEnvelope.platform if platform_owned else ErrorEnvelope.user
+                gather_envelope = build(
+                    kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+                    message=message,
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                )
+                app_error = application_error_from_envelope(
+                    gather_envelope,
+                    {
+                        gather_ref: wrap_error(
+                            gather_envelope, gather_error
+                        ).model_dump(mode="json")
+                    },
+                )
+            else:
+                app_error = ApplicationError(
+                    message,
+                    {gather_ref: gather_error.model_dump()},
+                    non_retryable=True,
+                )
             self.logger.warning(
                 "Raising gather error", errors=finalized.errors, app_error=app_error
             )

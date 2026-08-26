@@ -4,7 +4,7 @@ from datetime import timedelta
 from inspect import signature
 
 import pytest
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
@@ -23,10 +23,14 @@ from tracecat.runtime.errors import (
 )
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import (
+    TEMPORAL_ERROR_DETAILS_SCHEMA,
+    ClassifiedErrorDetail,
     extract_error_envelope,
     extract_error_envelopes,
+    parse_classified_detail,
     raise_application_error_from_envelope,
     raise_wrapped_application_error,
+    wrap_error,
 )
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.types import ErrorHandlerWorkflowInput
@@ -76,36 +80,40 @@ async def test_legacy_action_error_payload_is_unchanged_without_envelope() -> No
 
 
 @pytest.mark.anyio
-async def test_action_error_payload_carries_discriminated_envelope() -> None:
+async def test_classified_wrapper_carries_envelope_and_preserves_payload() -> None:
+    """The wrapper carries the envelope; its payload survives unwrapping intact."""
     envelope = _user_envelope()
     error_info = ActionErrorInfo(
         ref="action",
         message="The action failed",
         type="ValueError",
-        envelope=envelope,
     )
-    error = _capture_application_error(envelope, error_info)
+    error = _capture_application_error(envelope, wrap_error(envelope, error_info))
     failure = Failure()
     await DataConverter.default.encode_failure(error, failure)
     decoded = await DataConverter.default.decode_failure(failure)
 
     assert len(error.details) == 1
     assert error.type == RuntimeErrorKind.ACTION_EXECUTION_FAILED.value
+    assert error.details[0]["schema"] == TEMPORAL_ERROR_DETAILS_SCHEMA
     assert error.details[0]["envelope"]["schema"] == "tracecat.error.v1"
+    assert error.details[0]["error"] == error_info.model_dump(mode="json")
     assert extract_error_envelope(error) == envelope
     assert extract_error_envelope(decoded) == envelope
     assert isinstance(decoded, ApplicationError)
-    parsed = ActionErrorInfo.model_validate(decoded.details[0])
+    parsed = parse_classified_detail(decoded.details[0])
+    assert isinstance(parsed, ClassifiedErrorDetail)
     assert parsed.envelope == envelope
+    assert parsed.error == error_info
 
 
-def test_aggregate_action_errors_preserve_classified_children() -> None:
+def test_aggregate_action_error_attribution_lives_on_the_wrapper() -> None:
+    """Gather payloads stay envelope-free; the wrapper alone carries attribution."""
     envelope = _platform_envelope()
     child = ActionErrorInfo(
         ref="scatter[0]",
         message=envelope.message,
         type="RuntimeError",
-        envelope=envelope,
     )
     finalized = FinalizeGatherActivityResult(
         result=InlineObject(data=[]),
@@ -114,10 +122,8 @@ def test_aggregate_action_errors_preserve_classified_children() -> None:
 
     serialized_finalized = finalized.model_dump(mode="json")
     parsed_finalized = FinalizeGatherActivityResult.model_validate(serialized_finalized)
-    assert serialized_finalized["errors"][0]["envelope"] == envelope.model_dump(
-        mode="json"
-    )
-    assert parsed_finalized.errors[0].envelope == envelope
+    assert "envelope" not in serialized_finalized["errors"][0]
+    assert parsed_finalized.errors == [child]
 
     aggregate = ActionErrorInfo(
         ref="gather",
@@ -126,50 +132,64 @@ def test_aggregate_action_errors_preserve_classified_children() -> None:
         children=parsed_finalized.errors,
     )
     serialized_aggregate = aggregate.model_dump(mode="json")
-    parsed_aggregate = ActionErrorInfo.model_validate(serialized_aggregate)
+    assert "envelope" not in serialized_aggregate
+    assert "envelope" not in serialized_aggregate["children"][0]
 
-    assert serialized_aggregate["children"][0]["envelope"] == envelope.model_dump(
-        mode="json"
+    error = ApplicationError(
+        "Gather failed",
+        {"gather": wrap_error(envelope, aggregate).model_dump(mode="json")},
     )
-    assert parsed_aggregate.children is not None
-    assert parsed_aggregate.children[0].envelope == envelope
+    parsed = parse_classified_detail(error.details[0])
 
-    error = ApplicationError("Gather failed", {"gather": serialized_aggregate})
     assert extract_error_envelopes(error) == (envelope,)
+    assert isinstance(parsed, dict)
+    assert parsed["gather"].error == aggregate
 
 
-@pytest.mark.parametrize("serialized", [False, True])
-def test_aggregate_action_error_rejects_partially_classified_children(
-    serialized: bool,
-) -> None:
+@pytest.mark.parametrize("mapped", [False, True])
+def test_embedded_payload_envelopes_never_classify(mapped: bool) -> None:
+    """Envelope keys inside a payload fail validation, so the detail is unclassified."""
     envelope = _user_envelope()
-    aggregate = ActionErrorInfo(
-        ref="gather",
-        message="Gather failed",
-        type="ApplicationError",
-        envelope=envelope,
-        children=[
-            ActionErrorInfo(
-                ref="scatter[0]",
-                message=envelope.message,
-                type="ValueError",
-                envelope=envelope,
-            ),
-            ActionErrorInfo(
-                ref="scatter[1]",
-                message="Legacy failure",
-                type="RuntimeError",
-            ),
+    serialized_envelope = envelope.model_dump(mode="json")
+    with pytest.raises(ValidationError):
+        ActionErrorInfo.model_validate(
+            {
+                "ref": "scatter[0]",
+                "message": envelope.message,
+                "type": "ValueError",
+                "envelope": serialized_envelope,
+            }
+        )
+
+    aggregate = {
+        "ref": "gather",
+        "message": "Gather failed",
+        "type": "ApplicationError",
+        "envelope": serialized_envelope,
+        "children": [
+            {
+                "ref": "scatter[0]",
+                "message": envelope.message,
+                "type": "ValueError",
+                "envelope": serialized_envelope,
+            },
+            {
+                "ref": "scatter[1]",
+                "message": "Legacy failure",
+                "type": "RuntimeError",
+            },
         ],
-    )
-    detail = aggregate.model_dump(mode="json") if serialized else aggregate
+    }
+    detail = {"gather": aggregate} if mapped else aggregate
 
     assert extract_error_envelopes(ApplicationError("Gather failed", detail)) == ()
 
 
 @pytest.mark.anyio
-async def test_partial_aggregate_keeps_fallback_envelope_after_serialization() -> None:
-    user_envelope = _user_envelope()
+async def test_unclassified_aggregate_keeps_fallback_envelope_after_serialization() -> (
+    None
+):
+    """An unclassified aggregate detail leaves the appended fallback authoritative."""
     fallback = _platform_envelope()
     aggregate = ActionErrorInfo(
         ref="gather",
@@ -178,9 +198,8 @@ async def test_partial_aggregate_keeps_fallback_envelope_after_serialization() -
         children=[
             ActionErrorInfo(
                 ref="scatter[0]",
-                message=user_envelope.message,
+                message="The action failed",
                 type="ValueError",
-                envelope=user_envelope,
             ),
             ActionErrorInfo(
                 ref="scatter[1]",
@@ -188,7 +207,7 @@ async def test_partial_aggregate_keeps_fallback_envelope_after_serialization() -
                 type="RuntimeError",
             ),
         ],
-    )
+    ).model_dump(mode="json")
 
     error = _capture_application_error(fallback, aggregate)
     failure = Failure()
@@ -197,18 +216,27 @@ async def test_partial_aggregate_keeps_fallback_envelope_after_serialization() -
 
     assert error.type == fallback.kind.value
     assert error.non_retryable is False
+    assert error.details[0] == aggregate
     assert extract_error_envelopes(error) == (fallback,)
     assert extract_error_envelopes(decoded) == (fallback,)
 
 
-def test_error_handler_input_preserves_action_error_envelope() -> None:
+def test_error_handler_input_carries_unwrapped_action_errors() -> None:
+    """Handler input carries envelope-free payloads identical to the unwrapped ones."""
     envelope = _platform_envelope()
     error_info = ActionErrorInfo(
         ref="action",
         message=envelope.message,
         type="RuntimeError",
-        envelope=envelope,
     )
+    wrapped = parse_classified_detail(
+        wrap_error(envelope, error_info).model_dump(mode="json")
+    )
+    assert isinstance(wrapped, ClassifiedErrorDetail)
+    assert isinstance(wrapped.error, ActionErrorInfo)
+    assert wrapped.envelope == envelope
+    assert wrapped.error == error_info
+
     handler_wf_id = WorkflowUUID.new_uuid4()
     orig_wf_id = WorkflowUUID.new_uuid4()
     handler_input = ErrorHandlerWorkflowInput(
@@ -218,7 +246,7 @@ def test_error_handler_input_preserves_action_error_envelope() -> None:
         orig_wf_exec_id=generate_exec_id(orig_wf_id),
         orig_wf_title="Synthetic workflow",
         trigger_type=TriggerType.MANUAL,
-        errors=[error_info],
+        errors=[wrapped.error],
     )
 
     serialized = TypeAdapter(ErrorHandlerWorkflowInput).dump_python(
@@ -226,23 +254,26 @@ def test_error_handler_input_preserves_action_error_envelope() -> None:
         mode="json",
     )
 
-    assert serialized["errors"][0]["envelope"] == envelope.model_dump(mode="json")
+    assert serialized["errors"][0] == error_info.model_dump(mode="json")
+    assert "envelope" not in serialized["errors"][0]
 
 
-def test_legacy_action_error_is_extended_without_changing_existing_fields() -> None:
+def test_legacy_action_error_is_transported_verbatim_beside_the_wrapper() -> None:
+    """A legacy payload travels unchanged; classification rides an appended wrapper."""
     envelope = _user_envelope()
-    error_info = ActionErrorInfo(
+    legacy = ActionErrorInfo(
         ref="action",
         message="The action failed",
         type="ValueError",
-    )
-    legacy = error_info.model_dump(mode="json")
+    ).model_dump(mode="json")
 
-    error = _capture_application_error(envelope, error_info)
+    error = _capture_application_error(envelope, legacy)
 
-    detail = error.details[0]
-    assert {key: detail[key] for key in legacy} == legacy
-    assert detail["envelope"] == envelope.model_dump(mode="json")
+    assert len(error.details) == 2
+    assert error.details[0] == legacy
+    assert error.details[1] == wrap_error(envelope).model_dump(mode="json")
+    assert error.details[1]["error"] is None
+    assert extract_error_envelope(error) == envelope
 
 
 @pytest.mark.parametrize(
@@ -453,21 +484,26 @@ def test_aggregate_action_error_requires_child_schema_discriminator() -> None:
     )
 
 
-def test_action_error_map_extracts_every_classified_envelope() -> None:
+def test_wrapper_map_extracts_every_classified_envelope() -> None:
+    """A terminal ``{ref: wrapper}`` map yields each wrapper's envelope in order."""
     user_envelope = _user_envelope()
     platform_envelope = _platform_envelope()
     details = {
-        "user_action": ActionErrorInfo(
-            ref="user_action",
-            message=user_envelope.message,
-            type="ValueError",
-            envelope=user_envelope,
+        "user_action": wrap_error(
+            user_envelope,
+            ActionErrorInfo(
+                ref="user_action",
+                message=user_envelope.message,
+                type="ValueError",
+            ),
         ).model_dump(mode="json"),
-        "platform_action": ActionErrorInfo(
-            ref="platform_action",
-            message=platform_envelope.message,
-            type="RuntimeError",
-            envelope=platform_envelope,
+        "platform_action": wrap_error(
+            platform_envelope,
+            ActionErrorInfo(
+                ref="platform_action",
+                message=platform_envelope.message,
+                type="RuntimeError",
+            ),
         ).model_dump(mode="json"),
     }
     error = ApplicationError("Workflow failed", details)
@@ -490,18 +526,32 @@ def test_arbitrary_nested_envelope_does_not_collide_with_action_error_map() -> N
     assert extract_error_envelopes(error) == ()
 
 
-def test_action_error_map_rejects_partial_shape_match() -> None:
+@pytest.mark.parametrize("companion", ["arbitrary", "legacy"])
+def test_map_with_any_unwrapped_value_is_unclassified(companion: str) -> None:
+    """Classification is all-or-nothing on the map: one unwrapped value voids it."""
     envelope = _user_envelope()
+    legacy_payload = ActionErrorInfo(
+        ref="legacy_action",
+        message="Legacy failure",
+        type="RuntimeError",
+    ).model_dump(mode="json")
+    companion_payload = (
+        legacy_payload
+        if companion == "legacy"
+        else {"payload": "not a classified detail"}
+    )
     error = ApplicationError(
         "Mixed payload",
         {
-            "action": ActionErrorInfo(
-                ref="action",
-                message=envelope.message,
-                type="ValueError",
-                envelope=envelope,
+            "action": wrap_error(
+                envelope,
+                ActionErrorInfo(
+                    ref="action",
+                    message=envelope.message,
+                    type="ValueError",
+                ),
             ).model_dump(mode="json"),
-            "arbitrary": {"payload": "not an action error"},
+            "companion": companion_payload,
         },
     )
 
