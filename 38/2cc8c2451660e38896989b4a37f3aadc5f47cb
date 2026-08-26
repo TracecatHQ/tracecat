@@ -1,0 +1,19 @@
+README.md
+  s_39bab1cd8212fa::t_759ffd6ee16a68 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "382cc8c2451660e38896989b4a37f3aadc5f47cb",
+  "prompts": {},
+  "sessions": {
+    "s_39bab1cd8212fa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ff9-e8e1-71e0-9798-1708865c8fb5",
+        "model": "unknown"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
