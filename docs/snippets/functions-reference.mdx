@@ -42,11 +42,27 @@
 
 </ResponseField>
 
+<ResponseField name="FN.collect" type="function">
+
+  `FN.collect(mappings: Sequence[Mapping[Any, Any]], remove_duplicates: bool = False) -> dict[Any, list[Any]]`
+
+  Group values from a sequence of objects by key into an object of arrays.
+
+</ResponseField>
+
 <ResponseField name="FN.compact" type="function">
 
   `FN.compact(x: list[Any]) -> list[Any]`
 
   Drop null values from a list. Similar to compact function in Terraform.
+
+</ResponseField>
+
+<ResponseField name="FN.compact_object" type="function">
+
+  `FN.compact_object(x: dict[Any, Any]) -> dict[Any, Any]`
+
+  Drop null values from an object. The object equivalent of `compact`.
 
 </ResponseField>
 
@@ -776,6 +792,14 @@
 
 </ResponseField>
 
+<ResponseField name="FN.omit_keys" type="function">
+
+  `FN.omit_keys(x: dict[Any, Any], keys: Sequence[Any]) -> dict[Any, Any]`
+
+  Return a copy of an object without the given keys.
+
+</ResponseField>
+
 <ResponseField name="FN.or" type="function">
 
   `FN.or(a: bool, b: bool) -> bool`
@@ -800,11 +824,43 @@
 
 </ResponseField>
 
+<ResponseField name="FN.parse_email_addresses" type="function">
+
+  `FN.parse_email_addresses(headers: str | list[str]) -> list[EmailAddress]`
+
+  Parse email address headers (e.g. `To`, `From`) into a list of mailboxes.
+
+</ResponseField>
+
+<ResponseField name="FN.parse_key_value" type="function">
+
+  `FN.parse_key_value(text: str, separator: str = =) -> dict[str, str]`
+
+  Parse whitespace-separated `key=value` pairs into an object.
+
+</ResponseField>
+
 <ResponseField name="FN.parse_time" type="function">
 
   `FN.parse_time(x: str) -> time`
 
   Parse HH:MM:SS or HH:MM formatted string to a time object.
+
+</ResponseField>
+
+<ResponseField name="FN.parse_url" type="function">
+
+  `FN.parse_url(url: str) -> ParsedUrl`
+
+  Parse a URL into an object with its scheme, host, port, path, query, and fragment.
+
+</ResponseField>
+
+<ResponseField name="FN.pick_keys" type="function">
+
+  `FN.pick_keys(x: dict[Any, Any], keys: Sequence[Any]) -> dict[Any, Any]`
+
+  Return a copy of an object with only the given keys. Missing keys are skipped.
 
 </ResponseField>
 
@@ -845,6 +901,22 @@
   `FN.regex_extract(pattern: str, text: str) -> str | None`
 
   Extract the first captured group from text; fallback to full match if none.
+
+</ResponseField>
+
+<ResponseField name="FN.regex_extract_all" type="function">
+
+  `FN.regex_extract_all(pattern: str, text: str) -> list[str]`
+
+  Extract every match of a regex pattern from text, one item per match.
+
+</ResponseField>
+
+<ResponseField name="FN.regex_extract_fields" type="function">
+
+  `FN.regex_extract_fields(pattern: str, text: str) -> dict[str, str | None] | None`
+
+  Extract the named groups of a regex pattern from text into an object.
 
 </ResponseField>
 
@@ -1146,7 +1218,7 @@
 
 <ResponseField name="FN.url_encode" type="function">
 
-  `FN.url_encode(x: str) -> str`
+  `FN.url_encode(x: str | int, safe: str = ) -> str`
 
   Converts URL-unsafe characters into percent-encoded characters.
 
