@@ -201,12 +201,12 @@ async def add_temporal_search_attributes():
             exc=e,
             namespace=namespace,
         )
-    else:
-        logger.info(
-            "Temporal search attributes added",
-            namespace=namespace,
-            search_attributes=list(attrs.keys()),
-        )
+        raise
+    logger.info(
+        "Temporal search attributes added",
+        namespace=namespace,
+        search_attributes=list(attrs.keys()),
+    )
 
 
 @retry(
