@@ -1,0 +1,30 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/google_directory/role_assignments/insert_role_assignment.yml
+  s_8f29d88c44f5c5::t_15e9fae72dc00e 53
+tests/unit/test_google_api_credentials.py
+  s_8f29d88c44f5c5::t_7047e33cf02e5c 215-216
+  s_8f29d88c44f5c5::t_15e9fae72dc00e 201-214,217-218
+frontend/src/components/icons.tsx
+  s_8f29d88c44f5c5::t_271196c5b5b3e6 646-650,952-966,1734-1748,1753-1772,1778-1788
+  s_8f29d88c44f5c5::t_0bd1029aa56f8a 1749-1752,1773-1777
+  s_8f29d88c44f5c5::t_296894a6cc9889 1789
+packages/tracecat-registry/tracecat_registry/integrations/google_api.py
+  s_8f29d88c44f5c5::t_15e9fae72dc00e 149-156,206-209,216
+docs/automations/core-concepts/secrets.mdx
+  s_8f29d88c44f5c5::t_15e9fae72dc00e 106,117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "0a6ab240d7bf7de78b721641756a0d3fa74b5bca",
+  "prompts": {},
+  "sessions": {
+    "s_8f29d88c44f5c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1b681ec-4d90-4916-a9d8-8cea401db9bc",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
