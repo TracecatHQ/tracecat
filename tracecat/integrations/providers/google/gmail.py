@@ -29,7 +29,6 @@ class GoogleGmailACProvider(GoogleAuthorizationCodeOAuthProvider):
             "https://www.googleapis.com/auth/gmail.modify",
             "https://www.googleapis.com/auth/gmail.readonly",
             "https://www.googleapis.com/auth/gmail.compose",
-            "https://mail.google.com/",
         ],
     )
     metadata: ClassVar[ProviderMetadata] = get_google_ac_metadata(
@@ -51,7 +50,6 @@ class GoogleGmailCCProvider(GoogleServiceAccountOAuthProvider):
         default=[
             "https://www.googleapis.com/auth/gmail.modify",
             "https://www.googleapis.com/auth/gmail.compose",
-            "https://mail.google.com/",
         ],
     )
     metadata: ClassVar[ProviderMetadata] = get_google_cc_metadata(

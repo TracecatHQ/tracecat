@@ -198,6 +198,24 @@ def test_service_token_precedes_json_without_overrides(
     assert service_account_stub == []
 
 
+def test_subject_secret_key_beats_service_token(
+    service_account_stub: list[StubServiceAccountCredentials],
+) -> None:
+    """A configured GOOGLE_API_SUBJECT must not be silently ignored."""
+    with registry_secrets_sandbox(
+        {
+            "GOOGLE_API_CREDENTIALS": _credentials_json(),
+            "GOOGLE_API_SUBJECT": "delegate@example.com",
+            "GOOGLE_SERVICE_TOKEN": "service-token",
+        }
+    ):
+        credentials = google_api._get_google_credentials()
+
+    assert len(service_account_stub) == 1
+    assert isinstance(credentials, StubServiceAccountCredentials)
+    assert credentials.subject == "delegate@example.com"
+
+
 def test_subject_without_json_raises() -> None:
     with registry_secrets_sandbox({"GOOGLE_SERVICE_TOKEN": "service-token"}):
         with pytest.raises(SecretNotFoundError):

@@ -146,7 +146,14 @@ def _get_google_credentials(
     has_service_account_credentials = bool(
         secrets.get_or_default("GOOGLE_API_CREDENTIALS")
     )
-    has_overrides = scopes is not None or subject is not None
+    # A configured `GOOGLE_API_SUBJECT` is a delegation request just like an
+    # explicit `subject`; without this the generic service token would win and
+    # the call would silently run as the service account instead.
+    has_overrides = (
+        scopes is not None
+        or subject is not None
+        or bool(secrets.get_or_default("GOOGLE_API_SUBJECT"))
+    )
 
     if has_overrides and has_service_account_credentials:
         return _get_service_account_credentials(scopes=scopes, subject=subject)
@@ -196,17 +203,17 @@ def _get_value_by_path(data: dict[str, Any], path: str) -> Any | None:
 def _prune_none_params(params: GoogleAPIParams | None) -> GoogleAPIParams:
     """Drop top-level `None` values from a Google API method's parameters.
 
-    `googleapiclient` stringifies every query parameter it is handed, so a `None`
-    kwarg is sent as the literal string `"None"` (see
-    `googleapiclient.discovery._cast`). Values nested inside `body` are left
-    untouched: a JSON `null` in a request body is meaningful to the API.
+    `googleapiclient` discards `None` kwargs itself before building the request;
+    pruning here keeps that behaviour independent of the library version and
+    makes the contract explicit for templates. Values nested inside `body` are
+    left untouched: a JSON `null` in a request body is meaningful to the API.
     """
     return {key: value for key, value in (params or {}).items() if value is not None}
 
 
 def _build_media_upload(media: GoogleMediaUpload) -> MediaIoBaseUpload:
     return MediaIoBaseUpload(
-        io.BytesIO(base64.b64decode(media["content_base64"])),
+        io.BytesIO(base64.b64decode(media["content_base64"], validate=True)),
         mimetype=media["mime_type"],
         resumable=False,
     )

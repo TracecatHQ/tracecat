@@ -40,11 +40,6 @@ definition:
         If the role is restricted to an organization unit, this contains the ID
         for the organization unit the exercise of this role is restricted to.
       default: null
-    assignee_type:
-      type: str | None
-      description: >-
-        Output only. The type of the assignee (`USER` or `GROUP`).
-      default: null
   steps:
     - ref: build_body
       action: core.script.run_python
@@ -54,9 +49,8 @@ definition:
           assigned_to: ${{ inputs.assigned_to }}
           scope_type: ${{ inputs.scope_type }}
           org_unit_id: ${{ inputs.org_unit_id }}
-          assignee_type: ${{ inputs.assignee_type }}
         script: |
-          def main(role_id, assigned_to, scope_type, org_unit_id, assignee_type):
+          def main(role_id, assigned_to, scope_type, org_unit_id):
               # Values nested inside `body` are not pruned, and the Directory API
               # rejects an explicit null on these optional fields.
               body = {
@@ -66,8 +60,6 @@ definition:
               }
               if org_unit_id is not None:
                   body["orgUnitId"] = org_unit_id
-              if assignee_type is not None:
-                  body["assigneeType"] = assignee_type
               return body
     - ref: insert_role_assignment
       action: tools.google_api.call_api
