@@ -1,0 +1,21 @@
+tests/unit/test_storage_blob.py
+  s_c07dbd23596171::t_caa9b651d86c59 119,146,180,524-553,708-763
+tracecat/storage/blob.py
+  s_c07dbd23596171::t_1084cbe7001ca3 52-64,107,362-370,415,464
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d3d9389f4ee4906503c65890fe5627fac5d81572",
+  "prompts": {},
+  "sessions": {
+    "s_c07dbd23596171": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a3dc2954-b580-4795-8a78-c26d438fb35d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
