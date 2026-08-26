@@ -1,0 +1,33 @@
+tracecat/integrations/service.py
+  s_074f60bd4e6223::t_5495d97bbbf29a 4535-4548
+  s_074f60bd4e6223::t_1ac9131bdaf161 1274-1280,1282-1285
+  s_074f60bd4e6223::t_a1751e580fba69 2945-2971
+  s_074f60bd4e6223::t_18f22d490c0cff 1501-1509,1511-1519,1529,2944
+  s_074f60bd4e6223::t_9b269e56cbbcac 1319-1322
+  s_074f60bd4e6223::t_75dba0be81d58b 3081-3083
+  s_074f60bd4e6223::t_0b6c601dea4f69 3063,3069-3070,3078-3079
+  s_074f60bd4e6223::t_0f9547c4dd235d 3080
+  s_074f60bd4e6223::t_6290dc546c38c6 3343-3347
+tests/unit/test_mcp_integrations.py
+  s_074f60bd4e6223::t_5305efca530a8b 7023-7220
+frontend/src/components/integrations/mcp-integration-dialog.tsx
+  s_074f60bd4e6223::t_2b496a92490dc9 819-827
+  s_074f60bd4e6223::t_cf1e7c85cb32b5 727-752
+  s_074f60bd4e6223::t_110781d5071069 869-871
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "54b95007fa84e6da7132ade2a872334008841e24",
+  "prompts": {},
+  "sessions": {
+    "s_074f60bd4e6223": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12df82ba-1b3e-48b6-932a-384f445300a1",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
