@@ -113,12 +113,10 @@ resource "aws_s3_bucket_policy" "attachments" {
         ]
       },
       {
-        Sid    = "DenyInsecureConnections"
-        Effect = "Deny"
-        Principal = {
-          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
-        }
-        Action = "s3:*"
+        Sid       = "DenyInsecureConnections"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
         Resource = [
           aws_s3_bucket.attachments.arn,
           "${aws_s3_bucket.attachments.arn}/*"
@@ -243,12 +241,10 @@ resource "aws_s3_bucket_policy" "registry" {
         ]
       },
       {
-        Sid    = "DenyInsecureConnections"
-        Effect = "Deny"
-        Principal = {
-          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
-        }
-        Action = "s3:*"
+        Sid       = "DenyInsecureConnections"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
         Resource = [
           aws_s3_bucket.registry.arn,
           "${aws_s3_bucket.registry.arn}/*"
@@ -352,6 +348,36 @@ resource "aws_s3_bucket_lifecycle_configuration" "skills" {
 
     filter {
       prefix = "skill-uploads/"
+    }
+
+    expiration {
+      expired_object_delete_marker = true
+    }
+  }
+
+  # Canonical blobs are content-addressed (skills/<workspace>/<sha256>), so a
+  # noncurrent version is always redundant with the current one. Rollback
+  # cleanup deletes freshly published keys; on a versioned bucket that leaves a
+  # noncurrent version and a delete marker, which these two rules expire.
+  rule {
+    id     = "expire_noncurrent_skill_blob_versions"
+    status = "Enabled"
+
+    filter {
+      prefix = "skills/"
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+  }
+
+  rule {
+    id     = "remove_skill_blob_delete_markers"
+    status = "Enabled"
+
+    filter {
+      prefix = "skills/"
     }
 
     expiration {
