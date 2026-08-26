@@ -115,7 +115,7 @@ def _classified_action_error_info(
             pass
         else:
             if _action_error_contains_envelope(parsed):
-                return parsed
+                return parsed.model_copy(update={"ref": ref, "stream_id": stream_id})
 
         if children := _validated_action_error_map(detail):
             return ActionErrorInfo(
