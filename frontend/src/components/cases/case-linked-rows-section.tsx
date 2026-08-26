@@ -195,8 +195,8 @@ interface CaseLinkedTableSectionProps {
  * name and row count on the left, and on the right the selection's unlink
  * control, the add button, and — only once the rows outrun a single page — two
  * borderless arrows. Paging is read-only, so the arrows ignore the scopes; the
- * count text becomes the visible range while paged, standing in for the page
- * number the arrows deliberately drop.
+ * count text becomes the visible range once a paged request lands, standing in
+ * for the page number the arrows deliberately drop.
  */
 function CaseLinkedTableSection({
   caseId,
@@ -237,7 +237,18 @@ function CaseLinkedTableSection({
   const selectedCount = selectedRowIds.size
   // One page of rows needs no arrows and no range: the count says it all.
   const isPaged = hasPreviousPage || hasNextPage
-  const totalRows = totalEstimate ?? rowCount
+  // Stepping to a page reports the new page's bounds before its rows arrive, so
+  // an in-flight or failed page would read backwards ("21–20 of 0"): fall back
+  // to the summary count until the page has rows to describe.
+  const showRange =
+    isPaged &&
+    !rowsIsLoading &&
+    !rowsError &&
+    caseRows.length > 0 &&
+    endItem >= startItem
+  // A missing or zero estimate is the empty page talking, not a real total.
+  const totalRows =
+    totalEstimate && totalEstimate > 0 ? totalEstimate : rowCount
 
   async function handleUnlink() {
     const rowIds = [...selectedRowIds]
@@ -315,7 +326,7 @@ function CaseLinkedTableSection({
       <div className="flex items-center justify-between px-1 py-1.5">
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-medium">{tableName ?? "Table"}</span>
-          {isPaged ? (
+          {showRange ? (
             <span className="text-xs text-muted-foreground tabular-nums">
               {startItem}–{endItem} of {totalRows}
             </span>

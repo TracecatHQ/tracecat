@@ -5,6 +5,7 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type {
+  ApiError,
   CaseLinkedTableRead,
   CaseTableRowRead,
   TableColumnRead,
@@ -121,6 +122,22 @@ const pageOverrides = new Map<string, PageState>()
 /** Overrides the page the mocked pagination hook reports for one table. */
 function setPage(tableId: string, overrides: PageState) {
   pageOverrides.set(tableId, overrides)
+}
+
+/** Stands in for the `ApiError` a failed rows request would surface. */
+const ROWS_ERROR = new Error("nope") as unknown as ApiError
+
+/**
+ * The page the hook reports the moment an arrow is clicked: the next page's
+ * bounds, no rows, and no total until the request lands.
+ */
+const PENDING_NEXT_PAGE: PageState = {
+  data: [],
+  startItem: 21,
+  endItem: 20,
+  totalEstimate: 0,
+  hasPreviousPage: true,
+  hasNextPage: false,
 }
 
 function makeLink(tableId: string, rowId: string): CaseTableRowRead {
@@ -335,6 +352,51 @@ describe("CaseLinkedRowsSection", () => {
 
     await user.click(next)
     expect(mockGoToNextPage).toHaveBeenCalled()
+  })
+
+  it("falls back to the summary count when the total estimate is absent", () => {
+    setLinkedTables([
+      {
+        table_id: "table-1",
+        table_name: "Alerts",
+        row_count: 37,
+        columns: [makeColumn("table-1")],
+      },
+    ])
+    setPage("table-1", {
+      hasNextPage: true,
+      hasPreviousPage: false,
+      startItem: 1,
+      endItem: 20,
+      // The hook coerces a missing estimate to 0, so 0 is the absent case.
+      totalEstimate: 0,
+    })
+    renderSection()
+
+    expect(screen.getByText("1–20 of 37")).toBeInTheDocument()
+    expect(screen.queryByText(/of 0/)).not.toBeInTheDocument()
+  })
+
+  it("keeps the summary count while a page loads", () => {
+    setPage("table-1", { ...PENDING_NEXT_PAGE, isLoading: true })
+    renderSection()
+
+    expect(screen.getByText("2 rows")).toBeInTheDocument()
+    expect(screen.queryByText(/21–20/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/of 0/)).not.toBeInTheDocument()
+  })
+
+  it("keeps the summary count when a page fails", () => {
+    setPage("table-1", {
+      ...PENDING_NEXT_PAGE,
+      isLoading: false,
+      error: ROWS_ERROR,
+    })
+    renderSection()
+
+    expect(screen.getByText("2 rows")).toBeInTheDocument()
+    expect(screen.queryByText(/21–20/)).not.toBeInTheDocument()
+    expect(screen.getByText("Failed to load linked rows.")).toBeInTheDocument()
   })
 
   it("disables both arrows while a page loads", () => {
