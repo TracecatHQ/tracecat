@@ -53,9 +53,12 @@ def _application_error_from_envelope(
     transported_details = (
         serialized_details if serialized_details is not None else tuple(details)
     )
-    if existing_envelope is None and serialized_details is None:
-        adapter = TemporalErrorDetails(envelope=envelope)
-        transported_details = (*details, adapter.model_dump(mode="json"))
+    if _envelope_from_details(transported_details) is None:
+        adapter = TemporalErrorDetails(envelope=resolved_envelope)
+        transported_details = (
+            *transported_details,
+            adapter.model_dump(mode="json"),
+        )
 
     non_retryable = (
         resolved_envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
