@@ -1,0 +1,84 @@
+tests/unit/test_case_comments_service.py
+  s_bac81b01e1fea9::t_6f0e1be3e55fe4 243,248,258-274,1430-1449
+  s_bac81b01e1fea9::t_c360cdca53719b 1450
+frontend/src/components/sidebar/admin-sidebar.tsx
+  s_bac81b01e1fea9::t_b21db8a9f3fa9f 9,63
+frontend/src/lib/comment-mentions.ts
+  s_bac81b01e1fea9::t_8338cc0cf90169 319-322
+  s_bac81b01e1fea9::t_348187c257150a 4-10,13-18,23,42-47,49-50,54,70-76,88-93,217-225,229,232-238,242-243,248,254,257,261-282,291,293-295,300-301,303-318,323-327,330-333,335-337,341-343,348
+frontend/tests/comment-mentions.test.ts
+  s_bac81b01e1fea9::t_b2111d46a9e34c 7,9-10,20-21,25-26,32-48,95-125,241,243,247,252,256,260-263,267,271-310,320-321,333-334,341-390,392
+  s_bac81b01e1fea9::t_25f0cbfec7040a 391
+frontend/src/components/builder/canvas/canvas-toolbar.tsx
+  s_bac81b01e1fea9::t_c4a025b2f777d4 7,70,475
+tracecat/cases/schemas.py
+  s_bac81b01e1fea9::t_6202bb82aa2893 357,363-369,371
+  s_bac81b01e1fea9::t_b21db8a9f3fa9f 383
+frontend/src/components/cases/comment-mention-popover.tsx
+  s_bac81b01e1fea9::t_c39a835984182c 7-11,16-19,21,23-26,28,30,40-41,47,59,90,95,102,112,116,119-123
+  s_bac81b01e1fea9::t_b1014cd1974ed2 15
+frontend/tests/case-comments-section.test.tsx
+  s_bac81b01e1fea9::t_090c49ca34ca5f 681,683-687,690,692-696,703,705
+  s_bac81b01e1fea9::t_2dd1b2bbab33d4 688
+  s_bac81b01e1fea9::t_f13497b7ff62ab 1206
+  s_bac81b01e1fea9::t_8923c9b92c1a0c 691
+  s_bac81b01e1fea9::t_2bd96a13c043bf 455-470,999-1008,1010,1018-1025,1027,1031-1085
+  s_bac81b01e1fea9::t_8e6a9f340d525b 332-347,838-936,966,980-982,984-998,1484,1494,1499,1503,1508,1526,1540,1554,1563,1570,1591,1619,1636,1653,1658,1684,1703,1720,1723,1732,1740,1751,1766
+  s_bac81b01e1fea9::t_f0a8b31a1f7b0f 439-454,659,665-672,674-679,682,689,699-701,708,715-721,723-725,727-755,758-771,775-795,797,800,803-837,938-965,967-979,983,1009,1011-1017,1026
+  s_bac81b01e1fea9::t_09f788b86ba886 90-92,774,796,1152-1205,1207-1210
+  s_bac81b01e1fea9::t_b1014cd1974ed2 711-712
+  s_bac81b01e1fea9::t_4a85c6c29e60b7 1086,1211-1212
+  s_bac81b01e1fea9::t_9bf12b7fe32c20 707,709-710,1087
+frontend/src/hooks/use-comment-workflows.ts
+  s_bac81b01e1fea9::t_b21db8a9f3fa9f 13,17,21-22,25,53,76
+  s_bac81b01e1fea9::t_2bd96a13c043bf 28-32
+  s_bac81b01e1fea9::t_1120e37db38456 1-12,14-16,18-20,23-24,26-27,33-52,54-75,77-84
+frontend/src/components/sidebar/organization-sidebar.tsx
+  s_bac81b01e1fea9::t_b21db8a9f3fa9f 11,92
+frontend/src/components/cases/case-comments-section.tsx
+  s_bac81b01e1fea9::t_4d048c01ecd208 683-684
+  s_bac81b01e1fea9::t_2bd96a13c043bf 407-409,411-413,421
+  s_bac81b01e1fea9::t_650e07a121a6c6 23,34,60,648-649,651-661,663-671,673-677,679-682,733-734,750,770,789,831,833,883,890,892-894
+  s_bac81b01e1fea9::t_69601387c9a883 86-90,92-102,427-429,650,662,776-778,895,940
+  s_bac81b01e1fea9::t_5f095dc7e57c48 20
+  s_bac81b01e1fea9::t_3c5096b3b47735 672,678
+  s_bac81b01e1fea9::t_090c49ca34ca5f 715,863,866,891
+  s_bac81b01e1fea9::t_09f788b86ba886 430-460,529,772-773
+frontend/AGENTS.md
+  s_bac81b01e1fea9::t_c4a025b2f777d4 61-64
+frontend/src/components/cases/comment-mention-overlay.tsx
+  s_bac81b01e1fea9::t_56603804901a73 51
+  s_bac81b01e1fea9::t_c4a025b2f777d4 49
+  s_bac81b01e1fea9::t_56d6ddc2edcd33 18-20
+frontend/src/components/cases/case-comment-agent.tsx
+  s_bac81b01e1fea9::t_c4a025b2f777d4 7,28
+frontend/src/hooks/use-comment-mentions.ts
+  s_bac81b01e1fea9::t_69601387c9a883 203
+  s_bac81b01e1fea9::t_b21db8a9f3fa9f 136-142,160-169,198-199,204-205,339-342
+  s_bac81b01e1fea9::t_c4c410dbacdf36 8,15-16,18,29-30,33-35,37-42,46,48,50-51,73-74,85-88,91-92,99,102-103,124,130-132,134-135,149,171,175,178,180-181,190-197,200-202,206-210,213-220,225,236,247,251,256-264,274,321,399-405,408-409,411,416-417
+  s_bac81b01e1fea9::t_6f2ca491e7533b 343-344
+docs/automations/triggers/comment-triggers.mdx
+  s_bac81b01e1fea9::t_2bd96a13c043bf 10
+  s_bac81b01e1fea9::t_22e96468bbba97 9,15-19,22,31-36,48-50,74-77
+  s_bac81b01e1fea9::t_b21db8a9f3fa9f 14,20-21
+tracecat/cases/service.py
+  s_bac81b01e1fea9::t_6f0e1be3e55fe4 2115-2118
+tests/unit/test_case_comment_schemas.py
+  s_bac81b01e1fea9::t_6202bb82aa2893 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "3c333f62a8d757be1ef1d1e1ff3abd51833cd3f3",
+  "prompts": {},
+  "sessions": {
+    "s_bac81b01e1fea9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1c7fd306-cb48-43d2-9e6c-a72861fd2d1f",
+        "model": "claude-fable-5"
+      },
+      "human_author": null
+    }
+  }
+}
