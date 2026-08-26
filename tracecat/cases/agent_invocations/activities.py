@@ -67,7 +67,7 @@ async def prepare_comment_agent_invocation_activity(
             actions=_without_comment_reply_actions(prepared_turn.config.actions),
         )
         workflow_args = AgentWorkflowArgs(
-            role=input.role,
+            role=session_service.execution_role,
             agent_args=RunAgentArgs(
                 user_prompt=prepared_turn.prompt,
                 session_id=prepared_turn.session_id,
