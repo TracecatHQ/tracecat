@@ -1,0 +1,88 @@
+tests/migration/test_detach_retired_mcp_catalog_recipes_migration.py
+  s_074f60bd4e6223::t_0da4aed80b2e00 451-457
+  s_074f60bd4e6223::t_7b6dab40e7f34e 1-239,243-450,458-459
+  s_074f60bd4e6223::t_832b917990b238 240-242
+frontend/tests/mcp-integration-schema.test.ts
+  s_074f60bd4e6223::t_65251ae7583b07 7
+  s_074f60bd4e6223::t_aff76ec6a8aef6 111-147,155-177,199-201
+  s_074f60bd4e6223::t_60a4eccbc716f8 372-422
+  s_074f60bd4e6223::t_e0417e9026bccc 148-154
+  s_074f60bd4e6223::t_1e2c830e80da0d 178-198
+tracecat/integrations/catalog/loader.py
+  s_074f60bd4e6223::t_32a439edc45db3 119
+frontend/src/components/integrations/mcp-integration-schema.ts
+  s_074f60bd4e6223::t_165696bc9e417b 215-217,220-224,229,231,233,241-242,248-249
+  s_074f60bd4e6223::t_d0e80fea01ca87 218-219,225-228,230,232,234-240,243-247
+  s_074f60bd4e6223::t_717b98a0a51ad3 391-395
+frontend/src/components/integrations/mcp-integration-dialog.tsx
+  s_074f60bd4e6223::t_41bd2a2db78c04 588-603
+  s_074f60bd4e6223::t_90f60970184daf 860-872,875-876,879
+  s_074f60bd4e6223::t_4e4f4d4d567998 36
+  s_074f60bd4e6223::t_94caa3f35ed4c6 1478-1482
+packages/tracecat-ee/tracecat_ee/mcp/catalog/mcp_catalog_private.json
+  s_074f60bd4e6223::t_44e37e265084a3 235,247
+  s_074f60bd4e6223::t_f0c8ab9a781ec0 229,231-234,237-242,245-246,250-251,254-256,259,262-264,266-267,270-275,283-284,608-615,617-619,621,1410,1412-1417,1420-1422,1425,1428-1430,1433,1436-1439,1441,1444-1447,1449,1453,1455,1457-1459,1784,1786-1789,1792,1798-1801
+  s_074f60bd4e6223::t_0da4aed80b2e00 281,616
+  s_074f60bd4e6223::t_ce0e850864ef93 1790-1791,1796
+tracecat/integrations/catalog/mcp_catalog.json
+  s_074f60bd4e6223::t_44e37e265084a3 98,227,283
+alembic/versions/2ba251c25b81_detach_retired_mcp_catalog_recipes.py
+  s_074f60bd4e6223::t_d7a6181c6136bf 1-133
+tracecat/integrations/schemas.py
+  s_074f60bd4e6223::t_e64e89f6974757 23
+  s_074f60bd4e6223::t_3e59647e9a3a26 451-457
+  s_074f60bd4e6223::t_abe2429d844434 434,438-450,458-465
+  s_074f60bd4e6223::t_0a6df9b012ebe9 759-766
+frontend/src/client/schemas.gen.ts
+  s_074f60bd4e6223::t_56dde53910eded 16825-16831,16942-16957
+tracecat/integrations/service.py
+  s_074f60bd4e6223::t_2cec408f2c52f4 1399-1402,1404-1409,1421-1425
+  s_074f60bd4e6223::t_51040b92f2795c 224-235,240-241
+  s_074f60bd4e6223::t_02e21299f4df56 1433,3398-3424
+  s_074f60bd4e6223::t_d7f616d11f0922 236-239
+  s_074f60bd4e6223::t_37530ddbeab6fa 8
+  s_074f60bd4e6223::t_4e099b42d23094 1195
+  s_074f60bd4e6223::t_267946186ca09d 1434-1444,1448-1458,1521,1541-1543
+  s_074f60bd4e6223::t_7137b2f8edc930 1445-1447,1459-1520
+  s_074f60bd4e6223::t_75f728581a4179 1301-1305
+  s_074f60bd4e6223::t_62aae1d300e12f 1239-1245,1252
+  s_074f60bd4e6223::t_40fdbe830194b6 3129-3131
+tests/unit/test_mcp_catalog_pins.py
+  s_074f60bd4e6223::t_f839a3686e5b95 165-181
+  s_074f60bd4e6223::t_1dc4b1495c5d98 73-89
+tests/unit/test_mcp_catalog_loader.py
+  s_074f60bd4e6223::t_ce69de0b30d207 661-663,665-696,702-714
+  s_074f60bd4e6223::t_c05f9978495eab 697-700
+  s_074f60bd4e6223::t_44e37e265084a3 701
+  s_074f60bd4e6223::t_ce0e850864ef93 715-721
+  s_074f60bd4e6223::t_fea70f6c2511c1 279-331
+  s_074f60bd4e6223::t_e7c6d6d60a25df 16-19
+tests/unit/test_mcp_integrations.py
+  s_074f60bd4e6223::t_ebf9fcdf8ae670 1532-1590
+  s_074f60bd4e6223::t_3abf70d03576b8 7030-7090
+  s_074f60bd4e6223::t_9a742b4abbab68 7150-7151,7165-7167
+  s_074f60bd4e6223::t_b1911692d9942c 6845-6954,6958-6978
+  s_074f60bd4e6223::t_0632e4fd0b8520 6955-6957
+  s_074f60bd4e6223::t_6027a42d486f78 308-366
+  s_074f60bd4e6223::t_861536d8e42130 6745-6844,6979-7029,7091-7149,7152-7164,7168-7222
+frontend/src/client/types.gen.ts
+  s_074f60bd4e6223::t_56dde53910eded 5216-5218,5259,5262-5265
+tracecat/integrations/catalog/types.py
+  s_074f60bd4e6223::t_bfc7259c5a89e8 93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "254a5c64cbd24a76cc28413480298bbc86fdb45b",
+  "prompts": {},
+  "sessions": {
+    "s_074f60bd4e6223": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12df82ba-1b3e-48b6-932a-384f445300a1",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
