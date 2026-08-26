@@ -1,0 +1,72 @@
+tracecat/cases/service.py
+  s_bac81b01e1fea9::t_6f0e1be3e55fe4 2115-2118
+frontend/src/components/cases/case-comment-agent.tsx
+  s_bac81b01e1fea9::t_c4a025b2f777d4 7,28
+frontend/AGENTS.md
+  s_bac81b01e1fea9::t_c4a025b2f777d4 61-64
+frontend/src/components/cases/case-comments-section.tsx
+  s_bac81b01e1fea9::t_5f095dc7e57c48 20
+  s_bac81b01e1fea9::t_650e07a121a6c6 23,34,60,636-637,639-660,662-666,668-671,722-723,739,761,780,822,824,874,881,883-885
+  s_bac81b01e1fea9::t_2bd96a13c043bf 395-397,399-401,409
+  s_bac81b01e1fea9::t_3c5096b3b47735 661,667
+  s_bac81b01e1fea9::t_4d048c01ecd208 672-673
+  s_bac81b01e1fea9::t_09f788b86ba886 415-448,517,763-764,767-774
+  s_bac81b01e1fea9::t_090c49ca34ca5f 638,704,854,857,882
+tracecat/cases/schemas.py
+  s_bac81b01e1fea9::t_6202bb82aa2893 357,363-369,371
+frontend/src/hooks/use-comment-workflows.ts
+  s_bac81b01e1fea9::t_2bd96a13c043bf 35-39
+  s_bac81b01e1fea9::t_1120e37db38456 1-34,40-96
+frontend/src/components/cases/comment-mention-overlay.tsx
+  s_bac81b01e1fea9::t_c4a025b2f777d4 49
+  s_bac81b01e1fea9::t_56603804901a73 51
+  s_bac81b01e1fea9::t_56d6ddc2edcd33 18-20
+frontend/src/lib/comment-mentions.ts
+  s_bac81b01e1fea9::t_348187c257150a 4-10,13-18,23,42-47,49-50,54,70-76,88-93,217-225,229,232-238,242-243,248,254,257,261-282,291,293-295,300-301,303-318,323-327,330-333,335-337,341-343,348
+  s_bac81b01e1fea9::t_8338cc0cf90169 319-322
+frontend/tests/case-comments-section.test.tsx
+  s_bac81b01e1fea9::t_8923c9b92c1a0c 695
+  s_bac81b01e1fea9::t_2bd96a13c043bf 439-454,889-898,900,908-915,917-975
+  s_bac81b01e1fea9::t_f0a8b31a1f7b0f 423-438,643,649-658,660-668,670-683,686,693,703-705,712,719-725,727-751,753,756-759,762-777,779-799,801-802,804,806-888,899,901-907,916
+  s_bac81b01e1fea9::t_b1014cd1974ed2 715-716
+  s_bac81b01e1fea9::t_09f788b86ba886 90-92,778,800,1042-1095,1097-1100
+  s_bac81b01e1fea9::t_4a85c6c29e60b7 1101-1102
+  s_bac81b01e1fea9::t_2dd1b2bbab33d4 684,692
+  s_bac81b01e1fea9::t_090c49ca34ca5f 685,687-691,694,696-700,707,709
+  s_bac81b01e1fea9::t_f13497b7ff62ab 1096
+frontend/src/components/builder/canvas/canvas-toolbar.tsx
+  s_bac81b01e1fea9::t_c4a025b2f777d4 7,70,475
+frontend/src/hooks/use-comment-mentions.ts
+  s_bac81b01e1fea9::t_c4c410dbacdf36 8,15-16,18,29-30,33-35,37-42,46,48,50-51,73-74,85-88,91-92,99,102-103,124,130-132,134-137,145,156-157,159,163,166,168-169,178-204,207-214,219,230,241,245,250-258,268,315,390-396,399-400,402,407-408
+frontend/tests/comment-mentions.test.ts
+  s_bac81b01e1fea9::t_25f0cbfec7040a 391
+  s_bac81b01e1fea9::t_b2111d46a9e34c 7,9-10,20-21,25-26,32-48,95-125,241,243,247,252,256,260-263,267,271-310,320-321,333-334,341-390,392
+tests/unit/test_case_comment_schemas.py
+  s_bac81b01e1fea9::t_6202bb82aa2893 1-31
+frontend/src/components/cases/comment-mention-popover.tsx
+  s_bac81b01e1fea9::t_c39a835984182c 7-11,16-19,21,23-26,28,30,40-41,47,59,90,95,102,112,116,119-123
+  s_bac81b01e1fea9::t_b1014cd1974ed2 15
+tests/unit/test_case_comments_service.py
+  s_bac81b01e1fea9::t_6f0e1be3e55fe4 243,248,258-274,1430-1449
+  s_bac81b01e1fea9::t_c360cdca53719b 1450
+docs/automations/triggers/comment-triggers.mdx
+  s_bac81b01e1fea9::t_22e96468bbba97 9,14-21,23,32-37,49-51,75-78
+  s_bac81b01e1fea9::t_2bd96a13c043bf 10
+  s_bac81b01e1fea9::t_09f788b86ba886 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "2b75f56272a688005a96aacf55f5e3432eb4111d",
+  "prompts": {},
+  "sessions": {
+    "s_bac81b01e1fea9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1c7fd306-cb48-43d2-9e6c-a72861fd2d1f",
+        "model": "claude-fable-5"
+      },
+      "human_author": null
+    }
+  }
+}
