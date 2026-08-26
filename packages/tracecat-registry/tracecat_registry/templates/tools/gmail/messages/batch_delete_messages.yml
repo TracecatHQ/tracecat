@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Batch delete messages
+  description: >-
+    Deletes many messages by message ID. Provides no guarantees that messages were not
+    already deleted or even existed at all. Requires the `https://mail.google.com/`
+    scope, which is not in the Gmail provider defaults: add it to the integration's
+    scopes before connecting, or delegate it to the service account.
+  display_group: Gmail
+  doc_url: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/batchDelete
+  namespace: tools.gmail
+  name: batch_delete_messages
+  secrets:
+    - type: oauth
+      provider_id: google_gmail
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_gmail
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    ids:
+      type: list[str]
+      description: The IDs of the messages to delete.
+    user_id:
+      type: str
+      description: >-
+        The user's email address. The special value `me` can be used to indicate the
+        authenticated user.
+      default: me
+  steps:
+    - ref: batch_delete_messages
+      action: tools.google_api.call_api
+      args:
+        service_name: gmail
+        version: v1
+        resource: users.messages
+        method_name: batchDelete
+        access_token: ${{ SECRETS.google_gmail_oauth.GOOGLE_GMAIL_USER_TOKEN || SECRETS.google_gmail_oauth.GOOGLE_GMAIL_SERVICE_TOKEN }}
+        scopes: ["https://mail.google.com/"]
+        params:
+          userId: ${{ inputs.user_id }}
+          body:
+            ids: ${{ inputs.ids }}
+  returns: ${{ steps.batch_delete_messages.result }}

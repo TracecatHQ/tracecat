@@ -1,0 +1,81 @@
+type: action
+definition:
+  title: Batch change ChromeOS device status
+  description: Changes the status of a batch of ChromeOS devices.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/customer.devices.chromeos/batchChangeStatus
+  namespace: tools.google_directory
+  name: batch_change_chromeos_device_status
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    customer_id:
+      type: str
+      description: Immutable ID of the Google Workspace account.
+      default: my_customer
+    device_ids:
+      type: list[str]
+      description: List of the IDs of the ChromeOS devices to change. Maximum 50.
+    change_chrome_os_device_status_action:
+      type: str
+      description: >-
+        The action to take on the ChromeOS device in order to change its status.
+        Acceptable values are
+        `CHANGE_CHROME_OS_DEVICE_STATUS_ACTION_DEPROVISION` (deprovisions a
+        ChromeOS device; if you have ChromeOS Flex devices, you must first
+        deprovision them and then delete them),
+        `CHANGE_CHROME_OS_DEVICE_STATUS_ACTION_DISABLE` (disables a ChromeOS
+        device) and `CHANGE_CHROME_OS_DEVICE_STATUS_ACTION_REENABLE`
+        (reenables a ChromeOS device to be used after being disabled).
+    deprovision_reason:
+      type: str | None
+      description: >-
+        The reason behind a device deprovision. Must be provided if
+        `changeChromeOsDeviceStatusAction` is set to
+        `CHANGE_CHROME_OS_DEVICE_STATUS_ACTION_DEPROVISION`. Otherwise, omit
+        this field. Acceptable values are
+        `DEPROVISION_REASON_SAME_MODEL_REPLACEMENT`,
+        `DEPROVISION_REASON_DIFFERENT_MODEL_REPLACEMENT`,
+        `DEPROVISION_REASON_RETIRING_DEVICE`,
+        `DEPROVISION_REASON_UPGRADE_TRANSFER` and
+        `DEPROVISION_REASON_NOT_REQUIRED`.
+      default: null
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          device_ids: ${{ inputs.device_ids }}
+          change_chrome_os_device_status_action: ${{ inputs.change_chrome_os_device_status_action }}
+          deprovision_reason: ${{ inputs.deprovision_reason }}
+        script: |
+          def main(device_ids, change_chrome_os_device_status_action, deprovision_reason):
+              # Values nested inside `body` are not pruned, and the Directory API
+              # rejects an explicit null for `deprovisionReason`.
+              body = {
+                  "deviceIds": device_ids,
+                  "changeChromeOsDeviceStatusAction": change_chrome_os_device_status_action,
+              }
+              if deprovision_reason is not None:
+                  body["deprovisionReason"] = deprovision_reason
+              return body
+    - ref: batch_change_status
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: customer.devices.chromeos
+        method_name: batchChangeStatus
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.device.chromeos"]
+        params:
+          customerId: ${{ inputs.customer_id }}
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.batch_change_status.result }}

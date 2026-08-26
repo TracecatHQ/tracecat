@@ -1,0 +1,91 @@
+type: action
+definition:
+  title: Batch update spreadsheet
+  description: >-
+    Applies one or more updates to the spreadsheet. Each request is validated before being applied.
+    If any request is not valid then the entire request will fail and nothing will be applied.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/batchUpdate
+  namespace: tools.google_sheets
+  name: batch_update_spreadsheet
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: The spreadsheet to apply the updates to.
+    requests:
+      # Generic: the vendor's body is a discriminated union. Each entry is a `Request`, which sets
+      # exactly one of dozens of mutually exclusive update fields, so there is no single field set
+      # to name as inputs.
+      type: list[dict[str, Any]]
+      description: >-
+        A list of updates to apply to the spreadsheet. Requests will be applied in the order they
+        are specified. If any request is not valid, no requests will be applied. Each entry sets
+        exactly one field of the `Request` union, for example `addSheet`, `deleteSheet`,
+        `updateCells`, `mergeCells`, `copyPaste`, `addChart`, or `updateSpreadsheetProperties`. See
+        https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/request
+    include_spreadsheet_in_response:
+      type: bool | None
+      description: Determines if the update response should include the spreadsheet resource.
+      default: null
+    response_ranges:
+      type: list[str] | None
+      description: >-
+        Limits the ranges included in the response spreadsheet. Meaningful only if
+        include_spreadsheet_in_response is `true`.
+      default: null
+    response_include_grid_data:
+      type: bool | None
+      description: >-
+        True if grid data should be returned. Meaningful only if include_spreadsheet_in_response is
+        `true`. This parameter is ignored if a field mask was set in the request.
+      default: null
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          requests: ${{ inputs.requests }}
+          include_spreadsheet_in_response: ${{ inputs.include_spreadsheet_in_response }}
+          response_ranges: ${{ inputs.response_ranges }}
+          response_include_grid_data: ${{ inputs.response_include_grid_data }}
+        script: |
+          def main(
+              requests,
+              include_spreadsheet_in_response,
+              response_ranges,
+              response_include_grid_data,
+          ):
+              body = {"requests": requests}
+              if include_spreadsheet_in_response is not None:
+                  body["includeSpreadsheetInResponse"] = include_spreadsheet_in_response
+              if response_ranges is not None:
+                  body["responseRanges"] = response_ranges
+              if response_include_grid_data is not None:
+                  body["responseIncludeGridData"] = response_include_grid_data
+              return body
+    - ref: batch_update_spreadsheet
+      action: tools.google_api.call_api
+      args:
+        service_name: sheets
+        version: v4
+        resource: spreadsheets
+        method_name: batchUpdate
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        params:
+          spreadsheetId: ${{ inputs.spreadsheet_id }}
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.batch_update_spreadsheet.result }}

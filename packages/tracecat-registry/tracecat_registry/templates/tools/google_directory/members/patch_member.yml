@@ -1,0 +1,73 @@
+type: action
+definition:
+  title: Patch member
+  description: >-
+    Updates the membership properties of a user in the specified group. This method supports
+    patch semantics.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/members/patch
+  namespace: tools.google_directory
+  name: patch_member
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    group_key:
+      type: str
+      description: >-
+        Identifies the group in the API request. The value can be the group's email address,
+        group alias, or the unique group ID.
+    member_key:
+      type: str
+      description: >-
+        Identifies the group member in the API request. A group member can be a user or another
+        group. The value can be the member's (group or user) primary email address, alias, or
+        unique ID.
+    role:
+      type: str | None
+      description: >-
+        The member's role in a group. Allowed values are `OWNER`, `MANAGER`, and `MEMBER`.
+      default: null
+    delivery_settings:
+      type: str | None
+      description: >-
+        Defines mail delivery preferences of member. Allowed values are `ALL_MAIL`, `DAILY`,
+        `DIGEST`, `DISABLED`, and `NONE`.
+      default: null
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          role: ${{ inputs.role }}
+          delivery_settings: ${{ inputs.delivery_settings }}
+        script: |
+          def main(role, delivery_settings):
+              # Values inside a Google API request body are not null-pruned, and the Directory
+              # API rejects an explicit null on these optional Member fields.
+              body = {}
+              if role is not None:
+                  body["role"] = role
+              if delivery_settings is not None:
+                  body["delivery_settings"] = delivery_settings
+              return body
+    - ref: patch_member
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: members
+        method_name: patch
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.group.member"]
+        params:
+          groupKey: ${{ inputs.group_key }}
+          memberKey: ${{ inputs.member_key }}
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.patch_member.result }}

@@ -20519,6 +20519,13 @@ export const $ProviderMetadata = {
       description: "Whether this provider is available for use",
       default: true,
     },
+    service_account_json: {
+      type: "boolean",
+      title: "Service Account Json",
+      description:
+        "Whether the client secret is a service account JSON key instead of an OAuth client secret",
+      default: false,
+    },
     api_docs_url: {
       anyOf: [
         {

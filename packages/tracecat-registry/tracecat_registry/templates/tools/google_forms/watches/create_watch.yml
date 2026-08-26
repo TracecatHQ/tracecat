@@ -1,0 +1,83 @@
+type: action
+definition:
+  title: Create watch
+  description: >-
+    Create a new watch. If a watch ID is provided, it must be unused. For each invoking
+    project, the per form limit is one watch per event type. A watch expires seven days
+    after it is created.
+  display_group: Google Forms
+  doc_url: https://developers.google.com/workspace/forms/api/reference/rest/v1/forms.watches/create
+  namespace: tools.google_forms
+  name: create_watch
+  secrets:
+    - type: oauth
+      provider_id: google_forms
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_forms
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    form_id:
+      type: str
+      description: Required. ID of the Form to watch.
+    event_type:
+      type: str
+      description: >-
+        Required. Which event type to watch for. `SCHEMA` (the schema, or form contents,
+        changed) or `RESPONSES` (a form response was submitted).
+    topic_name:
+      type: str
+      description: >-
+        Required. A fully qualified Pub/Sub topic name to publish the events to. This
+        topic must be owned by the calling project and already exist in Pub/Sub, and it
+        must grant publish privileges to
+        serviceAccount:forms-notifications@system.gserviceaccount.com.
+    watch_id:
+      type: str | None
+      description: >-
+        The ID to use for the watch. If specified, the ID must not already be in use. If
+        not specified, an ID is generated. This value should be 4-63 characters, and valid
+        characters are /[a-z][0-9]-/.
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          form_id: ${{ inputs.form_id }}
+          event_type: ${{ inputs.event_type }}
+          topic_name: ${{ inputs.topic_name }}
+          watch_id: ${{ inputs.watch_id }}
+        script: |
+          def main(form_id, event_type, topic_name, watch_id):
+              # Values inside `body` are not pruned, and Forms rejects a null watchId.
+              body = {
+                  "watch": {
+                      "eventType": event_type,
+                      "target": {"topic": {"topicName": topic_name}},
+                  }
+              }
+              if watch_id is not None:
+                  body["watchId"] = watch_id
+              return {"formId": form_id, "body": body}
+    - ref: create_watch
+      action: tools.google_api.call_api
+      args:
+        service_name: forms
+        version: v1
+        resource: forms.watches
+        method_name: create
+        access_token: ${{ SECRETS.google_forms_oauth.GOOGLE_FORMS_USER_TOKEN || SECRETS.google_forms_oauth.GOOGLE_FORMS_SERVICE_TOKEN }}
+        # A watch must be authorized with read access to the data it notifies on:
+        # forms.body.readonly for SCHEMA events, forms.responses.readonly for RESPONSES.
+        scopes:
+          - https://www.googleapis.com/auth/forms.body.readonly
+          - https://www.googleapis.com/auth/forms.responses.readonly
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.create_watch.result }}

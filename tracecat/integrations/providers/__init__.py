@@ -4,12 +4,21 @@ from tracecat.integrations.providers.base import BaseOAuthProvider
 from tracecat.integrations.providers.github.mcp import GitHubMCPProvider
 from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
 from tracecat.integrations.providers.google import (
-    GoogleDocsOAuthProvider,
+    GoogleAdminCCProvider,
+    GoogleDocsACProvider,
+    GoogleDocsCCProvider,
+    GoogleDriveACProvider,
+    GoogleDriveCCProvider,
+    GoogleFormsACProvider,
+    GoogleFormsCCProvider,
+    GoogleGmailACProvider,
+    GoogleGmailCCProvider,
     GoogleServiceAccountOAuthProvider,
-    GoogleSheetsOAuthProvider,
+    GoogleSheetsACProvider,
+    GoogleSheetsCCProvider,
+    GoogleSlidesACProvider,
+    GoogleSlidesCCProvider,
 )
-from tracecat.integrations.providers.google.drive import GoogleDriveACProvider
-from tracecat.integrations.providers.google.gmail import GoogleGmailACProvider
 from tracecat.integrations.providers.jamf.oauth import JamfOAuthProvider
 from tracecat.integrations.providers.jira.mcp import JiraMCPProvider
 from tracecat.integrations.providers.linear.mcp import LinearMCPProvider
@@ -43,11 +52,20 @@ from tracecat.integrations.schemas import ProviderKey
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     GitHubOAuthProvider,
     GitHubMCPProvider,
-    GoogleDocsOAuthProvider,
+    GoogleAdminCCProvider,
+    GoogleDocsACProvider,
+    GoogleDocsCCProvider,
     GoogleDriveACProvider,
+    GoogleDriveCCProvider,
+    GoogleFormsACProvider,
+    GoogleFormsCCProvider,
     GoogleGmailACProvider,
+    GoogleGmailCCProvider,
     GoogleServiceAccountOAuthProvider,
-    GoogleSheetsOAuthProvider,
+    GoogleSheetsACProvider,
+    GoogleSheetsCCProvider,
+    GoogleSlidesACProvider,
+    GoogleSlidesCCProvider,
     JamfOAuthProvider,
     JiraMCPProvider,
     LinearMCPProvider,

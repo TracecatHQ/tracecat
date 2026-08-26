@@ -1,0 +1,76 @@
+type: action
+definition:
+  title: Insert role assignment
+  description: Creates a role assignment.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/roleAssignments/insert
+  namespace: tools.google_directory
+  name: insert_role_assignment
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    customer:
+      type: str
+      description: Immutable ID of the Google Workspace account.
+      default: my_customer
+    role_id:
+      type: str
+      description: The ID of the role that is assigned.
+    assigned_to:
+      type: str
+      description: >-
+        The unique ID of the entity this role is assigned to - either the
+        `userId` of a user, the `groupId` of a group, or the `uniqueId` of a
+        service account.
+    scope_type:
+      type: str
+      description: >-
+        The scope in which this role is assigned. Acceptable values are
+        `CUSTOMER` and `ORG_UNIT`.
+    org_unit_id:
+      type: str | None
+      description: >-
+        If the role is restricted to an organization unit, this contains the ID
+        for the organization unit the exercise of this role is restricted to.
+      default: null
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          role_id: ${{ inputs.role_id }}
+          assigned_to: ${{ inputs.assigned_to }}
+          scope_type: ${{ inputs.scope_type }}
+          org_unit_id: ${{ inputs.org_unit_id }}
+        script: |
+          def main(role_id, assigned_to, scope_type, org_unit_id):
+              # Values nested inside `body` are not pruned, and the Directory API
+              # rejects an explicit null on these optional fields.
+              body = {
+                  "roleId": role_id,
+                  "assignedTo": assigned_to,
+                  "scopeType": scope_type,
+              }
+              if org_unit_id is not None:
+                  body["orgUnitId"] = org_unit_id
+              return body
+    - ref: insert_role_assignment
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: roleAssignments
+        method_name: insert
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.rolemanagement"]
+        params:
+          customer: ${{ inputs.customer }}
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.insert_role_assignment.result }}

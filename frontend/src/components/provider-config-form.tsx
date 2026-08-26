@@ -120,7 +120,7 @@ export function ProviderConfigForm({
   const workspaceId = useWorkspaceId()
   const isMCP = isMCPProvider(provider)
   const {
-    metadata: { id },
+    metadata: { id, service_account_json: serviceAccountJson },
     scopes: { default: defaultScopes },
     grant_type: grantType,
     default_authorization_endpoint: providerDefaultAuth,
@@ -129,8 +129,7 @@ export function ProviderConfigForm({
     token_endpoint_help: providerTokenHelp,
   } = provider
 
-  const serviceAccountProviders = ["google", "google_sheets", "google_docs"]
-  const isServiceAccountProvider = serviceAccountProviders.includes(id)
+  const isServiceAccountProvider = serviceAccountJson ?? false
   const clientSecretMaxLength = isServiceAccountProvider ? 16384 : 512
   const validationSchema = useMemo(
     () => createOAuthSchema(clientSecretMaxLength),

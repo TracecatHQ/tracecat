@@ -6250,6 +6250,10 @@ export type ProviderMetadata = {
    */
   enabled?: boolean
   /**
+   * Whether the client secret is a service account JSON key instead of an OAuth client secret
+   */
+  service_account_json?: boolean
+  /**
    * URL to API documentation
    */
   api_docs_url?: string | null

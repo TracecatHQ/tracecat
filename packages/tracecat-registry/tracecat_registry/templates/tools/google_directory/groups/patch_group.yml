@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Patch group
+  description: Updates a group's properties. This method supports patch semantics.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/groups/patch
+  namespace: tools.google_directory
+  name: patch_group
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    group_key:
+      type: str
+      description: >-
+        Identifies the group in the API request. The value can be the group's email address,
+        group alias, or the unique group ID.
+    body:
+      # Generic: the vendor rejects `null` on optional body fields, and a literal map cannot omit
+      # an unset optional because values inside a request body are not null-pruned.
+      type: dict[str, Any]
+      description: >-
+        Group fields to update. See
+        https://developers.google.com/workspace/admin/directory/reference/rest/v1/groups for the
+        full field list. Writable fields: `email`, `name`, `description` (maximum length is 4,096
+        characters).
+  steps:
+    - ref: patch_group
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: groups
+        method_name: patch
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.group"]
+        params:
+          groupKey: ${{ inputs.group_key }}
+          body: ${{ inputs.body }}
+  returns: ${{ steps.patch_group.result }}
