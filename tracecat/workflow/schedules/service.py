@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
@@ -462,3 +463,28 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                 return InlineObject(data=schedule.inputs)
             except TracecatNotFoundError:
                 raise
+
+    async def get_schedule_run_times(
+        self, schedule_id: AnyScheduleID
+    ) -> tuple[datetime | None, datetime | None]:
+        """Fetch the last and next run times of a schedule from Temporal."""
+        try:
+            handle = await bridge._get_handle(schedule_id)
+            desc = await handle.describe()
+
+            last_run_at = None
+            if desc.info.recent_actions:
+                last_run_at = desc.info.recent_actions[-1].started_at
+
+            next_run_at = None
+            if desc.info.next_action_times:
+                next_run_at = desc.info.next_action_times[0]
+
+            return last_run_at, next_run_at
+        except Exception as e:
+            logger.warning(
+                "Failed to fetch schedule run times from Temporal",
+                schedule_id=schedule_id,
+                error=str(e),
+            )
+            return None, None

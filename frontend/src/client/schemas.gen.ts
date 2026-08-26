@@ -23290,6 +23290,30 @@ export const $ScheduleRead = {
       enum: ["online", "offline"],
       title: "Status",
     },
+    last_run_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Run At",
+    },
+    next_run_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Run At",
+    },
   },
   type: "object",
   required: [

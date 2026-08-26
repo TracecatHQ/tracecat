@@ -7101,6 +7101,8 @@ export type ScheduleRead = {
   end_at?: string | null
   timeout?: number | null
   status: "online" | "offline"
+  last_run_at?: string | null
+  next_run_at?: string | null
 }
 
 export type ScheduleSearch = {
