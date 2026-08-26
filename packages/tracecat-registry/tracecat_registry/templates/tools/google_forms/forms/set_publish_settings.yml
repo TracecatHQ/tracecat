@@ -15,10 +15,6 @@ definition:
       provider_id: google_forms
       grant_type: client_credentials
       optional: true
-    - type: oauth
-      provider_id: google_admin
-      grant_type: client_credentials
-      optional: true
     - name: google_api
       keys: ["GOOGLE_API_CREDENTIALS"]
       optional_keys: ["GOOGLE_API_SUBJECT"]
@@ -73,7 +69,7 @@ definition:
         version: v1
         resource: forms
         method_name: setPublishSettings
-        access_token: ${{ SECRETS.google_forms_oauth.GOOGLE_FORMS_USER_TOKEN || SECRETS.google_forms_oauth.GOOGLE_FORMS_SERVICE_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_forms_oauth.GOOGLE_FORMS_USER_TOKEN || SECRETS.google_forms_oauth.GOOGLE_FORMS_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/forms.body"]
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.set_publish_settings.result }}

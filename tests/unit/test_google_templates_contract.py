@@ -6,13 +6,14 @@ silently in a single YAML file:
 
 - every declared secret is optional, or the `||` chain never evaluates;
 - every `call_api` step passes `scopes`, which is what places the
-  `GOOGLE_API_CREDENTIALS` key ahead of the generic `GOOGLE_SERVICE_TOKEN`.
+  `GOOGLE_API_CREDENTIALS` key ahead of the generic `GOOGLE_SERVICE_TOKEN`;
+- `google_admin` is the credential of the Admin SDK namespaces only.
 """
 
 from pathlib import Path
 
 import pytest
-from tracecat_registry import RegistrySecret
+from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat.registry.actions.schemas import TemplateAction
 
@@ -35,6 +36,7 @@ GOOGLE_NAMESPACES = (
     "google_reports",
     "google_alert_center",
 )
+ADMIN_SDK_NAMESPACES = ("google_directory", "google_reports", "google_alert_center")
 GOOGLE_TEMPLATES = sorted(
     path for ns in GOOGLE_NAMESPACES for path in (TEMPLATES / ns).rglob("*.yml")
 )
@@ -66,6 +68,22 @@ def test_google_template_credential_chain(path: Path) -> None:
     access_token = args.get("access_token")
     assert isinstance(access_token, str) and "SECRETS." in access_token
     assert "_TOKEN" in access_token
+
+    oauth_providers = {
+        s.provider_id for s in secrets if isinstance(s, RegistryOAuthSecret)
+    }
+    namespace = path.relative_to(TEMPLATES).parts[0]
+    if namespace in ADMIN_SDK_NAMESPACES:
+        assert oauth_providers == {"google_admin"}
+        assert (
+            access_token
+            == "${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}"
+        )
+    else:
+        assert "google_admin" not in oauth_providers, (
+            "google_admin is an Admin SDK credential only"
+        )
+        assert "google_admin" not in access_token
 
     scopes = args.get("scopes")
     assert isinstance(scopes, list) and scopes, "call_api step must pass scopes"

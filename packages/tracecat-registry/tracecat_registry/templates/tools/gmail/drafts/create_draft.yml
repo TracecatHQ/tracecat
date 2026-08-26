@@ -17,10 +17,6 @@ definition:
       provider_id: google_gmail
       grant_type: client_credentials
       optional: true
-    - type: oauth
-      provider_id: google_admin
-      grant_type: client_credentials
-      optional: true
     - name: google_api
       keys: ["GOOGLE_API_CREDENTIALS"]
       optional_keys: ["GOOGLE_API_SUBJECT"]
@@ -129,7 +125,7 @@ definition:
         version: v1
         resource: users.drafts
         method_name: create
-        access_token: ${{ SECRETS.google_gmail_oauth.GOOGLE_GMAIL_USER_TOKEN || SECRETS.google_gmail_oauth.GOOGLE_GMAIL_SERVICE_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_gmail_oauth.GOOGLE_GMAIL_USER_TOKEN || SECRETS.google_gmail_oauth.GOOGLE_GMAIL_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/gmail.compose"]
         params:
           userId: ${{ inputs.user_id }}

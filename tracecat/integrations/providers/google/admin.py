@@ -1,7 +1,8 @@
 """Google Workspace Admin service account provider.
 
-This is the catch-all Google service account: every Google action falls back to
-it when no service-specific integration is configured.
+Credential for the Admin SDK namespaces (`tools.google_directory`,
+`tools.google_reports`, `tools.google_alert_center`). The Workspace app
+namespaces use their own per-service providers.
 """
 
 from typing import ClassVar
@@ -43,12 +44,11 @@ class GoogleAdminCCProvider(GoogleServiceAccountOAuthProvider):
         id="google_admin",
         name="Google Workspace Admin",
         description=(
-            "Catch-all service account for Google Workspace. Authenticate with a "
-            "service account JSON key and a domain-wide delegation subject; every "
-            "Google action falls back to it. Default scopes cover the Admin SDK; "
-            "add Drive, Gmail, Sheets, Docs, Slides or Forms scopes to use it for "
-            "those APIs. The scopes configured here must match exactly the scopes "
-            "delegated to this client ID in the Admin console."
+            "Service account for the Google Workspace Admin SDK (Directory, "
+            "Reports, Alert Center). Authenticate with a service account JSON key "
+            "and a domain-wide delegation subject. The scopes configured here must "
+            "match exactly the scopes delegated to this client ID in the Admin "
+            "console."
         ),
         api_docs_url="https://developers.google.com/workspace/admin",
         setup_guide_url="https://developers.google.com/workspace/guides/create-credentials#optional_set_up_domain-wide_delegation_for_a_service_account",
