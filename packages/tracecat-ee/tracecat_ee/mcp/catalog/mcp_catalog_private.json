@@ -543,20 +543,28 @@
     {
       "slug": "jamf-mcp",
       "docs": "https://developer.jamf.com/developer-guide/docs/mcp",
-      "connection_spec": {
-        "server_type": "http",
-        "auth_type": "NONE",
-        "server_uri": "https://developer.jamf.com/mcp",
-        "credentials": [],
-        "_research": {
-          "confidence": "high",
-          "docker_only": false,
-          "notes": "Official Jamf-hosted remote MCP server at https://developer.jamf.com/mcp, documented at developer.jamf.com/developer-guide/docs/mcp. Transport is streamable HTTP; first-party client configs (Cursor, Windsurf, Claude Desktop) are just {\"url\": \"https://developer.jamf.com/mcp\"} with no OAuth flow or API key, so auth_type=NONE. Verified 2026-08-26: the server exposes 6 tools — five read-only developer-docs/API-reference tools plus execute-request, which sends a caller-supplied HAR request (URL, method, headers, body) and is flagged destructive/open-world by the server. It is not the tenant-management toolset the retired mcp-hub option exposed, but with credentials supplied by the agent it can reach Jamf APIs; gate execute-request with tool approval where that matters. Tracecat does not map the server's destructiveHint/openWorldHint onto tool defaults.\n\nRETIRED (2026-08-26): the local mcp-hub stdio option was removed. Its git-pinned recipe fails under fresh dependency resolution — the server imports mcp.server.fastmcp, which no longer exists once its unconstrained mcp dependency resolves to 2.x — so cold installs die at startup. The hosted server is now the only option for this row; Jamf tenant device management (Jamf Pro/Protect/Security Cloud inventory and actions) is not available through it.",
-          "sources": [
-            "https://developer.jamf.com/developer-guide/docs/mcp"
-          ]
+      "default_connection_option": "remote-http",
+      "connection_options": [
+        {
+          "id": "remote-http",
+          "label": "Remote HTTP",
+          "description": "Connect to Jamf's hosted MCP server to search Jamf developer documentation and generate Jamf API integration code. No authentication required.",
+          "connection_spec": {
+            "server_type": "http",
+            "auth_type": "NONE",
+            "server_uri": "https://developer.jamf.com/mcp",
+            "credentials": [],
+            "_research": {
+              "confidence": "high",
+              "docker_only": false,
+              "notes": "Official Jamf-hosted remote MCP server at https://developer.jamf.com/mcp, documented at developer.jamf.com/developer-guide/docs/mcp. Transport is streamable HTTP; first-party client configs (Cursor, Windsurf, Claude Desktop) are just {\"url\": \"https://developer.jamf.com/mcp\"} with no OAuth flow or API key, so auth_type=NONE. Verified 2026-08-26: the server exposes 6 tools — five read-only developer-docs/API-reference tools plus execute-request, which sends a caller-supplied HAR request (URL, method, headers, body) and is flagged destructive/open-world by the server. It is not the tenant-management toolset the retired mcp-hub option exposed, but with credentials supplied by the agent it can reach Jamf APIs; gate execute-request with tool approval where that matters. Tracecat does not map the server's destructiveHint/openWorldHint onto tool defaults.\n\nRETIRED (2026-08-26): the local mcp-hub stdio option was removed. Its git-pinned recipe fails under fresh dependency resolution — the server imports mcp.server.fastmcp, which no longer exists once its unconstrained mcp dependency resolves to 2.x — so cold installs die at startup. The option id remote-http is kept so clients holding a cached catalog keep connecting; Jamf tenant device management (Jamf Pro/Protect/Security Cloud inventory and actions) is not available through it.",
+              "sources": [
+                "https://developer.jamf.com/developer-guide/docs/mcp"
+              ]
+            }
+          }
         }
-      }
+      ]
     },
     {
       "slug": "iru-mcp",

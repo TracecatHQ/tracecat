@@ -186,6 +186,12 @@ def test_user_supplied_uri_rejects_embedded_credentials() -> None:
             "https://mcp.internal.example/proxy/freshservice",
             id="freshservice-host-outside-template",
         ),
+        pytest.param(
+            "servicenow-mcp",
+            MCPAuthType.OAUTH2,
+            "https://acme.service-now.com/sncapps/mcp-server/mcp/itsm",
+            id="servicenow-instance-and-server-placeholders",
+        ),
     ],
 )
 def test_user_supplied_uri_accepts_any_host(

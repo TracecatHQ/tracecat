@@ -3147,8 +3147,7 @@ class IntegrationService(BaseWorkspaceService):
         # marker. Adopt a null-slug row only when its slug matches the catalog
         # slug AND its server config matches the catalog recipe, then heal it
         # in place. The recipe check prevents a coincidentally same-named custom
-        # integration from being hijacked as a platform row, and keeps a
-        # stale-bound row that was detached on update from being re-bound.
+        # integration from being hijacked as a platform row.
         connection = self._resolve_catalog_connect_option(catalog)
         spec = connection.spec if connection else None
         if spec is not None:
@@ -4192,8 +4191,8 @@ class IntegrationService(BaseWorkspaceService):
         previous_auth_type = mcp_integration.auth_type
         previous_server_type = cast(MCPServerType, mcp_integration.server_type)
         # A binding left behind by a retired or re-transported recipe makes the
-        # row a custom server: skip catalog validation and drop the marker on
-        # this write.
+        # row a custom server: skip catalog validation for it. The marker is
+        # left in place; every read path already ignores a stale binding.
         binding_is_current = (
             mcp_integration.catalog_slug is None
             or catalog_binding_is_current(
@@ -4359,12 +4358,6 @@ class IntegrationService(BaseWorkspaceService):
                 )
 
         # Update fields
-        if not binding_is_current:
-            self.logger.info(
-                "Detaching MCP integration from stale catalog binding",
-                mcp_integration_id=mcp_integration.id,
-            )
-            mcp_integration.catalog_slug = None
         if params.name is not None:
             if params.name.strip() != mcp_integration.name:
                 mcp_integration.name = params.name.strip()

@@ -1695,13 +1695,13 @@ class TestMCPIntegrationCRUD:
         )
         assert {row.id for row in platform_rows} == {bound.id}
 
-    async def test_update_detaches_stale_bound_row(
+    async def test_update_skips_catalog_validation_for_stale_bound_row(
         self,
         integration_service: IntegrationService,
         session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Editing a stale-bound row succeeds and turns it into a custom row."""
+        """Editing a stale-bound row succeeds without touching the binding."""
         catalog = _catalog_entry(
             slug="rehosted-update-mcp",
             name="Rehosted Update MCP",
@@ -1737,10 +1737,13 @@ class TestMCPIntegrationCRUD:
         )
 
         assert updated is not None
-        assert updated.catalog_slug is None
         assert updated.stdio_args == ["mcp-rehosted", "--verbose"]
+        # The marker stays; read paths already treat the binding as stale, and
+        # a transient catalog load failure must never unbind a row for good.
         await session.refresh(stale)
-        assert stale.catalog_slug is None
+        assert stale.catalog_slug == catalog.slug
+        listed = await integration_service.list_mcp_integrations(source="workspace")
+        assert stale.id in {row.id for row in listed}
 
     async def test_platform_mcp_catalog_existing_row_connects_without_entitlement(
         self,
