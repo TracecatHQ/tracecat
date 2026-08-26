@@ -8,21 +8,17 @@ from transport/auth/URI heuristics.
 The server URI policy is credential-driven. A recipe that declares a
 ``target: "server_uri"`` credential (or ships no URI at all) delegates the
 URI to the user; a recipe with a bare literal URI is a fixed vendor endpoint
-and must match exactly. Both are a security boundary: a trusted catalog row
-must not be bound to an arbitrary host that would then receive its tokens
-over the MCP transport, so a templated URI still pins the host shape around
-its placeholders while leaving the path unconstrained.
+and must match exactly. The exact match is a security boundary: a trusted
+catalog row must not be bound to an arbitrary host that would then receive
+its tokens over the MCP transport.
 """
 
 from __future__ import annotations
 
-import re
-from collections.abc import Iterable
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from tracecat.integrations.catalog.loader import (
-    _PLACEHOLDER_RE,
     get_platform_mcp_catalog_entry_by_slug,
 )
 from tracecat.integrations.catalog.types import PlatformMCPCatalogEntry
@@ -166,56 +162,10 @@ def _server_uri_mismatch(spec: MCPHTTPConnectionSpec, *, server_uri: str) -> str
         parsed = urlparse(server_uri)
         if parsed.username is not None or parsed.password is not None:
             return "server URI must not embed credentials"
-        host_pattern = _server_uri_host_pattern(
-            spec.server_uri,
-            placeholder_keys=[
-                cred.key for cred in spec.credentials if cred.target == "server_uri"
-            ],
-        )
-        if host_pattern is not None and not host_pattern.fullmatch(
-            parsed.hostname or ""
-        ):
-            return "server URI host does not match the catalog recipe"
         return None
     if server_uri != spec.server_uri:
         return f"server URI must be {spec.server_uri}"
     return None
-
-
-def _server_uri_host_pattern(
-    template: str, *, placeholder_keys: Iterable[str] = ()
-) -> re.Pattern[str] | None:
-    """Compile the host part of a templated recipe URI into a host matcher.
-
-    ``https://chronicle.{REGION}.rep.googleapis.com/mcp`` yields a pattern
-    that accepts ``chronicle.eu.rep.googleapis.com`` but not a host that only
-    embeds it. Placeholders are ``{NAME}``, ``<name>``, or a bare
-    ``server_uri`` credential key written into the host (Scanner's
-    ``mcp.your-env-here.scanner.dev``); each matches one or more host
-    characters, while literal text must match exactly, case-insensitively.
-    Returns ``None`` when the template has no ``scheme://host`` part, so
-    recipes that ship no URI stay unconstrained. Ports, paths and query
-    strings are never constrained.
-    """
-    _, scheme_sep, rest = template.partition("://")
-    if not scheme_sep:
-        return None
-    host_template = re.split(r"[/?#]", rest, maxsplit=1)[0]
-    # An explicit port never reaches urlparse().hostname, so drop it here.
-    host_template = re.sub(r":\d+$", "", host_template)
-    if not host_template:
-        return None
-    # Longest keys first so one key never splits inside another.
-    alternatives = [_PLACEHOLDER_RE.pattern] + [
-        re.escape(key) for key in sorted(set(placeholder_keys), key=len, reverse=True)
-    ]
-    placeholder_re = re.compile("(" + "|".join(alternatives) + ")")
-    parts = [
-        "[^/@?#]+" if placeholder_re.fullmatch(part) else re.escape(part)
-        for part in placeholder_re.split(host_template)
-        if part
-    ]
-    return re.compile("".join(parts), re.IGNORECASE)
 
 
 def catalog_binding_is_current(

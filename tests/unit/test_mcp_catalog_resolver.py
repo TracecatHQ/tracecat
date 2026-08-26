@@ -160,120 +160,46 @@ def test_user_supplied_uri_rejects_embedded_credentials() -> None:
 
 
 @pytest.mark.parametrize(
-    ("slug", "server_uri"),
+    ("slug", "auth_type", "server_uri"),
     [
         pytest.param(
-            "google-cloud-secops-mcp",
-            "https://chronicle.eu.rep.googleapis.com/mcp",
-            id="secops-eu-region",
-        ),
-        pytest.param(
-            "google-cloud-secops-mcp",
-            "https://chronicle.us.rep.googleapis.com/mcp/",
-            id="secops-trailing-slash",
-        ),
-        pytest.param(
-            "google-cloud-secops-mcp",
-            "https://CHRONICLE.US.rep.googleapis.com/mcp",
-            id="secops-host-case-insensitive",
-        ),
-        pytest.param(
-            "freshservice-mcp",
-            "https://acme.freshservice.com/mcp",
-            id="freshservice-any-host",
-        ),
-        pytest.param(
-            "freshservice-mcp",
-            "https://mcp.internal.example/mcp",
-            id="freshservice-whole-host-placeholder",
-        ),
-        pytest.param(
-            "panther-mcp",
-            "https://api.acme.runpanther.net/mcp",
-            id="panther-api-prefix",
-        ),
-        pytest.param(
-            "servicenow-mcp",
-            "https://acme.service-now.com/sncapps/mcp-server/mcp/main",
-            id="servicenow-instance",
-        ),
-    ],
-)
-def test_templated_uri_accepts_hosts_matching_the_recipe(
-    slug: str, server_uri: str
-) -> None:
-    resolved = resolve_catalog_connection(
-        _entry(slug),
-        server_type="http",
-        auth_type=MCPAuthType.OAUTH2,
-        server_uri=server_uri,
-    )
-    assert resolved.spec.server_type == "http"
-
-
-# Single-recipe rows report the host reason directly; multi-recipe rows
-# (Panther also ships a stdio option) fall back to the generic message.
-@pytest.mark.parametrize(
-    ("slug", "auth_type", "server_uri", "match"),
-    [
-        pytest.param(
-            "google-cloud-secops-mcp",
-            MCPAuthType.OAUTH2,
-            "https://evil.example/mcp",
-            "host does not match",
-            id="secops-foreign-host",
+            "iru-mcp",
+            MCPAuthType.CUSTOM,
+            "https://customer.connect.iru.dev/mcp-server/connector/tracecat/tools",
+            id="iru-real-tenant-behind-sentinel-template",
         ),
         pytest.param(
             "google-cloud-secops-mcp",
             MCPAuthType.OAUTH2,
-            "https://chronicle.us.rep.googleapis.com.evil.example/mcp",
-            "host does not match",
-            id="secops-suffixed-host",
-        ),
-        pytest.param(
-            "panther-mcp",
-            MCPAuthType.OAUTH2,
-            "https://acme.runpanther.net/mcp",
-            "does not match any connection option",
-            id="panther-missing-api-prefix",
-        ),
-        pytest.param(
-            "servicenow-mcp",
-            MCPAuthType.OAUTH2,
-            "https://acme.service-now.com.evil.example/sncapps/mcp-server/mcp/main",
-            "host does not match",
-            id="servicenow-suffixed-host",
+            "https://chronicle.asia-southeast1.rep.googleapis.com/mcp",
+            id="secops-region-placeholder",
         ),
         pytest.param(
             "scanner-mcp",
             MCPAuthType.CUSTOM,
-            "https://mcp.acme-prod.scanner.dev.evil.example/v1/mcp",
-            "host does not match",
-            id="scanner-bare-key-placeholder-suffixed-host",
+            "http://localhost:8080/v1/mcp",
+            id="scanner-local-server",
+        ),
+        pytest.param(
+            "google-cloud-secops-mcp",
+            MCPAuthType.OAUTH2,
+            "https://mcp.internal.example/proxy/chronicle",
+            id="secops-host-outside-template",
         ),
     ],
 )
-def test_templated_uri_rejects_hosts_outside_the_recipe(
-    slug: str, auth_type: MCPAuthType, server_uri: str, match: str
+def test_user_supplied_uri_accepts_any_host(
+    slug: str, auth_type: MCPAuthType, server_uri: str
 ) -> None:
-    with pytest.raises(CatalogConnectionError, match=match):
-        resolve_catalog_connection(
-            _entry(slug),
-            server_type="http",
-            auth_type=auth_type,
-            server_uri=server_uri,
-        )
-
-
-def test_templated_uri_rejects_userinfo_host_spoof() -> None:
-    """The recipe host in the userinfo slot must not pass as the real host."""
-    with pytest.raises(CatalogConnectionError, match="embed credentials"):
-        resolve_catalog_connection(
-            _entry("google-cloud-secops-mcp"),
-            server_type="http",
-            auth_type=MCPAuthType.OAUTH2,
-            server_uri="https://chronicle.us.rep.googleapis.com@evil.example/mcp",
-        )
+    """Templated recipes never pin the host: local servers, proxies and vendor
+    URL changes must keep working, so only the user's URI is checked for shape."""
+    resolved = resolve_catalog_connection(
+        _entry(slug),
+        server_type="http",
+        auth_type=auth_type,
+        server_uri=server_uri,
+    )
+    assert resolved.option.connection_spec.server_type == "http"
 
 
 def test_mixed_transport_row_disambiguates_by_server_type() -> None:
