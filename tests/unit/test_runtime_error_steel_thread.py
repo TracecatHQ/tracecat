@@ -6,6 +6,7 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
@@ -575,6 +576,78 @@ async def test_error_handler_failure_replaces_original_terminal_owner() -> None:
 
     assert exc_info.value is handler_error
     upsert_mock.assert_called_once_with(handler_error)
+
+
+@pytest.mark.anyio
+async def test_error_handler_lookup_failure_stamps_escaping_error() -> None:
+    instance, args = _error_handler_workflow()
+    original_envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    lookup_envelope = ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not resolve the error handler",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    original_error = _capture_application_error(original_envelope)
+    lookup_error = _capture_application_error(lookup_envelope)
+
+    with (
+        patch.object(
+            instance,
+            "_get_error_handler_workflow_id",
+            new=AsyncMock(side_effect=lookup_error),
+        ),
+        patch.object(
+            DSLWorkflow,
+            "_upsert_terminal_error_owner",
+        ) as upsert_mock,
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await instance._handle_application_error(
+            args,
+            original_error,
+            stamp_terminal_owner=True,
+        )
+
+    assert exc_info.value is lookup_error
+    upsert_mock.assert_called_once_with(lookup_error)
+
+
+@pytest.mark.anyio
+async def test_error_handler_detail_adaptation_failure_stamps_escaping_error() -> None:
+    instance, args = _error_handler_workflow()
+    original_envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    original_error = _capture_application_error(
+        original_envelope,
+        {"action": {"invalid": "detail"}},
+    )
+
+    with (
+        patch.object(
+            instance,
+            "_get_error_handler_workflow_id",
+            new=AsyncMock(return_value=args.wf_id),
+        ),
+        patch.object(
+            DSLWorkflow,
+            "_upsert_terminal_error_owner",
+        ) as upsert_mock,
+        pytest.raises(ValidationError) as exc_info,
+    ):
+        await instance._handle_application_error(
+            args,
+            original_error,
+            stamp_terminal_owner=True,
+        )
+
+    upsert_mock.assert_called_once_with(exc_info.value)
 
 
 def test_terminal_platform_owner_wins_for_alert_attribution() -> None:
