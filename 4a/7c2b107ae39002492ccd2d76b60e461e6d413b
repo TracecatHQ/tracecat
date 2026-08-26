@@ -1,0 +1,22 @@
+tracecat/integrations/catalog/resolver.py
+  s_074f60bd4e6223::t_caee082d1d0786 11-13
+tests/unit/test_mcp_catalog_resolver.py
+  s_074f60bd4e6223::t_4b421dc79476bb 202
+  s_074f60bd4e6223::t_060152778ee767 163,166-169,173-175,178-181,184-187,191-192,194-195,199
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "4a7c2b107ae39002492ccd2d76b60e461e6d413b",
+  "prompts": {},
+  "sessions": {
+    "s_074f60bd4e6223": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12df82ba-1b3e-48b6-932a-384f445300a1",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
