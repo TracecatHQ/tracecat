@@ -13,6 +13,7 @@ import {
 } from "@/client"
 import {
   CaseRowsLinkError,
+  CaseRowsUnlinkError,
   caseRowsQueryKey,
   useCaseLinkedTables,
   useCaseTableRows,
@@ -62,6 +63,21 @@ async function captureLinkError(
     throw error
   }
   throw new Error("Expected the link to reject")
+}
+
+/** Await an unlink that must reject with the hook's partial-failure error. */
+async function captureUnlinkError(
+  promise: Promise<unknown>
+): Promise<CaseRowsUnlinkError> {
+  try {
+    await promise
+  } catch (error) {
+    if (error instanceof CaseRowsUnlinkError) {
+      return error
+    }
+    throw error
+  }
+  throw new Error("Expected the unlink to reject")
 }
 
 function setup() {
@@ -199,6 +215,42 @@ describe("useUnlinkCaseRows", () => {
         queryKey: ["case-rows", "case-1"],
       })
     })
+  })
+
+  it("reports what committed when a later chunk fails", async () => {
+    const failure = new Error("boom")
+    mockBatchUnlink
+      .mockResolvedValueOnce({ unlinked_count: 200 })
+      .mockRejectedValueOnce(failure)
+    const { wrapper } = setup()
+
+    const { result } = renderHook(() => useUnlinkCaseRows(SCOPE), { wrapper })
+    const error = await captureUnlinkError(
+      result.current.unlinkCaseRows({
+        tableId: "table-1",
+        rowIds: TWO_CHUNK_ROW_IDS,
+      })
+    )
+
+    expect(error.unlinkedCount).toBe(200)
+    expect(error.committedRowIds).toEqual(TWO_CHUNK_ROW_IDS.slice(0, 200))
+    expect(error.cause).toBe(failure)
+    expect(mockBatchUnlink).toHaveBeenCalledTimes(2)
+  })
+
+  it("reports nothing committed when the first chunk fails", async () => {
+    const failure = new Error("boom")
+    mockBatchUnlink.mockRejectedValueOnce(failure)
+    const { wrapper } = setup()
+
+    const { result } = renderHook(() => useUnlinkCaseRows(SCOPE), { wrapper })
+    const error = await captureUnlinkError(
+      result.current.unlinkCaseRows({ tableId: "table-1", rowIds: ["row-1"] })
+    )
+
+    expect(error.unlinkedCount).toBe(0)
+    expect(error.committedRowIds).toEqual([])
+    expect(error.cause).toBe(failure)
   })
 })
 

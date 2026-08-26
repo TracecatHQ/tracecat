@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import {
+  CaseRowsUnlinkError,
   useCaseLinkedTables,
   useCaseTableRows,
   useUnlinkCaseRows,
@@ -208,6 +209,30 @@ function CaseLinkedTableSection({
         } from this case.`,
       })
     } catch (error) {
+      // Every request commits on its own: deselect what landed before a retry.
+      if (error instanceof CaseRowsUnlinkError) {
+        const committedRowIds = new Set(error.committedRowIds)
+        setSelectedRowIds((previous) =>
+          dropCommitted(previous, committedRowIds)
+        )
+        const detail = getApiErrorDetail(error.cause) ?? "Try again."
+        if (error.unlinkedCount > 0) {
+          toast({
+            title: "Some rows were not unlinked",
+            description: `Unlinked ${error.unlinkedCount} ${
+              error.unlinkedCount === 1 ? "row" : "rows"
+            } before a request failed. ${detail}`,
+            variant: "destructive",
+          })
+          return
+        }
+        toast({
+          title: "Could not unlink rows",
+          description: detail,
+          variant: "destructive",
+        })
+        return
+      }
       toast({
         title: "Could not unlink rows",
         description: getApiErrorDetail(error) ?? "Try again.",
@@ -301,4 +326,18 @@ function CaseLinkedTableSection({
       </div>
     </div>
   )
+}
+
+/**
+ * The selection minus everything a failed multi-request unlink already
+ * committed, so a retry only re-sends what is left.
+ */
+function dropCommitted(
+  selected: ReadonlySet<string>,
+  committedRowIds: ReadonlySet<string>
+): ReadonlySet<string> {
+  const remaining = new Set(
+    [...selected].filter((rowId) => !committedRowIds.has(rowId))
+  )
+  return remaining.size === 0 ? EMPTY_SELECTION : remaining
 }

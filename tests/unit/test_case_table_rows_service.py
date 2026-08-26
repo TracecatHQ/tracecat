@@ -1,23 +1,32 @@
+import asyncio
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
+from tests.conftest import TEST_ORG_ID
+from tests.database import TEST_DB_CONFIG
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.rows import service as case_rows_service_module
-from tracecat.cases.rows.schemas import CaseTableRowLinkCreate
+from tracecat.cases.rows.schemas import (
+    CaseTableRowBatchLinkResponse,
+    CaseTableRowLinkCreate,
+)
 from tracecat.cases.rows.service import (
     MAX_TABLES_PER_CASE,
     CaseTableRowsService,
 )
 from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
-from tracecat.db.models import CaseEvent, CaseTableRow, Table
+from tracecat.db.models import CaseEvent, CaseTableRow, Table, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
@@ -944,3 +953,123 @@ async def test_unlink_rows_returns_zero_when_nothing_linked(
     )
     assert unlinked_count == 0
     assert event_count == 0
+
+
+@pytest.mark.anyio
+async def test_concurrent_link_rows_cannot_exceed_row_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Guard against two concurrent link requests both passing the row cap.
+
+    The cap is enforced by reading an aggregate link count and then inserting,
+    so without a row lock on the case both requests read the same pre-insert
+    count, both believe there is room, and the case ends up over
+    ``MAX_LINKED_ROWS_PER_CASE``. Each request runs on its own connection so the
+    race is real rather than simulated.
+    """
+    link_limit = 3
+    monkeypatch.setattr(
+        case_rows_service_module, "MAX_LINKED_ROWS_PER_CASE", link_limit
+    )
+
+    # Own engine, not the ``session`` fixture: that fixture pins the test to a
+    # single connection inside an outer transaction that is never committed, so
+    # a second connection would neither see the seeded links nor be able to
+    # acquire the case lock.
+    engine = create_async_engine(
+        TEST_DB_CONFIG.test_url,
+        poolclass=NullPool,
+        # Fail fast instead of hanging the suite if the lock is never released.
+        connect_args={"server_settings": {"lock_timeout": "30s"}},
+    )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        workspace_id=workspace_id,
+        organization_id=TEST_ORG_ID,
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+        scopes=ADMIN_SCOPES,
+    )
+
+    try:
+        async with session_factory() as setup_session:
+            setup_session.add(
+                Workspace(
+                    id=workspace_id,
+                    name=f"case-rows-race-{workspace_id.hex[:8]}",
+                    organization_id=TEST_ORG_ID,
+                )
+            )
+            await setup_session.commit()
+
+            tables_service = TablesService(session=setup_session, role=role)
+            table_id, row_ids = await _create_table_with_rows(
+                tables_service,
+                name=f"case_rows_race_limit_{uuid.uuid4().hex[:8]}",
+                values=["one", "two", "three", "four"],
+            )
+            case = await _create_case(CasesService(session=setup_session, role=role))
+            case_id = case.id
+
+            seeded = await CaseTableRowsService(
+                session=setup_session, role=role
+            ).link_rows(case=case, table_id=table_id, row_ids=row_ids[:2])
+            assert seeded.linked_count == 2
+
+        async def link_one(row_id: uuid.UUID) -> CaseTableRowBatchLinkResponse:
+            async with session_factory() as task_session:
+                service = CaseTableRowsService(session=task_session, role=role)
+                task_case = await service.get_case_or_raise(case_id)
+                return await service.link_rows(
+                    case=task_case,
+                    table_id=table_id,
+                    row_ids=[row_id],
+                )
+
+        results = await asyncio.gather(
+            link_one(row_ids[2]),
+            link_one(row_ids[3]),
+            return_exceptions=True,
+        )
+
+        linked = [
+            result
+            for result in results
+            if isinstance(result, CaseTableRowBatchLinkResponse)
+        ]
+        errors = [result for result in results if isinstance(result, BaseException)]
+        assert len(linked) == 1, results
+        assert linked[0].linked_count == 1
+        assert len(errors) == 1, results
+        assert isinstance(errors[0], ValueError)
+        assert f"at most {link_limit} linked rows" in str(errors[0])
+
+        async with session_factory() as verify_session:
+            total_links = await verify_session.scalar(
+                select(func.count())
+                .select_from(CaseTableRow)
+                .where(CaseTableRow.case_id == case_id)
+            )
+        assert total_links == link_limit
+    finally:
+        async with session_factory() as cleanup_session:
+            tables = (
+                (
+                    await cleanup_session.execute(
+                        select(Table).where(Table.workspace_id == workspace_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            cleanup_tables_service = TablesService(session=cleanup_session, role=role)
+            for table in tables:
+                await cleanup_tables_service.delete_table(table)
+            await cleanup_session.execute(
+                sa.delete(Workspace).where(Workspace.id == workspace_id)
+            )
+            await cleanup_session.commit()
+        await engine.dispose()

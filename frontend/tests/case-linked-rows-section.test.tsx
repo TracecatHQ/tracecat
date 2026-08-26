@@ -9,13 +9,17 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseLinkedRowsSection } from "@/components/cases/case-linked-rows-section"
 import { toast } from "@/components/ui/use-toast"
 import {
+  CaseRowsUnlinkError,
   useCaseLinkedTables,
   useCaseTableRows,
   useUnlinkCaseRows,
 } from "@/hooks/use-case-rows"
 import { useGetTable } from "@/lib/hooks"
 
+// Only the hooks are stubbed: the section branches on the real
+// CaseRowsUnlinkError.
 jest.mock("@/hooks/use-case-rows", () => ({
+  ...jest.requireActual("@/hooks/use-case-rows"),
   useCaseLinkedTables: jest.fn(),
   useCaseTableRows: jest.fn(),
   useUnlinkCaseRows: jest.fn(),
@@ -276,6 +280,37 @@ describe("CaseLinkedRowsSection", () => {
       })
     })
     expect(screen.getByTestId("row-r1")).toBeChecked()
+  })
+
+  it("reports partial success and deselects what unlinked", async () => {
+    const user = userEvent.setup()
+    mockUnlinkCaseRows.mockRejectedValueOnce(
+      new CaseRowsUnlinkError({
+        unlinkedCount: 1,
+        committedRowIds: ["r1"],
+        cause: Object.assign(new Error("Forbidden"), {
+          status: 403,
+          body: { detail: "Not allowed" },
+        }),
+      })
+    )
+    renderSection()
+
+    await user.click(screen.getByTestId("row-r1"))
+    await user.click(screen.getByTestId("row-r2"))
+    await user.click(screen.getByRole("button", { name: "Unlink" }))
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Some rows were not unlinked",
+        description: "Unlinked 1 row before a request failed. Not allowed",
+        variant: "destructive",
+      })
+    })
+    // r1 committed, so only r2 is left for a retry.
+    expect(screen.getByTestId("row-r1")).not.toBeChecked()
+    expect(screen.getByTestId("row-r2")).toBeChecked()
+    expect(screen.getByText("1 selected")).toBeInTheDocument()
   })
 
   it("opens the dialog without a table from the link row", async () => {

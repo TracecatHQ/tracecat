@@ -66,6 +66,28 @@ export interface UnlinkCaseRowsResult {
   unlinkedCount: number
 }
 
+/** A batch-unlink call failed after some chunks were already committed. */
+export class CaseRowsUnlinkError extends Error {
+  readonly unlinkedCount: number
+  /** Row IDs in the chunks that committed before the failure. */
+  readonly committedRowIds: readonly string[]
+
+  constructor({
+    unlinkedCount,
+    committedRowIds,
+    cause,
+  }: {
+    unlinkedCount: number
+    committedRowIds: readonly string[]
+    cause: unknown
+  }) {
+    super("Unlinking rows failed after some rows were committed", { cause })
+    this.name = "CaseRowsUnlinkError"
+    this.unlinkedCount = unlinkedCount
+    this.committedRowIds = committedRowIds
+  }
+}
+
 /** Query-key prefix covering the linked-tables summary and every per-table page. */
 export function caseRowsQueryKey(caseId: string): string[] {
   return ["case-rows", caseId]
@@ -194,20 +216,36 @@ export function useLinkCaseRows({ caseId, workspaceId }: CaseRowsScope) {
   return { linkCaseRows, linkCaseRowsIsPending }
 }
 
-/** Unlink rows of one table from a case (chunked into batches of 200). */
+/**
+ * Unlink rows of one table from a case (chunked into batches of 200).
+ *
+ * Rejects with a {@link CaseRowsUnlinkError} carrying whatever the chunks
+ * before the failure committed, so callers can report partial success and drop
+ * the committed rows from a retry.
+ */
 export function useUnlinkCaseRows({ caseId, workspaceId }: CaseRowsScope) {
   const queryClient = useQueryClient()
   const { mutateAsync: unlinkCaseRows, isPending: unlinkCaseRowsIsPending } =
-    useMutation<UnlinkCaseRowsResult, ApiError, CaseRowsBatch>({
+    useMutation<UnlinkCaseRowsResult, CaseRowsUnlinkError, CaseRowsBatch>({
       mutationFn: async ({ tableId, rowIds }) => {
         let unlinkedCount = 0
+        const committedRowIds: string[] = []
         for (const batch of chunkRowIds(rowIds)) {
-          const response = await casesBatchUnlinkCaseRows({
-            caseId,
-            workspaceId,
-            requestBody: { table_id: tableId, row_ids: batch },
-          })
-          unlinkedCount += response.unlinked_count
+          try {
+            const response = await casesBatchUnlinkCaseRows({
+              caseId,
+              workspaceId,
+              requestBody: { table_id: tableId, row_ids: batch },
+            })
+            unlinkedCount += response.unlinked_count
+            committedRowIds.push(...batch)
+          } catch (error) {
+            throw new CaseRowsUnlinkError({
+              unlinkedCount,
+              committedRowIds,
+              cause: error,
+            })
+          }
         }
         return { unlinkedCount }
       },

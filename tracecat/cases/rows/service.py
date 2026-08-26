@@ -55,6 +55,23 @@ class CaseTableRowsService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalars().first()
 
+    async def _lock_case(self, case_id: uuid.UUID) -> None:
+        """Serialize concurrent link requests for the same case.
+
+        The limit checks below read aggregate state, so without a lock two
+        in-flight link requests can both observe pre-insert counts and exceed
+        the case limits. The lock is released when this transaction commits or
+        rolls back.
+        """
+        await self.session.execute(
+            select(Case.id)
+            .where(
+                Case.workspace_id == self.workspace_id,
+                Case.id == case_id,
+            )
+            .with_for_update()
+        )
+
     async def _count_links(self, case_id: uuid.UUID) -> int:
         stmt = (
             select(func.count())
@@ -188,6 +205,8 @@ class CaseTableRowsService(BaseWorkspaceService):
         if existing is not None:
             return existing
 
+        await self._lock_case(case.id)
+
         total_links = await self._count_links(case.id)
         if total_links >= MAX_LINKED_ROWS_PER_CASE:
             existing = await self._get_existing_link(
@@ -275,6 +294,8 @@ class CaseTableRowsService(BaseWorkspaceService):
             raise TracecatNotFoundError(
                 f"{len(missing)} of {len(requested)} rows not found in table {table.name}"
             )
+
+        await self._lock_case(case.id)
 
         existing_stmt = select(CaseTableRow.row_id).where(
             CaseTableRow.workspace_id == self.workspace_id,
