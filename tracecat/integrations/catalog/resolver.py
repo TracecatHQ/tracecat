@@ -166,3 +166,25 @@ def _server_uri_mismatch(spec: MCPHTTPConnectionSpec, *, server_uri: str) -> str
     if server_uri != spec.server_uri:
         return f"server URI must be {spec.server_uri}"
     return None
+
+
+def catalog_binding_is_current(
+    *, catalog_slug: str, server_type: str, include_private: bool = True
+) -> bool:
+    """Whether a row's ``catalog_slug`` binding still matches a connect recipe.
+
+    True when the entry exists and either offers no connect options at all
+    (coming-soon and unentitled rows keep their binding) or at least one
+    option's spec uses ``server_type``. A binding left behind by a retired or
+    re-transported recipe, e.g. a stdio row on a now HTTP-only slug created
+    during a rolling deploy, is stale and the row is treated as custom.
+    """
+    entry = get_platform_mcp_catalog_entry_by_slug(
+        catalog_slug, include_private=include_private
+    )
+    if entry is None:
+        return False
+    options = connect_options(entry)
+    if not options:
+        return True
+    return any(option.connection_spec.server_type == server_type for option in options)

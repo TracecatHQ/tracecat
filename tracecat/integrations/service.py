@@ -62,6 +62,7 @@ from tracecat.integrations.catalog.loader import (
 from tracecat.integrations.catalog.resolver import (
     CatalogConnectionError,
     ResolvedCatalogConnection,
+    catalog_binding_is_current,
     connect_options,
     resolve_available_catalog_entry,
     resolve_catalog_connection,
@@ -3392,14 +3393,21 @@ class IntegrationService(BaseWorkspaceService):
             MCPIntegration.catalog_slug == catalog.slug,
         )
         result = await self.session.execute(statement)
-        if mcp_integration := result.scalars().first():
-            return mcp_integration
+        # A row bound during a rolling deploy may carry a recipe this entry no
+        # longer offers (e.g. stdio on a now HTTP-only slug). Such a row is a
+        # custom server and must not shadow the hosted replacement.
+        for mcp_integration in result.scalars():
+            if catalog_binding_is_current(
+                catalog_slug=catalog.slug, server_type=mcp_integration.server_type
+            ):
+                return mcp_integration
 
         # Legacy rows predate the ``catalog_slug`` column, so they carry no
         # marker. Adopt a null-slug row only when its slug matches the catalog
         # slug AND its server config matches the catalog recipe, then heal it
         # in place. The recipe check prevents a coincidentally same-named custom
-        # integration from being hijacked as a platform row.
+        # integration from being hijacked as a platform row, and keeps a
+        # stale-bound row that was detached on update from being re-bound.
         connection = self._resolve_catalog_connect_option(catalog)
         spec = connection.spec if connection else None
         if spec is not None:
@@ -3670,9 +3678,14 @@ class IntegrationService(BaseWorkspaceService):
 
         Platform-managed rows are auto-created by ``MCPAuthProvider`` flows in
         ``_auto_create_mcp_integration_if_needed`` or created from catalog
-        recipes carrying a ``catalog_slug`` marker.
+        recipes carrying a ``catalog_slug`` marker. A marker whose recipe no
+        longer exists for the row's transport is stale and does not count,
+        so the row surfaces as a custom server instead of disappearing.
         """
-        if mcp_integration.catalog_slug is not None:
+        if mcp_integration.catalog_slug is not None and catalog_binding_is_current(
+            catalog_slug=mcp_integration.catalog_slug,
+            server_type=mcp_integration.server_type,
+        ):
             return True
 
         oauth_integration = mcp_integration.oauth_integration
@@ -4464,6 +4477,19 @@ class IntegrationService(BaseWorkspaceService):
         previous_stdio_tools: list[dict[str, Any]] | None = None
         previous_auth_type = mcp_integration.auth_type
         previous_server_type = cast(MCPServerType, mcp_integration.server_type)
+        # A binding left behind by a retired or re-transported recipe makes the
+        # row a custom server: skip catalog validation and drop the marker on
+        # this write.
+        binding_is_current = (
+            mcp_integration.catalog_slug is None
+            or catalog_binding_is_current(
+                catalog_slug=mcp_integration.catalog_slug,
+                server_type=previous_server_type,
+            )
+        )
+        bound_catalog_slug = (
+            mcp_integration.catalog_slug if binding_is_current else None
+        )
         target_server_type = params.server_type or previous_server_type
         server_type_changed = (
             params.server_type is not None
@@ -4525,18 +4551,18 @@ class IntegrationService(BaseWorkspaceService):
             )
             # Only revalidate against the catalog when the connection itself
             # moved; a drifted recipe must never block a rename or timeout edit.
-            if connection_changed and mcp_integration.catalog_slug:
+            if connection_changed and bound_catalog_slug:
                 self._resolve_catalog_connection_for_update(
-                    catalog_slug=mcp_integration.catalog_slug,
+                    catalog_slug=bound_catalog_slug,
                     server_type="http",
                     auth_type=target_auth_type,
                     server_uri=target_server_uri,
                 )
             # Explicitly setting headers (including clearing them with "")
             # must keep every header the bound recipe marks required.
-            if params.custom_credentials is not None and mcp_integration.catalog_slug:
+            if params.custom_credentials is not None and bound_catalog_slug:
                 bound_spec = self._bound_catalog_spec_for_update(
-                    catalog_slug=mcp_integration.catalog_slug,
+                    catalog_slug=bound_catalog_slug,
                     server_type="http",
                     auth_type=target_auth_type,
                     server_uri=target_server_uri,
@@ -4612,7 +4638,7 @@ class IntegrationService(BaseWorkspaceService):
             )
             if target_stdio_env is not None:
                 self._validate_stdio_env_against_catalog(
-                    catalog_slug=mcp_integration.catalog_slug,
+                    catalog_slug=bound_catalog_slug,
                     stdio_env=target_stdio_env,
                 )
             stdio_connection_changed = server_type_changed or (
@@ -4633,6 +4659,12 @@ class IntegrationService(BaseWorkspaceService):
                 )
 
         # Update fields
+        if not binding_is_current:
+            self.logger.info(
+                "Detaching MCP integration from stale catalog binding",
+                mcp_integration_id=mcp_integration.id,
+            )
+            mcp_integration.catalog_slug = None
         if params.name is not None:
             if params.name.strip() != mcp_integration.name:
                 mcp_integration.name = params.name.strip()
