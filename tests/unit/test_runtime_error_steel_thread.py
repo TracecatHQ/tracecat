@@ -430,6 +430,60 @@ def test_workflow_error_preserves_all_action_envelopes() -> None:
     )
 
 
+def test_workflow_error_map_platform_entry_survives_terminal_aggregation() -> None:
+    """A platform-owned entry in a task's child terminal map wins re-extraction.
+
+    The scheduler selects platform-wins for mixed child maps; the terminal
+    aggregation must retain that ownership instead of collapsing to the first
+    (user) envelope in transport order.
+    """
+    user_envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The child action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    platform_envelope = ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the child action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    user_detail = _action_error_info(user_envelope, ref="user_child")
+    platform_detail = _action_error_info(platform_envelope, ref="platform_child")
+    child_error = _capture_application_error(
+        user_envelope,
+        {
+            "user_child": wrap_error(user_envelope, user_detail).model_dump(
+                mode="json"
+            ),
+            "platform_child": wrap_error(platform_envelope, platform_detail).model_dump(
+                mode="json"
+            ),
+        },
+    )
+    aggregate_detail = ActionErrorInfo(
+        ref="call_child",
+        message=platform_envelope.message,
+        type="ApplicationError",
+        children=[user_detail, platform_detail],
+    )
+
+    error = _capture_workflow_application_error(
+        {
+            "call_child": TaskExceptionInfo(
+                exception=child_error, details=aggregate_detail
+            )
+        }
+    )
+
+    assert extract_error_envelopes(error) == (platform_envelope,)
+    assert error.details[0]["call_child"]["envelope"] == platform_envelope.model_dump(
+        mode="json"
+    )
+    assert error.details[0]["call_child"]["error"] == aggregate_detail.model_dump(
+        mode="json"
+    )
+
+
 def test_legacy_workflow_error_shape_is_unchanged() -> None:
     detail = ActionErrorInfo(ref="action", message="Failed", type="ValueError")
     error = _capture_workflow_application_error(

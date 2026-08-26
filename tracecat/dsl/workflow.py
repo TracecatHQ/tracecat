@@ -129,7 +129,6 @@ with workflow.unsafe.imports_passed_through():
         trigger_key,
     )
     from tracecat.temporal.errors import (
-        extract_error_envelope,
         extract_error_envelopes,
         parse_classified_detail,
         raise_application_error_from_envelope,
@@ -183,6 +182,18 @@ ERROR_OWNER_CONTROL_FLOW_PATCH = "dsl-error-owner-control-flow-v1"
 ERROR_OWNER_AFTER_HANDLER_PATCH = "dsl-error-owner-after-handler-v1"
 
 
+def _platform_wins_envelope(envelopes: Sequence[ErrorEnvelope]) -> ErrorEnvelope:
+    """Select the first platform-owned envelope, else the first envelope."""
+    return next(
+        (
+            envelope
+            for envelope in envelopes
+            if envelope.owner is RuntimeErrorOwner.PLATFORM
+        ),
+        envelopes[0],
+    )
+
+
 def _raise_workflow_application_error(
     task_exceptions: Mapping[str, TaskExceptionInfo],
 ) -> Never:
@@ -190,10 +201,13 @@ def _raise_workflow_application_error(
     n_exceptions = len(task_exceptions)
     task_envelopes: dict[str, ErrorEnvelope] = {}
     for ref, info in task_exceptions.items():
-        envelope = extract_error_envelope(info.exception)
-        if envelope is None:
+        envelopes = extract_error_envelopes(info.exception)
+        if not envelopes:
             break
-        task_envelopes[ref] = envelope
+        # Mirror the scheduler's platform-wins selection: a platform-owned
+        # envelope anywhere in the task's transport (e.g. a later child
+        # terminal map entry) must survive terminal re-extraction.
+        task_envelopes[ref] = _platform_wins_envelope(envelopes)
     else:
         if task_envelopes:
             error_details = {
@@ -203,7 +217,7 @@ def _raise_workflow_application_error(
                 for ref, info in task_exceptions.items()
             }
             raise_application_error_from_envelope(
-                next(iter(task_envelopes.values())),
+                _platform_wins_envelope(tuple(task_envelopes.values())),
                 error_details,
             )
 
