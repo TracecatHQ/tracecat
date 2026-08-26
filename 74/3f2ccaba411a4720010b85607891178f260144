@@ -1,0 +1,23 @@
+tests/unit/test_mcp_catalog_loader.py
+  s_074f60bd4e6223::t_66963c15ee599a 6
+  s_074f60bd4e6223::t_26fe49af4616f4 40,42-47
+  s_074f60bd4e6223::t_e6d6c7816a6c67 41
+tests/unit/test_mcp_integrations.py
+  s_074f60bd4e6223::t_91399fbf9eba6b 1559-1561
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "743f2ccaba411a4720010b85607891178f260144",
+  "prompts": {},
+  "sessions": {
+    "s_074f60bd4e6223": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12df82ba-1b3e-48b6-932a-384f445300a1",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
