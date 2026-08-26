@@ -6,7 +6,10 @@ from google.auth.exceptions import GoogleAuthError, RefreshError
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.providers import PROVIDER_REGISTRY
 from tracecat.integrations.providers.base import BaseOAuthProvider
-from tracecat.integrations.providers.google.admin import GOOGLE_ADMIN_SCOPES
+from tracecat.integrations.providers.google.admin import (
+    GOOGLE_ADMIN_AC_SCOPES,
+    GOOGLE_ADMIN_SCOPES,
+)
 from tracecat.integrations.providers.google.service_account import (
     _is_unauthorized_client,
 )
@@ -17,7 +20,7 @@ CC = OAuthGrantType.CLIENT_CREDENTIALS
 
 EXPECTED_GRANT_TYPES: dict[str, set[OAuthGrantType]] = {
     "google": {CC},
-    "google_admin": {CC},
+    "google_admin": {AC, CC},
     "google_docs": {AC, CC},
     "google_drive": {AC, CC},
     "google_forms": {AC, CC},
@@ -84,6 +87,15 @@ def test_google_admin_default_scopes() -> None:
         scope.rsplit("/", 1)[1].startswith(("admin.", "apps.alerts"))
         for scope in GOOGLE_ADMIN_SCOPES
     )
+
+
+def test_google_admin_ac_scopes_exclude_alert_center() -> None:
+    """The user OAuth flow covers Directory and Reports, never Alert Center."""
+    ac_cls = PROVIDER_REGISTRY[ProviderKey(id="google_admin", grant_type=AC)]
+    cc_cls = PROVIDER_REGISTRY[ProviderKey(id="google_admin", grant_type=CC)]
+    assert ac_cls.scopes.default == GOOGLE_ADMIN_AC_SCOPES
+    assert not any(scope.endswith("apps.alerts") for scope in GOOGLE_ADMIN_AC_SCOPES)
+    assert set(GOOGLE_ADMIN_AC_SCOPES) < set(cc_cls.scopes.default)
 
 
 @pytest.mark.parametrize(
