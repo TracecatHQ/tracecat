@@ -1,0 +1,19 @@
+docs/automations/cases.mdx
+  s_ca70cedb5d591c::t_4ab0837a17c8ec 165-182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "19593e446569d458e90d406dd37b8ac53ea4f6dd",
+  "prompts": {},
+  "sessions": {
+    "s_ca70cedb5d591c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "007cd624-4ad9-4928-b97a-6193bb1d46fe",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
