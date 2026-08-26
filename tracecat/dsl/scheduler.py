@@ -122,7 +122,17 @@ def _classified_action_error_info(
                     envelope,
                 )
             case dict() as wrapped_map if wrapped_map:
-                # A child workflow's terminal ``{ref: detail}`` map.
+                # A child workflow's terminal ``{ref: detail}`` map. Ownership
+                # aggregates platform-wins across entries so a platform-owned
+                # child failure is never hidden behind an earlier user entry.
+                map_envelope = next(
+                    (
+                        wrapped.envelope
+                        for wrapped in wrapped_map.values()
+                        if wrapped.envelope.owner is RuntimeErrorOwner.PLATFORM
+                    ),
+                    envelope,
+                )
                 children = [
                     _unwrapped_action_error(child_ref, wrapped)
                     for child_ref, wrapped in wrapped_map.items()
@@ -130,12 +140,12 @@ def _classified_action_error_info(
                 return (
                     ActionErrorInfo(
                         ref=ref,
-                        message=envelope.message,
+                        message=map_envelope.message,
                         type=error.type or error.__class__.__name__,
                         stream_id=stream_id,
                         children=children,
                     ),
-                    envelope,
+                    map_envelope,
                 )
             case _:
                 continue

@@ -140,7 +140,9 @@ async def test_scheduler_rebinds_classified_action_error_to_current_stream() -> 
 
 @pytest.mark.anyio
 async def test_scheduler_unwraps_classified_child_workflow_error_map() -> None:
-    """A child's terminal wrapper map becomes children payloads; envelopes stay on it."""
+    """A child's terminal wrapper map becomes children payloads; ownership
+    aggregates platform-wins across entries, so a platform-owned entry after a
+    user-owned one still attributes the stream to the platform."""
 
     async def executor(_: ActionStatement) -> None:
         return None
@@ -182,10 +184,59 @@ async def test_scheduler_unwraps_classified_child_workflow_error_map() -> None:
 
     details = scheduler.task_exceptions["task_0"].details
     assert details.ref == "task_0"
-    assert details.message == user_envelope.message
+    assert details.message == platform_envelope.message
     assert details.children == [user_detail, platform_detail]
-    assert scheduler.stream_error_envelopes[ROOT_STREAM] == user_envelope
+    assert scheduler.stream_error_envelopes[ROOT_STREAM] == platform_envelope
     assert extract_error_envelopes(error) == (user_envelope, platform_envelope)
+
+
+@pytest.mark.anyio
+async def test_scheduler_child_workflow_error_map_all_user_keeps_first_envelope() -> (
+    None
+):
+    """An all-user terminal map still attributes the stream to the first entry."""
+
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    first_envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The first child action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    second_envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The second child action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    error = _capture_application_error(
+        first_envelope,
+        {
+            "first_action": wrap_error(
+                first_envelope,
+                ActionErrorInfo(
+                    ref="first_action",
+                    message=first_envelope.message,
+                    type="UserError",
+                ),
+            ).model_dump(mode="json"),
+            "second_action": wrap_error(
+                second_envelope,
+                ActionErrorInfo(
+                    ref="second_action",
+                    message=second_envelope.message,
+                    type="UserError",
+                ),
+            ).model_dump(mode="json"),
+        },
+    )
+
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
+
+    details = scheduler.task_exceptions["task_0"].details
+    assert details.message == first_envelope.message
+    assert scheduler.stream_error_envelopes[ROOT_STREAM] == first_envelope
 
 
 @pytest.mark.anyio
