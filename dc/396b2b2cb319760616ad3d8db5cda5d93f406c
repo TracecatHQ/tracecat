@@ -1,0 +1,31 @@
+tests/unit/test_mcp_catalog_resolver.py
+  s_074f60bd4e6223::t_c3e902ce6be680 189-194
+tracecat/integrations/catalog/loader.py
+  s_074f60bd4e6223::t_7cda8cc43dbb54 372-374,376
+tests/unit/test_mcp_integrations.py
+  s_074f60bd4e6223::t_e3dc44340da1d0 1698,1704
+  s_074f60bd4e6223::t_29645276748eda 1741-1742,1744-1746
+tracecat/integrations/service.py
+  s_074f60bd4e6223::t_91cbe3db8d836e 3150
+  s_074f60bd4e6223::t_8234a189344f2e 4194-4195
+packages/tracecat-ee/tracecat_ee/mcp/catalog/mcp_catalog_private.json
+  s_074f60bd4e6223::t_8d3026a82584a6 546-565,567
+frontend/src/components/mcp-catalog-icons.tsx
+  s_074f60bd4e6223::t_d40a7ae2c478c1 84-89,201-203
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "dc396b2b2cb319760616ad3d8db5cda5d93f406c",
+  "prompts": {},
+  "sessions": {
+    "s_074f60bd4e6223": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12df82ba-1b3e-48b6-932a-384f445300a1",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
