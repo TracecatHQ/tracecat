@@ -866,8 +866,20 @@ class SkillService(BaseWorkspaceService):
                 detail=error_detail,
             )
 
-    async def _materialize_uploaded_blob(self, upload: SkillUploadModel) -> SkillBlob:
-        """Finalize a staged upload into a reusable blob row."""
+    async def _materialize_uploaded_blob(
+        self,
+        upload: SkillUploadModel,
+        *,
+        published: list[PublishedBlobObject] | None = None,
+    ) -> SkillBlob:
+        """Finalize a staged upload into a reusable blob row.
+
+        Args:
+            upload: Staged upload session row.
+            published: Collector for the canonical object this call copies for
+                a new, still-uncommitted blob row. Reused rows and uploads that
+                already sit at their canonical key are never recorded.
+        """
 
         if upload.completed_at is not None and upload.blob_id is not None:
             blob_row = await self.get_blob(upload.blob_id)
@@ -944,6 +956,10 @@ class SkillService(BaseWorkspaceService):
                             error=str(exc),
                         )
                     raise
+                if published is not None:
+                    published.append(
+                        PublishedBlobObject(bucket=upload.bucket, key=canonical_key)
+                    )
 
         upload.blob_id = blob_row.id
         upload.completed_at = datetime.now(UTC)
@@ -2323,7 +2339,10 @@ class SkillService(BaseWorkspaceService):
         return prepared_operations
 
     async def _materialize_patch_operation_blobs(
-        self, operations: Sequence[PreparedDraftPatchOperation]
+        self,
+        operations: Sequence[PreparedDraftPatchOperation],
+        *,
+        published: list[PublishedBlobObject] | None = None,
     ) -> dict[int, SkillBlob]:
         """Materialize every new blob in deterministic digest order."""
 
@@ -2350,11 +2369,11 @@ class SkillService(BaseWorkspaceService):
             match operation:
                 case PreparedDraftTextFileOp():
                     materialized[index] = await self._get_or_create_blob(
-                        content=operation.content
+                        content=operation.content, published=published
                     )
                 case PreparedDraftAttachUploadedBlobOp():
                     materialized[index] = await self._materialize_uploaded_blob(
-                        operation.upload
+                        operation.upload, published=published
                     )
                 case PreparedDraftDeleteFileOp() | PreparedDraftMoveFileOp():
                     raise AssertionError("non-materialized operation was queued")
@@ -2450,41 +2469,56 @@ class SkillService(BaseWorkspaceService):
             and operation.upload.completed_at is None
             and operation.upload.key != self._storage_key_for(operation.upload.sha256)
         }
-        materialized_blobs = await self._materialize_patch_operation_blobs(
-            prepared_operations
-        )
-        for index, operation in enumerate(prepared_operations):
-            match operation:
-                case PreparedDraftTextFileOp():
-                    path_to_blob[operation.path] = SkillFileBlobRef(
-                        blob=materialized_blobs[index],
-                        content_type=operation.content_type,
-                    )
-                case PreparedDraftAttachUploadedBlobOp():
-                    path_to_blob[operation.path] = SkillFileBlobRef(
-                        blob=materialized_blobs[index],
-                        content_type=operation.upload.content_type,
-                    )
-                case PreparedDraftDeleteFileOp():
-                    path_to_blob.pop(operation.path, None)
-                case PreparedDraftMoveFileOp():
-                    source = path_to_blob.pop(operation.from_path)
-                    path_to_blob[operation.to_path] = source
+        # Canonical objects materialized here live outside the SQL transaction,
+        # so a failure on a later operation has to delete the ones already
+        # written, before the rollback releases their digest claims. A failed
+        # commit is ambiguous (the rows may have landed), so its objects stay.
+        published: list[PublishedBlobObject] = []
+        committing = False
+        try:
+            materialized_blobs = await self._materialize_patch_operation_blobs(
+                prepared_operations, published=published
+            )
+            for index, operation in enumerate(prepared_operations):
+                match operation:
+                    case PreparedDraftTextFileOp():
+                        path_to_blob[operation.path] = SkillFileBlobRef(
+                            blob=materialized_blobs[index],
+                            content_type=operation.content_type,
+                        )
+                    case PreparedDraftAttachUploadedBlobOp():
+                        path_to_blob[operation.path] = SkillFileBlobRef(
+                            blob=materialized_blobs[index],
+                            content_type=operation.upload.content_type,
+                        )
+                    case PreparedDraftDeleteFileOp():
+                        path_to_blob.pop(operation.path, None)
+                    case PreparedDraftMoveFileOp():
+                        source = path_to_blob.pop(operation.from_path)
+                        path_to_blob[operation.to_path] = source
 
-        self._validate_skill_blob_map_limits(path_to_blob)
-        validation = await self._validate_manifest_rows(
-            [(path, file_ref.blob) for path, file_ref in path_to_blob.items()]
-        )
-        await self._replace_draft_with_blob_map(skill=skill, path_to_blob=path_to_blob)
-        if (
-            skill.current_version_id is None
-            and not validation.errors
-            and validation.name is not None
-        ):
-            skill.name = validation.name
-            skill.description = validation.description
-            self.session.add(skill)
-        await self.session.commit()
+            self._validate_skill_blob_map_limits(path_to_blob)
+            validation = await self._validate_manifest_rows(
+                [(path, file_ref.blob) for path, file_ref in path_to_blob.items()]
+            )
+            await self._replace_draft_with_blob_map(
+                skill=skill, path_to_blob=path_to_blob
+            )
+            if (
+                skill.current_version_id is None
+                and not validation.errors
+                and validation.name is not None
+            ):
+                skill.name = validation.name
+                skill.description = validation.description
+                self.session.add(skill)
+            committing = True
+            await self.session.commit()
+        except Exception:
+            if not committing:
+                await self._delete_published_blob_objects_best_effort(published)
+            await self.session.rollback()
+            raise
         for staged_key, staged_bucket in staged_upload_objects_to_delete:
             try:
                 await blob.delete_file(key=staged_key, bucket=staged_bucket)

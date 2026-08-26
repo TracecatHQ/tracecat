@@ -44,6 +44,7 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.service import (
     SKILL_SLUG_UNIQUE_CONSTRAINT,
     PreparedDraftAttachUploadedBlobOp,
+    PublishedBlobObject,
     SkillBlobPublicationClaim,
     SkillService,
 )
@@ -59,7 +60,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
-from tracecat.storage.blob import ensure_bucket_exists, file_exists
+from tracecat.storage.blob import ensure_bucket_exists, file_exists, upload_file
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -1351,6 +1352,107 @@ class TestSkillService:
         assert blob_row.key == canonical_key
         assert blob_row.sha256 == sha256
 
+    async def test_patch_draft_rollback_deletes_canonical_objects_it_published(
+        self,
+        skill_service: SkillService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """A failed batch must remove canonical objects copied for earlier files.
+
+        Uses real MinIO: the first upload is copied to its canonical key before
+        the second fails verification. The rollback must delete that copy but
+        keep the object of a committed blob the same batch merely reused.
+        """
+
+        created = await skill_service.create_skill(SkillCreate(name="batch-rollback"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS
+
+        seed_markdown = SkillService._build_default_skill_markdown(
+            name="batch-rollback", description=None
+        )
+        seed_key = skill_service._storage_key_for(
+            hashlib.sha256(seed_markdown.encode("utf-8")).hexdigest()
+        )
+        assert await file_exists(key=seed_key, bucket=bucket)
+
+        # Materialization runs in digest order, so the lower digest is the one
+        # copied to its canonical key before the higher one fails.
+        good_content, bad_content = sorted(
+            (b"first staged file", b"second staged file"),
+            key=lambda content: hashlib.sha256(content).hexdigest(),
+        )
+        good_sha256 = hashlib.sha256(good_content).hexdigest()
+        bad_sha256 = hashlib.sha256(bad_content).hexdigest()
+        good_canonical_key = skill_service._storage_key_for(good_sha256)
+
+        uploads: list[Any] = []
+        for content, sha256 in ((good_content, good_sha256), (bad_content, bad_sha256)):
+            upload = await skill_service.create_draft_upload(
+                skill_id=created.id,
+                params=SkillUploadSessionCreate(
+                    sha256=sha256,
+                    size_bytes=len(content),
+                    content_type="text/plain; charset=utf-8",
+                ),
+            )
+            uploads.append(upload)
+        good_upload, bad_upload = uploads
+        await upload_file(
+            content=good_content,
+            key=good_upload.key,
+            bucket=good_upload.bucket,
+            content_type="application/octet-stream",
+        )
+        # Corrupt the second staged object so its verification fails.
+        await upload_file(
+            content=bad_content + b"!",
+            key=bad_upload.key,
+            bucket=bad_upload.bucket,
+            content_type="application/octet-stream",
+        )
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/good.txt",
+                            upload_id=good_upload.upload_id,
+                        ),
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/bad.txt",
+                            upload_id=bad_upload.upload_id,
+                        ),
+                        # Reuses the committed seed blob; must survive rollback.
+                        SkillDraftUpsertTextFileOp(
+                            path="references/seed-copy.md",
+                            content=seed_markdown,
+                            content_type="text/markdown; charset=utf-8",
+                        ),
+                    ],
+                ),
+            )
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "upload_integrity_error"
+
+        assert not await file_exists(key=good_canonical_key, bucket=bucket)
+        assert await file_exists(key=seed_key, bucket=bucket)
+        good_blob_row = await skill_service.session.scalar(
+            select(SkillBlob).where(
+                SkillBlob.workspace_id == skill_service.workspace_id,
+                SkillBlob.sha256 == good_sha256,
+            )
+        )
+        assert good_blob_row is None
+        refreshed = await skill_service.get_draft(created.id)
+        assert refreshed is not None
+        assert refreshed.draft_revision == draft.draft_revision
+        await skill_service.session.refresh(svc_workspace)
+
     async def test_attach_rejects_canonical_copy_poisoned_after_verification(
         self,
         skill_service: SkillService,
@@ -1575,7 +1677,12 @@ class TestSkillService:
         )
         calls: list[str] = []
 
-        async def materialize(upload: SkillUploadModel) -> SkillBlob:
+        async def materialize(
+            upload: SkillUploadModel,
+            *,
+            published: list[PublishedBlobObject] | None = None,
+        ) -> SkillBlob:
+            del published
             calls.append(upload.sha256)
             return blob_a if upload.sha256 == upload_a.sha256 else blob_b
 
