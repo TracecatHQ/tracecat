@@ -1,0 +1,29 @@
+tests/unit/test_mcp_integrations.py
+  s_074f60bd4e6223::t_b5286ca86d63a4 7433-7526,7528-7546
+  s_074f60bd4e6223::t_dbe25b2c36d2ce 7527
+tracecat/integrations/catalog/resolver.py
+  s_074f60bd4e6223::t_0370d0c76ad9b5 11-14,19,25,175-178,188-191,196-207,213,216-218
+  s_074f60bd4e6223::t_bb9f083ced8d2e 20
+  s_074f60bd4e6223::t_a193cbccab62ad 169-174,185-187,192-195,208-212,214-215
+  s_074f60bd4e6223::t_d5436e06c4513a 219-220
+tests/unit/test_mcp_catalog_resolver.py
+  s_074f60bd4e6223::t_b52c5aac349928 214-215,223,230,237,244,247-248,250-253,259
+  s_074f60bd4e6223::t_89c5c89bc72401 162-213,216,218-220,222,224-227,229,231-234,236,238-241,243,245-246,254-256,258,260-262,264-278
+  s_074f60bd4e6223::t_3b83e89943cdd8 217,221,228,235,242,249,257,263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d425cb19df312a7b3fad0b0336ef9652935aaab1",
+  "prompts": {},
+  "sessions": {
+    "s_074f60bd4e6223": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12df82ba-1b3e-48b6-932a-384f445300a1",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
