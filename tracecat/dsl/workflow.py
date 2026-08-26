@@ -179,6 +179,7 @@ _CHILD_RUN_ARG_PREP_YIELD_EVERY = 8
 ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH = "dsl-action-heartbeat-timeout-retry-v1"
 ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH = "dsl-error-owner-search-attribute-v1"
 ERROR_OWNER_CONTROL_FLOW_PATCH = "dsl-error-owner-control-flow-v1"
+ERROR_OWNER_AFTER_HANDLER_PATCH = "dsl-error-owner-after-handler-v1"
 
 
 def _raise_workflow_application_error(
@@ -459,7 +460,16 @@ class DSLWorkflow:
         try:
             return await self._run_workflow(args)
         except ApplicationError as e:
-            await self._handle_application_error(args, e)
+            stamp_owner_after_handler = workflow.patched(
+                ERROR_OWNER_AFTER_HANDLER_PATCH
+            )
+            if not stamp_owner_after_handler:
+                self._upsert_terminal_error_owner(e)
+            await self._handle_application_error(
+                args,
+                e,
+                stamp_terminal_owner=stamp_owner_after_handler,
+            )
         except Exception as e:
             # Platform error
             if is_cancelled_exception(e):
@@ -1936,6 +1946,8 @@ class DSLWorkflow:
         self,
         args: DSLRunArgs,
         error: ApplicationError,
+        *,
+        stamp_terminal_owner: bool,
     ) -> Never:
         """Run an error handler before stamping the error that remains terminal."""
         self.logger.warning(
@@ -1945,7 +1957,8 @@ class DSLWorkflow:
         handler_wf_id = await self._get_error_handler_workflow_id(args)
         if handler_wf_id is None:
             self.logger.warning("No error handler workflow ID found, raising error")
-            self._upsert_terminal_error_owner(error)
+            if stamp_terminal_owner:
+                self._upsert_terminal_error_owner(error)
             raise error
 
         if error.details:
@@ -1988,14 +2001,16 @@ class DSLWorkflow:
             )
             await self._run_error_handler_workflow(err_run_args)
         except Exception as handler_error:
-            self._upsert_terminal_error_owner(handler_error)
+            if stamp_terminal_owner:
+                self._upsert_terminal_error_owner(handler_error)
             self.logger.error(
                 "Failed to run error handler workflow",
                 error_type=type(handler_error).__name__,
             )
             raise handler_error from error
 
-        self._upsert_terminal_error_owner(error)
+        if stamp_terminal_owner:
+            self._upsert_terminal_error_owner(error)
         raise error
 
     async def _get_error_handler_workflow_id(
