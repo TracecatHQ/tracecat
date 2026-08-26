@@ -5,7 +5,7 @@ resource "aws_ecs_task_definition" "agent_executor_task_definition" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.agent_executor_cpu
   memory                   = var.agent_executor_memory
-  execution_role_arn       = aws_iam_role.worker_execution.arn
+  execution_role_arn       = aws_iam_role.agent_executor_execution.arn
   task_role_arn            = aws_iam_role.executor_task.arn
 
   runtime_platform {
@@ -27,7 +27,7 @@ resource "aws_ecs_task_definition" "agent_executor_task_definition" {
         }
       }
       environment = local.agent_executor_env
-      secrets     = local.executor_secrets
+      secrets     = local.agent_executor_secrets
     }
   ])
 }

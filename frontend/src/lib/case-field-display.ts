@@ -1,6 +1,52 @@
-import type { CaseFieldReadType } from "@/client"
+import type { CaseFieldReadMinimal, CaseFieldReadType } from "@/client"
+import { slugify } from "@/lib/utils"
 
 export const MAX_CASE_FIELD_FRACTION_DIGITS = 6
+export const MAX_CASE_FIELD_REFERENCE_LENGTH = 100
+
+/**
+ * Derive the snake_case API reference used to store and address a case field.
+ */
+export function createCaseFieldReference(displayName: string): string {
+  const normalized = slugify(displayName, "_")
+  const validStart = /^\d/.test(normalized) ? `field_${normalized}` : normalized
+  return validStart.slice(0, MAX_CASE_FIELD_REFERENCE_LENGTH)
+}
+
+/**
+ * Derive the first available case-field reference, suffixing collisions.
+ */
+export function createUniqueCaseFieldReference(
+  displayName: string,
+  existingReferences: ReadonlySet<string>
+): string {
+  const baseReference = createCaseFieldReference(displayName)
+  if (!baseReference || !existingReferences.has(baseReference)) {
+    return baseReference
+  }
+
+  let counter = 2
+  while (true) {
+    const suffix = `_${counter}`
+    const candidate = `${baseReference.slice(
+      0,
+      MAX_CASE_FIELD_REFERENCE_LENGTH - suffix.length
+    )}${suffix}`
+    if (!existingReferences.has(candidate)) {
+      return candidate
+    }
+    counter += 1
+  }
+}
+
+/**
+ * Index case-field display names by their stable API references.
+ */
+export function createCaseFieldDisplayNameMap(
+  fields: readonly Pick<CaseFieldReadMinimal, "id" | "display_name">[] = []
+): ReadonlyMap<string, string> {
+  return new Map(fields.map((field) => [field.id, field.display_name]))
+}
 
 /**
  * Round numeric case-field values for display without exposing float artifacts.
@@ -79,6 +125,42 @@ export function formatCaseFieldDisplayLabel(
   }
 
   return String(value)
+}
+
+/**
+ * Return true when a custom case-field value should be treated as empty.
+ * Booleans are never empty (`false` is a real answer); strings are empty when
+ * blank or whitespace-only; arrays and objects when they have no entries.
+ */
+export function isCustomFieldValueEmpty(value: unknown): boolean {
+  if (value === null || value === undefined) return true
+  if (typeof value === "string") return value.trim().length === 0
+  if (typeof value === "number") return Number.isNaN(value)
+  if (typeof value === "boolean") return false
+  if (Array.isArray(value)) return value.length === 0
+  if (typeof value === "object")
+    return Object.keys(value as object).length === 0
+  return false
+}
+
+/**
+ * Order custom case fields for the case panel. When collapsed (`showAll` is
+ * false), only non-empty fields are shown. When expanded, non-empty fields
+ * come first and empty fields follow, each group keeping its original
+ * relative order — a stable partition, not a sort.
+ */
+export function orderCustomFieldsForDisplay<T extends { value: unknown }>(
+  fields: T[],
+  showAll: boolean
+): T[] {
+  const nonEmpty = fields.filter(
+    (field) => !isCustomFieldValueEmpty(field.value)
+  )
+  if (!showAll) {
+    return nonEmpty
+  }
+  const empty = fields.filter((field) => isCustomFieldValueEmpty(field.value))
+  return [...nonEmpty, ...empty]
 }
 
 function parseFiniteCaseFieldNumber(value: unknown): number | null {

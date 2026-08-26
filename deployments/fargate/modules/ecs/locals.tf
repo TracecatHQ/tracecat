@@ -62,6 +62,9 @@ locals {
     TRACECAT__COLLECTION_MANIFESTS_ENABLED           = var.collection_manifests_enabled
     TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = var.result_externalization_threshold_bytes
     TRACECAT__DB_SSLMODE                             = "require"
+    # Agent timeout ceiling: every process that parses workflow DSL or
+    # enforces the clamp must agree, so it rides the common env.
+    TRACECAT__AGENT_SANDBOX_TIMEOUT = var.agent_sandbox_timeout
   }
 
   tracecat_temporal_payload_encryption_env = {
@@ -175,11 +178,13 @@ locals {
       local.tracecat_db_configs,
       local.tracecat_db_configs_executor,
       {
-        TRACECAT__API_URL          = local.internal_api_url
-        TRACECAT__DB_ENDPOINT      = local.core_db_hostname
-        TRACECAT__SERVICE_NAME     = "executor"
-        TRACECAT__EXECUTOR_BACKEND = "direct"
-        TRACECAT__EXECUTOR_QUEUE   = var.executor_queue
+        TRACECAT__API_URL                             = local.internal_api_url
+        TRACECAT__DB_ENDPOINT                         = local.core_db_hostname
+        TRACECAT__SERVICE_NAME                        = "executor"
+        TRACECAT__EXECUTOR_BACKEND                    = "direct"
+        TRACECAT__EXECUTOR_QUEUE                      = var.executor_queue
+        TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = var.executor_registry_cache_max_entries
+        TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES   = var.executor_registry_cache_max_bytes
         # Executor concurrency tuning (see tracecat/executor/worker.py and tracecat/executor/service.py)
         TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES = var.executor_max_concurrent_activities
         TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS    = var.executor_threadpool_max_workers
@@ -210,6 +215,8 @@ locals {
         TRACECAT__AGENT_QUEUE                              = var.agent_queue
         TRACECAT__AGENT_EXECUTOR_QUEUE                     = var.agent_executor_queue
         TRACECAT__EXECUTOR_QUEUE                           = var.executor_queue
+        TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES      = var.executor_registry_cache_max_entries
+        TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES        = var.executor_registry_cache_max_bytes
         TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES = var.agent_executor_max_concurrent_activities
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT                  = var.executor_client_timeout
         TRACECAT__LLM_PROXY_READ_TIMEOUT                   = var.llm_proxy_read_timeout
@@ -222,6 +229,8 @@ locals {
         TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS         = var.llm_gateway_healthcheck_pool_timeout_seconds
         TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD            = var.llm_gateway_healthcheck_failure_threshold
         TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS  = var.llm_gateway_status_log_interval_seconds
+        TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG      = var.agent_otel_platform_override_config
+        TRACECAT__LITELLM_BASE_URL                         = "http://litellm-service:4000"
         TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"
         TRACECAT__DISABLE_NSJAIL                           = "true"
         TRACECAT__SANDBOX_NSJAIL_PATH                      = "/usr/local/bin/nsjail"

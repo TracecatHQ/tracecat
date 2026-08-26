@@ -10,9 +10,12 @@ definition:
     - name: sublime
       keys: ["SUBLIME_API_KEY"]
   expects:
-    payload:
-      type: dict[str, Any]
-      description: API-native JSON request body.
+    name:
+      type: str
+      description: Unique name used to reference the list in MQL
+    description:
+      type: str
+      description: Description of list
     base_url:
       type: str | None
       description: Base URL of the Sublime API.
@@ -25,5 +28,7 @@ definition:
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
-        payload: ${{ inputs.payload }}
+        payload:
+          name: ${{ inputs.name }}
+          description: ${{ inputs.description }}
   returns: ${{ steps.request.result.data }}

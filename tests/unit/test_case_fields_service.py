@@ -168,6 +168,47 @@ class TestCaseFieldsService:
         assert field.type is CaseFieldReadType.SELECT
         assert field.options == ["low", "high"]
 
+    async def test_case_field_read_display_name(self) -> None:
+        """Read display names from metadata and fall back to the field ID."""
+        cases = [
+            (
+                "analyst_verdict",
+                sa.types.Text(),
+                {
+                    "analyst_verdict": {
+                        "type": "TEXT",
+                        "display_name": "Analyst Verdict",
+                    }
+                },
+                "Analyst Verdict",
+            ),
+            (
+                "analyst_verdict",
+                sa.types.Text(),
+                {"analyst_verdict": {"type": "TEXT"}},
+                "analyst_verdict",
+            ),
+            ("analyst_verdict", sa.types.Text(), None, "analyst_verdict"),
+            ("case_id", sa.types.UUID(), None, "case_id"),
+        ]
+
+        for field_id, field_type, field_schema, expected_display_name in cases:
+            column = ReflectedColumn(
+                name=field_id,
+                type=field_type,
+                nullable=True,
+                default=None,
+                comment=None,
+            )
+
+            field = CaseFieldReadMinimal.from_sa(
+                column,
+                field_schema=field_schema,
+            )
+
+            assert field.id == field_id
+            assert field.display_name == expected_display_name
+
     async def test_create_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test creating a case field."""
         # Create field parameters
@@ -185,6 +226,56 @@ class TestCaseFieldsService:
 
             # Verify the method was called with the right parameters
             mock_create_column.assert_called_once_with(field_params)
+
+    async def test_write_field_display_name_metadata(
+        self,
+        case_fields_service: CaseFieldsService,
+    ) -> None:
+        """Write, preserve, and backfill field display-name metadata."""
+        with (
+            patch.object(case_fields_service.editor, "create_column"),
+            patch.object(case_fields_service.editor, "update_column"),
+        ):
+            await case_fields_service.create_field(
+                CaseFieldCreate(
+                    name="analyst_verdict",
+                    display_name="Analyst Verdict",
+                    type=SqlType.TEXT,
+                )
+            )
+            schema = await case_fields_service.get_field_schema()
+            assert schema["analyst_verdict"]["display_name"] == "Analyst Verdict"
+
+            await case_fields_service.create_field(
+                CaseFieldCreate(name="legacy_field", type=SqlType.TEXT)
+            )
+            schema = await case_fields_service.get_field_schema()
+            assert schema["legacy_field"]["display_name"] == "legacy_field"
+
+            await case_fields_service.update_field(
+                "analyst_verdict",
+                CaseFieldUpdate(display_name="Analyst decision"),
+            )
+            schema = await case_fields_service.get_field_schema()
+            assert schema["analyst_verdict"]["display_name"] == "Analyst decision"
+
+            await case_fields_service.update_field(
+                "analyst_verdict",
+                CaseFieldUpdate(nullable=True),
+            )
+            schema = await case_fields_service.get_field_schema()
+            assert schema["analyst_verdict"]["display_name"] == "Analyst decision"
+
+            await case_fields_service._update_field_schema(
+                "legacy_field",
+                {"type": "TEXT"},
+            )
+            await case_fields_service.update_field(
+                "legacy_field",
+                CaseFieldUpdate(nullable=True),
+            )
+            schema = await case_fields_service.get_field_schema()
+            assert schema["legacy_field"]["display_name"] == "legacy_field"
 
     async def test_create_field_rejects_internal_name(
         self, case_fields_service: CaseFieldsService
@@ -321,7 +412,11 @@ class TestCaseFieldsService:
 
             mock_update_schema.assert_called_once_with(
                 "my_field",
-                {"type": "TEXT", "required_on_closure": True},
+                {
+                    "type": "TEXT",
+                    "display_name": "my_field",
+                    "required_on_closure": True,
+                },
             )
 
     async def test_update_field_rejects_internal_name(

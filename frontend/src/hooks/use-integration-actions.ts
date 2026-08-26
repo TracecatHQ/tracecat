@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import type { OAuthGrantType } from "@/client"
 import {
   integrationsConnectProvider,
@@ -10,6 +9,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import type { TracecatApiError } from "@/lib/errors"
 import { integrationKeys } from "@/lib/integrations"
+import { useMutation, useQueryClient } from "@/lib/query"
 
 interface ProviderRef {
   providerId: string

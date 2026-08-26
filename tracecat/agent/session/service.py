@@ -33,7 +33,7 @@ from sqlalchemy import (
     update,
     values,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID, insert
 from sqlalchemy.exc import SQLAlchemyError
 from temporalio.client import (
     WorkflowUpdateRPCTimeoutOrCancelledError,
@@ -70,8 +70,11 @@ from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_INTERRUPT_CONTENT_EXACT,
     APPROVAL_INTERRUPT_CONTENT_MARKERS,
+    DISPLAY_ONLY_SESSION_LINE_FLAG,
     is_approval_interrupt_tool_result,
     is_continuation_control_artifact,
+    is_display_only_session_line,
+    is_model_context_session_line,
     session_line_uuid,
 )
 from tracecat.agent.schemas import RunAgentArgs
@@ -1285,7 +1288,11 @@ class AgentSessionService(BaseWorkspaceService):
             raw_line = history_content.raw_line
 
             line_uuid = session_line_uuid(content)
-            if entry.kind == MessageKind.INTERNAL.value:
+            if is_display_only_session_line(content):
+                continue
+            if entry.kind == MessageKind.INTERNAL.value and not (
+                is_model_context_session_line(content)
+            ):
                 if line_uuid is not None:
                     internal_uuids.add(line_uuid)
                 continue
@@ -1875,6 +1882,57 @@ class AgentSessionService(BaseWorkspaceService):
     # =========================================================================
     # Chat / Message Turn Operations
     # =========================================================================
+
+    async def ensure_display_only_user_messages(
+        self,
+        session_id: uuid.UUID,
+        messages: Sequence[str],
+    ) -> None:
+        """Persist idempotent UI-only user messages outside model history.
+
+        These rows let an integration present source material as ordinary chat
+        bubbles without sending each bubble as a separate model turn. Their
+        structural marker keeps them out of Claude SDK resume history.
+
+        Args:
+            session_id: Session receiving the display-only messages.
+            messages: Ordered raw text shown in the user bubbles.
+
+        Raises:
+            TracecatNotFoundError: If the session is unavailable in this workspace.
+        """
+        if not messages:
+            return
+        if await self.get_session(session_id) is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        # Derive stable row and message IDs from their session-relative order so
+        # activity retries reuse the same display history instead of duplicating it.
+        rows = [
+            {
+                "id": uuid.uuid5(session_id, f"display-message:{index}"),
+                "session_id": session_id,
+                "workspace_id": self.workspace_id,
+                "content": {
+                    "type": "user",
+                    "uuid": str(
+                        uuid.uuid5(session_id, f"display-message-line:{index}")
+                    ),
+                    DISPLAY_ONLY_SESSION_LINE_FLAG: True,
+                    "message": {"role": "user", "content": content},
+                },
+                "kind": MessageKind.CHAT_MESSAGE.value,
+                "curr_run_id": None,
+            }
+            for index, content in enumerate(messages)
+        ]
+        statement = (
+            insert(AgentSessionHistory)
+            .values(rows)
+            .on_conflict_do_nothing(index_elements=[AgentSessionHistory.id])
+        )
+        await self.session.execute(statement)
+        await self.session.commit()
 
     async def prepare_new_turn(
         self,

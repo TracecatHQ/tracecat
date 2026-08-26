@@ -18,11 +18,26 @@ definition:
     issue_iid:
       type: int
       description: GitLab API path value for issue_iid.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    body:
+      type: str
+      description: The content of a note. Limited to 1,000,000 characters.
+    confidential:
+      type: bool | None
+      description: "Deprecated: Renamed to `internal`. The confidential flag of a note. Default is false."
+      default: null
+    internal:
+      type: bool | None
+      description: The internal flag of a note. Overrides `confidential` when both parameters are submitted. Default is false.
+      default: null
+    created_at:
+      type: str | None
+      description: "Date time string, ISO 8601 formatted. It must be after 1970-01-01. Example: `2016-03-11T03:45:40Z` (requires administrator or project/group owner rights)."
       default: null
     payload:
+      # Generic: GitLab accepts these attributes in the query string (its own curl
+      # examples do) or a JSON body, but a null body field violates NOT NULL on
+      # `confidential` and Grape reads a null array as "unassign". Named inputs above
+      # go on the query string; this stays for callers sending a body.
       type: dict[str, Any] | None
       description: API-native request body passed through without validation.
       default: null
@@ -39,6 +54,10 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          body: ${{ inputs.body }}
+          confidential: ${{ inputs.confidential }}
+          internal: ${{ inputs.internal }}
+          created_at: ${{ inputs.created_at }}
         payload: ${{ inputs.payload }}
   returns: ${{ steps.request.result }}

@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get full scan metadata
+  description: >-
+    Get full scan metadata. Calls GET /v0/orgs/{org_slug}/full-scans/{full_scan_id}/metadata
+    directly.
+  display_group: Socket
+  doc_url: https://docs.socket.dev/reference/getorgfullscanmetadata
+  namespace: tools.socket
+  name: get_full_scan_metadata
+  secrets:
+    - name: socket
+      keys: ["SOCKET_API_TOKEN"]
+  expects:
+    org_slug:
+      type: str
+      description: Socket organization slug.
+    full_scan_id:
+      type: str
+      description: Socket full scan ID.
+    base_url:
+      type: str | None
+      description: Base URL of the Socket API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.socket.base_url || "https://api.socket.dev" }}/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/full-scans/${{ FN.url_encode(inputs.full_scan_id) }}/metadata
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.socket.SOCKET_API_TOKEN }}
+  returns: ${{ steps.request.result }}

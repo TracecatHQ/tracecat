@@ -1,6 +1,5 @@
-import type { QueryClient } from "@tanstack/react-query"
-
 import type { CaseCommentRead, CaseCommentThreadRead } from "@/client"
+import type { QueryClient } from "@/lib/query"
 
 /** Poll interval used while a case-comment agent invocation is active. */
 export const CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS = 1_000

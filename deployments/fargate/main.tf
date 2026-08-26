@@ -154,7 +154,10 @@ module "ecs" {
   executor_memory                          = var.executor_memory
   executor_desired_count                   = var.executor_desired_count
   executor_client_timeout                  = var.executor_client_timeout
+  agent_sandbox_timeout                    = var.agent_sandbox_timeout
   executor_queue                           = var.executor_queue
+  executor_registry_cache_max_entries      = var.executor_registry_cache_max_entries
+  executor_registry_cache_max_bytes        = var.executor_registry_cache_max_bytes
   executor_max_concurrent_activities       = var.executor_max_concurrent_activities
   executor_threadpool_max_workers          = var.executor_threadpool_max_workers
   executor_for_each_max_concurrency        = var.executor_for_each_max_concurrency
@@ -163,6 +166,8 @@ module "ecs" {
   agent_executor_desired_count             = var.agent_executor_desired_count
   agent_executor_queue                     = var.agent_executor_queue
   agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
+  agent_otel_platform_override_config      = var.agent_otel_platform_override_config
+  agent_otel_platform_override_headers_arn = var.agent_otel_platform_override_headers_arn
   llm_proxy_read_timeout                   = var.llm_proxy_read_timeout
 
   llm_gateway_credential_cache_ttl_seconds        = var.llm_gateway_credential_cache_ttl_seconds

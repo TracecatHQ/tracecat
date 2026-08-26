@@ -8,8 +8,8 @@
  * presigned blob storage URL directly, which `connect-src` governs:
  *
  * - `src/lib/skills-studio.tsx` issues a presigned PUT of skill files.
- * - `src/components/tiptap-node/image-node/attachment-image-node.tsx` fetches a
- *   presigned attachment URL.
+ * - `src/lib/cases/use-attachment-object-url.ts` fetches a presigned
+ *   attachment URL for inline image previews.
  *
  * Anchor and navigation downloads, and plain `<img src>` loads, are not
  * governed by `connect-src`, so their origins do not belong in this variable.

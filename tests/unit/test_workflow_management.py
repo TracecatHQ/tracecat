@@ -337,7 +337,12 @@ async def test_external_import_publishes_before_online_case_trigger(
         alias="imported-case-trigger",
         registry_lock=registry_lock,
     )
-    session = SimpleNamespace(add=MagicMock(), flush=AsyncMock(), commit=AsyncMock())
+    session = SimpleNamespace(
+        add=MagicMock(),
+        flush=AsyncMock(),
+        commit=AsyncMock(),
+        refresh=AsyncMock(),
+    )
     service = WorkflowsManagementService(cast(Any, session), role=role)
     dsl = DSLInput(
         **{
@@ -445,6 +450,7 @@ async def test_external_import_publishes_before_online_case_trigger(
     session.add.assert_called_once_with(workflow)
     session.flush.assert_awaited_once()
     session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(workflow)
     assert len(case_trigger_calls) == 1
     assert case_trigger_calls[0]["workflow_id"] == workflow.id
     assert case_trigger_calls[0]["params"].status == "online"
@@ -1336,3 +1342,38 @@ async def test_run_workflow_invalid_inputs_raise_before_dispatch(
             WorkflowUUID.new_uuid4(), inputs={"count": "not-an-int"}, use_draft=True
         )
     assert fake_exec.calls == []
+
+
+@pytest.mark.anyio
+async def test_create_actions_from_dsl_persists_action_environment() -> None:
+    """Action-level ``environment`` must survive DSL -> Action control_flow."""
+    role = _role()
+    session = SimpleNamespace(add=MagicMock(), flush=AsyncMock())
+    service = WorkflowsManagementService(cast(Any, session), role=role)
+    dsl = DSLInput.model_validate(
+        {
+            "title": "env",
+            "description": "",
+            "entrypoint": {"ref": "a", "expects": {}},
+            "actions": [
+                {
+                    "ref": "a",
+                    "action": "core.transform.reshape",
+                    "args": {"value": 1},
+                    "environment": "prod",
+                },
+                {
+                    "ref": "b",
+                    "action": "core.transform.reshape",
+                    "args": {"value": 2},
+                    "depends_on": ["a"],
+                },
+            ],
+        }
+    )
+
+    actions = await service.create_actions_from_dsl(dsl, workflow_id=uuid.uuid4())
+
+    by_ref = {a.ref: a for a in actions}
+    assert by_ref["a"].control_flow["environment"] == "prod"
+    assert by_ref["b"].control_flow["environment"] is None

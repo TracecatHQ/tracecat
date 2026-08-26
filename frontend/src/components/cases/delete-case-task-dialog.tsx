@@ -64,9 +64,9 @@ export function DeleteCaseTaskDialog({
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
+            variant="destructive"
             onClick={handleDelete}
             disabled={deleteTaskIsPending}
-            className="bg-red-600 hover:bg-red-700"
           >
             {deleteTaskIsPending ? "Deleting..." : "Delete"}
           </AlertDialogAction>

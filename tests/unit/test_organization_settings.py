@@ -4,9 +4,12 @@ from unittest.mock import MagicMock
 import orjson
 import pytest
 from fastapi import HTTPException
+from pydantic import HttpUrl
+from pydantic_core import to_jsonable_python
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.agent.otel_config import AgentOtelConfig
 from tracecat.auth.enums import AuthType
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -19,6 +22,7 @@ from tracecat.settings.router import (
     check_saml_domain_prerequisites,
 )
 from tracecat.settings.schemas import (
+    AgentOtelSettingsUpdate,
     AppSettingsRead,
     AppSettingsUpdate,
     AuditSettingsUpdate,
@@ -30,6 +34,7 @@ from tracecat.settings.schemas import (
     VersionedResourceResolutionStrategy,
 )
 from tracecat.settings.service import (
+    AgentOtelEndpointNotAllowedError,
     SettingsService,
     get_setting,
     get_setting_override,
@@ -442,6 +447,109 @@ async def test_update_saml_settings(
     assert settings_dict["saml_idp_metadata_url"] == "https://test-idp.com"
 
 
+@pytest.fixture
+def allow_agent_otel_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolve the example collector to a public address without real DNS."""
+
+    async def _noop(url: str) -> None:
+        return None
+
+    monkeypatch.setattr(
+        settings_service_module, "validate_url_resolves_public_async", _noop
+    )
+
+
+@pytest.mark.anyio
+async def test_update_agent_otel_settings_encrypts_headers(
+    settings_service_with_defaults: SettingsService,
+    allow_agent_otel_endpoint: None,
+) -> None:
+    service = settings_service_with_defaults
+    await service.update_agent_otel_settings(
+        AgentOtelSettingsUpdate(
+            agent_otel_config=AgentOtelConfig(
+                enabled=True,
+                endpoint=HttpUrl("https://collector.example.com"),
+                logs_enabled=False,
+            ),
+            agent_otel_headers={"Authorization": "Bearer token"},
+        )
+    )
+
+    settings = await service.list_org_settings(
+        keys={"agent_otel_config", "agent_otel_headers"}
+    )
+    settings_by_key = {setting.key: setting for setting in settings}
+
+    assert service.get_value(settings_by_key["agent_otel_config"]) == {
+        "enabled": True,
+        "endpoint": "https://collector.example.com/",
+        "logs_enabled": False,
+    }
+    assert settings_by_key["agent_otel_headers"].is_encrypted is True
+    assert service.get_value(settings_by_key["agent_otel_headers"]) == {
+        "Authorization": "Bearer token"
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "endpoint",
+    ["http://127.0.0.1:4318", "http://169.254.169.254"],
+    ids=["loopback", "link-local"],
+)
+async def test_update_agent_otel_settings_rejects_private_endpoint(
+    settings_service_with_defaults: SettingsService,
+    endpoint: str,
+) -> None:
+    """A collector on a private address is rejected and never persisted."""
+    service = settings_service_with_defaults
+
+    with pytest.raises(AgentOtelEndpointNotAllowedError) as exc_info:
+        await service.update_agent_otel_settings(
+            AgentOtelSettingsUpdate(
+                agent_otel_config=AgentOtelConfig(
+                    enabled=True, endpoint=HttpUrl(endpoint)
+                ),
+                agent_otel_headers={"Authorization": "Bearer token"},
+            )
+        )
+
+    # The rejection must not echo the resolved address back to the caller.
+    assert endpoint.split("//")[1] not in str(exc_info.value)
+    settings = await service.list_org_settings(
+        keys={"agent_otel_config", "agent_otel_headers"}
+    )
+    values, _ = service.get_values_with_decryption_fallback(settings)
+    assert values.get("agent_otel_config", {}).get("endpoint") is None
+
+
+@pytest.mark.anyio
+async def test_update_agent_otel_settings_skips_validation_when_disabled(
+    settings_service_with_defaults: SettingsService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Disabled telemetry never resolves the endpoint host."""
+    calls: list[str] = []
+
+    async def _record(url: str) -> None:
+        calls.append(url)
+
+    monkeypatch.setattr(
+        settings_service_module, "validate_url_resolves_public_async", _record
+    )
+
+    await settings_service_with_defaults.update_agent_otel_settings(
+        AgentOtelSettingsUpdate(
+            agent_otel_config=AgentOtelConfig(
+                enabled=False, endpoint=HttpUrl("http://127.0.0.1:4318")
+            )
+        )
+    )
+
+    assert calls == []
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "setting_key",
@@ -450,6 +558,7 @@ async def test_update_saml_settings(
         "audit_webhook_url",
         "audit_webhook_custom_headers",
         "audit_webhook_custom_payload",
+        "agent_otel_headers",
     ],
 )
 async def test_get_values_with_decryption_fallback_for_invalid_encrypted_settings(
@@ -693,7 +802,7 @@ async def test_init_default_settings(
     defaults = {key: value for cls in settings_service.groups for key, value in cls()}
     for setting in settings:
         value = settings_service.get_value(setting)
-        assert value == defaults[setting.key]
+        assert value == to_jsonable_python(defaults[setting.key])
 
     # Test idempotency - running again shouldn't create duplicates
     await settings_service.init_default_settings()

@@ -1,0 +1,16 @@
+.tiptap-link-popover {
+  .tiptap-card-body {
+    padding: 0.25rem;
+  }
+
+  .tiptap-button {
+    height: 1.75rem;
+  }
+
+  .tiptap-input {
+    height: 1.75rem;
+    min-width: 20rem;
+    padding-block: 0.25rem;
+    text-overflow: ellipsis;
+  }
+}

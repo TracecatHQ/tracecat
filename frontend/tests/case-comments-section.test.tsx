@@ -2,7 +2,6 @@
  * @jest-environment jsdom
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   fireEvent,
   render,
@@ -33,6 +32,7 @@ import {
   useDeleteCaseComment,
   useUpdateCaseComment,
 } from "@/lib/hooks"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 import { getTextareaCaretCoordinates } from "@/lib/textarea-caret"
 
 const mockOpenChatSession = jest.fn()
@@ -87,7 +87,9 @@ jest.mock("@/lib/hooks", () => ({
 }))
 
 jest.mock("@/components/cases/case-description-editor", () => ({
-  CaseCommentViewer: ({ content }: { content: string }) => <div>{content}</div>,
+  CaseCommentViewer: ({ content }: { content: string }) => (
+    <div data-testid="case-comment-viewer">{content}</div>
+  ),
 }))
 
 jest.mock("@/components/cases/case-panel-common", () => ({
@@ -327,6 +329,22 @@ function mockEntitlements(keys: string[]) {
   })
 }
 
+/** Set the textarea value and caret the way a user edit would. */
+function typeInto(textarea: HTMLElement, value: string, caret = value.length) {
+  fireEvent.change(textarea, {
+    target: { value, selectionStart: caret },
+  })
+}
+
+/** The top-level comment composer, as opposed to an inline reply composer. */
+function getRootComposer() {
+  const composer = screen.getAllByPlaceholderText("Leave a comment...").at(-1)
+  if (!composer) {
+    throw new Error("Root comment input should exist")
+  }
+  return composer
+}
+
 describe("CommentSection", () => {
   beforeEach(() => {
     const fixtures = createThreadFixtures()
@@ -417,6 +435,38 @@ describe("CommentSection", () => {
               ref: "priority",
             },
           ],
+        },
+        {
+          id: "workflow-2",
+          title: "Close case",
+          description: "",
+          status: "online",
+          icon_url: null,
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          version: 1,
+          alias: null,
+          error_handler: null,
+          latest_definition: null,
+          folder_id: null,
+          trigger_summary: null,
+          tags: [],
+        },
+        {
+          id: "workflow-draft",
+          title: "Draft escalation",
+          description: "",
+          status: "offline",
+          icon_url: null,
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          version: null,
+          alias: null,
+          error_handler: null,
+          latest_definition: null,
+          folder_id: null,
+          trigger_summary: null,
+          tags: [],
         },
       ],
       next_cursor: null,
@@ -606,83 +656,433 @@ describe("CommentSection", () => {
     expect(
       screen.queryByRole("button", { name: "Hide replies" })
     ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: /no workflow selected/i })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId("composer-hint")).not.toBeInTheDocument()
     expect(
       screen.getByPlaceholderText("Leave a comment...")
     ).toBeInTheDocument()
   })
 
-  it("shows workflow selectors when case add-ons are enabled", async () => {
-    renderCommentSection()
+  describe("workflow slash commands", () => {
+    function getForm(textarea: HTMLElement) {
+      const form = textarea.closest("form")
+      if (!form) {
+        throw new Error("Comment form should exist")
+      }
+      return form
+    }
 
-    await waitFor(() => {
+    function getWorkflowHighlights(textarea: HTMLElement) {
+      const overlay = textarea.parentElement?.querySelector(
+        "[data-testid='comment-mention-overlay']"
+      )
+      return overlay?.querySelectorAll("[data-mention-kind='workflow']") ?? []
+    }
+
+    it("shows the slash hint only while a composer is focused", () => {
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      expect(screen.queryByTestId("composer-hint")).not.toBeInTheDocument()
+
+      fireEvent.focus(composer)
+
+      const hints = screen.getAllByTestId("composer-hint")
+      expect(hints).toHaveLength(1)
+      expect(hints[0]).toHaveTextContent("Run workflow")
+      expect(getForm(composer)).toContainElement(hints[0])
+
+      fireEvent.blur(composer)
+
+      expect(screen.queryByTestId("composer-hint")).not.toBeInTheDocument()
+    })
+
+    it("hides the hint once the composer has text", () => {
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      fireEvent.focus(composer)
       expect(
-        screen.getAllByRole("button", { name: /no workflow selected/i })
-      ).toHaveLength(2)
+        within(getForm(composer)).getByTestId("composer-hint")
+      ).toBeInTheDocument()
+
+      typeInto(composer, "hello")
+
+      expect(
+        within(getForm(composer)).queryByTestId("composer-hint")
+      ).toBeNull()
+    })
+
+    it("opens the workflow popover on / and submits the picked workflow", async () => {
+      const createComment = jest.fn().mockResolvedValue(undefined)
+      mockUseCreateCaseComment.mockReturnValue({
+        createComment,
+        createCommentIsPending: false,
+        createCommentError: null,
+      })
+
+      renderCommentSection()
+      const composer = getRootComposer()
+      const form = getForm(composer)
+
+      typeInto(composer, "/")
+
+      await waitFor(() => {
+        expect(screen.getByText("Workflows")).toBeInTheDocument()
+      })
+      expect(screen.getByText("Escalate case")).toBeInTheDocument()
+      expect(screen.getByText("escalate_case")).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole("button", { name: /Escalate case/ }))
+
+      await waitFor(() => expect(composer).toHaveValue("/Escalate case "))
+      const highlights = getWorkflowHighlights(composer)
+      expect(highlights).toHaveLength(1)
+      expect(highlights[0]).toHaveTextContent("/Escalate case")
+      expect(highlights[0]).toHaveAttribute("data-mention-target", "workflow-1")
+
+      typeInto(composer, "/Escalate case   Run this workflow  ")
+      fireEvent.click(within(form).getByRole("button", { name: "Send" }))
+
+      await waitFor(() => {
+        expect(createComment).toHaveBeenCalledWith({
+          content: "Run this workflow",
+          parent_id: undefined,
+          workflow_id: "workflow-1",
+        })
+      })
+
+      await waitFor(() => expect(composer).toHaveValue(""))
+      expect(getWorkflowHighlights(composer)).toHaveLength(0)
+    })
+
+    it("filters workflows by title or alias", async () => {
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "/escalate_")
+
+      await waitFor(() => {
+        expect(screen.getByText("Escalate case")).toBeInTheDocument()
+      })
+
+      typeInto(composer, "/zzz")
+
+      expect(screen.getByText("No workflows found")).toBeInTheDocument()
+      expect(screen.queryByText("Workflows")).not.toBeInTheDocument()
+    })
+
+    it("submits a bare workflow command with an empty body", async () => {
+      const createComment = jest.fn().mockResolvedValue(undefined)
+      mockUseCreateCaseComment.mockReturnValue({
+        createComment,
+        createCommentIsPending: false,
+        createCommentError: null,
+      })
+
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "/esc")
+      await waitFor(() => {
+        expect(screen.getByText("Escalate case")).toBeInTheDocument()
+      })
+      fireEvent.keyDown(composer, { key: "Enter" })
+      await waitFor(() => expect(composer).toHaveValue("/Escalate case "))
+
+      fireEvent.keyDown(composer, { key: "Enter", metaKey: true })
+
+      await waitFor(() => {
+        expect(createComment).toHaveBeenCalledWith({
+          content: "",
+          parent_id: undefined,
+          workflow_id: "workflow-1",
+        })
+      })
+    })
+
+    it("replaces the workflow when a second one is picked", async () => {
+      const createComment = jest.fn().mockResolvedValue(undefined)
+      mockUseCreateCaseComment.mockReturnValue({
+        createComment,
+        createCommentIsPending: false,
+        createCommentError: null,
+      })
+
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "/esc")
+      await waitFor(() => {
+        expect(screen.getByText("Escalate case")).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByRole("button", { name: /Escalate case/ }))
+      await waitFor(() => expect(composer).toHaveValue("/Escalate case "))
+
+      typeInto(composer, "/Escalate case /clo")
+      await waitFor(() => {
+        expect(screen.getByText("Close case")).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByRole("button", { name: /Close case/ }))
+
+      await waitFor(() => expect(composer).toHaveValue(" /Close case "))
+      const highlights = getWorkflowHighlights(composer)
+      expect(highlights).toHaveLength(1)
+      expect(highlights[0]).toHaveAttribute("data-mention-target", "workflow-2")
+
+      fireEvent.keyDown(composer, { key: "Enter", metaKey: true })
+
+      await waitFor(() => {
+        expect(createComment).toHaveBeenCalledWith(
+          expect.objectContaining({ workflow_id: "workflow-2" })
+        )
+      })
+    })
+
+    it("shows the folder path for same-titled workflows without an alias", async () => {
+      mockFoldersListFolders.mockResolvedValue([
+        {
+          id: "folder-1",
+          name: "Incidents",
+          path: "/Security/Incidents",
+          workspace_id: "workspace-1",
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+        },
+        {
+          id: "folder-2",
+          name: "Alerts",
+          path: "/Ops/Alerts",
+          workspace_id: "workspace-1",
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+        },
+      ])
+      const notifyTeam = {
+        title: "Notify team",
+        description: "",
+        status: "online" as const,
+        icon_url: null,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+        version: 1,
+        alias: null,
+        error_handler: null,
+        latest_definition: null,
+        trigger_summary: null,
+        tags: [],
+      }
+      mockWorkflowsListWorkflows.mockResolvedValue({
+        items: [
+          { ...notifyTeam, id: "workflow-a", folder_id: "folder-1" },
+          { ...notifyTeam, id: "workflow-b", folder_id: "folder-2" },
+        ],
+        next_cursor: null,
+      })
+
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "/notify")
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Notify team")).toHaveLength(2)
+      })
+      expect(screen.getByText("/Security/Incidents")).toBeInTheDocument()
+      expect(screen.getByText("/Ops/Alerts")).toBeInTheDocument()
+    })
+
+    it("lets Enter fall through when the query matches nothing", async () => {
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "check /dev")
+      await waitFor(() => {
+        expect(screen.getByText("No workflows found")).toBeInTheDocument()
+      })
+
+      // `fireEvent` returns false only when a handler called preventDefault,
+      // so a true result means the textarea keeps the keystroke.
+      expect(fireEvent.keyDown(composer, { key: "Enter" })).toBe(true)
+      expect(fireEvent.keyDown(composer, { key: "Tab" })).toBe(true)
+      expect(fireEvent.keyDown(composer, { key: "ArrowDown" })).toBe(true)
+      expect(composer).toHaveValue("check /dev")
+
+      // Escape still closes the session.
+      fireEvent.keyDown(composer, { key: "Escape" })
+      expect(screen.queryByText("No workflows found")).not.toBeInTheDocument()
+    })
+
+    it("submits with Cmd+Enter while an unmatched / query is open", async () => {
+      const createComment = jest.fn().mockResolvedValue(undefined)
+      mockUseCreateCaseComment.mockReturnValue({
+        createComment,
+        createCommentIsPending: false,
+        createCommentError: null,
+      })
+
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "check /dev")
+      await waitFor(() => {
+        expect(screen.getByText("No workflows found")).toBeInTheDocument()
+      })
+
+      fireEvent.keyDown(composer, { key: "Enter", metaKey: true })
+
+      await waitFor(() => {
+        expect(createComment).toHaveBeenCalledWith({
+          content: "check /dev",
+          parent_id: undefined,
+        })
+      })
+    })
+
+    it("does not open for / inside a URL", () => {
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "see https://example.com/path")
+
+      expect(screen.queryByText("Workflows")).not.toBeInTheDocument()
+      expect(screen.queryByText("No workflows found")).not.toBeInTheDocument()
+    })
+
+    it("treats / as plain text without case add-ons", () => {
+      mockEntitlements([])
+
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "/")
+
+      expect(screen.queryByText("Workflows")).not.toBeInTheDocument()
+      expect(screen.queryByText("No workflows found")).not.toBeInTheDocument()
+      expect(composer).toHaveValue("/")
+      expect(mockWorkflowsListWorkflows).not.toHaveBeenCalled()
+    })
+
+    it("treats / as plain text without workflow:execute", () => {
+      grantScopes(["agent:execute", "agent:read", "workflow:read"])
+
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "/")
+
+      expect(screen.queryByText("Workflows")).not.toBeInTheDocument()
+      expect(screen.queryByText("No workflows found")).not.toBeInTheDocument()
+      expect(composer).toHaveValue("/")
+      expect(mockWorkflowsListWorkflows).not.toHaveBeenCalled()
+      expect(screen.queryByTestId("composer-hint")).not.toBeInTheDocument()
+    })
+
+    it("treats / as plain text without workflow:read", () => {
+      // The suggestion list comes from the workflow and folder list endpoints,
+      // which require workflow:read; without it the requests would 403.
+      grantScopes(["workflow:execute"])
+
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "/")
+
+      expect(screen.queryByText("Workflows")).not.toBeInTheDocument()
+      expect(screen.queryByText("No workflows found")).not.toBeInTheDocument()
+      expect(composer).toHaveValue("/")
+      expect(mockWorkflowsListWorkflows).not.toHaveBeenCalled()
+      expect(mockFoldersListFolders).not.toHaveBeenCalled()
+    })
+
+    it("opens with workflow:execute and workflow:read granted", async () => {
+      grantScopes(["workflow:execute", "workflow:read"])
+
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "/")
+
+      await waitFor(() => {
+        expect(screen.getByText("Escalate case")).toBeInTheDocument()
+      })
+    })
+
+    it("never offers unpublished workflows", async () => {
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "/")
+
+      await waitFor(() => {
+        expect(screen.getByText("Escalate case")).toBeInTheDocument()
+      })
+      expect(screen.getByText("Close case")).toBeInTheDocument()
+      expect(screen.queryByText("Draft escalation")).not.toBeInTheDocument()
+
+      typeInto(composer, "/Draft")
+
+      await waitFor(() => {
+        expect(screen.queryByText("Escalate case")).not.toBeInTheDocument()
+      })
+      expect(screen.queryByText("Draft escalation")).not.toBeInTheDocument()
     })
   })
 
-  it("submits trimmed workflow-backed parent comments and clears the selector", async () => {
-    const createComment = jest.fn().mockResolvedValue(undefined)
-    mockUseCreateCaseComment.mockReturnValue({
-      createComment,
-      createCommentIsPending: false,
-      createCommentError: null,
+  it("renders a failed workflow comment from the persisted status without polling", () => {
+    mockUseCaseCommentThreads.mockReturnValue({
+      caseCommentThreads: [
+        {
+          comment: {
+            id: "workflow-comment-failed",
+            created_at: "2024-01-01T00:00:00Z",
+            updated_at: "2024-01-01T00:00:00Z",
+            content: "Kick off the workflow",
+            parent_id: null,
+            workflow: {
+              workflow_id: "workflow-1",
+              title: "Escalate case",
+              alias: "escalate_case",
+              wf_exec_id: "wf_123/exec_missing",
+              status: "failed",
+            },
+            user: {
+              id: "user-1",
+              email: "owner@example.com",
+              role: "admin",
+              first_name: "Owner",
+              last_name: "One",
+              settings: {},
+            },
+            last_edited_at: null,
+            deleted_at: null,
+            is_deleted: false,
+          },
+          replies: [],
+          reply_count: 0,
+          last_activity_at: "2024-01-01T00:00:00Z",
+        },
+      ],
+      caseCommentThreadsIsLoading: false,
+      caseCommentThreadsError: null,
+    })
+    mockUseCaseComments.mockReturnValue({
+      caseComments: [],
+      caseCommentsIsLoading: false,
+      caseCommentsError: null,
+    })
+    mockUseCompactWorkflowExecution.mockReturnValue({
+      execution: null,
+      executionIsLoading: false,
+      executionError: null,
     })
 
     renderCommentSection()
 
-    await waitFor(() => {
-      expect(
-        screen.getAllByRole("button", { name: /no workflow selected/i })[0]
-      ).toBeInTheDocument()
-    })
-
-    const commentInput = screen
-      .getAllByPlaceholderText("Leave a comment...")
-      .at(-1)
-    if (!commentInput) {
-      throw new Error("Root comment input should exist")
+    expect(screen.getByRole("img", { name: "Error" })).toBeInTheDocument()
+    expect(mockUseCompactWorkflowExecution).toHaveBeenCalled()
+    for (const call of mockUseCompactWorkflowExecution.mock.calls) {
+      expect(call[0]).toBeUndefined()
     }
-    const parentForm = commentInput.closest("form")
-    if (!parentForm) {
-      throw new Error("Comment form should exist")
-    }
-
-    fireEvent.click(
-      within(parentForm).getByRole("button", { name: /no workflow selected/i })
-    )
-    fireEvent.click(screen.getByRole("option", { name: /Escalate case/i }))
-
-    await waitFor(() => {
-      expect(
-        within(parentForm).getByRole("button", { name: /Escalate case/i })
-      ).toBeInTheDocument()
-    })
-
-    fireEvent.change(commentInput, {
-      target: { value: "  Run this workflow  " },
-    })
-    fireEvent.click(within(parentForm).getByRole("button", { name: "Send" }))
-
-    await waitFor(() => {
-      expect(createComment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          content: "Run this workflow",
-          workflow_id: "workflow-1",
-        })
-      )
-    })
-
-    await waitFor(() => {
-      expect(
-        within(parentForm).getByRole("button", {
-          name: /no workflow selected/i,
-        })
-      ).toBeInTheDocument()
-    })
   })
 
   it("renders workflow-backed comments with workflow metadata and run link", () => {
@@ -747,6 +1147,67 @@ describe("CommentSection", () => {
       "/workspaces/workspace-1/workflows/wf_123/executions/exec_456"
     )
     expect(screen.queryByText("avatar")).not.toBeInTheDocument()
+  })
+
+  it("renders a workflow-backed comment with an empty body without a viewer", () => {
+    mockUseCaseCommentThreads.mockReturnValue({
+      caseCommentThreads: [
+        {
+          comment: {
+            id: "workflow-comment-empty",
+            created_at: "2024-01-01T00:00:00Z",
+            updated_at: "2024-01-01T00:00:00Z",
+            content: "",
+            parent_id: null,
+            workflow: {
+              workflow_id: "workflow-1",
+              title: "Escalate case",
+              alias: "escalate_case",
+              wf_exec_id: "wf_123/exec_456",
+              status: "running",
+            },
+            user: {
+              id: "user-1",
+              email: "owner@example.com",
+              role: "admin",
+              first_name: "Owner",
+              last_name: "One",
+              settings: {},
+            },
+            last_edited_at: null,
+            deleted_at: null,
+            is_deleted: false,
+          },
+          replies: [],
+          reply_count: 0,
+          last_activity_at: "2024-01-01T00:00:00Z",
+        },
+      ],
+      caseCommentThreadsIsLoading: false,
+      caseCommentThreadsError: null,
+    })
+    mockUseCaseComments.mockReturnValue({
+      caseComments: [],
+      caseCommentsIsLoading: false,
+      caseCommentsError: null,
+    })
+    mockUseCompactWorkflowExecution.mockReturnValue({
+      execution: {
+        id: "wf_123/exec_456",
+        status: "RUNNING",
+      } as ReturnType<typeof useCompactWorkflowExecution>["execution"],
+      executionIsLoading: false,
+      executionError: null,
+    })
+
+    renderCommentSection()
+
+    expect(screen.getByText("Escalate case")).toBeInTheDocument()
+    expect(screen.getByRole("img", { name: "In progress" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Open workflow run" })
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId("case-comment-viewer")).not.toBeInTheDocument()
   })
 
   it("falls back to the comment execution id for the workflow run link", () => {
@@ -1009,20 +1470,6 @@ describe("CommentSection", () => {
       mockEntitlements(["case_addons", "agent_addons"])
     })
 
-    function typeInto(
-      textarea: HTMLElement,
-      value: string,
-      caret = value.length
-    ) {
-      fireEvent.change(textarea, {
-        target: { value, selectionStart: caret },
-      })
-    }
-
-    function getComposer() {
-      return screen.getByPlaceholderText("Leave a comment...")
-    }
-
     function getCaretMarker(textarea: HTMLElement) {
       const marker = textarea.parentElement?.querySelector("span[aria-hidden]")
       if (!(marker instanceof HTMLElement)) {
@@ -1034,7 +1481,7 @@ describe("CommentSection", () => {
     it("opens the popover listing presets under a section header", () => {
       renderCommentSection()
 
-      typeInto(getComposer(), "@")
+      typeInto(getRootComposer(), "@")
 
       expect(screen.getByText("Agents")).toBeInTheDocument()
       expect(screen.getByText("Triage agent")).toBeInTheDocument()
@@ -1044,21 +1491,21 @@ describe("CommentSection", () => {
     it("renders the popover above the caret and outside the composer form", () => {
       renderCommentSection()
 
-      typeInto(getComposer(), "@")
+      typeInto(getRootComposer(), "@")
 
       const content = screen.getByText("Triage agent").closest("[data-side]")
       expect(content).toHaveAttribute("data-side", "top")
       // Portaled, so the thread's overflow-hidden cannot clip the popover.
-      expect(getComposer().closest("form")).not.toContainElement(
+      expect(getRootComposer().closest("form")).not.toContainElement(
         content as HTMLElement | null
       )
       // Anchored to a caret marker rather than the composer itself.
-      expect(getCaretMarker(getComposer())).toBeInTheDocument()
+      expect(getCaretMarker(getRootComposer())).toBeInTheDocument()
     })
 
     it("pins the anchor to the @ offset and holds it as the query grows", () => {
       renderCommentSection()
-      const composer = getComposer()
+      const composer = getRootComposer()
 
       typeInto(composer, "Ping @")
 
@@ -1076,7 +1523,7 @@ describe("CommentSection", () => {
 
     it("re-measures when a new mention session starts", () => {
       renderCommentSection()
-      const composer = getComposer()
+      const composer = getRootComposer()
 
       typeInto(composer, "@a")
       expect(mockGetCaretCoordinates).toHaveBeenLastCalledWith(composer, 0)
@@ -1090,7 +1537,7 @@ describe("CommentSection", () => {
 
     it("keeps the popover open with an empty state when nothing matches", () => {
       renderCommentSection()
-      const composer = getComposer()
+      const composer = getRootComposer()
 
       typeInto(composer, "@zzz")
 
@@ -1104,7 +1551,7 @@ describe("CommentSection", () => {
     it("filters presets by the mention query", () => {
       renderCommentSection()
 
-      typeInto(getComposer(), "Ping @mal")
+      typeInto(getRootComposer(), "Ping @mal")
 
       expect(screen.getByText("Malware agent")).toBeInTheDocument()
       expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
@@ -1113,14 +1560,14 @@ describe("CommentSection", () => {
     it("ignores @ that does not follow whitespace", () => {
       renderCommentSection()
 
-      typeInto(getComposer(), "email@tri")
+      typeInto(getRootComposer(), "email@tri")
 
       expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
     })
 
     it("dismisses on whitespace in the query and on Escape", () => {
       renderCommentSection()
-      const composer = getComposer()
+      const composer = getRootComposer()
 
       typeInto(composer, "@tri ")
       expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
@@ -1141,7 +1588,7 @@ describe("CommentSection", () => {
       })
 
       renderCommentSection()
-      const composer = getComposer()
+      const composer = getRootComposer()
 
       typeInto(composer, "Ping @")
       fireEvent.keyDown(composer, { key: "ArrowDown" })
@@ -1169,7 +1616,7 @@ describe("CommentSection", () => {
       })
 
       renderCommentSection()
-      const composer = getComposer()
+      const composer = getRootComposer()
       composer.focus()
 
       typeInto(composer, "Ping @")
@@ -1186,7 +1633,7 @@ describe("CommentSection", () => {
 
     it("wraps keyboard navigation with ArrowUp", async () => {
       renderCommentSection()
-      const composer = getComposer()
+      const composer = getRootComposer()
 
       typeInto(composer, "@")
       fireEvent.keyDown(composer, { key: "ArrowUp" })
@@ -1203,12 +1650,12 @@ describe("CommentSection", () => {
       fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
 
       await waitFor(() => expect(reply).toHaveValue("@Triage agent "))
-      expect(getComposer()).toHaveValue("")
+      expect(getRootComposer()).toHaveValue("")
     })
 
     it("highlights the inserted mention in the overlay", async () => {
       renderCommentSection()
-      const composer = getComposer()
+      const composer = getRootComposer()
 
       typeInto(composer, "@tri")
       fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
@@ -1234,7 +1681,7 @@ describe("CommentSection", () => {
       })
 
       renderCommentSection()
-      const composer = getComposer()
+      const composer = getRootComposer()
 
       typeInto(composer, "Ping @tri")
       fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
@@ -1253,7 +1700,7 @@ describe("CommentSection", () => {
 
     it("deletes a whole mention on backspace after it", async () => {
       renderCommentSection()
-      const composer = getComposer()
+      const composer = getRootComposer()
 
       typeInto(composer, "Ping @tri")
       fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
@@ -1270,10 +1717,10 @@ describe("CommentSection", () => {
       mockUseScopeCheck.mockReturnValue(false)
 
       renderCommentSection()
-      typeInto(getComposer(), "@")
+      typeInto(getRootComposer(), "@")
 
       expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
-      expect(getComposer()).toHaveValue("@")
+      expect(getRootComposer()).toHaveValue("@")
     })
 
     it("stays closed with agent:execute but not agent:read", () => {
@@ -1282,7 +1729,7 @@ describe("CommentSection", () => {
       grantScopes(["agent:execute"])
 
       renderCommentSection()
-      typeInto(getComposer(), "@")
+      typeInto(getRootComposer(), "@")
 
       expect(mockUseScopeCheck).toHaveBeenCalledWith(
         undefined,
@@ -1290,7 +1737,7 @@ describe("CommentSection", () => {
         { all: true }
       )
       expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
-      expect(getComposer()).toHaveValue("@")
+      expect(getRootComposer()).toHaveValue("@")
       expect(mockUseAgentPresets).toHaveBeenCalledWith(
         "workspace-1",
         expect.objectContaining({ enabled: false })
@@ -1301,7 +1748,7 @@ describe("CommentSection", () => {
       grantScopes(["agent:execute", "agent:read"])
 
       renderCommentSection()
-      typeInto(getComposer(), "@")
+      typeInto(getRootComposer(), "@")
 
       expect(screen.getByText("Triage agent")).toBeInTheDocument()
       expect(mockUseAgentPresets).toHaveBeenCalledWith(
@@ -1316,7 +1763,7 @@ describe("CommentSection", () => {
         mockEntitlements([entitlement])
 
         renderCommentSection()
-        typeInto(getComposer(), "@")
+        typeInto(getRootComposer(), "@")
 
         expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
       }

@@ -47,6 +47,7 @@ class CaseFieldRead(TypedDict):
     """Case field with value."""
 
     id: str  # Field name (e.g., 'id', 'created_at', 'custom_field')
+    display_name: str
     type: str
     description: str | None
     nullable: bool

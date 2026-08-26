@@ -1,0 +1,118 @@
+type: action
+definition:
+  title: Create full scan from archive
+  description: >-
+    Create a full scan from an archive. Calls POST /v0/orgs/{org_slug}/full-scans/archive
+    directly with multipart files.
+  display_group: Socket
+  doc_url: https://docs.socket.dev/reference/createorgfullscanarchive
+  namespace: tools.socket
+  name: create_full_scan_from_archive
+  secrets:
+    - name: socket
+      keys: ["SOCKET_API_TOKEN"]
+  expects:
+    org_slug:
+      type: str
+      description: Socket organization slug.
+    repo:
+      type: str
+      description: The slug of the repository to associate the full-scan with.
+    files:
+      type: dict[str, Any]
+      description: Multipart archive files map accepted by core.http_request.
+    workspace:
+      type: str | None
+      description: The workspace of the repository to associate the full-scan with.
+      default: null
+    branch:
+      type: str | None
+      description: >-
+        The branch name to associate the full-scan with. Branch names must follow Git branch name
+        rules: be 1-255 characters long; cannot be exactly @; cannot begin or end with /, ., or
+        .lock; cannot contain "//", "..", or "@{"; and cannot include control characters, spaces,
+        or any of ~^:?*[.
+      default: null
+    commit_message:
+      type: str | None
+      description: The commit message to associate the full-scan with.
+      default: null
+    commit_hash:
+      type: str | None
+      description: The commit hash to associate the full-scan with.
+      default: null
+    pull_request:
+      type: int | None
+      description: The pull request number to associate the full-scan with.
+      default: null
+    committers:
+      type: list[str] | None
+      description: >-
+        The committers to associate with the full-scan. Set query more than once to set multiple.
+      default: null
+    integration_type:
+      type: str | None
+      description: >-
+        The integration type to associate the full-scan with. Defaults to "Api" if omitted.
+        Supported values are api, github, gitlab, bitbucket, azure and web.
+      default: null
+    integration_org_slug:
+      type: str | None
+      description: >-
+        The integration org slug to associate the full-scan with. If omitted, the Socket org name
+        will be used. This is used to generate links and badges.
+      default: null
+    make_default_branch:
+      type: bool | None
+      description: >-
+        Set the default branch of the repository to the branch of this full-scan. A branch name is
+        required with this option.
+      default: null
+    set_as_pending_head:
+      type: bool | None
+      description: >-
+        Designate this full-scan as the latest scan of a given branch. Default branch head scans
+        are included in org alerts. This is only supported on the default branch. A branch name is
+        required with this option.
+      default: null
+    tmp:
+      type: bool | None
+      description: >-
+        Create a temporary full-scan that is not listed in the reports dashboard. Cannot be used
+        when set_as_pending_head=true.
+      default: null
+    scan_type:
+      type: str | None
+      description: >-
+        The type of scan to perform. Defaults to 'socket'. Must be 32 characters or less. Used for
+        categorizing multiple SBOM heads per repository branch.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Socket API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.socket.base_url || "https://api.socket.dev" }}/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/full-scans/archive
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.socket.SOCKET_API_TOKEN }}
+        params:
+          repo: ${{ inputs.repo }}
+          workspace: ${{ inputs.workspace }}
+          branch: ${{ inputs.branch }}
+          commit_message: ${{ inputs.commit_message }}
+          commit_hash: ${{ inputs.commit_hash }}
+          pull_request: ${{ inputs.pull_request }}
+          committers: ${{ inputs.committers }}
+          integration_type: ${{ inputs.integration_type }}
+          integration_org_slug: ${{ inputs.integration_org_slug }}
+          make_default_branch: ${{ inputs.make_default_branch }}
+          set_as_pending_head: ${{ inputs.set_as_pending_head }}
+          tmp: ${{ inputs.tmp }}
+          scan_type: ${{ inputs.scan_type }}
+        files: ${{ inputs.files }}
+  returns: ${{ steps.request.result }}

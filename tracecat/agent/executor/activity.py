@@ -28,7 +28,6 @@ from tracecat.agent.cancellation import (
 )
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
-    TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
@@ -59,6 +58,12 @@ from tracecat.agent.mcp.stdio_probe_types import (
     StdioMCPProbeResult,
     sanitize_stdio_probe_error,
 )
+from tracecat.agent.otel_config import (
+    AgentOtelConfig,
+    ResolvedAgentOtelConfig,
+    load_agent_otel_platform_override,
+    resolve_agent_otel_config,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
@@ -73,10 +78,11 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMRoutingPlan,
     LLMSocketProxy,
 )
+from tracecat.agent.sandbox.otel_relay import OTEL_SOCKET_NAME, OtelSocketReceiver
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.service import SkillService
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 from tracecat.config import (
@@ -89,6 +95,7 @@ from tracecat.integrations.mcp_validation import MCPSecretResolutionError
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.settings.service import SettingsService
 from tracecat.storage import blob
 
 from .schemas import (
@@ -99,6 +106,39 @@ from .schemas import (
 
 BROKER_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
 GRACEFUL_CANCEL_TIMEOUT_SECONDS = 30.0
+
+
+@dataclass(frozen=True, slots=True)
+class AgentOtelInputs:
+    """Org-saved Agent OTel config plus its decrypted exporter headers."""
+
+    config: AgentOtelConfig | None
+    headers: dict[str, str] | None
+
+
+async def load_org_agent_otel_inputs(*, role: Role) -> AgentOtelInputs:
+    """Load the org's saved Agent OTel config and decrypted headers.
+
+    Both fields are ``None`` when the org has no settings rows yet so the
+    resolver can fall back to its defaults.
+    """
+    async with SettingsService.with_session(role=role) as service:
+        settings = await service.list_org_settings(
+            keys={"agent_otel_config", "agent_otel_headers"}
+        )
+        values, _ = service.get_values_with_decryption_fallback(settings)
+
+    raw_config = values.get("agent_otel_config")
+    config_value: AgentOtelConfig | None = None
+    if isinstance(raw_config, dict):
+        config_value = AgentOtelConfig.model_validate(raw_config)
+
+    raw_headers = values.get("agent_otel_headers")
+    headers_value: dict[str, str] | None = None
+    if isinstance(raw_headers, dict):
+        headers_value = {str(k): str(v) for k, v in raw_headers.items()}
+
+    return AgentOtelInputs(config=config_value, headers=headers_value)
 
 
 class AgentExecutorInput(BaseModel):
@@ -128,6 +168,10 @@ class AgentExecutorInput(BaseModel):
     llm_gateway_auth_token: str = Field(
         validation_alias=AliasChoices("llm_gateway_auth_token", "litellm_auth_token"),
     )
+    agent_otel_auth_token: str | None = None
+    # Maximum continuous execution time, clamped to the deployment ceiling
+    # at resolution; None inherits the default.
+    timeout_seconds: int | None = None
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     # Fully resolved subagent definitions, each with scoped tools/tokens/routes.
@@ -243,13 +287,16 @@ class SandboxedAgentExecutor:
 
     input: AgentExecutorInput
     timeout_seconds: int = field(
-        default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT
+        default_factory=lambda: clamp_agent_timeout_seconds(None)
     )
     memory_mb: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_MEMORY_MB)
 
     # Internal state
     _job_dir: Path | None = field(default=None, init=False, repr=False)
     _llm_proxy: LLMSocketProxy | None = field(default=None, init=False, repr=False)
+    _otel_receiver: OtelSocketReceiver | None = field(
+        default=None, init=False, repr=False
+    )
     _fatal_error: str | None = field(default=None, init=False, repr=False)
     _fatal_error_event: asyncio.Event = field(
         default_factory=asyncio.Event, init=False, repr=False
@@ -397,6 +444,50 @@ class SandboxedAgentExecutor:
             upstream_model_name=upstream_model_name,
         )
 
+    async def _resolve_agent_otel_config(self) -> ResolvedAgentOtelConfig:
+        """Resolve org + platform OTel inputs into a runtime config.
+
+        Header decryption and platform override loading happen here, inside
+        the activity, so secrets never round-trip through the workflow payload.
+        Errors are non-fatal: telemetry is best-effort and must not block agent
+        execution.
+        """
+        try:
+            org_inputs = await load_org_agent_otel_inputs(role=self.input.role)
+            platform_override = load_agent_otel_platform_override()
+            return resolve_agent_otel_config(
+                org_config=org_inputs.config,
+                org_headers=org_inputs.headers,
+                platform_override=platform_override,
+            )
+        except Exception as exc:
+            # No error text: a validation error echoes the input, which can
+            # include a credential-bearing collector endpoint.
+            logger.warning(
+                "Failed to resolve Agent OTel config; running without telemetry",
+                error_type=type(exc).__name__,
+            )
+            return ResolvedAgentOtelConfig(enabled=False)
+
+    @staticmethod
+    def _build_sandbox_env(
+        resolved: ResolvedAgentOtelConfig,
+        *,
+        otel_auth_token: str,
+    ) -> dict[str, str]:
+        """Build the sandbox-side OTel env.
+
+        Injects the receiver's bearer JWT as ``OTEL_EXPORTER_OTLP_HEADERS`` so
+        the Claude OTel exporter attaches it to outbound OTLP requests for the
+        host-side socket receiver to verify.
+        """
+        sandbox_env = dict(resolved.sandbox_env)
+        sandbox_env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+        sandbox_env["OTEL_EXPORTER_OTLP_HEADERS"] = (
+            f"Authorization=Bearer {otel_auth_token}"
+        )
+        return sandbox_env
+
     def _build_runtime_init_payload(self) -> RuntimeInitPayload:
         """Build the runtime init payload for this execution."""
         sandbox_config = SandboxAgentConfig.from_agent_config(self.input.config)
@@ -444,6 +535,36 @@ class SandboxedAgentExecutor:
                 socket_dir=str(socket_dir),
             )
 
+            # Resolve Agent OTel config inside the activity (org settings + headers
+            # decryption stay trusted-side, never cross Temporal payload boundary).
+            otel_socket_path: Path | None = None
+            resolved_otel = await self._resolve_agent_otel_config()
+            if resolved_otel.enabled:
+                if self.input.agent_otel_auth_token is None:
+                    logger.warning(
+                        "Agent OTel enabled but auth token is missing; running without telemetry",
+                        session_id=self.input.session_id,
+                    )
+                elif self.input.role.organization_id is None:
+                    logger.warning(
+                        "Agent OTel enabled but organization context is missing; running without telemetry",
+                        session_id=self.input.session_id,
+                    )
+                else:
+                    init_payload.agent_otel_sandbox_env = self._build_sandbox_env(
+                        resolved_otel,
+                        otel_auth_token=self.input.agent_otel_auth_token,
+                    )
+                    otel_socket_path = socket_dir / OTEL_SOCKET_NAME
+                    self._otel_receiver = OtelSocketReceiver(
+                        socket_path=otel_socket_path,
+                        collector_env=resolved_otel.collector_env,
+                        headers=resolved_otel.headers,
+                        expected_workspace_id=self.input.workspace_id,
+                        expected_organization_id=self.input.role.organization_id,
+                        expected_session_id=self.input.session_id,
+                    )
+
             # Create loopback handler
             loopback_input = LoopbackInput(
                 session_id=self.input.session_id,
@@ -464,6 +585,7 @@ class SandboxedAgentExecutor:
                 socket_dir=socket_dir,
                 llm_socket_path=llm_socket_path,
                 artifact_working_set=artifact_working_set,
+                otel_socket_path=otel_socket_path,
             )
 
         except AgentSandboxExecutionError as e:
@@ -565,6 +687,7 @@ class SandboxedAgentExecutor:
         socket_dir: Path,
         llm_socket_path: Path,
         artifact_working_set: ArtifactWorkingSetInput | None,
+        otel_socket_path: Path | None,
     ) -> None:
         """Execute the Claude turn through the worker-global warm broker."""
         if self._job_dir is None:
@@ -581,6 +704,21 @@ class SandboxedAgentExecutor:
         )
         self._log_benchmark_phase("broker_llm_proxy_ready")
 
+        if self._otel_receiver is not None:
+            try:
+                await self._otel_receiver.start()
+            except Exception as e:
+                logger.warning(
+                    "Failed to start OTel receiver; running without telemetry",
+                    error_type=type(e).__name__,
+                    error=str(e),
+                )
+                self._otel_receiver = None
+                otel_socket_path = None
+                init_payload.agent_otel_sandbox_env = None
+            else:
+                self._log_benchmark_phase("broker_otel_relay_ready")
+
         request = ClaudeTurnRequest(
             init_payload=init_payload,
             job_dir=self._job_dir,
@@ -592,6 +730,7 @@ class SandboxedAgentExecutor:
             hydrate_work_dir=self._hydrate_agent_filesystem
             if _agent_fs_persistence_enabled()
             else None,
+            otel_socket_path=otel_socket_path,
         )
 
         async def wait_fatal_error() -> str:
@@ -620,14 +759,18 @@ class SandboxedAgentExecutor:
                 elapsed = 0
 
                 while elapsed < self.timeout_seconds:
+                    wait_interval = min(
+                        heartbeat_interval,
+                        self.timeout_seconds - elapsed,
+                    )
                     done, _ = await asyncio.wait(
                         [broker_task, fatal_error_task],
-                        timeout=heartbeat_interval,
+                        timeout=wait_interval,
                         return_when=asyncio.FIRST_COMPLETED,
                     )
 
                     if not done:
-                        elapsed += heartbeat_interval
+                        elapsed += wait_interval
                         activity.heartbeat(
                             f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
                         )
@@ -1025,6 +1168,14 @@ class SandboxedAgentExecutor:
                 logger.warning("Failed to stop LLM proxy", error=str(e))
             self._llm_proxy = None
 
+        # Stop Agent OTel ingress; admitted deliveries outlive this receiver.
+        if self._otel_receiver:
+            try:
+                await self._otel_receiver.stop()
+            except Exception as e:
+                logger.warning("Failed to stop OTel receiver", error=str(e))
+            self._otel_receiver = None
+
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():
             try:
@@ -1211,7 +1362,11 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
             subagent.config.mcp_servers, role=input.role
         )
 
-    executor = SandboxedAgentExecutor(input=input)
+    timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
+    executor = SandboxedAgentExecutor(
+        input=input,
+        timeout_seconds=timeout_seconds,
+    )
     result = await executor.run()
 
     if result.success:

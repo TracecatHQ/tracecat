@@ -7,13 +7,40 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
 from tracecat.dsl import scheduler as scheduler_module
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.scheduler import DSLScheduler
-from tracecat.dsl.schemas import ActionStatement, ExecutionContext, RunContext
+from tracecat.dsl.schemas import (
+    ROOT_STREAM,
+    ActionStatement,
+    ExecutionContext,
+    RunContext,
+    StreamID,
+)
+from tracecat.dsl.types import (
+    ActionErrorInfo,
+    Task,
+)
+from tracecat.expressions.common import ExprContext
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.runtime.errors import (
+    ErrorEnvelope,
+    RetryDisposition,
+    RuntimeErrorKind,
+)
+from tracecat.temporal.errors import raise_application_error_from_envelope
+
+
+def _capture_application_error(
+    envelope: ErrorEnvelope,
+    *details: object,
+) -> ApplicationError:
+    with pytest.raises(ApplicationError) as exc_info:
+        raise_application_error_from_envelope(envelope, *details)
+    return exc_info.value
 
 
 def _build_scheduler(
@@ -53,6 +80,88 @@ def _build_scheduler(
         role=test_role,
         run_context=test_run_context,
     )
+
+
+@pytest.mark.anyio
+async def test_scheduler_preserves_classified_action_error() -> None:
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    error = _capture_application_error(
+        envelope,
+        ActionErrorInfo(
+            ref="task_0",
+            message="The action failed",
+            type="ValueError",
+        ),
+    )
+
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
+
+    details = scheduler.task_exceptions["task_0"].details
+    assert details.envelope == envelope
+
+
+@pytest.mark.anyio
+async def test_scheduler_preserves_classified_mapped_child_error() -> None:
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The child action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    nested = ActionErrorInfo(
+        ref="nested_action",
+        message="Nested context",
+        type="ValueError",
+    )
+    child = ActionErrorInfo(
+        ref="child_action",
+        message="The child action failed",
+        type="ValueError",
+        expr_context=ExprContext.TRIGGER,
+        attempt=3,
+        stream_id=StreamID.new("scatter", 2),
+        children=[nested],
+        envelope=envelope,
+    )
+    error = _capture_application_error(
+        envelope,
+        {child.ref: child.model_dump(mode="json")},
+    )
+
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
+
+    assert scheduler.task_exceptions["task_0"].details == child
+
+
+@pytest.mark.anyio
+async def test_scheduler_preserves_standalone_error_envelope() -> None:
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    envelope = ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    error = _capture_application_error(envelope)
+
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
+
+    details = scheduler.task_exceptions["task_0"].details
+    assert details.ref == "task_0"
+    assert details.envelope == envelope
 
 
 @pytest.mark.anyio

@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeftIcon,
   CheckCircleIcon,
@@ -55,6 +54,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { getRelativeTime } from "@/lib/event-history"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 /** Shorten a version string if it looks like a full commit SHA. */
 function shortVersion(version: string): string {

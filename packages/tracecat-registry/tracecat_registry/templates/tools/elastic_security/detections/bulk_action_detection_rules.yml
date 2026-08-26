@@ -11,11 +11,13 @@ definition:
       keys: ["ELASTIC_API_KEY"]
   expects:
     payload:
+      # Free-form: the vendor documents this body as an 8-way oneOf discriminated on `action`, so there is
+      # no single field set to enumerate.
       type: dict[str, Any]
       description: API-native JSON request body.
-    params:
-      type: dict[str, Any] | None
-      description: Optional native Kibana query parameters.
+    dry_run:
+      type: bool | None
+      description: Enables dry run mode for the request call. Enable dry run mode to verify that bulk actions can be applied to specified rules. Certain rules, such as prebuilt Elastic rules on a Basic subscription, can't be edited and will return errors in the request response. Rules specified in the request will be temporarily updated. These updates won't be written to Elasticsearch. Dry run mode is not supported for the `export` bulk action.
       default: null
     base_url:
       type: str | None
@@ -48,7 +50,8 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
         method: POST
-        params: ${{ inputs.params }}
+        params:
+          dry_run: ${{ inputs.dry_run }}
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}

@@ -57,6 +57,21 @@ class CaseStatus(StrEnum):
     OTHER = "other"
 
 
+class CaseVersionField(StrEnum):
+    """Case text fields that have immutable version history."""
+
+    SUMMARY = "summary"
+    DESCRIPTION = "description"
+
+
+class CaseVersionDiffOperation(StrEnum):
+    """Operations in an ordered case-version text diff."""
+
+    EQUAL = "equal"
+    INSERT = "insert"
+    DELETE = "delete"
+
+
 class CaseEventType(StrEnum):
     """Case activity type values."""
 

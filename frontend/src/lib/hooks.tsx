@@ -1,10 +1,3 @@
-import {
-  type Query,
-  type QueryClient,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
@@ -379,7 +372,6 @@ import {
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
 } from "@/client"
-
 import { toast } from "@/components/ui/use-toast"
 import {
   markStdioMcpVerificationStarted,
@@ -413,6 +405,13 @@ import {
 } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { getPendingStdioMcpVerificationIds } from "@/lib/integrations"
+import {
+  type Query,
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
@@ -501,6 +500,7 @@ export function useAction(
         requestBody: values,
       })
     },
+    meta: { suppressErrorToast: false },
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["action"],
@@ -845,7 +845,7 @@ export function useWorkflowManager(
           console.error("Failed to create workflow:", error)
           toast({
             title: "Error creating workflow",
-            description: error.body.detail + ". Please try again.",
+            description: getApiErrorDetail(error) ?? "Please try again.",
             variant: "destructive",
           })
       }
@@ -872,14 +872,14 @@ export function useWorkflowManager(
         case 400:
           toast({
             title: "Cannot delete workflow",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         default:
           console.error("Failed to delete workflow:", error)
           toast({
             title: "Error deleting workflow",
-            description: error.body.detail + ". Please try again.",
+            description: getApiErrorDetail(error) ?? "Please try again.",
             variant: "destructive",
           })
       }
@@ -897,7 +897,7 @@ export function useWorkflowManager(
       console.error("Failed to add tag to workflow:", error)
       toast({
         title: "Couldn't add tag to workflow",
-        description: error.body.detail + ". Please try again.",
+        description: getApiErrorDetail(error) ?? "Please try again.",
       })
     },
   })
@@ -913,7 +913,7 @@ export function useWorkflowManager(
       console.error("Failed to remove tag from workflow:", error)
       toast({
         title: "Couldn't remove tag from workflow",
-        description: error.body.detail + ". Please try again.",
+        description: getApiErrorDetail(error) ?? "Please try again.",
       })
     },
   })
@@ -930,7 +930,7 @@ export function useWorkflowManager(
       console.error("Failed to move workflow:", error)
       toast({
         title: "Error moving workflow",
-        description: error.body.detail + ". Please try again.",
+        description: getApiErrorDetail(error) ?? "Please try again.",
       })
     },
   })
@@ -1035,7 +1035,7 @@ export function useWorkspaceManager() {
           console.error("Failed to create workspace:", error)
           toast({
             title: "Error creating workspace",
-            description: error.body.detail + ". Please try again.",
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
       }
     },
@@ -1060,14 +1060,14 @@ export function useWorkspaceManager() {
         case 400:
           toast({
             title: "Cannot delete workspace",
-            description: JSON.stringify(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         default:
           console.error("Failed to delete workspace:", error)
           toast({
             title: "Error deleting workspace",
-            description: error.body.detail + ". Please try again.",
+            description: getApiErrorDetail(error) ?? "Please try again.",
             variant: "destructive",
           })
       }
@@ -2079,7 +2079,7 @@ export function useRegistryRepositories() {
             description: (
               <div className="flex items-start gap-2">
                 <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
-                <span>{String(error.body.detail)}</span>
+                <span>{getApiErrorDetail(error) ?? "Please try again."}</span>
               </div>
             ),
           })
@@ -2107,7 +2107,7 @@ export function useRegistryRepositories() {
               <div className="flex items-start gap-2">
                 <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
                 <span>{error.message}</span>
-                <span>{String(error.body.detail)}</span>
+                <span>{getApiErrorDetail(error) ?? "Please try again."}</span>
               </div>
             ),
           })
@@ -2136,13 +2136,13 @@ export function useRegistryRepositories() {
         case 403:
           toast({
             title: "You cannot perform this action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
+            description: `${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
           break
         default:
           toast({
             title: "Failed to delete registry repository",
-            description: `An unexpected error occurred while deleting the registry repository. ${apiError.message}: ${apiError.body.detail}`,
+            description: `An unexpected error occurred while deleting the registry repository. ${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
       }
     },
@@ -2227,13 +2227,13 @@ export function useOrgMembers() {
         case 403:
           toast({
             title: "You cannot perform this action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
+            description: `${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
           break
         default:
           toast({
             title: "Failed to update organization member",
-            description: `An unexpected error occurred while updating the organization member. ${apiError.message}: ${apiError.body.detail}`,
+            description: `An unexpected error occurred while updating the organization member. ${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
       }
     },
@@ -2260,13 +2260,13 @@ export function useOrgMembers() {
         case 403:
           toast({
             title: "You cannot perform this action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
+            description: `${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
           break
         default:
           toast({
             title: "Failed to delete organization member",
-            description: `An unexpected error occurred while deleting the organization member. ${apiError.message}: ${apiError.body.detail}`,
+            description: `An unexpected error occurred while deleting the organization member. ${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
       }
     },
@@ -2416,7 +2416,7 @@ export function useWorkflowTags(
           console.error("Error creating tag", error)
           toast({
             title: "Error creating tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -2429,7 +2429,7 @@ export function useWorkflowTags(
           console.error("Failed to create tag", error)
           toast({
             title: "Failed to create tag",
-            description: `An error occurred while creating the tag: ${error.body.detail}`,
+            description: `An error occurred while creating the tag: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2457,7 +2457,7 @@ export function useWorkflowTags(
           console.error("Error updating tag", error)
           toast({
             title: "Error updating tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
       }
@@ -2557,7 +2557,7 @@ export function useCaseTagCatalog(
         case 400:
           toast({
             title: "Error creating case tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -2570,7 +2570,7 @@ export function useCaseTagCatalog(
           console.error("Failed to create case tag", error)
           toast({
             title: "Failed to create case tag",
-            description: `An error occurred while creating the case tag: ${error.body.detail}`,
+            description: `An error occurred while creating the case tag: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2599,7 +2599,7 @@ export function useCaseTagCatalog(
         case 400:
           toast({
             title: "Error updating case tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -2697,7 +2697,7 @@ export function useOrgGitSettings() {
           console.error("Failed to update Git settings", error)
           toast({
             title: "Failed to update Git settings",
-            description: `An error occurred while updating the Git settings: ${typeof error.body.detail === "object" ? JSON.stringify(error.body.detail) : error.body.detail}`,
+            description: `An error occurred while updating the Git settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2800,6 +2800,7 @@ export function useGitHubAppCredentials() {
     mutationFn: async (data) => {
       return await vcsSaveGithubAppCredentials({ requestBody: data })
     },
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       clearGitHubAppRepositoryQueries(queryClient)
       // Invalidate and refetch credentials status
@@ -2871,6 +2872,7 @@ export function useGitLabTokenCredentials() {
     mutationFn: async (data) => {
       return await vcsSaveGitlabTokenCredentials({ requestBody: data })
     },
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       invalidateGitLabTokenCredentialQueries(queryClient)
     },
@@ -2950,7 +2952,7 @@ export function useOrgAgentSettings() {
           console.error("Failed to update agent settings", error)
           toast({
             title: "Failed to update agent settings",
-            description: `An error occurred while updating the agent settings: ${error.body.detail}`,
+            description: `An error occurred while updating the agent settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -3008,7 +3010,7 @@ export function useOrgSamlSettings() {
           console.error("Failed to update SAML settings", error)
           toast({
             title: "Failed to update SAML settings",
-            description: `An error occurred while updating the SAML settings: ${error.body.detail}`,
+            description: `An error occurred while updating the SAML settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -3068,7 +3070,7 @@ export function useOrgAppSettings() {
           console.error("Failed to update application settings", error)
           toast({
             title: "Failed to update application settings",
-            description: `An error occurred while updating the application settings: ${error.body.detail}`,
+            description: `An error occurred while updating the application settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -3126,7 +3128,7 @@ export function useOrgAuditSettings() {
           console.error("Failed to update audit settings", error)
           toast({
             title: "Failed to update audit settings",
-            description: `An error occurred while updating the audit settings: ${error.body.detail}`,
+            description: `An error occurred while updating the audit settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -3326,13 +3328,13 @@ export function useDeleteTable() {
         case 400:
           return toast({
             title: "Bad Request",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
         default:
           console.error("Error deleting table", error)
           return toast({
             title: "Error deleting table",
-            description: `An error occurred while deleting the table: ${error.body.detail}`,
+            description: `An error occurred while deleting the table: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -3427,7 +3429,7 @@ export function useUpdateColumn() {
         } else if (error.status === 400) {
           toast({
             title: indexErrorTitle,
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
         } else {
           toast({
@@ -3913,7 +3915,7 @@ export function useCreateCase(workspaceId: string) {
     onError: (error: TracecatApiError) => {
       toast({
         title: "Error creating case",
-        description: `An error occurred while creating the case: ${error.body.detail}`,
+        description: `An error occurred while creating the case: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -3963,7 +3965,7 @@ export function useUpdateCase({
           console.error("Error updating case", error)
           return toast({
             title: "Error updating case",
-            description: `An error occurred while updating the case: ${error.body.detail}`,
+            description: `An error occurred while updating the case: ${getApiErrorDetail(error) ?? "Please try again."}`,
             variant: "destructive",
           })
       }
@@ -4008,7 +4010,7 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
           console.error("Error deleting case", error)
           return toast({
             title: "Error deleting case",
-            description: `An error occurred while deleting the case: ${error.body.detail}`,
+            description: `An error occurred while deleting the case: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -4211,7 +4213,7 @@ export function useCreateCaseComment({
       console.error("Error creating comment", error)
       toast({
         title: "Error creating comment",
-        description: `An error occurred while creating the comment: ${error.body.detail}`,
+        description: `An error occurred while creating the comment: ${getApiErrorDetail(error) ?? "Please try again."}`,
         variant: "destructive",
       })
     },
@@ -4254,7 +4256,7 @@ export function useUpdateCaseComment({
       console.error("Error updating comment", error)
       toast({
         title: "Error updating comment",
-        description: `An error occurred while updating the comment: ${error.body.detail}`,
+        description: `An error occurred while updating the comment: ${getApiErrorDetail(error) ?? "Please try again."}`,
         variant: "destructive",
       })
     },
@@ -4296,7 +4298,7 @@ export function useDeleteCaseComment({
       console.error("Error deleting comment", error)
       toast({
         title: "Error deleting comment",
-        description: `An error occurred while deleting the comment: ${error.body.detail}`,
+        description: `An error occurred while deleting the comment: ${getApiErrorDetail(error) ?? "Please try again."}`,
         variant: "destructive",
       })
     },
@@ -4309,7 +4311,11 @@ export function useDeleteCaseComment({
   }
 }
 
-export function useCaseTasks({ caseId, workspaceId }: CasesListTasksData) {
+export function useCaseTasks({
+  caseId,
+  workspaceId,
+  enabled = true,
+}: CasesListTasksData & { enabled?: boolean }) {
   const {
     data: caseTasks,
     isLoading: caseTasksIsLoading,
@@ -4318,6 +4324,10 @@ export function useCaseTasks({ caseId, workspaceId }: CasesListTasksData) {
   } = useQuery<CaseTaskRead[], TracecatApiError>({
     queryKey: ["case-tasks", caseId, workspaceId],
     queryFn: async () => await casesListTasks({ caseId, workspaceId }),
+    // Tasks are gated behind the `case_addons` entitlement; callers outside
+    // the gate (the switcher's progress ring) must pass `enabled` so
+    // non-entitled orgs never fire the request.
+    enabled: Boolean(caseId && workspaceId) && enabled,
   })
 
   return {
@@ -4352,7 +4362,7 @@ export function useCreateCaseTask({ caseId, workspaceId }: CasesListTasksData) {
       console.error("Error creating task", error)
       toast({
         title: "Error creating task",
-        description: `An error occurred while creating the task: ${error.body.detail}`,
+        description: `An error occurred while creating the task: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -4397,7 +4407,7 @@ export function useUpdateCaseTask({
       console.error("Error updating task", error)
       toast({
         title: "Error updating task",
-        description: `An error occurred while updating the task: ${error.body.detail}`,
+        description: `An error occurred while updating the task: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -4441,7 +4451,7 @@ export function useDeleteCaseTask({
       console.error("Error deleting task", error)
       toast({
         title: "Error deleting task",
-        description: `An error occurred while deleting the task: ${error.body.detail}`,
+        description: `An error occurred while deleting the task: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -4527,7 +4537,7 @@ export function useFolders(
           console.error("Failed to create folder", error)
           return toast({
             title: "Failed to create folder",
-            description: `An error occurred while creating the folder: ${error.body.detail}`,
+            description: `An error occurred while creating the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -4573,7 +4583,7 @@ export function useFolders(
           console.error("Error updating folder", error)
           toast({
             title: "Error updating folder",
-            description: `An error occurred while updating the folder: ${error.body.detail}`,
+            description: `An error occurred while updating the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
           break
       }
@@ -4610,7 +4620,7 @@ export function useFolders(
       console.error("Error moving folder", error)
       toast({
         title: "Error moving folder",
-        description: `An error occurred while moving the folder: ${error.body.detail}`,
+        description: `An error occurred while moving the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -4646,7 +4656,7 @@ export function useFolders(
         case 400:
           toast({
             title: "Cannot delete folder",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -4659,7 +4669,7 @@ export function useFolders(
           console.error("Error deleting folder", error)
           toast({
             title: "Failed to delete folder",
-            description: `An error occurred while deleting the folder: ${error.body.detail}`,
+            description: `An error occurred while deleting the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
           break
       }
@@ -5945,6 +5955,7 @@ export function useAgentDefaultModel() {
       await agentSetDefaultModel({
         requestBody: { catalog_id: catalogId },
       }),
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agent-default-model"] })
       queryClient.invalidateQueries({

@@ -15,9 +15,37 @@ definition:
     project_id:
       type: str
       description: GitLab API path value for project_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    page_token:
+      type: str | None
+      description: Tree record ID at which to fetch the next page. Used only with keyset pagination.
+      default: null
+    pagination:
+      type: str | None
+      description: If `keyset`, use the keyset-based pagination method.
+      default: null
+    path:
+      type: str | None
+      description: Path inside the repository. Used to get content of subdirectories.
+      default: null
+    per_page:
+      type: int | None
+      description: Number of results to show per page. If not specified, defaults to `20`.
+      default: null
+    recursive:
+      type: bool | None
+      description: If `true`, get a recursive tree. Default is `false`.
+      default: null
+    ref:
+      type: str | None
+      description: Name of a repository branch or tag. If not specified, uses the default branch.
+      default: null
+    with_last_commit:
+      type: bool | None
+      description: If `true`, include the last commit for each tree entry. Cannot be combined with `recursive`. Default is `false`.
       default: null
     base_url:
       type: str
@@ -32,5 +60,13 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          page: ${{ inputs.page }}
+          page_token: ${{ inputs.page_token }}
+          pagination: ${{ inputs.pagination }}
+          path: ${{ inputs.path }}
+          per_page: ${{ inputs.per_page }}
+          recursive: ${{ inputs.recursive }}
+          ref: ${{ inputs.ref }}
+          with_last_commit: ${{ inputs.with_last_commit }}
   returns: ${{ steps.request.result }}

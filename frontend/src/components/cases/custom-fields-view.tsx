@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { DatabaseIcon } from "lucide-react"
 import { casesDeleteField } from "@/client"
 import { CustomFieldsTable } from "@/components/cases/custom-fields-table"
@@ -15,7 +14,9 @@ import {
 } from "@/components/ui/empty"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { invalidateCaseFieldQueries } from "@/lib/cases/invalidation"
 import { useCaseFields } from "@/lib/hooks"
+import { useMutation, useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function CustomFieldsView() {
@@ -34,10 +35,8 @@ export function CustomFieldsView() {
           fieldId,
         })
       },
-      onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey: ["case-fields", workspaceId],
-        })
+      onSuccess: async () => {
+        await invalidateCaseFieldQueries(queryClient, workspaceId)
         toast({
           title: "Field deleted",
           description: "The case field was deleted successfully.",

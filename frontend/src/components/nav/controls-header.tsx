@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle,
@@ -36,6 +35,7 @@ import {
   casesGetCase,
   casesUpdateCase,
 } from "@/client"
+import { AgentPresetDetailHeaderActions } from "@/components/agents/agent-preset-detail-actions"
 import {
   AgentsCatalogViewMode,
   AgentsCatalogViewToggle,
@@ -86,6 +86,7 @@ import { TableImportTableDialog } from "@/components/tables/table-import-table-d
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { TableLinkRowsToCaseCommand } from "@/components/tables/table-link-rows-to-case-command"
 import { CreateTagDialog } from "@/components/tags/create-tag-dialog"
+import { useQueryClient } from "@/lib/query"
 
 const SimpleEditor = dynamic(
   () =>
@@ -178,16 +179,6 @@ interface PageConfig {
 interface ControlsHeaderProps {
   /** Callback to toggle the chat sidebar */
   onToggleChat?: () => void
-}
-
-const CASE_STATUS_TINTS: Record<CaseStatus, string> = {
-  new: "bg-yellow-500/[0.03] dark:bg-yellow-500/[0.08]",
-  in_progress: "bg-blue-500/[0.03] dark:bg-blue-500/[0.08]",
-  on_hold: "bg-orange-500/[0.03] dark:bg-orange-500/[0.08]",
-  resolved: "bg-green-500/[0.03] dark:bg-green-500/[0.08]",
-  closed: "bg-violet-500/[0.03] dark:bg-violet-500/[0.08]",
-  other: "bg-muted/5 dark:bg-muted/[0.12]",
-  unknown: "bg-muted/5 dark:bg-muted/[0.12]",
 }
 
 const CHAT_TOGGLE_KEY = "c"
@@ -1815,9 +1806,9 @@ function CaseStatusControl({
     useCaseDurationDefinitions(workspaceId, caseAddonsEnabled)
 
   return (
-    <div className="min-w-0">
+    <div className="flex min-w-0 items-center">
       {caseAddonsEnabled ? (
-        <div className="max-w-[min(48vw,36rem)] overflow-x-auto">
+        <div className="no-scrollbar max-w-[min(48vw,36rem)] overflow-x-auto">
           <CaseDurationMetrics
             durations={caseDurations}
             definitions={caseDurationDefinitions}
@@ -1967,11 +1958,14 @@ function getPageConfig(
           />
         ),
         actions: (
-          <WorkspaceResourceSyncActions
-            label="agents"
-            branchSlug="agents"
-            resources={["agent_preset"]}
-          />
+          <>
+            <WorkspaceResourceSyncActions
+              label="agents"
+              branchSlug="agents"
+              resources={["agent_preset"]}
+            />
+            <AgentPresetDetailHeaderActions />
+          </>
         ),
       }
     }
@@ -2157,10 +2151,6 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
   const pageConfig = pathname
     ? getPageConfig(pathname, workspaceId, searchParams ?? null)
     : null
-  const { caseData } = useGetCase(
-    { caseId: caseId ?? "", workspaceId },
-    { enabled: Boolean(caseId) }
-  )
 
   useEffect(() => {
     if (!onToggleChat) {
@@ -2222,15 +2212,6 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
     return null
   }
 
-  // Check if this is a case detail page to show timestamp
-  // Only apply background for case detail pages with status tints.
-  // Non-case pages should be transparent to avoid painting over SidebarInset's rounded corners.
-  const headerBackgroundClass = caseId
-    ? caseData?.status
-      ? CASE_STATUS_TINTS[caseData.status]
-      : "bg-muted/5 dark:bg-muted/[0.12]"
-    : ""
-
   const titleContent =
     typeof pageConfig.title === "string" ? (
       <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
@@ -2239,12 +2220,11 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
     )
 
   return (
-    <header
-      className={cn(
-        "flex h-10 items-center border-b px-3 overflow-hidden transition-colors",
-        headerBackgroundClass
-      )}
-    >
+    // Transparent at every route, cases included: a status-tinted band read as
+    // a colour wash across the top of the app and fought the duration pills
+    // sitting in it. The status already has three homes — the pill in this
+    // header, the Properties rail, and the case list.
+    <header className="flex h-10 items-center overflow-hidden border-b px-3">
       {/* Left section: sidebar toggle + title */}
       <div className="flex items-center gap-3 min-w-0">
         <SidebarTrigger className="h-7 w-7 flex-shrink-0" />

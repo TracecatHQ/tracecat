@@ -5,14 +5,17 @@ import { useCallback, useMemo, useState } from "react"
 import type { AgentPresetReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
+import { useCommentWorkflows } from "@/hooks/use-comment-workflows"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   applyMentionInsertion,
   applyMentionRemoval,
   diffTextSplice,
   findMentionEndingAt,
-  getAgentMentionToken,
+  findWorkflowMention,
+  getMentionToken,
   type MentionEdit,
+  type MentionKind,
   type MentionRange,
   remapMentions,
   serializeMentions,
@@ -23,20 +26,29 @@ import {
   getTextareaCaretCoordinates,
 } from "@/lib/textarea-caret"
 
-/** Maximum number of agent presets listed in the mention popover. */
-const MAX_AGENT_MENTION_RESULTS = 8
+/** Maximum number of rows listed in the mention popover. */
+const MAX_MENTION_RESULTS = 8
 
 /**
- * Mention sources the popover can group by. Only `agents` is populated today;
- * the rest are declared so later sources slot in without reshaping the model.
+ * Mention sources the popover can group by. `agents` and `workflows` are
+ * populated today; the rest are declared so later sources slot in without
+ * reshaping the model.
  */
-export type MentionSectionKey = "agents" | "users" | "cases" | "tables"
+export type MentionSectionKey =
+  | "agents"
+  | "workflows"
+  | "users"
+  | "cases"
+  | "tables"
 
 /** One selectable row in the mention popover. */
 export interface MentionSuggestion {
-  /** Identifier of the mention target, e.g. the agent preset id. */
+  /** Identifier of the mention target, e.g. the agent preset or workflow id. */
   id: string
+  kind: MentionKind
   label: string
+  /** Secondary text after the label, e.g. a workflow alias or folder path. */
+  hint?: string
 }
 
 /** A group of suggestions rendered under a single popover heading. */
@@ -58,6 +70,8 @@ export interface UseCommentMentionsOptions {
   getText: () => string
   /** Writes display text back to the owning form. */
   setText: (next: string) => void
+  /** Whether `/` workflow commands are offered; the case add-ons entitlement. */
+  workflowsEnabled: boolean
 }
 
 /**
@@ -68,17 +82,25 @@ export interface UseCommentMentionsOptions {
 export interface CommentMentions {
   /** Mention ranges into the display text, for the overlay and serializer. */
   ranges: MentionRange[]
+  /** True when `@` opens the agent popover for this user. */
+  agentsEnabled: boolean
+  /** True when `/` opens the workflow popover for this user. */
+  workflowsEnabled: boolean
   /** True when the popover should be rendered. */
   isOpen: boolean
+  /** Which trigger opened the popover, for its copy. */
+  kind: MentionKind | undefined
   /** Grouped suggestions; sections with no items are omitted. */
   sections: MentionSection[]
   /** Total selectable items across every section. */
   itemCount: number
   /** Index into the flattened item list, spanning sections. */
   activeIndex: number
-  /** Position of the `@` trigger, measured once per mention session. */
+  /** Position of the trigger character, measured once per mention session. */
   caret: CaretCoordinates | undefined
   isLoading: boolean
+  /** Id of the workflow picked with `/`, or null when there is none. */
+  workflowId: string | null
   selectSuggestion: (suggestion: MentionSuggestion) => void
   dismiss: () => void
   /** Call with the new value and caret BEFORE handing the change to the form. */
@@ -99,24 +121,32 @@ type ActiveSession = {
   start: number
   end: number
   query: string
+  kind: MentionKind
   activeIndex: number
   caret: CaretCoordinates
 }
 
 /**
- * Mentions in a plain comment `<Textarea>`: `@`-autocomplete for agent presets
- * plus the display-value mapping that turns highlighted `@Label` display text
- * into wire tokens on submit.
+ * Mentions in a plain comment `<Textarea>`: `@`-autocomplete for agent presets,
+ * `/`-autocomplete for workflows to run, plus the display-value mapping that
+ * turns highlighted display text into the wire value on submit.
  *
- * Gated on the `agent:execute` and `agent:read` scopes plus the `agent_addons`
- * and `case_addons` entitlements; when gated the popover never opens and `@`
- * behaves as plain text.
+ * Agents are gated on the `agent:execute` and `agent:read` scopes plus the
+ * `agent_addons` and `case_addons` entitlements. Workflows are gated on the
+ * `workflow:execute` and `workflow:read` scopes plus `workflowsEnabled` (the
+ * `case_addons` entitlement, passed by the composer). When gated, the trigger
+ * character behaves as plain text.
+ *
+ * While the popover is open with no rows to pick, Enter, Tab, and the arrow
+ * keys fall through to the textarea so a query with no match still lets the
+ * user type a newline or submit with Cmd/Ctrl+Enter.
  */
 export function useCommentMentions({
   workspaceId,
   textareaRef,
   getText,
   setText,
+  workflowsEnabled: workflowsEntitled,
 }: UseCommentMentionsOptions): CommentMentions {
   // `agent:read` is required as well as `agent:execute`: the suggestion list
   // comes from the preset-list endpoint, which is guarded by `agent:read`.
@@ -127,15 +157,28 @@ export function useCommentMentions({
     ["agent:execute", "agent:read"],
     { all: true }
   )
+  // `workflow:read` is required as well as `workflow:execute`: the suggestion
+  // list comes from the workflow and folder list endpoints, which are guarded
+  // by `workflow:read`. Without it the requests 403 and the popover would claim
+  // there are no workflows. `workflow:execute` mirrors the API's check on
+  // workflow-backed comments.
+  const canExecuteWorkflows = useScopeCheck(
+    undefined,
+    ["workflow:execute", "workflow:read"],
+    { all: true }
+  )
   const { hasEntitlement } = useEntitlements()
-  const mentionsEnabled =
+  const agentsEnabled =
     canUseAgents === true &&
     hasEntitlement("agent_addons") &&
     hasEntitlement("case_addons")
+  const workflowsEnabled = workflowsEntitled && canExecuteWorkflows === true
 
   const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
-    enabled: mentionsEnabled,
+    enabled: agentsEnabled,
   })
+  const { items: workflows, isLoading: workflowsIsLoading } =
+    useCommentWorkflows(workspaceId, workflowsEnabled)
   const [ranges, setRanges] = useState<MentionRange[]>([])
   const [session, setSession] = useState<ActiveSession | undefined>(undefined)
 
@@ -144,18 +187,42 @@ export function useCommentMentions({
       return []
     }
     const query = session.query.toLowerCase()
+    if (session.kind === "workflow") {
+      const items = workflows
+        .filter(
+          (workflow) =>
+            workflow.title.toLowerCase().includes(query) ||
+            (workflow.alias?.toLowerCase().includes(query) ?? false)
+        )
+        .slice(0, MAX_MENTION_RESULTS)
+        .map(
+          (workflow): MentionSuggestion => ({
+            id: workflow.id,
+            kind: "workflow",
+            label: workflow.title,
+            hint: workflow.alias || workflow.folderPath || undefined,
+          })
+        )
+      if (items.length === 0) {
+        return []
+      }
+      return [{ section: "workflows", label: "Workflows", items }]
+    }
     const items = (presets ?? [])
       .filter((preset) => preset.name.toLowerCase().includes(query))
-      .slice(0, MAX_AGENT_MENTION_RESULTS)
-      .map((preset: AgentPresetReadMinimal) => ({
-        id: preset.id,
-        label: preset.name,
-      }))
+      .slice(0, MAX_MENTION_RESULTS)
+      .map(
+        (preset: AgentPresetReadMinimal): MentionSuggestion => ({
+          id: preset.id,
+          kind: "agent",
+          label: preset.name,
+        })
+      )
     if (items.length === 0) {
       return []
     }
     return [{ section: "agents", label: "Agents", items }]
-  }, [session, presets])
+  }, [session, presets, workflows])
 
   const items = useMemo(
     () => sections.flatMap((section) => section.items),
@@ -166,7 +233,7 @@ export function useCommentMentions({
   const activeIndex = session
     ? Math.min(session.activeIndex, Math.max(items.length - 1, 0))
     : 0
-  const isOpen = mentionsEnabled && session !== undefined
+  const isOpen = session !== undefined
 
   const dismiss = useCallback(() => setSession(undefined), [])
 
@@ -177,18 +244,24 @@ export function useCommentMentions({
   const syncSession = useCallback(
     (text: string, caret: number) => {
       const node = textareaRef.current
-      if (!mentionsEnabled || !node) {
+      if (!node) {
         setSession(undefined)
         return
       }
-      const token = getAgentMentionToken(text, caret)
+      const token = getMentionToken(text, caret)
       if (!token) {
         setSession(undefined)
         return
       }
-      // The anchor is pinned to the `@` for the life of one mention session, so
-      // the popover holds still while the query grows. Measuring only when the
-      // session starts also keeps this off the per-keystroke path.
+      const enabled = token.kind === "agent" ? agentsEnabled : workflowsEnabled
+      if (!enabled) {
+        setSession(undefined)
+        return
+      }
+      // The anchor is pinned to the trigger for the life of one mention
+      // session, so the popover holds still while the query grows. Measuring
+      // only when the session starts also keeps this off the per-keystroke
+      // path.
       const pinned = sessionStart === token.start ? sessionCaret : undefined
       const coordinates =
         pinned ?? getTextareaCaretCoordinates(node, token.start)
@@ -198,7 +271,7 @@ export function useCommentMentions({
         activeIndex: pinned ? (current?.activeIndex ?? 0) : 0,
       }))
     },
-    [mentionsEnabled, sessionCaret, sessionStart, textareaRef]
+    [agentsEnabled, workflowsEnabled, sessionCaret, sessionStart, textareaRef]
   )
 
   const handleSelectionChange = useCallback(() => {
@@ -245,6 +318,7 @@ export function useCommentMentions({
       setSession(undefined)
       commitEdit(
         applyMentionInsertion(getText(), ranges, session, {
+          kind: suggestion.kind,
           label: suggestion.label,
           targetId: suggestion.id,
         })
@@ -262,11 +336,14 @@ export function useCommentMentions({
           return true
         }
 
+        // With nothing to pick, the navigation and selection keys belong to
+        // the textarea: Enter inserts a newline and Cmd/Ctrl+Enter submits.
+        if (items.length === 0) {
+          return false
+        }
+
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault()
-          if (items.length === 0) {
-            return true
-          }
           const step = event.key === "ArrowDown" ? 1 : items.length - 1
           setSession((current) =>
             current
@@ -319,14 +396,25 @@ export function useCommentMentions({
     setSession(undefined)
   }, [])
 
+  let isLoading = false
+  if (session?.kind === "agent") {
+    isLoading = presetsIsLoading
+  } else if (session?.kind === "workflow") {
+    isLoading = workflowsIsLoading
+  }
+
   return {
     ranges,
+    agentsEnabled,
+    workflowsEnabled,
     isOpen,
+    kind: session?.kind,
     sections,
     itemCount: items.length,
     activeIndex,
     caret: session?.caret,
-    isLoading: presetsIsLoading,
+    isLoading,
+    workflowId: findWorkflowMention(ranges)?.targetId ?? null,
     selectSuggestion,
     dismiss,
     handleTextChange,

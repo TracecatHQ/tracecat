@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ServiceAccountApiKeyCreate,
   type ServiceAccountApiKeyIssueResponse,
@@ -27,6 +26,7 @@ import {
   serviceAccountsUpdateOrganizationServiceAccount,
   serviceAccountsUpdateWorkspaceServiceAccount,
 } from "@/client"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 function organizationServiceAccountsQueryKey() {
   return ["organization-service-accounts"] as const

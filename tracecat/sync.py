@@ -38,6 +38,9 @@ class PullOptions:
     catalog_mappings: Mapping[UUID, UUID] = field(default_factory=dict)
     """Explicit source-to-target catalog choices for ambiguous model references."""
 
+    mcp_integration_mappings: Mapping[UUID, UUID] = field(default_factory=dict)
+    """Explicit source-to-target MCP integration choices for unresolved references."""
+
 
 @dataclass(frozen=True)
 class CommitInfo:
@@ -147,6 +150,60 @@ class CatalogMappingRequirement:
     candidates: list[CatalogMappingCandidate]
     affected_presets: list[CatalogMappingAffectedPreset]
     affected_workflows: list[CatalogMappingAffectedWorkflow]
+
+
+@dataclass(frozen=True)
+class McpIntegrationMappingCandidate:
+    """Local MCP integration the user can choose for an imported source reference."""
+
+    mcp_integration_id: UUID
+    slug: str
+    name: str
+    server_type: str
+    auth_type: str
+
+
+@dataclass(frozen=True)
+class McpIntegrationMappingAffectedPreset:
+    """Preset version whose source MCP integration id needs a target choice."""
+
+    preset_slug: str
+    preset_name: str
+    version: int
+    path: str
+
+
+@dataclass(frozen=True)
+class McpIntegrationMappingAffectedWorkflow:
+    """Workflow action whose source MCP integration id needs a target choice."""
+
+    workflow_source_id: str
+    workflow_path: str
+    workflow_title: str
+    action_ref: str
+
+
+type McpIntegrationMappingRequirementReason = Literal[
+    "unresolved",
+    "invalid_selection",
+    "conflicting_metadata",
+]
+
+
+@dataclass(frozen=True)
+class McpIntegrationMappingRequirement:
+    """Explicit MCP integration choice required before a workspace pull proceeds."""
+
+    source_mcp_integration_id: UUID
+    slug: str | None
+    name: str | None
+    server_type: str | None
+    auth_type: str | None
+    reason: McpIntegrationMappingRequirementReason
+    message: str
+    candidates: list[McpIntegrationMappingCandidate]
+    affected_presets: list[McpIntegrationMappingAffectedPreset]
+    affected_workflows: list[McpIntegrationMappingAffectedWorkflow]
 
 
 def serializable_validation_errors(
@@ -270,3 +327,8 @@ class PullResult:
 
     catalog_mapping_requirements: list[CatalogMappingRequirement] | None = None
     """Target model choices required before this pull can be previewed or applied."""
+
+    mcp_integration_mapping_requirements: (
+        list[McpIntegrationMappingRequirement] | None
+    ) = None
+    """MCP integration choices required before this pull can be previewed or applied."""

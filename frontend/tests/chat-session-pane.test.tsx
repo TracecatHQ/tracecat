@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   fireEvent,
   render,
@@ -16,6 +15,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),

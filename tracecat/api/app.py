@@ -91,6 +91,7 @@ from tracecat.cases.tag_definitions.router import (
 )
 from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.cases.triggers.consumer import start_case_trigger_consumer
+from tracecat.cases.versions.router import router as case_versions_router
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import (
@@ -573,6 +574,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(org_secrets_router)
     _include_workspace_scoped_router(app, tables_router)
     _include_workspace_scoped_router(app, cases_router)
+    _include_workspace_scoped_router(app, case_versions_router)
     _include_workspace_scoped_router(app, case_rows_router)
     _include_workspace_scoped_router(app, case_fields_router)
     _include_workspace_scoped_router(app, case_tags_router)

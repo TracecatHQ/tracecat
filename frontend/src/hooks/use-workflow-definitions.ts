@@ -1,4 +1,3 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type WorkflowDefinitionRead,
   type WorkflowRead,
@@ -7,6 +6,7 @@ import {
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 export function useWorkflowDefinitions(
   workspaceId: string,

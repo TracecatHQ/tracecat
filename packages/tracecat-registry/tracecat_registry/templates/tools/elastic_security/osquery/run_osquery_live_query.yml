@@ -11,12 +11,10 @@ definition:
       keys: ["ELASTIC_API_KEY"]
   expects:
     payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields, and a
+      # literal payload map cannot omit an unset optional. Fields are in the description.
       type: dict[str, Any]
       description: API-native live query JSON request body, including targets and query or pack details.
-    params:
-      type: dict[str, Any] | None
-      description: Optional native Kibana query parameters.
-      default: null
     base_url:
       type: str | None
       description: Kibana base URL (e.g. https://localhost:5601).
@@ -48,7 +46,6 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
         method: POST
-        params: ${{ inputs.params }}
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}

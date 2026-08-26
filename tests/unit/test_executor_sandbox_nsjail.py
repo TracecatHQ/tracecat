@@ -7,6 +7,7 @@ import contextlib
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -48,7 +49,7 @@ from tracecat.executor.schemas import (
 from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.sandbox.executor import NsjailExecutor
+from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.networking import NSTUN_GATEWAY_IP4, write_sandbox_network_files
 from tracecat.sandbox.types import (
     ResourceLimits,
@@ -63,6 +64,9 @@ from tracecat.sandbox.types import (
 _DOCKER_CHILD_ENV = "TRACECAT__EXECUTOR_ACTION_SMOKE_DOCKER_CHILD"
 _SKIP_SENTINEL = "TRACE_CAT_EXECUTOR_ACTION_SMOKE_SKIP:"
 _SMOKE_URI = "s3://tracecat-test-registry/smoke/site-packages.tar.gz"
+_NSTUN_UDP_SOCKET_BUDGET = 2048
+_NSTUN_UDP_SOCKET_PROBE_OVERFLOW = 16
+_NSTUN_PARENT_NOFILE_LIMIT = 4096
 _RFC1918_NETWORKS = (
     IPv4Network("10.0.0.0/8"),
     IPv4Network("172.16.0.0/12"),
@@ -96,6 +100,14 @@ class SmokeCase(StrEnum):
         return RegistryArtifactFormat.TAR_GZ
 
 
+class CancelledNsjailOperation(StrEnum):
+    """NsJail entry points whose cancellation must terminate descendants."""
+
+    EXECUTE = "execute"
+    INSTALL = "install"
+    ACTION = "action"
+
+
 def _executor_nsjail_available() -> bool:
     return (
         Path(config.TRACECAT__SANDBOX_NSJAIL_PATH).is_file()
@@ -122,6 +134,14 @@ def _skip_smoke(reason: str) -> NoReturn:
 
 
 def _missing_prerequisite(smoke_case: SmokeCase) -> str | None:
+    if not smoke_case.force_sandbox:
+        if sys.platform != "linux":
+            return (
+                "direct action subprocesses require Linux (setpriv + subreaper "
+                "process supervisor)"
+            )
+        if shutil.which("setpriv") is None:
+            return "setpriv is unavailable"
     if smoke_case.force_sandbox and not _executor_nsjail_available():
         return "executor nsjail unavailable"
     if smoke_case.force_sandbox and not Path("/dev/net/tun").exists():
@@ -180,6 +200,16 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
         if Path("/dev/net/tun").exists()
         else []
     )
+    ulimit_lines = (
+        [
+            "    ulimits:",
+            "      nofile:",
+            f"        soft: {_NSTUN_PARENT_NOFILE_LIMIT}",
+            f"        hard: {_NSTUN_PARENT_NOFILE_LIMIT}",
+        ]
+        if smoke_case is SmokeCase.NSJAIL_SOCKET_BUDGET
+        else []
+    )
     override_path = Path(
         tempfile.mkstemp(prefix="tracecat-executor-action-smoke-", suffix=".yml")[1]
     )
@@ -194,6 +224,7 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
                 "    security_opt:",
                 "      - seccomp:unconfined",
                 "      - systempaths=unconfined",
+                *ulimit_lines,
                 *device_lines,
                 "    volumes:",
                 f"      - {json.dumps(tests_mount)}",
@@ -671,9 +702,10 @@ async def _run_executor_action_smoke_case(
 
     runner = ActionRunner(cache_dir=cache_dir)
     cache_key = compute_registry_artifact_cache_key(_SMOKE_URI)
-    mount_dir = cache_dir / f"squashfs-{cache_key}"
-    extract_dir = cache_dir / f"unsquashfs-{cache_key}"
-    tarball_dir = cache_dir / f"tarball-{cache_key}"
+    cache_paths = runner.registry_artifacts._paths_for(cache_key)
+    mount_dir = cache_paths.squashfs_mount_dir
+    extract_dir = cache_paths.squashfs_extract_dir
+    tarball_dir = cache_paths.tarball_target_dir
 
     async def sidecar_exists(
         *,
@@ -801,7 +833,7 @@ async def _run_executor_action_smoke_case(
         assert result["marker"] == "registry-artifact"
         if smoke_case == SmokeCase.DIRECT:
             assert tarball_dir.exists()
-            assert f"tarball-{cache_key}" in result["source"]
+            assert str(tarball_dir) in result["source"]
             assert result["source"].endswith("/registry_artifact_smoke_action.py")
         elif smoke_case == SmokeCase.DIRECT_SQUASHFS:
             assert extract_dir.exists()
@@ -810,7 +842,8 @@ async def _run_executor_action_smoke_case(
         else:
             assert result["source"] == "/packages/0/registry_artifact_smoke_action.py"
             if smoke_case == SmokeCase.NSJAIL_SQUASHFS:
-                assert mount_dir.is_mount()
+                assert not mount_dir.is_mount()
+                assert cache_paths.squashfs_image_path.is_file()
             else:
                 assert tarball_dir.exists()
     finally:
@@ -828,6 +861,7 @@ async def _run_current_builtin_smoke_case(
     *,
     smoke_case: SmokeCase,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     if reason := _missing_prerequisite(smoke_case):
         _skip_smoke(reason)
@@ -860,16 +894,23 @@ async def _run_current_builtin_smoke_case(
         role=role,
     )
 
+    runner = ActionRunner(cache_dir=tmp_path / "registry-cache")
     backend = EphemeralBackend() if smoke_case.force_sandbox else DirectBackend()
+    get_action_runner_path = (
+        "tracecat.executor.backends.ephemeral.get_action_runner"
+        if smoke_case.force_sandbox
+        else "tracecat.executor.backends.direct.get_action_runner"
+    )
     action_gateway = ActionGateway()
     try:
         await action_gateway.start()
-        result = await backend.execute(
-            input=action_input,
-            role=role,
-            resolved_context=resolved_context,
-            timeout=30,
-        )
+        with patch(get_action_runner_path, return_value=runner):
+            result = await backend.execute(
+                input=action_input,
+                role=role,
+                resolved_context=resolved_context,
+                timeout=30,
+            )
     finally:
         await action_gateway.stop()
 
@@ -883,7 +924,9 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
     if reason := _missing_prerequisite(smoke_case):
         _skip_smoke(reason)
 
-    udp_sinks, parent_address = _open_private_parent_udp_sinks(272)
+    udp_sinks, parent_address = _open_private_parent_udp_sinks(
+        _NSTUN_UDP_SOCKET_BUDGET + _NSTUN_UDP_SOCKET_PROBE_OVERFLOW
+    )
     destination_ports = [sink.getsockname()[1] for sink in udp_sinks]
     script_name = "udp_socket_budget.py"
     (tmp_path / script_name).write_text(
@@ -923,7 +966,7 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
                     cpu_seconds=10,
                     max_open_files=16,
                     max_processes=16,
-                    timeout_seconds=10,
+                    timeout_seconds=20,
                 ),
             ),
             script_name=script_name,
@@ -942,9 +985,13 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
             sink.close()
 
     assert result.success, result.error
-    assert received_packets == 256, (received_packets, result.stderr)
-    assert "Maximum number of UDP flows reached" not in result.stderr
-    assert "UDP/ICMP parent socket budget exhausted" in result.stderr, result.stderr
+    assert received_packets == _NSTUN_UDP_SOCKET_BUDGET, (
+        received_packets,
+        result.stderr,
+    )
+    assert "Too many FD handlers in monitor" not in result.stderr, result.stderr
+    assert "Maximum number of UDP flows reached" in result.stderr, result.stderr
+    assert "UDP/ICMP parent socket budget exhausted" not in result.stderr
     assert "UDP/ICMP parent socket accounting underflow" not in result.stderr
 
 
@@ -952,6 +999,104 @@ _CURRENT_BUILTIN_CASES = {
     SmokeCase.DIRECT_CURRENT_BUILTIN,
     SmokeCase.NSJAIL_CURRENT_BUILTIN,
 }
+
+
+@pytest.mark.parametrize("operation", list(CancelledNsjailOperation))
+@pytest.mark.anyio
+async def test_cancelled_nsjail_operation_kills_process_group(
+    tmp_path: Path,
+    operation: CancelledNsjailOperation,
+) -> None:
+    """Cancellation propagates only after nsjail and its child are gone."""
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    rootfs_dir = tmp_path / "rootfs"
+    rootfs_dir.mkdir()
+    runner = NsjailExecutor(
+        nsjail_path=str(tmp_path / "nsjail"),
+        rootfs_path=str(rootfs_dir),
+        cache_dir=str(tmp_path / "cache"),
+    )
+    sandbox_config = ActionSandboxConfig(
+        registry_paths=[],
+        tracecat_app_dir=tmp_path,
+        timeout_seconds=30,
+    )
+    real_create_subprocess_exec = asyncio.create_subprocess_exec
+    process_started = asyncio.Event()
+    process: asyncio.subprocess.Process | None = None
+    descendant_pid_path = tmp_path / "descendant.pid"
+    descendant_pid: int | None = None
+
+    async def capture_subprocess(*args, **kwargs):
+        nonlocal process
+        assert kwargs["start_new_session"] is True
+        process = await real_create_subprocess_exec(
+            sys.executable,
+            "-c",
+            (
+                "import subprocess, sys, time; "
+                "child = subprocess.Popen([sys.executable, '-c', "
+                "'import time; time.sleep(30)']); "
+                "open(sys.argv[1], 'w').write(str(child.pid)); "
+                "time.sleep(30)"
+            ),
+            str(descendant_pid_path),
+            **kwargs,
+        )
+        process_started.set()
+        return process
+
+    with patch(
+        "tracecat.sandbox.executor.asyncio.create_subprocess_exec",
+        side_effect=capture_subprocess,
+    ):
+        match operation:
+            case CancelledNsjailOperation.EXECUTE:
+                execution = asyncio.create_task(
+                    runner.execute(job_dir, SandboxConfig())
+                )
+            case CancelledNsjailOperation.INSTALL:
+                execution = asyncio.create_task(
+                    runner.execute_install(job_dir, "deadbeef")
+                )
+            case CancelledNsjailOperation.ACTION:
+                execution = asyncio.create_task(
+                    runner.execute_action(job_dir, sandbox_config)
+                )
+
+        try:
+            await process_started.wait()
+            for _ in range(100):
+                if descendant_pid_path.exists():
+                    break
+                await asyncio.sleep(0.01)
+            assert descendant_pid_path.is_file()
+            descendant_pid = int(descendant_pid_path.read_text())
+
+            execution.cancel()
+
+            with pytest.raises(asyncio.CancelledError):
+                await execution
+
+            assert process is not None
+            assert process.returncode is not None
+            assert not (job_dir / "nsjail.cfg").exists()
+            for _ in range(100):
+                try:
+                    os.kill(descendant_pid, 0)
+                except ProcessLookupError:
+                    break
+                await asyncio.sleep(0.01)
+            else:
+                pytest.fail("nsjail descendant survived process-group cleanup")
+        finally:
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.wait()
+            if descendant_pid is not None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(descendant_pid, signal.SIGKILL)
 
 
 @pytest.mark.anyio
@@ -996,7 +1141,9 @@ async def test_action_runner_executes_registry_action_smoke(
             _run_executor_action_smoke_in_docker_or_skip(smoke_case)
             return
         await _run_current_builtin_smoke_case(
-            smoke_case=smoke_case, monkeypatch=monkeypatch
+            smoke_case=smoke_case,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
         )
         return
 
@@ -1020,7 +1167,9 @@ def _run_smoke_from_cli(smoke_case: SmokeCase) -> None:
                 await _run_nstun_socket_budget_smoke_case(tmp_path)
             elif smoke_case in _CURRENT_BUILTIN_CASES:
                 await _run_current_builtin_smoke_case(
-                    smoke_case=smoke_case, monkeypatch=monkeypatch
+                    smoke_case=smoke_case,
+                    monkeypatch=monkeypatch,
+                    tmp_path=tmp_path,
                 )
             else:
                 await _run_executor_action_smoke_case(

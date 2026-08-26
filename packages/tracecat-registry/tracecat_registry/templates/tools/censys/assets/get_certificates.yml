@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Get certificates
+  description: >-
+    Get multiple certificates. Calls POST /v3/global/asset/certificate directly.
+  display_group: Censys
+  doc_url: https://docs.censys.com/reference/v3-globaldata-asset-certificate-list-post
+  namespace: tools.censys
+  name: get_certificates
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_TOKEN"]
+  expects:
+    certificate_ids:
+      type: list[str]
+      description: A list of SHA-256 certificate fingerprints. Up to 1,000 per call.
+    organization_id:
+      type: str | None
+      description: The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Censys Platform API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.censys.base_url || "https://api.platform.censys.io" }}/v3/global/asset/certificate
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
+          Content-Type: application/json
+        params:
+          organization_id: ${{ inputs.organization_id }}
+        payload:
+          certificate_ids: ${{ inputs.certificate_ids }}
+  returns: ${{ steps.request.result }}

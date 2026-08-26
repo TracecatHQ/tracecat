@@ -1,7 +1,13 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 type LocalStorageUpdater<T> = T | ((value: T) => T)
 
+/**
+ * Persists a value in `localStorage` and keeps every subscriber of the same key
+ * in sync, both across tabs (`storage` events) and within the current tab (a
+ * `local-storage` custom event). Returns the current value and a setter that
+ * accepts either a value or an updater function, like `useState`.
+ */
 export function useLocalStorage<T>(
   key: string,
   initialValue: T,
@@ -24,14 +30,22 @@ export function useLocalStorage<T>(
     }
   })
 
-  const setValue = (value: LocalStorageUpdater<T>) => {
-    try {
-      setStoredValue((current) => {
-        const valueToStore =
-          typeof value === "function"
-            ? (value as (current: T) => T)(current)
-            : value
+  // Mirror the value in a ref so updaters resolve outside of React state
+  // updaters: React treats those as pure and may run them during render or more
+  // than once, which would replay the persist + dispatch side effects below.
+  const storedValueRef = useRef(storedValue)
 
+  const setValue = useCallback(
+    (value: LocalStorageUpdater<T>) => {
+      const valueToStore =
+        typeof value === "function"
+          ? (value as (current: T) => T)(storedValueRef.current)
+          : value
+
+      storedValueRef.current = valueToStore
+      setStoredValue(valueToStore)
+
+      try {
         if (typeof window !== "undefined") {
           const serialized = JSON.stringify(valueToStore)
           window.localStorage.setItem(prefixedKey, serialized)
@@ -42,25 +56,30 @@ export function useLocalStorage<T>(
             })
           )
         }
-
-        return valueToStore
-      })
-    } catch (error) {
-      console.error(error)
-    }
-  }
+      } catch (error) {
+        console.error(error)
+      }
+    },
+    [prefixedKey]
+  )
 
   initialValueRef.current = initialValue
+  storedValueRef.current = storedValue
 
   useEffect(() => {
     if (typeof window === "undefined") {
       return
     }
 
+    const applyValue = (next: T) => {
+      storedValueRef.current = next
+      setStoredValue(next)
+    }
+
     const readValue = () => {
       try {
         const item = window.localStorage.getItem(prefixedKey)
-        setStoredValue(item ? JSON.parse(item) : initialValueRef.current)
+        applyValue(item ? JSON.parse(item) : initialValueRef.current)
       } catch (error) {
         console.error(error)
       }
@@ -72,7 +91,7 @@ export function useLocalStorage<T>(
       }
 
       try {
-        setStoredValue(
+        applyValue(
           e.newValue ? JSON.parse(e.newValue) : initialValueRef.current
         )
       } catch (error) {
@@ -89,7 +108,12 @@ export function useLocalStorage<T>(
         return
       }
 
-      setStoredValue(detail.value)
+      // The dispatcher already holds this value; skip its own echo.
+      if (Object.is(detail.value, storedValueRef.current)) {
+        return
+      }
+
+      applyValue(detail.value)
     }
 
     readValue()

@@ -10,9 +10,17 @@ definition:
     - name: elastic_security
       keys: ["ELASTIC_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: Optional native Kibana query parameters, including API identifiers where required.
+    id:
+      type: str | None
+      description: Exception item's identifier. Either `id` or `item_id` must be specified.
+      default: null
+    item_id:
+      type: str | None
+      description: Human readable exception item string identifier, e.g. `trusted-linux-processes`. Either `id` or `item_id` must be specified.
+      default: null
+    namespace_type:
+      type: str | None
+      description: "`single` deletes the item in the current Kibana space; `agnostic` deletes an item in a space-agnostic list. Must match the list that owns the item. Defaults to single."
       default: null
     base_url:
       type: str | None
@@ -45,7 +53,10 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
         method: DELETE
-        params: ${{ inputs.params }}
+        params:
+          id: ${{ inputs.id }}
+          item_id: ${{ inputs.item_id }}
+          namespace_type: ${{ inputs.namespace_type }}
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}

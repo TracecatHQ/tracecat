@@ -1,6 +1,5 @@
 "use client"
 
-import type { QueryClient } from "@tanstack/react-query"
 import {
   Bell,
   BlocksIcon,
@@ -14,6 +13,7 @@ import {
 } from "lucide-react"
 import type { ComponentType } from "react"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import type { QueryClient } from "@/lib/query"
 import type { WorkspaceChatArtifact } from "@/types/workspace-chat-artifacts"
 
 export type ArtifactIconComponent = ComponentType<{ className?: string }>

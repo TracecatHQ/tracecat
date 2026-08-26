@@ -60,7 +60,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.tools import BuildToolsResult
-from tracecat.agent.types import AgentConfig, Tool
+from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
@@ -1231,9 +1231,17 @@ class TestRunAgentActivity:
         )
 
     @pytest.mark.anyio
-    async def test_successful_execution(self, mock_executor_input: AgentExecutorInput):
-        """Test successful agent execution."""
+    async def test_absent_timeout_inherits_hardcoded_default(
+        self,
+        mock_executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An absent explicit timeout gets the default even under a raised ceiling."""
         expected_result = AgentExecutorResult(success=True)
+        monkeypatch.setattr(
+            "tracecat.agent.types.TRACECAT__AGENT_SANDBOX_TIMEOUT",
+            7200,
+        )
 
         with (
             patch("tracecat.agent.executor.activity.activity") as mock_activity,
@@ -1249,7 +1257,20 @@ class TestRunAgentActivity:
             result = await run_agent_activity(mock_executor_input)
 
             assert result == expected_result
-            mock_executor_cls.assert_called_once_with(input=mock_executor_input)
+            mock_executor_cls.assert_called_once_with(
+                input=mock_executor_input,
+                timeout_seconds=1800,
+            )
+
+    def test_timeout_above_deployment_ceiling_is_clamped_not_rejected(
+        self, mock_executor_input: AgentExecutorInput
+    ) -> None:
+        payload = mock_executor_input.model_dump()
+        payload["timeout_seconds"] = 3601
+
+        parsed = AgentExecutorInput.model_validate(payload)
+        assert parsed.timeout_seconds == 3601
+        assert clamp_agent_timeout_seconds(parsed.timeout_seconds) == 3600
 
     @pytest.mark.anyio
     async def test_emit_session_done_pushes_done_to_active_stream(
@@ -1417,6 +1438,7 @@ class TestSandboxedAgentExecutorHelpers:
             role=mock_role,
             mcp_auth_token="mock-mcp-token",
             llm_gateway_auth_token="mock-llm-token",
+            agent_otel_auth_token="mock-otel-token",
         )
 
     def test_build_runtime_init_payload(
@@ -1641,6 +1663,7 @@ class TestSandboxedAgentExecutorCancellation:
                 socket_dir=job_dir / "sockets",
                 llm_socket_path=job_dir / "sockets" / "llm.sock",
                 artifact_working_set=None,
+                otel_socket_path=None,
             )
 
         task = asyncio.create_task(run_it())
@@ -1786,6 +1809,7 @@ class TestSandboxedAgentExecutorCancellation:
                 socket_dir=job_dir / "sockets",
                 llm_socket_path=job_dir / "sockets" / "llm.sock",
                 artifact_working_set=None,
+                otel_socket_path=None,
             )
 
         task = asyncio.create_task(run_it())
@@ -2220,6 +2244,27 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
 
         assert work_dir.is_dir()
         assert list(work_dir.iterdir()) == []
+
+    def test_build_sandbox_env_injects_receiver_bearer_jwt(self) -> None:
+        """The host injects OTEL_EXPORTER_OTLP_HEADERS so Claude's exporter
+        attaches the receiver JWT for the OtelSocketReceiver to verify."""
+        from tracecat.agent.otel_config import ResolvedAgentOtelConfig
+
+        resolved = ResolvedAgentOtelConfig(
+            enabled=True,
+            sandbox_env={
+                "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+                "OTEL_LOGS_EXPORTER": "otlp",
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "placeholder-removed-by-shim",
+            },
+        )
+        env = SandboxedAgentExecutor._build_sandbox_env(
+            resolved, otel_auth_token="receiver-jwt"
+        )
+
+        assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in env
+        assert env["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=Bearer receiver-jwt"
+        assert env["OTEL_LOGS_EXPORTER"] == "otlp"
 
 
 class TestSandboxedAgentExecutorSkillCaching:

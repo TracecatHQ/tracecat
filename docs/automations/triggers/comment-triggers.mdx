@@ -6,9 +6,19 @@ icon: "lock"
 
 ## Overview
 
-You can start a workflow from a case comment or reply by selecting it in the comment composer.
+Type `/` in a case comment or reply, select the workflow from the autocomplete list, and submit the comment.
+Only published workflows appear in the list, so publish a draft before you run it from a comment.
 
 ![Comment trigger](/img/triggers/comment-triggers.png)
+
+Your organization needs the case add-ons entitlement, and your workspace role needs `workflow:read` to list workflows, `workflow:execute` to run the workflow, and `case:update` to create the comment.
+Without these, `/` behaves as regular comment text and never starts a workflow.
+
+Selecting the autocomplete result attaches the workflow.
+Typing a workflow title as plain text does not run it.
+
+A comment runs one workflow; picking a second workflow replaces the first.
+Tracecat removes the `/Workflow title` command from the comment body before it saves the comment, and a comment with only the command saves with an empty body.
 
 ## Trigger payload
 
@@ -18,8 +28,12 @@ Fields:
 
 - `${{ TRIGGER.case_id }}`: case ID.
 - `${{ TRIGGER.comment_id }}`: comment ID.
-- `${{ TRIGGER.parent_id }}`: parent comment ID.
-- `${{ TRIGGER.text }}`: comment text.
+- `${{ TRIGGER.parent_id }}`: parent comment ID, or `null` for a top-level comment.
+- `${{ TRIGGER.thread_root_id }}`: ID of the comment that starts the thread.
+- `${{ TRIGGER.is_reply }}`: `true` when the comment is a reply.
+- `${{ TRIGGER.comment }}`: comment text.
+- `${{ TRIGGER.text }}`: comment text, same value as `comment`.
+- `${{ TRIGGER.workspace_id }}`: workspace ID.
 - `${{ TRIGGER.triggered_by }}`: actor details.
 - `${{ TRIGGER.event }}`: event details.
 - `${{ TRIGGER.tags }}`: case tags.
@@ -31,6 +45,9 @@ Example payload:
   "case_id": "case_01abc",
   "comment_id": "cmt_01abc",
   "parent_id": null,
+  "thread_root_id": "cmt_01abc",
+  "is_reply": false,
+  "comment": "Escalating to the IAM workflow.",
   "text": "Escalating to the IAM workflow.",
   "workspace_id": "ws_01abc",
   "triggered_by": {
@@ -54,3 +71,7 @@ Example payload:
   ]
 }
 ```
+
+## Related pages
+
+- See [Agent mentions](/automations/cases/agent-mentions) to invoke a preset agent from a comment with `@` instead of running a workflow.

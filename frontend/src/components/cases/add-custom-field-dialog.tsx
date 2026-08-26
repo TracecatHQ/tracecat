@@ -1,7 +1,6 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
@@ -35,8 +34,15 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import {
+  createCaseFieldReference,
+  createUniqueCaseFieldReference,
+} from "@/lib/case-field-display"
+import { invalidateCaseFieldQueries } from "@/lib/cases/invalidation"
 import { CASE_FIELD_KIND_CONFIG } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
+import { useCaseFields } from "@/lib/hooks"
+import { useQueryClient } from "@/lib/query"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -84,13 +90,14 @@ const sanitizeColumnOptions = (options?: string[]) => {
 
 const caseFieldFormSchema = z
   .object({
-    name: z
+    displayName: z
       .string()
+      .trim()
       .min(1, "Field name is required")
-      .max(100, "Field name must be less than 100 characters")
+      .max(255, "Field name must be 255 characters or fewer")
       .refine(
-        (value) => /^[a-zA-Z][a-zA-Z0-9_]*$/.test(value),
-        "Field name must start with a letter and contain only letters, numbers, and underscores"
+        (value) => createCaseFieldReference(value).length > 0,
+        "Field name must contain at least one Latin letter or number"
       ),
     type: z.enum(SqlTypeCreatableEnum),
     kind: z.enum(["LONG_TEXT", "URL"]).nullable().optional(),
@@ -151,12 +158,13 @@ export function AddCustomFieldDialog({
 }: AddCustomFieldDialogProps) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
+  const { caseFields } = useCaseFields(workspaceId, open)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const form = useForm<CaseFieldFormValues>({
     resolver: zodResolver(caseFieldFormSchema),
     defaultValues: {
-      name: "",
+      displayName: "",
       type: "TEXT",
       kind: null,
       nullable: true,
@@ -167,6 +175,12 @@ export function AddCustomFieldDialog({
   })
   const selectedType = form.watch("type")
   const selectedKind = form.watch("kind")
+  const displayName = form.watch("displayName")
+  const existingReferences = new Set(caseFields?.map((field) => field.id))
+  const fieldReference = createUniqueCaseFieldReference(
+    displayName,
+    existingReferences
+  )
   const requiresOptions = isSelectableColumnType(selectedType)
   const pickerValue = selectedKind ?? selectedType
 
@@ -294,7 +308,11 @@ export function AddCustomFieldDialog({
       await casesCreateField({
         workspaceId,
         requestBody: {
-          name: data.name,
+          name: createUniqueCaseFieldReference(
+            data.displayName,
+            existingReferences
+          ),
+          display_name: data.displayName,
           type: data.type,
           nullable: data.nullable,
           default: defaultValue,
@@ -305,9 +323,7 @@ export function AddCustomFieldDialog({
         },
       })
 
-      queryClient.invalidateQueries({
-        queryKey: ["case-fields", workspaceId],
-      })
+      await invalidateCaseFieldQueries(queryClient, workspaceId)
 
       toast({
         title: "Field created",
@@ -322,7 +338,7 @@ export function AddCustomFieldDialog({
         const apiError = error as TracecatApiError
         if (apiError.status === 409) {
           // Duplicate field error - show inline error only, no toast
-          form.setError("name", {
+          form.setError("displayName", {
             type: "manual",
             message: "A field with this name already exists",
           })
@@ -351,16 +367,15 @@ export function AddCustomFieldDialog({
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
-              name="name"
+              name="displayName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Identifier / Slug</FormLabel>
+                  <FormLabel>Name</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input placeholder="Analyst verdict" {...field} />
                   </FormControl>
                   <FormDescription>
-                    A human readable ID of the field. Use snake_case for best
-                    compatibility.
+                    Reference: {fieldReference || "Enter a name"}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

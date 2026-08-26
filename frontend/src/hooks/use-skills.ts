@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   agentSkillsArchiveSkill,
   agentSkillsCreateSkill,
@@ -33,6 +32,7 @@ import {
   retryHandler,
   type TracecatApiError,
 } from "@/lib/errors"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 /**
  * List all skills in the current workspace.

@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useMemo } from "react"
-import type { CaseEventRead } from "@/client"
+import type { CaseEventRead, CaseFieldRead } from "@/client"
 import {
   AssigneeChangedEvent,
   AttachmentCreatedEvent,
@@ -58,6 +58,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { SYSTEM_USER, User } from "@/lib/auth"
+import { createCaseFieldDisplayNameMap } from "@/lib/case-field-display"
 import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import { useAppInfo, useCaseEvents } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -100,9 +101,11 @@ const HANDLED_FEED_EVENT_TYPES = new Set([
 function CaseFeedEvent({
   event,
   users,
+  caseFieldDisplayNameById,
 }: {
   event: CaseEventRead
   users: Record<string, User>
+  caseFieldDisplayNameById: ReadonlyMap<string, string>
 }) {
   const actor = event.user_id ? users[event.user_id] : SYSTEM_USER
 
@@ -125,7 +128,11 @@ function CaseFeedEvent({
         )}
         {/* Case field events */}
         {event.type === "fields_changed" && (
-          <FieldsChangedEvent event={event} actor={actor} />
+          <FieldsChangedEvent
+            event={event}
+            actor={actor}
+            caseFieldDisplayNameById={caseFieldDisplayNameById}
+          />
         )}
 
         {/* Case events */}
@@ -340,9 +347,11 @@ function groupEventsByDate(events: CaseEventRead[]) {
 export function CaseFeed({
   caseId,
   workspaceId,
+  caseFields,
 }: {
   caseId: string
   workspaceId: string
+  caseFields: CaseFieldRead[]
 }) {
   const { caseEvents, caseEventsIsLoading, caseEventsError } = useCaseEvents({
     caseId,
@@ -358,11 +367,15 @@ export function CaseFeed({
       return acc
     }, {})
   }, [caseEvents])
+  const caseFieldDisplayNameById = useMemo(
+    () => createCaseFieldDisplayNameMap(caseFields),
+    [caseFields]
+  )
 
   if (caseEventsIsLoading) {
     return (
       <div className="mx-auto w-full">
-        <div className="space-y-4 p-4">
+        <div className="space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="space-y-2">
               <Skeleton className="h-6 w-full" />
@@ -377,7 +390,7 @@ export function CaseFeed({
   if (caseEventsError) {
     return (
       <div className="mx-auto w-full">
-        <div className="space-y-4 p-4">
+        <div className="space-y-4">
           <div className="flex items-center justify-center p-8">
             <div className="flex items-center gap-2 text-red-600">
               <AlertCircle className="h-4 w-4" />
@@ -392,7 +405,7 @@ export function CaseFeed({
   if (events.length === 0) {
     return (
       <div className="mx-auto w-full">
-        <div className="p-4">
+        <div>
           <Empty>
             <EmptyHeader>
               <EmptyMedia variant="icon">
@@ -413,10 +426,10 @@ export function CaseFeed({
 
   return (
     <div className="mx-auto w-full">
-      <div className="space-y-4 p-4">
+      <div className="space-y-4">
         {groupedEvents.map(({ date, events: dateEvents }) => (
           <div key={date.toISOString()} className="space-y-2">
-            <div className="sticky top-0 z-10 py-2">
+            <div className="sticky top-0 z-10 -mt-2 bg-background py-2">
               <div className="flex items-center">
                 <div className="text-sm font-medium">
                   {date.toLocaleDateString(undefined, {
@@ -437,7 +450,12 @@ export function CaseFeed({
               />
               <div className="space-y-2">
                 {dateEvents.map((event, index) => (
-                  <CaseFeedEvent key={index} event={event} users={users} />
+                  <CaseFeedEvent
+                    key={index}
+                    event={event}
+                    users={users}
+                    caseFieldDisplayNameById={caseFieldDisplayNameById}
+                  />
                 ))}
               </div>
             </div>

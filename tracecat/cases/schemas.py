@@ -185,6 +185,7 @@ class CaseFieldReadMinimal(Schema):
     """Minimal read model for a case field."""
 
     id: str
+    display_name: str
     type: CaseFieldReadType
     description: str
     nullable: bool
@@ -213,8 +214,10 @@ class CaseFieldReadMinimal(Schema):
         kind: CaseFieldKind | None = None
         required_on_closure = False
         options: list[str] | None = None
+        display_name = column["name"]
         if field_schema and (meta := field_schema.get(column["name"])):
             read_type = CaseFieldReadType(meta["type"])
+            display_name = meta.get("display_name") or column["name"]
             options = meta.get("options")
             if kind_str := meta.get("kind"):
                 kind = CaseFieldKind(kind_str)
@@ -225,6 +228,7 @@ class CaseFieldReadMinimal(Schema):
         return cls.model_validate(
             {
                 "id": column["name"],
+                "display_name": display_name,
                 "type": read_type,
                 "description": column.get("comment") or "",
                 "nullable": column["nullable"],
@@ -240,6 +244,7 @@ class CaseFieldReadMinimal(Schema):
 class CaseFieldCreate(CustomFieldCreate):
     """Create a new case field."""
 
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
     kind: CaseFieldKind | None = Field(default=None)
     required_on_closure: bool = Field(default=False)
 
@@ -259,6 +264,7 @@ class CaseFieldCreate(CustomFieldCreate):
 class CaseFieldUpdate(CustomFieldUpdate):
     """Update a case field."""
 
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
     required_on_closure: bool | None = Field(default=None)
 
     @model_validator(mode="before")
@@ -348,17 +354,21 @@ CASE_COMMENT_MAX_LENGTH = 25_000
 
 
 class CaseCommentCreate(Schema):
-    content: str = Field(default=..., min_length=1, max_length=CASE_COMMENT_MAX_LENGTH)
+    content: str = Field(default=..., max_length=CASE_COMMENT_MAX_LENGTH)
     parent_id: uuid.UUID | None = Field(default=None)
     workflow_id: AnyWorkflowID | None = Field(default=None)
 
     @field_validator("content")
     @classmethod
-    def validate_content(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
+    def strip_content(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def validate_content(self) -> CaseCommentCreate:
+        """Allow an empty body only when the comment runs a workflow."""
+        if not self.content and self.workflow_id is None:
             raise ValueError("Comment content cannot be blank")
-        return stripped
+        return self
 
 
 class CaseCommentUpdate(Schema):
@@ -370,6 +380,7 @@ class CaseCommentUpdate(Schema):
     @field_validator("content")
     @classmethod
     def validate_content(cls, value: str | None) -> str | None:
+        """Reject blank edits; only creation with a workflow may leave a comment empty."""
         if value is None:
             return None
         stripped = value.strip()

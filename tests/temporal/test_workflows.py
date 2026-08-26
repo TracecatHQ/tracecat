@@ -71,7 +71,7 @@ from tracecat.dsl.schemas import (
     ScatterArgs,
     TaskResult,
 )
-from tracecat.dsl.types import ActionErrorInfoAdapter
+from tracecat.dsl.types import ActionErrorInfo
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ScheduleUUID
@@ -6212,7 +6212,7 @@ async def test_workflow_gather_error_strategy_raise(
 
     # Validate the gather error structure (stream-aware)
     gather_error = detail["gather1"]
-    validated_error = ActionErrorInfoAdapter.validate_python(gather_error)
+    validated_error = ActionErrorInfo.model_validate(gather_error)
     assert validated_error.ref == "gather1", "Gather error ref should be gather1"
     assert validated_error.stream_id == "<root>:0", (
         "Gather error should have parent stream_id"

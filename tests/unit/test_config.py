@@ -336,6 +336,39 @@ def test_action_gateway_socket_uses_default_for_empty_string(
         importlib.reload(tracecat_config)
 
 
+@pytest.mark.parametrize(
+    ("sandbox_timeout", "expected_drain_timeout"),
+    [(None, 3660), (900, 960), (7200, 7260)],
+)
+def test_agent_executor_drain_default_covers_all_supported_timeouts(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox_timeout: int | None,
+    expected_drain_timeout: int,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            if sandbox_timeout is None:
+                env.delenv("TRACECAT__AGENT_SANDBOX_TIMEOUT", raising=False)
+            else:
+                env.setenv("TRACECAT__AGENT_SANDBOX_TIMEOUT", str(sandbox_timeout))
+            env.delenv(
+                "TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT",
+                raising=False,
+            )
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__AGENT_SANDBOX_TIMEOUT == (
+                expected_drain_timeout - 60
+            )
+            assert (
+                reloaded_config.TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT
+                == expected_drain_timeout
+            )
+    finally:
+        importlib.reload(tracecat_config)
+
+
 def test_executor_concurrency_uses_bounded_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

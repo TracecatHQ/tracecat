@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
@@ -32,6 +31,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { useToast } from "@/components/ui/use-toast"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
 import { useBatchDeleteCases, useBatchUpdateCases } from "@/lib/hooks"
+import { useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 // Keep aligned with the CaseBatchUpdate and CaseBatchDelete schema cap.
@@ -337,14 +337,20 @@ export function CasesLayout({
   useEffect(() => () => resetSelection(), [resetSelection])
 
   const selectedCaseIdsSet = useMemo(() => selectedCaseIds, [selectedCaseIds])
-  const fieldTypesById = useMemo<
-    ReadonlyMap<string, CaseFieldReadMinimal["type"]> | undefined
+  const fieldMetadataById = useMemo<
+    | ReadonlyMap<string, Pick<CaseFieldReadMinimal, "display_name" | "type">>
+    | undefined
   >(() => {
     if (!fieldDefinitions) {
       return undefined
     }
 
-    return new Map(fieldDefinitions.map((field) => [field.id, field.type]))
+    return new Map(
+      fieldDefinitions.map((field) => [
+        field.id,
+        { display_name: field.display_name, type: field.type },
+      ])
+    )
   }, [fieldDefinitions])
   const durationNamesById = useMemo<
     ReadonlyMap<CaseDurationDefinitionRead["id"], string> | undefined
@@ -480,7 +486,7 @@ export function CasesLayout({
             tags={tags}
             members={members}
             dropdownDefinitions={dropdownDefinitions}
-            fieldTypesById={fieldTypesById}
+            fieldMetadataById={fieldMetadataById}
             durationNamesById={durationNamesById}
             visibleColumnIds={visibleColumnIds}
             prioritySortDirection={filters.prioritySortDirection}

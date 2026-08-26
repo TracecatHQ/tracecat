@@ -1,10 +1,11 @@
 "use client"
 
-import { Check, ChevronsUpDown } from "lucide-react"
+import { ChevronsUpDown } from "lucide-react"
 import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { TableColumnRead } from "@/client"
 import { Button } from "@/components/ui/button"
+import { CheckIndicator } from "@/components/ui/check-indicator"
 import {
   Command,
   CommandEmpty,
@@ -26,7 +27,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { cn } from "@/lib/utils"
 
 export type CellEditorProps = {
   value: unknown
@@ -387,7 +387,7 @@ function MultiSelectCellEditor({
                   <CommandItem
                     key={option}
                     value={option}
-                    className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-xs outline-none [&_svg]:size-3.5"
+                    className="group relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none"
                     onSelect={() => {
                       const nextValue = isSelected
                         ? currentValue.filter((item) => item !== option)
@@ -396,12 +396,7 @@ function MultiSelectCellEditor({
                       setOpen(true)
                     }}
                   >
-                    <span className="absolute right-2 flex size-3.5 items-center justify-center">
-                      <Check
-                        className={cn("size-4", !isSelected && "opacity-0")}
-                        aria-hidden
-                      />
-                    </span>
+                    <CheckIndicator checked={isSelected} />
                     <span className="truncate">{option}</span>
                   </CommandItem>
                 )

@@ -18,9 +18,13 @@ definition:
     job_id:
       type: int
       description: GitLab API path value for job_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    byte_offset:
+      type: int | None
+      description: Byte offset to start reading from.
+      default: null
+    byte_limit:
+      type: int | None
+      description: Maximum number of bytes to return.
       default: null
     base_url:
       type: str
@@ -35,6 +39,8 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: text/plain
-        params: ${{ inputs.params }}
+        params:
+          byte_offset: ${{ inputs.byte_offset }}
+          byte_limit: ${{ inputs.byte_limit }}
         follow_redirects: true
   returns: ${{ steps.request.result }}

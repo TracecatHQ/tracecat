@@ -18,7 +18,11 @@ from temporalio.exceptions import (
     ApplicationError,
     ChildWorkflowError,
     FailureError,
+    TimeoutType,
     is_cancelled_exception,
+)
+from temporalio.exceptions import (
+    TimeoutError as TemporalTimeoutError,
 )
 
 with workflow.unsafe.imports_passed_through():
@@ -92,7 +96,7 @@ with workflow.unsafe.imports_passed_through():
         StreamID,
         TaskResult,
     )
-    from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
+    from tracecat.dsl.types import ActionErrorInfo
     from tracecat.dsl.validation import format_input_schema_validation_error
     from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.ee.interactions.decorators import maybe_interactive
@@ -163,6 +167,7 @@ with workflow.unsafe.imports_passed_through():
 
 
 _CHILD_RUN_ARG_PREP_YIELD_EVERY = 8
+ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH = "dsl-action-heartbeat-timeout-retry-v1"
 
 
 def _inherit_search_attributes_with_alias(
@@ -441,7 +446,7 @@ class DSLWorkflow:
                     ]
                 else:
                     errors = [
-                        ActionErrorInfoAdapter.validate_python(data)
+                        ActionErrorInfo.model_validate(data)
                         for data in err_info_map.values()
                     ]
             else:
@@ -992,6 +997,7 @@ class DSLWorkflow:
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,
+                            timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1060,6 +1066,7 @@ class DSLWorkflow:
                             max_requests=action_args.max_requests,
                             # No tool calls for AI action
                             max_tool_calls=0,
+                            timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1136,6 +1143,7 @@ class DSLWorkflow:
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
+                            timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1795,9 +1803,39 @@ class DSLWorkflow:
             registry_lock=self.registry_lock,
         )
 
+        return await self._execute_action_activity(task, arg)
+
+    async def _execute_action_activity(
+        self, task: ActionStatement, arg: RunActionInput
+    ) -> StoredObject:
+        """Dispatch an action, retrying one executor heartbeat interruption."""
+        try:
+            stored = await self._execute_action_activity_once(task, arg)
+        except ActivityError as exc:
+            cause = exc.cause
+            should_retry_heartbeat = (
+                task.retry_policy.max_attempts == 1
+                and isinstance(cause, TemporalTimeoutError)
+                and cause.type is TimeoutType.HEARTBEAT
+                and workflow.patched(ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH)
+            )
+            if not should_retry_heartbeat:
+                raise
+
+            self.logger.warning(
+                "Retrying action after activity heartbeat timeout",
+                task_ref=task.ref,
+            )
+            stored = await self._execute_action_activity_once(task, arg)
+
+        return StoredObjectValidator.validate_python(stored)
+
+    async def _execute_action_activity_once(
+        self, task: ActionStatement, arg: RunActionInput
+    ) -> Any:
         # Dispatch to ExecutorWorker on shared-action-queue
         # Using string activity name since it's registered on a different worker
-        stored = await workflow.execute_activity(
+        return await workflow.execute_activity(
             "execute_action_activity",
             args=(arg, self.role),
             task_queue=config.TRACECAT__EXECUTOR_QUEUE,
@@ -1813,7 +1851,6 @@ class DSLWorkflow:
                 maximum_attempts=task.retry_policy.max_attempts,
             ),
         )
-        return StoredObjectValidator.validate_python(stored)
 
     async def _run_child_workflow(
         self, task: ActionStatement, run_args: DSLRunArgs, loop_index: int | None = None

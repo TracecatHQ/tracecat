@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Delete software deployment
+  description: >-
+    Delete software deployment. Calls DELETE /software-deployments/{id}/ directly. Destructive.
+    Removes the deployment and revokes the app for every member of the target group. Required
+    scope: software-deployments.read-write.
+  display_group: Rippling
+  doc_url: https://developer.rippling.com/documentation/rest-api/reference/delete-software-deployments
+  namespace: tools.rippling
+  name: delete_software_deployment
+  secrets:
+    - name: rippling
+      keys: ["RIPPLING_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Rippling API path value for id.
+    base_url:
+      type: str | None
+      description: Base URL of the Rippling REST API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/software-deployments/${{ FN.url_encode(inputs.id) }}/
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
+          Accept: application/json
+          Rippling-Api-Version: '2024-08-01'
+  returns: ${{ steps.request.result }}

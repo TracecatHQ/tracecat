@@ -11,8 +11,11 @@ definition:
       keys: ["EMAILREP_API_KEY"]
   expects:
     payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
       type: dict[str, Any]
-      description: API-native report body containing email, tags, and optional context.
+      description: >-
+        API-native request body. Documented fields: email (required), tags (required), description, expires, timestamp.
   steps:
     - ref: request
       action: core.http_request

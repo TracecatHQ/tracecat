@@ -36,7 +36,7 @@ from tracecat.dsl.schemas import (
     StreamID,
     TaskResult,
 )
-from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
+from tracecat.dsl.types import ActionErrorInfo
 from tracecat.dsl.validation import normalize_trigger_inputs
 from tracecat.exceptions import TracecatExpressionError, TracecatValidationError
 from tracecat.executor.service import get_workspace_variables
@@ -859,7 +859,9 @@ def _patch_object(
     current[leaf] = value
 
 
-def _partition_errors(items: list[Any]) -> tuple[list[Any], list[ActionErrorInfo]]:
+def _partition_errors(
+    items: list[Any],
+) -> tuple[list[Any], list[ActionErrorInfo]]:
     results: list[Any] = []
     errors: list[ActionErrorInfo] = []
     for item in items:
@@ -876,7 +878,7 @@ def _is_error_info(detail: Any) -> bool:
     if not isinstance(detail, Mapping):
         return False
     try:
-        ActionErrorInfoAdapter.validate_python(detail)
+        ActionErrorInfo.model_validate(detail)
         return True
     except Exception:
         return False
@@ -884,7 +886,7 @@ def _is_error_info(detail: Any) -> bool:
 
 def _as_error_info(detail: Any) -> ActionErrorInfo | None:
     try:
-        return ActionErrorInfoAdapter.validate_python(detail)
+        return ActionErrorInfo.model_validate(detail)
     except Exception:
         return None
 

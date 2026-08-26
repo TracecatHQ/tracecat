@@ -1,12 +1,5 @@
 import * as aiSdk from "@ai-sdk/react"
 import {
-  type QueryClient,
-  type UseQueryResult,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
-import {
   type ChatOnDataCallback,
   type ChatStatus,
   DefaultChatTransport,
@@ -39,6 +32,13 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { getBaseUrl } from "@/lib/api"
 import { type ModelInfo, toServerUIMessage } from "@/lib/chat"
+import {
+  type QueryClient,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@/lib/query"
 
 const DEFAULT_CHAT_ERROR_MESSAGE =
   "The assistant couldn't complete that request. Please try again."
@@ -303,6 +303,7 @@ export function useUpdateChat(workspaceId: string) {
         workspaceId,
         requestBody: update,
       }),
+    meta: { suppressErrorToast: false },
     onMutate: async ({ chatId, update }) => {
       await Promise.all([
         queryClient.cancelQueries({

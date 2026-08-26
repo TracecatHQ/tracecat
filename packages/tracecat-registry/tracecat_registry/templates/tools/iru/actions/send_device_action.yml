@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Send device action
+  description: Send a device action that takes no request body. Lock and erase have dedicated actions because they accept request bodies.
+  display_group: Iru (Kandji)
+  doc_url: https://api-docs.iru.com/#8c0c2c1a-4d57-4a56-80f9-87d0793f0006
+  namespace: tools.iru
+  name: send_device_action
+  secrets:
+    - name: iru
+      keys: ["IRU_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Iru (Kandji) API base URL (e.g. https://acme.api.kandji.io).
+      default: null
+    device_id:
+      type: str
+      description: Device UUID.
+    action:
+      type: str
+      description: Action to send, such as restart, shutdown, blankpush, dailycheckin, updateinventory, reinstallagent, renewmdmprofile, clearpasscode, enablelostmode, disablelostmode, playlostmodesound or updatelocation.
+  steps:
+    - ref: send_device_action
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.iru.base_url }}/api/v1/devices/${{ FN.url_encode(inputs.device_id) }}/action/${{ FN.url_encode(inputs.action) }}
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.iru.IRU_API_TOKEN }}
+  returns: ${{ steps.send_device_action.result }}

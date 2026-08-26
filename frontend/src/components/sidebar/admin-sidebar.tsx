@@ -2,11 +2,11 @@
 
 import {
   BookOpenIcon,
-  BotIcon,
   BuildingIcon,
   LayersIcon,
   LogOutIcon,
   LogsIcon,
+  MousePointerClickIcon,
   UsersIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -60,7 +60,7 @@ export function AdminSidebar({
     {
       title: "Agent",
       url: "/admin/agent",
-      icon: BotIcon,
+      icon: MousePointerClickIcon,
       isActive: pathname?.includes("/admin/agent"),
     },
     {

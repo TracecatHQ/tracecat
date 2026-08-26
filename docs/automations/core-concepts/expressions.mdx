@@ -4,7 +4,6 @@ description: "Syntax reference for Tracecat expressions: contexts, operators, fu
 ---
 
 import ExpressionIntro from "/snippets/expression-intro.mdx";
-import ExpressionContexts from "/snippets/expression-contexts.mdx";
 
 ## Overview
 
@@ -19,21 +18,68 @@ You can use expressions in:
 - Action inputs
 - `run_if`
 - `for_each`
-- Action `environment`
-- Workflow environment
 - Output schema
 
 Use `var.<name>` in action inputs for actions that run with `for_each`.
 
+The workflow-level `environment` field takes a literal string. An action-level `environment` override may be a single standalone `${{ ... }}` expression, evaluated at run time; anything else is used literally.
+
 ## Expression contexts
 
-Use these references inside expressions:
+### `TRIGGER`
 
-<ExpressionContexts />
+The payload that started the run; append a [JSONPath](/automations/core-concepts/jsonpath) to read a field. Bare `${{ TRIGGER }}` passes the whole payload through; no other context works without a suffix.
 
-## Operators
+<CodeGroup>
+```yaml Expression
+alert_id: ${{ TRIGGER.alert_id }}
+payload: ${{ TRIGGER }}
+```
 
-Expressions support literals and operators.
+```json Result
+{
+  "alert_id": "al-123",
+  "payload": {
+    "alert_id": "al-123",
+    "severity": "high"
+  }
+}
+```
+</CodeGroup>
+
+### `ACTIONS`
+
+Results of upstream actions, referenced as `ACTIONS.<ref>` plus a JSONPath. Each action exposes `result`, `result_typename`, `error`, and `error_typename`.
+
+### `SECRETS`
+
+Secret values, referenced as exactly `SECRETS.<name>.<KEY>`. Both segments must be plain identifiers; a hyphenated secret name is unreachable from expressions.
+
+### `VARS`
+
+Workspace [variables](/automations/core-concepts/variables), referenced as `VARS.<name>.<key>` with at most one key segment after the variable name.
+
+### `ENV`
+
+[Workflow metadata](/automations/core-concepts/workflow-metadata) such as execution IDs, the trigger type, and the Workflow environment, referenced as `ENV` plus a JSONPath.
+
+### `var`
+
+The loop variable that `for_each` binds on each iteration, referenced as `var.<name>` plus a JSONPath.
+
+### `FN`
+
+[Function](/automations/core-concepts/functions) calls, written as `FN.<name>(...)`, always with parentheses and only positional arguments. Append `.map` to apply a function to every item of a list.
+
+### `inputs`
+
+Available only inside [YAML template actions](/custom-actions/yaml-template): reads the values passed to the template's Input schema as `inputs.<field>`.
+
+### `steps`
+
+Available only inside [YAML template actions](/custom-actions/yaml-template): reads the result of an earlier template step at `steps.<ref>.result`.
+
+## Syntax
 
 ### Literals
 
@@ -46,75 +92,39 @@ Expressions support literals and operators.
 
 ### Operators
 
-- Logical operators: `||` and `&&`
-- Comparison operators such as `==`, `!=`, `<`, `<=`, `>`, `>=`
-- Arithmetic operators such as `+`, `-`, `*`, `/`, `%`
+- Logical operators: `||`, `&&`, and `not`. Write `||` and `&&`, not Python-style `or` / `and` or SQL-style `OR` / `AND`.
+- Comparison operators: `==`, `!=`, `<`, `<=`, `>`, `>=`
+- Membership operators: `in` and `not in`, such as `${{ TRIGGER.severity in ["high", "critical"] }}`
+- Identity operators: `is` and `is not`, such as `${{ TRIGGER.title is None }}`
+- Arithmetic operators: `+`, `-`, `*`, `/`, `%`, and unary `-x` / `+x`
 - Ternary expressions such as `${{ "p1" if TRIGGER.severity == "high" else "p3" }}`
 
-<Info>
-Python-style `or` / `and` and SQL-style `OR` / `AND` are not supported.
-</Info>
+### Evaluation rules
+
+- `||` and `&&` evaluate both sides; only the ternary short-circuits. See [Common mistakes](/cheatsheets/common-mistakes#short-circuiting-and-null-guards).
+- A function result supports operators and indexing but not `.field` access: `FN.now().hour` fails to parse. JSONPath chaining such as `TRIGGER.items[0].id` works as usual.
+
+### Type casts
+
+The four casts are `int`, `float`, `str`, and `bool`, written as a call or as a trailing cast on the whole expression:
+
+<CodeGroup>
+```yaml Expression
+count: ${{ int(TRIGGER.count) }}
+count_trailing: ${{ TRIGGER.count -> int }}
+```
+
+```json Result
+{
+  "count": 42,
+  "count_trailing": 42
+}
+```
+</CodeGroup>
+
+Parse datetime strings with [`FN.to_datetime`](/automations/core-concepts/functions); there is no `datetime` cast.
 
 ## Examples
-
-Basic trigger reference:
-
-<CodeGroup>
-```yaml Expression
-text: "Alert ${{ TRIGGER.alert_id }}"
-```
-
-```json Result
-{
-  "text": "Alert al-123"
-}
-```
-</CodeGroup>
-
-Action result reference:
-
-<CodeGroup>
-```yaml Expression
-value: ${{ ACTIONS.fetch_alert.result }}
-```
-
-```json Result
-{
-  "value": {
-    "id": "al-123",
-    "status": "open"
-  }
-}
-```
-</CodeGroup>
-
-Secret reference:
-
-<CodeGroup>
-```yaml Expression
-token: ${{ SECRETS.github.GITHUB_TOKEN }}
-```
-
-```json Result
-{
-  "token": "ghp_xxxxx"
-}
-```
-</CodeGroup>
-
-Variable reference:
-
-<CodeGroup>
-```yaml Expression
-team: ${{ VARS.routing.team }}
-```
-
-```json Result
-{
-  "team": "secops"
-}
-```
-</CodeGroup>
 
 Conditional execution:
 
@@ -155,99 +165,11 @@ for_each: ${{ for var.alert in TRIGGER.alerts }}
 ```
 </CodeGroup>
 
-Using `var.<name>` in action inputs:
-
-<CodeGroup>
-```yaml Expression
-title: ${{ var.alert.title }}
-severity: ${{ var.alert.severity }}
-```
-
-```json Result
-{
-  "title": "Suspicious login",
-  "severity": "high"
-}
-```
-</CodeGroup>
-
-Ternary:
-
-<CodeGroup>
-```yaml Expression
-priority: ${{ "p1" if TRIGGER.severity == "high" else "p3" }}
-```
-
-```json Result
-{
-  "priority": "p1"
-}
-```
-</CodeGroup>
-
-Function call:
-
-<CodeGroup>
-```yaml Expression
-created_at: ${{ FN.to_datetime(TRIGGER.created_at) }}
-```
-
-```json Result
-{
-  "created_at": "2026-03-18T09:00:00"
-}
-```
-</CodeGroup>
-
-Nested list literal:
-
-<CodeGroup>
-```yaml Expression
-value: ${{ [1, [2, 3], {"severity": "high", "flags": [True, False, None]}] }}
-```
-
-```json Result
-{
-  "value": [
-    1,
-    [2, 3],
-    {
-      "severity": "high",
-      "flags": [true, false, null]
-    }
-  ]
-}
-```
-</CodeGroup>
-
-Nested object literal:
-
-<CodeGroup>
-```yaml Expression
-value: ${{ {"alert": {"id": "al-123", "tags": ["auth", "critical"]}, "ok": True, "meta": None} }}
-```
-
-```json Result
-{
-  "value": {
-    "alert": {
-      "id": "al-123",
-      "tags": ["auth", "critical"]
-    },
-    "ok": true,
-    "meta": null
-  }
-}
-```
-</CodeGroup>
-
 ## FAQ
 
 <AccordionGroup>
   <Accordion title="How do I safely reference action results when an upstream action was skipped, failed, or returned null?">
-    Some actions only return data in certain conditions. For example, a hash enrichment might find no matches in your threat intel source. When a field does not exist, the expression resolves to `None` — no error is raised.
-
-    Use `run_if` with a `!= None` check to skip downstream actions when the data is missing, or use a ternary to supply a fallback value.
+    When a field does not exist, the expression resolves to `None` without raising an error. Use `run_if` with a `!= None` check to skip downstream actions when the data is missing, or use a ternary to supply a fallback value.
 
     <CodeGroup>
     ```yaml Skip an action when the result is missing
@@ -285,3 +207,4 @@ value: ${{ {"alert": {"id": "al-123", "tags": ["auth", "critical"]}, "ok": True,
 - See [Workflow definition](/automations/core-concepts/workflow-definition) for where expressions appear in workflow YAML.
 - See [JSONPath](/automations/core-concepts/jsonpath) for field access, arrays, and filters.
 - See [Functions](/automations/core-concepts/functions) for the full function reference.
+- See the [Workflow metadata cheatsheet](/cheatsheets/workflow-metadata) for every `ENV` field available in expressions.

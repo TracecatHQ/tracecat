@@ -18,9 +18,21 @@ definition:
     merge_request_iid:
       type: int
       description: GitLab API path value for merge_request_iid.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    sort:
+      type: str | None
+      description: Return merge request notes sorted in `asc` or `desc` order. Default is `desc`
+      default: null
+    order_by:
+      type: str | None
+      description: Return merge request notes ordered by `created_at` or `updated_at` fields. Default is `created_at`
+      default: null
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of items to list per page (default: `20`, max: `100`)."
       default: null
     base_url:
       type: str
@@ -35,5 +47,9 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          sort: ${{ inputs.sort }}
+          order_by: ${{ inputs.order_by }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
   returns: ${{ steps.request.result }}
