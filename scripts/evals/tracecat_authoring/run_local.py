@@ -33,7 +33,10 @@ from tracecat.mcp.schemas import JsonPatchOperation, WorkflowYamlPayload
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
-SKILL_SOURCE = REPO_ROOT / ".agents/skills/tracecat-automation-best-practices/SKILL.md"
+SKILL_SOURCE = (
+    REPO_ROOT / "packages/tracecat-ee/tracecat_ee/workspace_chat/skills/"
+    "tracecat-automation-best-practices/SKILL.md"
+)
 DEFAULT_DIRECT_MCP_URL = "http://127.0.0.1:8099/mcp"
 DEFAULT_ARTIFACT_ROOT = REPO_ROOT / ".tracecat/evals/tracecat_authoring"
 ALLOWED_PATCH_ROOTS = {
@@ -49,6 +52,16 @@ PROMPT_SOURCE_MAX_CHARS = {
     "best_practices_skill": 9_500,
     "domain_reference": 1_500,
 }
+
+
+def require_skill_source() -> Path:
+    """Return the vendored authoring skill or explain how to populate it."""
+    if not SKILL_SOURCE.is_file():
+        raise RuntimeError(
+            f"Vendored copilot skill is missing at {SKILL_SOURCE}. "
+            "Run `just sync-copilot-skills` from the repository root first."
+        )
+    return SKILL_SOURCE
 
 
 class Case(BaseModel):
@@ -527,7 +540,7 @@ def isolated_workspace(case_dir: Path) -> Path:
     skill_target.parent.mkdir(parents=True, exist_ok=True)
     # Copy the whole skill directory so progressive-disclosure references/ files
     # (loaded on demand by SKILL.md links) are present in the workspace too.
-    shutil.copytree(SKILL_SOURCE.parent, skill_target, dirs_exist_ok=True)
+    shutil.copytree(require_skill_source().parent, skill_target, dirs_exist_ok=True)
     return workspace
 
 
@@ -2289,7 +2302,10 @@ def prompt_facing_sources() -> list[PromptSource]:
         PromptSource(
             "dsl_reference", load_server_string_literal("_DSL_REFERENCE_TEXT")
         ),
-        PromptSource("best_practices_skill", SKILL_SOURCE.read_text(encoding="utf-8")),
+        PromptSource(
+            "best_practices_skill",
+            require_skill_source().read_text(encoding="utf-8"),
+        ),
         PromptSource(
             "domain_reference",
             load_rendered_server_prompt("_DOMAIN_REFERENCE_TEXT"),
@@ -2823,6 +2839,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
+    require_skill_source()
     if args.static_only:
         checks = static_prompt_checks()
         results = [

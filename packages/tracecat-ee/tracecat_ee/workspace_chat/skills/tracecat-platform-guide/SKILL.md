@@ -1,90 +1,83 @@
 ---
 name: tracecat-platform-guide
-description: REQUIRED whenever the user asks what Tracecat is, what it can do, how to do something in the product, or where to find a feature in the UI — e.g. "how do I add a secret", "where are my integrations", "what's the difference between a case and a workflow", "can Tracecat send Slack messages", "how do I schedule a workflow", "set up an OAuth integration". Read this SKILL.md FIRST when orienting a user, explaining a concept, or directing them to a page. It covers the platform mental model, what the product offers, where each feature lives in the UI, and the core concepts (secrets vs variables vs expressions). For building/editing workflows, use tracecat-manage-workflows instead.
+description: Use when orienting someone in the Tracecat product rather than authoring an automation, including what Tracecat is and what it can do, what a workflow, case, table, agent, integration, secret, or variable is and how they differ, and where a feature lives in the workspace UI.
 ---
 
-# Tracecat platform guide
+# Tracecat Platform Guide
 
-Use this to orient users, explain what Tracecat does, and direct them to the right
-place in the UI. Stay accurate: when you don't know a detail, say so or point the user
-to the page rather than inventing steps.
+For building, editing, validating, or debugging automations, use
+`$tracecat-automation-best-practices`; for Slack-facing ones,
+`$tracecat-slackbot-best-practices`. This skill covers what the product *is* and where things
+live — not DSL syntax. When you do not know a detail, say so or name the page; inventing steps
+is worse than a short answer.
 
-## What Tracecat is
+## The primitives
 
-Tracecat is a security automation platform where AI agents and humans triage and
-investigate threats. The primitives:
+Tracecat is a security automation platform where AI agents and humans triage and investigate
+threats. Eight things make up a workspace:
 
-- **Workflows** — automations built as a graph of **actions**. Started by a **trigger**
-  (webhook, schedule, case event, manual run). Data flows through **expressions**
-  (`${{ ... }}`).
-- **Actions** — the building blocks inside a workflow: HTTP calls, transforms, Python
-  scripts, case operations, AI steps, and `tools.*` integrations (Slack, Jira, etc.).
-- **Cases** — persistent investigation records. Teams add comments, evidence/attachments,
-  tasks, and custom fields. Workflows create and enrich cases over time.
-- **Tables** — structured data rows (assets, allowlists, indicators) that workflows
-  insert into and look up across runs.
-- **Agents** — AI tool-callers. They run inside a workflow (`ai.agent`) or as saved
-  **presets** with their own instructions, tools, and MCP servers.
-- **Integrations / credentials** — how Tracecat talks to outside systems. Three models:
-  workspace **secrets**, **OAuth integrations**, and **MCP** servers.
-- **Secrets** — sensitive values (API keys, tokens), referenced as
-  `${{ SECRETS.<name>.<KEY> }}`, resolved at execution and never shown to an LLM.
-- **Variables** — non-secret config (base URLs, project IDs), referenced as
-  `${{ VARS.<name>.<key> }}`.
+- **Workflows** — automations built as a graph of actions and started by a trigger: a webhook,
+  a schedule, a case event, or a manual run. Each has a draft you edit and a published version
+  that triggers actually run.
+- **Actions** — the nodes inside a workflow: HTTP calls, transforms, Python scripts, case and
+  table operations, AI steps, and vendor integrations.
+- **Cases** — investigation records a human works: status, severity, owner, comments,
+  attachments, tasks, tags, custom fields. Workflows create and enrich them over time.
+- **Tables** — rows and columns for assets, allowlists, and indicators, queried by lookup and
+  search across runs. Storage, not investigation state.
+- **Agents** — AI tool-callers, run inline inside a workflow or saved as **presets** with their
+  own instructions, tools, model, and MCP servers.
+- **Integrations** — how Tracecat reaches outside systems: workspace secrets for static
+  credentials, OAuth providers for tokens Tracecat refreshes, MCP servers for agent tools.
+- **Secrets** — sensitive values (API keys, bot tokens, certs), scoped to an environment and
+  resolved at execution time. Referenced through the `SECRETS` context.
+- **Variables** — non-secret config (base URLs, project IDs, queue names), also scoped per
+  environment. Referenced through the `VARS` context.
 
-A **case** is a record you investigate; a **workflow** is the automation that does the
-work. A **table** stores data; a **secret** stores a credential.
+A case is a record you investigate; a workflow is the automation that does the work. A table
+stores data; a secret stores a credential.
 
-## What we offer
+## Where things live
 
-- Workflow automation with webhook/schedule/case triggers, branching, loops, retries.
-- Case management: cases, comments, attachments, tasks, custom fields, tags, SLAs.
-- Tables: on-demand structured storage with lookup, search, and upsert.
-- AI: single LLM calls (`ai.action`), tool-calling agents (`ai.agent`), and saved
-  preset agents (enterprise).
-- ~100+ prebuilt integrations, plus custom Python/YAML actions and MCP servers.
-- Expressions and 50+ built-in functions for data shaping.
+Everything is workspace-scoped under `/workspaces/<workspace_id>/...`. Direct users by naming
+the **sidebar item**, not by scripting clicks.
 
-## Directing users in the UI
-
-Everything lives under a workspace at `/workspaces/<workspace_id>/...`. Direct users by
-**naming the sidebar item or page** — do not script click-by-click steps. Common pages:
-
-| Sidebar / page | Where | What's there |
+| Sidebar item | Path | What's there |
 |---|---|---|
-| Chat | `/chat` | Talk to the workspace agent |
-| Workflows | `/workflows` | List, create, open the builder |
-| Cases | `/cases` | Case list and detail |
-| Tables | `/tables` | Create/browse tables and rows |
+| Workflows | `/workflows` | List, create, and open the builder |
+| Cases | `/cases` | Case list, filters, and case detail |
+| Agents | `/agents` | Agent presets and the preset builder |
+| Tables | `/tables` | Create and browse tables and rows |
 | Variables | `/variables` | Non-secret config values |
-| Credentials | `/credentials` | API keys / secrets |
+| Credentials | `/credentials` | API keys and workspace secrets |
 | Integrations | `/integrations` | Connect OAuth providers |
-| MCP servers | `/mcp-servers` | Connect MCP servers |
-| Agents | `/agents` | Agent presets |
-| Runs | `/runs` | Execution history across workflows |
+| MCP servers | `/mcp-servers` | Connect and manage MCP servers |
+| Skills | `/skills` | Reusable agent skills |
+| Actions | `/actions` | Browse the action registry, read-only |
+| Runs | `/runs` | Execution history across all workflows |
 | Inbox | `/inbox` | Approval queue for pending agent actions |
-| Members | `/members` | Invite users, roles |
+| Members | `/members` | Users, groups, and roles |
+| Service accounts | `/service-accounts` | Service account credentials |
+| MCP access | `/mcp` | MCP access controls |
 
-**Triggers are not separate pages.** Webhooks, schedules, and case triggers are
-configured **inside the workflow builder** (`/workflows/<id>`) in the trigger panel.
+**Triggers are not separate pages.** Webhooks, schedules, and case triggers are all configured
+inside the workflow builder at `/workflows/<id>`, in the trigger panel.
 
 ## Correctness guardrails
 
-- **Secrets vs variables:** secrets are sensitive (`${{ SECRETS.<name>.<KEY> }}`);
-  variables are plain config (`${{ VARS.<name>.<key> }}`). Don't put secrets in variables.
-- **Secret safety in agents:** `ai.preset_agent` injects secrets **server-side** (the LLM
-  never sees them). `ai.action` and `ai.agent` evaluate expressions where the value **can**
-  reach the model — never tell users to put raw secrets in those prompts.
-- **Don't invent integration setup.** Per-integration setup steps (how to get a given
-  vendor's API key) are not documented here. Tell the user which credential/secret the
-  integration needs and where to add it (`/credentials` or `/integrations`), not invented
-  vendor instructions.
-- **Enterprise features** (preset agents, agent control plane, MCP access controls, skills)
-  may be gated by entitlement — if a user can't see a feature, that's likely why.
+- **Secrets are not variables.** Secrets hold credentials and never reach a model through the
+  secure injection path; variables hold plain config and are ordinary data. Putting a token in
+  a variable moves it out of the protected path.
+- **`ai.preset_agent` injects secrets server-side, so the model never sees the value.**
+  `ai.agent` and `ai.action` resolve expressions into arguments the model *can* read. Never
+  tell a user to put a raw secret in an `ai.agent` or `ai.action` prompt.
+- **Do not invent per-vendor setup steps.** Name the credential the integration needs and the
+  page to add it on — Credentials or Integrations — rather than describing a vendor console you
+  cannot see.
+- **Do not blame the workspace for a missing feature.** A name that does not resolve is far
+  more often a typo or the wrong identifier than an absent capability. Check the exact name
+  first.
 
-## References (read on demand)
-
-- [concepts](references/concepts.md) — secrets, variables, expressions, environments.
-- [triggers-and-credentials](references/triggers-and-credentials.md) — picking a trigger;
-  the three credential models; custom actions.
-- [navigation](references/navigation.md) — full route map and sidebar.
+An agent changes any of this through Tracecat MCP tools such as `get_workflow` and
+`edit_workflow`. In Tracecat workspace chat these are exposed as `core.workflow.<name>`
+registry actions; over MCP the names are bare.

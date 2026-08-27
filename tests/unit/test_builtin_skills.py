@@ -7,17 +7,39 @@ copies packaged skill directories into the per-run skills directory.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 
 from tracecat.agent.executor.activity import SandboxedAgentExecutor
 from tracecat.agent.skill.schemas import (
     RESERVED_SKILL_NAME_PREFIX,
     SkillCreate,
 )
+
+VENDORED_SKILLS_ROOT = (
+    Path(__file__).parents[2] / "packages/tracecat-ee/tracecat_ee/workspace_chat/skills"
+)
+VENDORED_SKILLS_SKIP_REASON = (
+    "Vendored workspace-chat skills are absent; run `just sync-copilot-skills` "
+    "from the repository root to populate them."
+)
+
+
+def require_vendored_skills() -> Path:
+    """Return the vendored tree or skip checks that require its content."""
+    from tracecat_ee.workspace_chat.skills import BUILTIN_WORKSPACE_CHAT_SKILLS
+
+    if any(
+        not (VENDORED_SKILLS_ROOT / name).is_dir()
+        for name in BUILTIN_WORKSPACE_CHAT_SKILLS
+    ):
+        pytest.skip(VENDORED_SKILLS_SKIP_REASON)
+    return VENDORED_SKILLS_ROOT
 
 
 class TestReservedSkillNamespace:
@@ -65,13 +87,50 @@ class TestBuiltinSkillsConstant:
             assert name.startswith(BUILTIN_SKILL_NAME_PREFIX)
 
     def test_each_builtin_skill_has_skill_md(self):
-        from importlib.resources import files
-
         from tracecat_ee.workspace_chat.skills import BUILTIN_WORKSPACE_CHAT_SKILLS
 
-        root = files("tracecat_ee.workspace_chat.skills")
+        root = require_vendored_skills()
         for name in BUILTIN_WORKSPACE_CHAT_SKILLS:
             assert (root / name / "SKILL.md").is_file()
+
+    def test_frontmatter_name_matches_directory(self):
+        from tracecat_ee.workspace_chat.skills import BUILTIN_WORKSPACE_CHAT_SKILLS
+
+        root = require_vendored_skills()
+        for name in BUILTIN_WORKSPACE_CHAT_SKILLS:
+            skill_md = root / name / "SKILL.md"
+            match = re.match(
+                r"\A---\r?\n(?P<frontmatter>.*?)\r?\n---(?:\r?\n|\Z)",
+                skill_md.read_text(encoding="utf-8"),
+                re.DOTALL,
+            )
+            assert match is not None, f"Missing YAML frontmatter in {skill_md}"
+            frontmatter = yaml.safe_load(match.group("frontmatter"))
+            assert isinstance(frontmatter, dict)
+            assert frontmatter.get("name") == name
+
+    def test_relative_reference_links_resolve(self):
+        from tracecat_ee.workspace_chat.skills import BUILTIN_WORKSPACE_CHAT_SKILLS
+
+        root = require_vendored_skills()
+        for name in BUILTIN_WORKSPACE_CHAT_SKILLS:
+            skill_root = root / name
+            for markdown in skill_root.rglob("*.md"):
+                content = markdown.read_text(encoding="utf-8")
+                for target in re.findall(r"\]\((references/[^)#?]+\.md)\)", content):
+                    assert (markdown.parent / target).is_file(), (
+                        f"Broken reference link {target!r} in {markdown}"
+                    )
+
+    def test_no_todo_placeholders(self):
+        from tracecat_ee.workspace_chat.skills import BUILTIN_WORKSPACE_CHAT_SKILLS
+
+        root = require_vendored_skills()
+        for name in BUILTIN_WORKSPACE_CHAT_SKILLS:
+            for markdown in (root / name).rglob("*.md"):
+                assert "TODO:" not in markdown.read_text(encoding="utf-8"), (
+                    f"TODO placeholder found in {markdown}"
+                )
 
 
 class TestBuiltinSkillsPayloadThreading:
@@ -87,10 +146,10 @@ class TestBuiltinSkillsPayloadThreading:
         config = AgentConfig(
             model_name="claude",
             model_provider="anthropic",
-            builtin_skills=["tracecat-manage-workflows"],
+            builtin_skills=["tracecat-automation-best-practices"],
         )
         restored = agent_config_from_payload(agent_config_to_payload(config))
-        assert restored.builtin_skills == ["tracecat-manage-workflows"]
+        assert restored.builtin_skills == ["tracecat-automation-best-practices"]
 
     def test_round_trip_defaults_to_none(self):
         from tracecat.agent.types import AgentConfig
@@ -136,7 +195,7 @@ class TestResolveBuiltinWorkspaceChatSkills:
         )
         result = await resolve()
         assert result == list(BUILTIN_WORKSPACE_CHAT_SKILLS)
-        assert "tracecat-manage-workflows" in result
+        assert "tracecat-automation-best-practices" in result
 
     @pytest.mark.anyio
     async def test_returns_none_when_not_entitled(self, monkeypatch):
@@ -168,13 +227,30 @@ class TestStageBuiltinSkills:
         assert list(skills_dir.iterdir()) == []
 
     @pytest.mark.anyio
-    async def test_stages_real_builtin_skill(self, tmp_path: Path):
+    async def test_stages_packaged_builtin_skill(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        from tracecat.agent.executor import activity as activity_mod
+
+        package_root = tmp_path / "package"
+        packaged_skill = package_root / "tracecat-automation-best-practices"
+        packaged_skill.mkdir(parents=True)
+        (packaged_skill / "SKILL.md").write_text("packaged content")
+
+        def fake_files(package: str) -> Path:
+            assert package == "tracecat_ee.workspace_chat.skills"
+            return package_root
+
+        monkeypatch.setattr(activity_mod, "files", fake_files)
+
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir()
-        await _executor_with_builtin_skills(["tracecat-manage-workflows"]).stage(
-            skills_dir
-        )
-        assert (skills_dir / "tracecat-manage-workflows" / "SKILL.md").is_file()
+        await _executor_with_builtin_skills(
+            ["tracecat-automation-best-practices"]
+        ).stage(skills_dir)
+        assert (
+            skills_dir / "tracecat-automation-best-practices" / "SKILL.md"
+        ).read_text() == "packaged content"
 
     @pytest.mark.anyio
     async def test_skips_unknown_or_unprefixed_names(self, tmp_path: Path):
@@ -199,7 +275,7 @@ class TestStageResolvedSkillsCollision:
         from tracecat.agent.executor import activity as activity_mod
 
         skills_dir = tmp_path / "skills"
-        staged = skills_dir / "tracecat-manage-workflows"
+        staged = skills_dir / "tracecat-automation-best-practices"
         staged.mkdir(parents=True)
         (staged / "SKILL.md").write_text("builtin content")
 
@@ -212,7 +288,7 @@ class TestStageResolvedSkillsCollision:
         )
 
         resolved = SimpleNamespace(
-            skill_name="tracecat-manage-workflows",
+            skill_name="tracecat-automation-best-practices",
             manifest_sha256="0" * 64,
             skill_version_id=uuid.uuid4(),
         )

@@ -5,7 +5,8 @@ optional ``references/*.md``) that the agent executor stages into the copilot's
 ``~/.claude/skills`` directory for every entitled workspace-chat session,
 independent of any agent preset. The claude_code runtime then discovers and
 fetches them on demand, so the guidance reaches the model regardless of model
-strength.
+strength. The directories are vendored from the public ``tracecat-plugins``
+repository when the application image is built.
 
 Every built-in skill name MUST use the reserved ``tracecat-`` prefix. User and
 preset skill names are forbidden from using that prefix (enforced in
@@ -22,7 +23,8 @@ BUILTIN_SKILL_NAME_PREFIX = "tracecat-"
 # Each entry MUST be the name of a directory under this package that contains a
 # ``SKILL.md`` file, and MUST start with ``BUILTIN_SKILL_NAME_PREFIX``.
 BUILTIN_WORKSPACE_CHAT_SKILLS: tuple[str, ...] = (
-    "tracecat-manage-workflows",
+    "tracecat-automation-best-practices",
+    "tracecat-slackbot-best-practices",
     "tracecat-platform-guide",
 )
 

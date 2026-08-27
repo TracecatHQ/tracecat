@@ -113,6 +113,50 @@ gen-tool-docs:
 gen-functions-docs:
 	uv run python scripts/generate_functions_docs.py
 
+# Vendor workspace-chat copilot skills from a sibling checkout or the pinned archive.
+sync-copilot-skills:
+	#!/usr/bin/env sh
+	set -eu
+	plugins_ref="${TRACECAT_PLUGINS_REF:-6a8fd6e}"
+	destination="packages/tracecat-ee/tracecat_ee/workspace_chat/skills"
+	tmp_dir=""
+	if [ -d "../tracecat-plugins/plugins/tracecat/skills" ]; then
+		source_root="../tracecat-plugins/plugins/tracecat/skills"
+	else
+		tmp_dir="$(mktemp -d)"
+		trap 'rm -rf -- "$tmp_dir"' EXIT
+		mkdir -p "$tmp_dir/extracted"
+		curl -fsSL \
+			"https://github.com/TracecatHQ/tracecat-plugins/archive/${plugins_ref}.tar.gz" \
+			-o "$tmp_dir/tracecat-plugins.tar.gz"
+		tar -xzf "$tmp_dir/tracecat-plugins.tar.gz" \
+			-C "$tmp_dir/extracted" \
+			--strip-components=1
+		source_root="$tmp_dir/extracted/plugins/tracecat/skills"
+		if [ ! -d "$source_root" ]; then
+			echo "Could not locate plugins/tracecat/skills in the fetched archive." >&2
+			exit 1
+		fi
+	fi
+	for skill in \
+		tracecat-automation-best-practices \
+		tracecat-slackbot-best-practices \
+		tracecat-platform-guide; do
+		if [ ! -f "$source_root/$skill/SKILL.md" ]; then
+			echo "Missing required skill: $source_root/$skill/SKILL.md" >&2
+			exit 1
+		fi
+	done
+	mkdir -p "$destination"
+	for skill in \
+		tracecat-automation-best-practices \
+		tracecat-slackbot-best-practices \
+		tracecat-platform-guide; do
+		rm -rf -- "$destination/$skill"
+		cp -R "$source_root/$skill" "$destination/"
+		echo "Copied $skill from $source_root"
+	done
+
 # Update version number. If no version is provided, increments patch version.
 update-version *after='':
 	@-./scripts/update-version.sh {{after}}
