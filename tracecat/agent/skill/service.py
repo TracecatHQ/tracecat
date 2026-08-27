@@ -945,6 +945,15 @@ class SkillService(BaseWorkspaceService):
                         bucket=upload.bucket,
                         content_type="application/octet-stream",
                     )
+                    # Record the key before the verify below: a CancelledError
+                    # arriving mid-verify bypasses the except clause, so only
+                    # the caller's cleanup can delete the copied object. The
+                    # non-cancellation failure path then deletes the key twice
+                    # (here and in the caller), which is harmless.
+                    if published is not None:
+                        published.append(
+                            PublishedBlobObject(bucket=upload.bucket, key=canonical_key)
+                        )
                     # The staged PUT URL may still be valid here, so a concurrent
                     # re-PUT between the verification above and the copy could
                     # poison the content-addressed blob. Verify the canonical copy
@@ -967,10 +976,6 @@ class SkillService(BaseWorkspaceService):
                             error=str(exc),
                         )
                     raise
-                if published is not None:
-                    published.append(
-                        PublishedBlobObject(bucket=upload.bucket, key=canonical_key)
-                    )
 
         upload.blob_id = blob_row.id
         upload.completed_at = datetime.now(UTC)
