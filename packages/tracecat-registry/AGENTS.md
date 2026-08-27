@@ -157,12 +157,18 @@ SDK-backed or not.
   not secrets. Expose them as a `base_url`/host action input and resolve them
   through `inputs.<name> || VARS.<tool_name>.<name> || <official default>` where
   a default exists. Never put a non-sensitive base URL or host in
-  `RegistrySecret`; this applies to SDK wrappers as well as HTTP templates.
-- Put credentials where the vendor documents them. **When a vendor offers several mechanisms,
-  implement exactly one: the header token.** Do not also wire up the query parameter or Basic.
-  Hunter documents an `api_key` query parameter, an `X-API-KEY` header and a Bearer header —
-  the template sends `X-API-KEY` only. Socket documents Bearer and Basic — the template sends
-  Bearer only.
+  `RegistrySecret`; this applies to SDK wrappers as well as HTTP templates. A
+  template over an SDK wrapper declares the optional input and passes the
+  resolved value into a required wrapper argument; the wrapper must not recover
+  routing configuration from a secret or ambient environment variable.
+- Distinguish multiple placements of one credential from genuinely different
+  authentication modes. If the same API key can be sent in a query parameter,
+  custom header, Bearer header, or Basic auth, implement one safest documented
+  header placement rather than duplicating it. Hunter documents an `api_key`
+  query parameter, an `X-API-KEY` header, and a Bearer header; the template sends
+  `X-API-KEY` only. Socket documents Bearer and Basic; the template sends Bearer
+  only. This rule does not decide whether a provider should expose API-key auth,
+  OAuth, or both.
 - Put an API key in the query string only when that is the sole documented mechanism, and then
   place it directly in the literal `params:` map — not in the URL, because httpx replaces an
   existing query string when `params` is also passed. Example: `tools/shodan/hosts/lookup_host.yml`.
@@ -173,8 +179,15 @@ SDK-backed or not.
   do, the vendors still accept it, and a workspace's stored secret is a published contract. Add a
   header-token path alongside if one exists, but never replace. Existing templates only — this does
   not license Basic in new work.
-- Where a vendor supports both OAuth and an API key, support both. `jamf/computers/*` and
-  `google_scc/*` declare an `oauth` secret and a key secret together.
+- Choose supported authentication modes case by case from the provider's current
+  production guidance, security posture, and the mechanisms users ordinarily
+  deploy. Do not add every mechanism merely because the API documents it, and do
+  not remove a commonly used API-key path merely because OAuth also exists.
+  Jamf and similar integrations should retain API-key support when that remains
+  the normal user path. Databricks and Snowflake should use OAuth-only flows when
+  OAuth is the production norm. When both modes are materially used, support both;
+  `jamf/computers/*` and `google_scc/*` show the combined-secret pattern. Record
+  the choice and evidence in the implementation plan or PR.
 - Declare credentials through `RegistrySecret` or OAuth rather than ordinary action
   inputs. Document required scopes, API versions, and product-tier constraints.
 - When an integration is intentionally OAuth-only, do not add PAT, API-token,
@@ -184,9 +197,13 @@ SDK-backed or not.
   environment-scoped stored credential fallback, use this precedence:
   authorization-code token, client-credentials token, then stored credentials.
   Keep each OAuth secret optional so either grant can be configured independently.
-  The stored secret may also be optional, but if it is present its minimum usable
-  fields belong in `keys`; only genuinely optional modifiers belong in
-  `optional_keys`. Follow `google_api_optional_secret` as the schema pattern.
+  Every OAuth path must validate and run without requiring the stored credential.
+  The stored secret may also be optional: `optional=True` controls whether the
+  secret group must exist, not whether fields inside a configured group are
+  required. Put its minimum usable fields in `keys` and only genuine modifiers in
+  `optional_keys`; never model an optional secret group by moving its required
+  fields into `optional_keys`. Follow `google_api_optional_secret` as the schema
+  pattern.
 - Do not duplicate OAuth exchange logic unless the standard provider cannot
   represent a required vendor flow. Verify the grant, endpoint authentication
   method, scopes, PKCE requirements, refresh behavior, and any audience/resource
@@ -329,6 +346,9 @@ Before handing off an integration PR, explicitly re-audit:
 - action inputs and `VARS`, especially that no base URL or host leaked into a secret;
 - credential schemas, OAuth grant registrations, scopes, endpoints, and runtime
   precedence, including the environment-scoped fallback;
+- each authentication path independently, confirming an OAuth-only configuration
+  has no hidden dependency on a stored basic secret and an optional stored secret
+  still requires all fields needed to authenticate when it is configured;
 - absence of unapproved PAT, API-token, raw-token, and ambient-auth paths;
 - JSON serialization for ordinary responses, waiters, and paginated iterators;
 - official SVG mappings for action namespaces, credentials, and OAuth providers;
