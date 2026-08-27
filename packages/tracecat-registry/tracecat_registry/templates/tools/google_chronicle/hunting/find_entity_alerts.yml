@@ -1,0 +1,65 @@
+type: action
+definition:
+  title: Find entity alerts
+  description: >-
+    Gets alerts for an entity. The API returns a maximum of 1000 alerts for the
+    requested entity.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances/findEntityAlerts
+  namespace: tools.google_chronicle
+  name: find_entity_alerts
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The ID of the Instance to summarize entity for. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    start_time:
+      type: str
+      description: >-
+        Inclusive start of the time range to retrieve the alerts for, in RFC 3339
+        format, e.g. "2014-10-02T15:01:23Z".
+    end_time:
+      type: str
+      description: >-
+        Exclusive end of the time range to retrieve the alerts for, in RFC 3339 format.
+    entity_id:
+      type: str | None
+      description: >-
+        ID of the entity. Identifies the entity together with, or instead of,
+        `field_and_value`; the vendor accepts exactly one of the two.
+      default: null
+    field_and_value:
+      type: dict[str, Any] | None
+      # Union: the vendor documents `id` as a union of `entityId` and the
+      # `FieldAndValue` message, and does not enumerate that message's fields on
+      # this method page, so there is no field set to name here.
+      description: Field path or type with value to identify entity.
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}:findEntityAlerts
+        method: GET
+        params:
+          timeRange.startTime: ${{ inputs.start_time }}
+          timeRange.endTime: ${{ inputs.end_time }}
+          entityId: ${{ inputs.entity_id }}
+          fieldAndValue: ${{ inputs.field_and_value }}
+  returns: ${{ steps.call_api.result }}

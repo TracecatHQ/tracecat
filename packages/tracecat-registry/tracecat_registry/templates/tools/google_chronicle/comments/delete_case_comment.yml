@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Delete case comment
+  description: >-
+    Performs a soft delete of a CaseComment, removing the comment's content from general
+    view while preserving its metadata for audit purposes.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.cases.caseComments/delete
+  namespace: tools.google_chronicle
+  name: delete_case_comment
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        Chronicle instance this request is sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    case:
+      type: str
+      description: The ID of the Case the comment belongs to.
+    case_comment:
+      type: str
+      description: The ID of the CaseComment to delete.
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}/caseComments/${{ inputs.case_comment }}
+        method: DELETE
+  returns: ${{ steps.call_api.result }}

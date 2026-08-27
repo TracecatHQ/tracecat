@@ -1,0 +1,91 @@
+type: action
+definition:
+  title: Update rule deployment
+  description: >-
+    Updates a RuleDeployment. Failures are not necessarily atomic. If there is a
+    request to update multiple fields, and any update to a single field fails, an error
+    will be returned, but other fields may remain successfully updated.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.rules/updateDeployment
+  namespace: tools.google_chronicle
+  name: update_rule_deployment
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        Chronicle instance this request is sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    rule:
+      type: str
+      description: >-
+        The rule ID whose deployment to update. RuleDeployment is a child of the overall
+        Rule, not any individual revision, so this must not reference a specific
+        revision.
+    update_mask:
+      type: str
+      description: >-
+        Required. The list of fields to update. This is a comma-separated list of fully
+        qualified names of fields, e.g. "enabled,alerting". Schedule customizations are
+        tied to run frequency and must be updated with the "runFrequency" mask.
+    enabled:
+      type: bool | None
+      description: >-
+        Whether the rule is currently deployed continuously against incoming data.
+      default: null
+    alerting:
+      type: bool | None
+      description: >-
+        Whether detections resulting from this deployment should be considered alerts.
+      default: null
+    archived:
+      type: bool | None
+      description: >-
+        The archive state of the rule deployment. Cannot be set to true unless enabled
+        is set to false. If set to true, alerting will automatically be set to false. If
+        currently set to true, enabled, alerting, and runFrequency cannot be updated.
+      default: null
+    run_frequency:
+      type: str | None
+      description: >-
+        The run frequency of the rule deployment. One of LIVE, HOURLY, DAILY.
+      default: null
+    schedule_customizations:
+      type: dict[str, Any] | None
+      # Generic: `scheduleCustomizations` is a nested message whose two documented
+      # fields (ensureEnrichmentCompleteness, lateArrivingDataAdjustment) travel with
+      # the "runFrequency" mask, so the vendor treats it as one value, not a field set.
+      description: >-
+        The schedule customizations of the rule deployment. Only valid for customizable
+        run frequencies. Documented fields: ensureEnrichmentCompleteness (boolean),
+        lateArrivingDataAdjustment (duration string, e.g. "3.5s").
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules/${{ inputs.rule }}/deployment
+        method: PATCH
+        params:
+          updateMask: ${{ inputs.update_mask }}
+        payload:
+          enabled: ${{ inputs.enabled }}
+          alerting: ${{ inputs.alerting }}
+          archived: ${{ inputs.archived }}
+          runFrequency: ${{ inputs.run_frequency }}
+          scheduleCustomizations: ${{ inputs.schedule_customizations }}
+  returns: ${{ steps.call_api.result }}

@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: Get case
+  description: >-
+    Gets a single Case by its resource name, including its alerts, entities, and
+    investigation history.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.cases/get
+  namespace: tools.google_chronicle
+  name: get_case
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        Chronicle instance this request is sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    case:
+      type: str
+      description: The ID of the Case to retrieve.
+    expand:
+      type: str | None
+      description: Expand field for getting related resources.
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}
+        method: GET
+        params:
+          expand: ${{ inputs.expand }}
+  returns: ${{ steps.call_api.result }}

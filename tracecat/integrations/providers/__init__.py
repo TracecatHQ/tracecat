@@ -6,6 +6,8 @@ from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
 from tracecat.integrations.providers.google import (
     GoogleAdminACProvider,
     GoogleAdminCCProvider,
+    GoogleChronicleACProvider,
+    GoogleChronicleCCProvider,
     GoogleDocsACProvider,
     GoogleDocsCCProvider,
     GoogleDriveACProvider,
@@ -55,6 +57,8 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     GitHubMCPProvider,
     GoogleAdminACProvider,
     GoogleAdminCCProvider,
+    GoogleChronicleACProvider,
+    GoogleChronicleCCProvider,
     GoogleDocsACProvider,
     GoogleDocsCCProvider,
     GoogleDriveACProvider,

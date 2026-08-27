@@ -1,6 +1,7 @@
 """Google OAuth providers."""
 
 from .admin import GoogleAdminACProvider, GoogleAdminCCProvider
+from .chronicle import GoogleChronicleACProvider, GoogleChronicleCCProvider
 from .common import (
     GoogleAuthorizationCodeOAuthProvider,
     get_google_ac_metadata,
@@ -18,6 +19,8 @@ __all__ = [
     "GoogleAdminACProvider",
     "GoogleAdminCCProvider",
     "GoogleAuthorizationCodeOAuthProvider",
+    "GoogleChronicleACProvider",
+    "GoogleChronicleCCProvider",
     "GoogleDocsACProvider",
     "GoogleDocsCCProvider",
     "GoogleDriveACProvider",

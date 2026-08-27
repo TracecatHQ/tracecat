@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: Bulk close cases
+  description: >-
+    Closes multiple cases in a single operation. A valid closure reason and root cause
+    must be provided for all affected cases.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.cases/executeBulkClose
+  namespace: tools.google_chronicle
+  name: bulk_close_cases
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The instance to execute bulk close on. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    cases_ids:
+      type: list[int]
+      description: Cases to close.
+    close_reason:
+      type: str
+      description: >-
+        Close reason. One of CLOSE_REASON_UNSPECIFIED, MALICIOUS, NOT_MALICIOUS,
+        MAINTENANCE, INCONCLUSIVE, UNKNOWN.
+    root_cause:
+      type: str | None
+      description: Root cause of closing the cases.
+      default: null
+    close_comment:
+      type: str | None
+      description: Comment to add to the cases when closing them.
+      default: null
+    dynamic_parameters:
+      type: list[dict[str, Any]] | None
+      description: >-
+        Dynamic parameters added to the close case action. Each entry carries id
+        (integer) and values (list of strings).
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases:executeBulkClose
+        method: POST
+        payload:
+          casesIds: ${{ inputs.cases_ids }}
+          closeReason: ${{ inputs.close_reason }}
+          rootCause: ${{ inputs.root_cause }}
+          closeComment: ${{ inputs.close_comment }}
+          dynamicParameters: ${{ inputs.dynamic_parameters }}
+  returns: ${{ steps.call_api.result }}

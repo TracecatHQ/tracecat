@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: Disable rule
+  description: >-
+    Stops a rule from running against incoming data by clearing `enabled` on its
+    RuleDeployment.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.rules/updateDeployment
+  namespace: tools.google_chronicle
+  name: disable_rule
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        Chronicle instance this request is sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    rule:
+      type: str
+      description: >-
+        The rule ID whose deployment to disable. RuleDeployment is a child of the
+        overall Rule, not any individual revision, so this must not reference a specific
+        revision.
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules/${{ inputs.rule }}/deployment
+        method: PATCH
+        params:
+          updateMask: enabled
+        payload:
+          enabled: false
+  returns: ${{ steps.call_api.result }}

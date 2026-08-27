@@ -1,0 +1,85 @@
+type: action
+definition:
+  title: List cases
+  description: >-
+    Lists Cases in an instance. Supports extensive filtering and ordering based on case
+    attributes like priority, status, assignee and more.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.cases/list
+  namespace: tools.google_chronicle
+  name: list_cases
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The instance to list Cases for. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    page_size:
+      type: int | None
+      description: >-
+        The maximum number of cases to return. The service may return fewer than this
+        value. If unspecified, at most 50 Cases will be returned. The maximum value is
+        1000; values above 1000 will be coerced to 1000.
+      default: null
+    page_token:
+      type: str | None
+      description: >-
+        A page token, received from a previous cases.list call. Provide this to retrieve
+        the subsequent page. When paginating, all other parameters provided to
+        cases.list must match the call that provided the page token.
+      default: null
+    filter:
+      type: str | None
+      description: >-
+        A filter to apply to the list of Cases. Supported filter fields: displayName,
+        creatorUserId, creatorUser, lastModifyingUserId, lastModifyingUser, assignee,
+        assignedUser, stage, priority, important, type, environment, case_data_state,
+        score, alertsSla, sla, tags, products, closureDetails, tasks. Example:
+        filter="displayName='some_name'"
+      default: null
+    order_by:
+      type: str | None
+      description: >-
+        Configures ordering of Cases in the response. If not specified, Cases are
+        returned in descending order of their create time. The orderBy string is a comma
+        separated list of fields. Example: "displayName desc, priority"
+      default: null
+    expand:
+      type: str | None
+      description: >-
+        Expand the response to include the full case object. Supported values: tasks,
+        tags, products. Example: "tags, products"
+      default: null
+    distinct_by:
+      type: str | None
+      description: The field to distinct the cases by.
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases
+        method: GET
+        params:
+          pageSize: ${{ inputs.page_size }}
+          pageToken: ${{ inputs.page_token }}
+          filter: ${{ inputs.filter }}
+          orderBy: ${{ inputs.order_by }}
+          expand: ${{ inputs.expand }}
+          distinctBy: ${{ inputs.distinct_by }}
+  returns: ${{ steps.call_api.result }}

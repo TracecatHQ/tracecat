@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: Create retrohunt
+  description: Creates a Retrohunt, an execution of a Rule over a time range in the past.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.rules.retrohunts/create
+  namespace: tools.google_chronicle
+  name: create_retrohunt
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        Chronicle instance this request is sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    rule:
+      type: str
+      description: >-
+        The rule the retrohunt belongs to, optionally suffixed with `@{revisionId}`.
+        A retrohunt is the child of a rule revision.
+    start_time:
+      type: str
+      description: >-
+        Inclusive start of the event time range this retrohunt processes, in RFC 3339
+        format, e.g. "2014-10-02T15:01:23Z".
+    end_time:
+      type: str
+      description: >-
+        Exclusive end of the event time range this retrohunt processes, in RFC 3339
+        format.
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules/${{ inputs.rule }}/retrohunts
+        method: POST
+        payload:
+          processInterval:
+            startTime: ${{ inputs.start_time }}
+            endTime: ${{ inputs.end_time }}
+  returns: ${{ steps.call_api.result }}

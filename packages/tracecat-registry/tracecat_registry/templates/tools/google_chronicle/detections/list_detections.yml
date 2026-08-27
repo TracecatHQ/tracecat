@@ -1,0 +1,113 @@
+type: action
+definition:
+  title: List detections
+  description: Legacy endpoint for searching detections for a rule version.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1alpha/projects.locations.instances.legacy/legacySearchDetections
+  namespace: tools.google_chronicle
+  name: list_detections
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        Chronicle instance this request is sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    rule_id:
+      type: str
+      description: >-
+        The specific rule revision to search detections for. There are four acceptable
+        formats: "{ruleId}" retrieves detections for the latest revision of the Rule;
+        "{ruleId}@{revisionId}" retrieves detections for that revision;
+        "{ruleId}@-" retrieves detections for all revisions of the Rule; "-" retrieves
+        detections for all revisions of all Rules.
+    alert_state:
+      type: str | None
+      description: >-
+        An enum that filters which detections are returned by their AlertState. One of
+        UNSPECIFIED, NOT_ALERTING, ALERTING.
+      default: null
+    start_time:
+      type: str | None
+      description: >-
+        The time to start search detections from, inclusive, in RFC 3339 format, e.g.
+        "2014-10-02T15:01:23Z".
+      default: null
+    end_time:
+      type: str | None
+      description: >-
+        The time to end searching detections to, exclusive, in RFC 3339 format.
+      default: null
+    list_basis:
+      type: str | None
+      description: >-
+        Basis for determining whether to apply startTime and endTime filters for
+        detection time or creation time of the detection. One of
+        LIST_BASIS_UNSPECIFIED, DETECTION_TIME, CREATED_TIME.
+      default: null
+    page_size:
+      type: int | None
+      description: Maximum number of detections to return.
+      default: null
+    page_token:
+      type: str | None
+      description: >-
+        A page token, received from a previous legacy.legacySearchDetections call.
+        Provide this to retrieve the subsequent page. When paginating, all other
+        parameters provided to legacy.legacySearchDetections must match the call that
+        provided the page token.
+      default: null
+    max_resp_size_bytes:
+      type: int | None
+      description: >-
+        The maximum size of response in bytes. If it is set to 0 (or is omitted), the
+        server will not enforce any max response size limit.
+      default: null
+    include_nested_detections:
+      type: bool | None
+      description: If true, include one level of nested detections in the response.
+      default: null
+    include_simulated_detections:
+      type: bool | None
+      description: >-
+        Deprecated. If true, include simulated detections in the response. Prefer
+        simulated_data_visibility for new workflows.
+      default: null
+    simulated_data_visibility:
+      type: str | None
+      description: >-
+        Specifies visibility of simulated data to include in search results.
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacy:legacySearchDetections
+        method: GET
+        params:
+          ruleId: ${{ inputs.rule_id }}
+          alertState: ${{ inputs.alert_state }}
+          startTime: ${{ inputs.start_time }}
+          endTime: ${{ inputs.end_time }}
+          listBasis: ${{ inputs.list_basis }}
+          pageSize: ${{ inputs.page_size }}
+          pageToken: ${{ inputs.page_token }}
+          maxRespSizeBytes: ${{ inputs.max_resp_size_bytes }}
+          includeNestedDetections: ${{ inputs.include_nested_detections }}
+          includeSimulatedDetections: ${{ inputs.include_simulated_detections }}
+          simulatedDataVisibility: ${{ inputs.simulated_data_visibility }}
+  returns: ${{ steps.call_api.result }}

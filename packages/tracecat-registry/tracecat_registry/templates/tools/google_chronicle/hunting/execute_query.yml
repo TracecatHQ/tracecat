@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: Execute query
+  description: >-
+    Performs a UDM search that returns matching events, or statistics rows, for the
+    query.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances/udmSearch
+  namespace: tools.google_chronicle
+  name: execute_query
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        Chronicle instance this request is sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    query:
+      type: str
+      description: >-
+        The UDM query to run, including event, statistics, or SQL queries.
+    start_time:
+      type: str
+      description: >-
+        Inclusive start of the time range to search, as an RFC 3339 timestamp, e.g.
+        "2014-10-02T15:01:23Z".
+    end_time:
+      type: str
+      description: >-
+        Exclusive end of the time range to search, as an RFC 3339 timestamp.
+    limit:
+      type: int
+      description: >-
+        Maximum number of results to return. Chronicle coerces values over 10000 to
+        10000.
+      default: 100
+    query_dialect:
+      type: str
+      description: >-
+        Language of the query string. Chronicle supports YL2 and SQL.
+      default: YL2
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}:udmSearch
+        method: GET
+        params:
+          query: ${{ inputs.query }}
+          timeRange.startTime: ${{ inputs.start_time }}
+          timeRange.endTime: ${{ inputs.end_time }}
+          limit: ${{ inputs.limit }}
+          queryDialect: ${{ inputs.query_dialect }}
+  returns: ${{ steps.call_api.result }}

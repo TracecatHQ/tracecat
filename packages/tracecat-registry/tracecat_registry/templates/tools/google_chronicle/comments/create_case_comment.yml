@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: Create case comment
+  description: >-
+    Creates a new CaseComment. Use this method to add investigative notes or collaborate
+    with other analysts. Comments can optionally include base64 encoded attachments.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.cases.caseComments/create
+  namespace: tools.google_chronicle
+  name: create_case_comment
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        Chronicle instance this request is sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    case:
+      type: str
+      description: The ID of the Case this CaseComment will be created on.
+    comment:
+      type: str
+      description: The content of the comment.
+    alert_identifier:
+      type: str | None
+      description: The alert associated with the comment.
+      default: null
+    case_attachment:
+      type: dict[str, Any] | None
+      # Union-ish: `CaseAttachment` is all-or-nothing — the vendor marks
+      # attachmentBase64, fileType and fileName each Required once the message is
+      # present, so a literal map would emit three nulls when no file is attached.
+      description: >-
+        The attachment associated with the comment. Required fields when present:
+        attachmentBase64 (base64 encoded attachment), fileType, fileName.
+      default: null
+    is_favorite:
+      type: bool | None
+      description: Whether the comment is marked as a favorite.
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}/caseComments
+        method: POST
+        payload:
+          comment: ${{ inputs.comment }}
+          alertIdentifier: ${{ inputs.alert_identifier }}
+          caseAttachment: ${{ inputs.case_attachment }}
+          isFavorite: ${{ inputs.is_favorite }}
+  returns: ${{ steps.call_api.result }}

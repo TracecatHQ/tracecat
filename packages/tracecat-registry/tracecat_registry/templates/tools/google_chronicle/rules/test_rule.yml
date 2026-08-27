@@ -1,0 +1,71 @@
+type: action
+definition:
+  title: Test rule
+  description: >-
+    Runs a rule text over a bounded historical time range without creating a rule.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1alpha/projects.locations.instances.legacy/legacyRunTestRule
+  namespace: tools.google_chronicle
+  name: test_rule
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The Chronicle instance associated with the request. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    rule_text:
+      type: str
+      description: The rule text to be tested.
+    start_time:
+      type: str
+      description: >-
+        Inclusive start of the time range the rule should be tested on, in RFC 3339
+        format, e.g. "2014-10-02T15:01:23Z".
+    end_time:
+      type: str
+      description: >-
+        Exclusive end of the time range the rule should be tested on, in RFC 3339
+        format. The range is limited to 14 days.
+    max_results:
+      type: int | None
+      description: >-
+        The maximum number of results to return. The service may return fewer than this
+        value. If unspecified, at most 1000 detections will be returned. The maximum
+        value is 10000; values above 10000 will be coerced to 10000.
+      default: null
+    scope:
+      type: str | None
+      description: >-
+        The data access scope to use to run the rule. This field is only required if
+        data access control is enabled. Format:
+        projects/{project}/locations/{location}/instances/{instance}/dataAccessScopes/{scope}
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacy:legacyRunTestRule
+        method: POST
+        payload:
+          ruleText: ${{ inputs.rule_text }}
+          timeRange:
+            startTime: ${{ inputs.start_time }}
+            endTime: ${{ inputs.end_time }}
+          maxResults: ${{ inputs.max_results }}
+          scope: ${{ inputs.scope }}
+  returns: ${{ steps.call_api.result }}

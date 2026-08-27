@@ -1,0 +1,57 @@
+type: action
+definition:
+  title: Find entity
+  description: >-
+    Identifies the entity type and retrieves relevant data associated with a specified
+    indicator.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances/findEntity
+  namespace: tools.google_chronicle
+  name: find_entity
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The ID of the Instance to find entity for. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    indicator:
+      type: str
+      description: Entity indicator to search for.
+    udm_field:
+      type: str
+      description: The UDM field the entity indicator belongs to.
+    entity_namespace:
+      type: str
+      description: Namespace of the entity being queried.
+    reference_time:
+      type: str
+      description: >-
+        Reference time to lookup entity, in RFC 3339 format, e.g.
+        "2014-10-02T15:01:23Z".
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}:findEntity
+        method: GET
+        params:
+          indicator: ${{ inputs.indicator }}
+          udmField: ${{ inputs.udm_field }}
+          entityNamespace: ${{ inputs.entity_namespace }}
+          referenceTime: ${{ inputs.reference_time }}
+  returns: ${{ steps.call_api.result }}

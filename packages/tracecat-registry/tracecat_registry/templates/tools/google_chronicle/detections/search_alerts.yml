@@ -1,0 +1,127 @@
+type: action
+definition:
+  title: Search alerts
+  description: >-
+    Legacy endpoint for getting alerts (and in some cases, non-alerting detections)
+    along with aggregated fields that match the query.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1alpha/projects.locations.instances.legacy/legacyFetchAlertsView
+  namespace: tools.google_chronicle
+  name: search_alerts
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The name of the parent resource, which is the SecOps instance. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    snapshot_query:
+      type: str
+      description: >-
+        This uses a syntax similar to UDM search, with support for all fields within 7
+        levels of nesting within the collection proto. For composite detections, the
+        filters prefixed with "collectionElements.references.event" or
+        "collectionElements.references.entity" are also checked against one-level of
+        producer detections.
+    start_time:
+      type: str
+      description: >-
+        Inclusive start of the time range to search, in RFC 3339 format, e.g.
+        "2014-10-02T15:01:23Z".
+    end_time:
+      type: str
+      description: Exclusive end of the time range to search, in RFC 3339 format.
+    baseline_query:
+      type: str | None
+      description: >-
+        The baseline query is used for this request and its results are cached for
+        subsequent requests, so that supplying additional filters in the snapshotQuery
+        will not require re-running the baseline query. This uses a syntax similar to
+        UDM search, and all fields are supported except for the path prefix
+        `feedbackSummary.*`.
+      default: null
+    max_returned_alerts:
+      type: int | None
+      description: >-
+        Parameter for the Alerts that will be streamed back; caps the number of matched
+        alerts returned in `alerts`.
+      default: null
+    entity_indicator:
+      type: dict[str, Any] | None
+      # Union: `EntityIndicator` carries `indicatorNamespace` plus exactly one of
+      # ~20 mutually exclusive indicator fields, so there is no single field set
+      # to name.
+      description: >-
+        Entity indicator to scope the alert list to. Carries `indicatorNamespace` plus
+        exactly one of hostname, assetIpAddress, mac, productId, userName, email,
+        employeeId, windowsSid, productObjectId, rawPid, processId, fullCommandLine,
+        parentProcessId, hashMd5, hashSha1, hashSha256, filePath,
+        destinationIpAddress, domainName, resourceName.
+      default: null
+    max_values_per_field:
+      type: int | None
+      description: >-
+        Parameter for the Aggregated Alert fields that will be streamed back; caps the
+        number of values returned per aggregated field.
+      default: null
+    enable_cache:
+      type: str | None
+      description: >-
+        If enabled, subsequent requests for the same time range and baseline query will
+        try to leverage our cache to serve the response with filters applied in the
+        snapshot query. One of ALERTS_FEATURE_PREFERENCE_UNSPECIFIED,
+        ALERTS_FEATURE_PREFERENCE_ENABLED, ALERTS_FEATURE_PREFERENCE_DISABLED.
+      default: null
+    include_non_alerting_detections:
+      type: str | None
+      description: >-
+        Whether to include non-alerting detections in the response. One of
+        ALERTS_FEATURE_PREFERENCE_UNSPECIFIED, ALERTS_FEATURE_PREFERENCE_ENABLED,
+        ALERTS_FEATURE_PREFERENCE_DISABLED.
+      default: null
+    max_response_alerts_bytes:
+      type: str | None
+      description: >-
+        The maximum size, in bytes, of the alerts data returned in the response, as an
+        int64 string. If the total size of alerts exceeds this limit, the list of alerts
+        is truncated and `memoryLimitExceeded` is set in the response. If unspecified or
+        set to 0, no size limit is applied.
+      default: null
+    simulated_data_visibility:
+      type: str | None
+      description: >-
+        Specifies visibility of simulated data to include in search results.
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacy:legacyFetchAlertsView
+        method: GET
+        params:
+          baselineQuery: ${{ inputs.baseline_query }}
+          snapshotQuery: ${{ inputs.snapshot_query }}
+          timeRange.startTime: ${{ inputs.start_time }}
+          timeRange.endTime: ${{ inputs.end_time }}
+          alertListOptions.maxReturnedAlerts: ${{ inputs.max_returned_alerts }}
+          alertListOptions.entityIndicator: ${{ inputs.entity_indicator }}
+          fieldAggregationOptions.maxValuesPerField: ${{ inputs.max_values_per_field }}
+          enableCache: ${{ inputs.enable_cache }}
+          includeNonAlertingDetections: ${{ inputs.include_non_alerting_detections }}
+          maxResponseAlertsBytes: ${{ inputs.max_response_alerts_bytes }}
+          simulatedDataVisibility: ${{ inputs.simulated_data_visibility }}
+  returns: ${{ steps.call_api.result }}
