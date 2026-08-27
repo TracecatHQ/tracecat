@@ -1,0 +1,21 @@
+docs/snippets/oauth-token-expressions.mdx
+  s_9177a925180b65::t_73e2c5c77c42c3 38-39,45-51
+tracecat/mcp/server.py
+  s_9177a925180b65::t_6a3291756e2971 2126-2128,4952-4957
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c047deb55cc37754bb6761614a58be5dc6b8ab56",
+  "prompts": {},
+  "sessions": {
+    "s_9177a925180b65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cdc49770-5a42-40d5-969b-73d89a11a08f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
