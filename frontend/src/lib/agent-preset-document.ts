@@ -270,8 +270,8 @@ function agentPresetExecutionFieldsToDocumentInput(
   skillNamesById: ReadonlyMap<string, string>
 ): AgentPresetDocumentInput {
   const subagentsEnabled = fields.agents?.enabled ?? false
-  // Mirrors `formValuesToAgentsPayload` in the builder: a disabled toggle drops
-  // the attachments entirely, so a stale list must not show up in the diff.
+  // Mirrors `buildAuthoredAgentsConfig`: a disabled toggle drops the attachments
+  // entirely, so a stale list must not show up in the diff.
   const subagents = subagentsEnabled
     ? normalizeSubagents(fields.agents?.subagents)
     : []

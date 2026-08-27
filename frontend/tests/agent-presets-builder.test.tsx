@@ -1,6 +1,7 @@
 import {
   AGENT_PRESET_PUBLISHING_FIELDS,
   buildAgentPresetUpdatePayload,
+  buildAuthoredAgentsConfig,
   buildDuplicateAgentPresetPayload,
   buildDuplicateAgentSlug,
   buildSkillCommandItemValue,
@@ -56,6 +57,36 @@ describe("buildAgentPresetUpdatePayload", () => {
     })
 
     expect(update.skills).toEqual(presetPayload.skills)
+  })
+})
+
+describe("buildAuthoredAgentsConfig", () => {
+  it("keeps resolved preset IDs out of authored API payloads", () => {
+    const agents = buildAuthoredAgentsConfig({
+      enabled: true,
+      subagents: [
+        {
+          preset: " analyst ",
+          presetId: "11111111-1111-1111-1111-111111111111",
+          name: " investigator ",
+          description: " Investigates alerts ",
+          maxTurns: "5",
+        },
+      ],
+    })
+
+    expect(agents).toEqual({
+      enabled: true,
+      subagents: [
+        {
+          preset: "analyst",
+          name: "investigator",
+          description: "Investigates alerts",
+          max_turns: 5,
+        },
+      ],
+    })
+    expect(agents.subagents?.[0]).not.toHaveProperty("preset_id")
   })
 })
 
