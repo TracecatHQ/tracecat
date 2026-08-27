@@ -42,6 +42,7 @@ from tracecat.sync import (
     CatalogMappingRequirement,
     CatalogMappingRequirementReason,
     McpIntegrationMappingAffectedPreset,
+    McpIntegrationMappingAffectedSkill,
     McpIntegrationMappingAffectedWorkflow,
     McpIntegrationMappingCandidate,
     McpIntegrationMappingRequirement,
@@ -60,10 +61,12 @@ from tracecat.workspace_sync.adapters.base import (
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     AGENT_PRESET_ROOT,
+    SKILL_ROOT,
     AgentPresetResourceSpec,
     AgentPresetSkillBinding,
     AgentPresetSubagentRef,
     McpIntegrationHint,
+    SkillResourceSpec,
     WorkflowResourceSpec,
     WorkspaceSpec,
 )
@@ -75,6 +78,7 @@ from tracecat.workspace_sync.types import (
     CorrelatedMcpIntegrationRefs,
     McpIntegrationCorrelationKey,
     McpIntegrationReference,
+    SkillMcpIntegrationReference,
     WorkflowCatalogReference,
     WorkflowMcpIntegrationReference,
 )
@@ -836,10 +840,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         workspace_service: SyncMappingService,
         presets: dict[str, AgentPresetResourceSpec],
         workflows: dict[str, WorkflowResourceSpec] | None = None,
+        skills: dict[str, SkillResourceSpec] | None = None,
         *,
         requested_mcp_integration_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
     ) -> CorrelatedMcpIntegrationRefs:
-        """Re-map preset and workflow MCP integration UUIDs to local rows.
+        """Re-map preset, workflow, and skill MCP references to local rows.
 
         MCP integration UUIDs are workspace-local, and the integrations themselves
         never sync. An exact slug/server_type/auth_type match against an exported
@@ -848,6 +853,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """
         requested_mappings = requested_mcp_integration_mappings or {}
         workflows = workflows or {}
+        skills = skills or {}
         diagnostics: list[PullDiagnostic] = []
         references: dict[uuid.UUID, list[McpIntegrationReference]] = {}
         meta_by_source_id: dict[uuid.UUID, McpIntegrationHint] = {}
@@ -885,6 +891,36 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                         preset_name=preset.name,
                         version_number=1,
                         meta=meta,
+                    )
+                )
+
+        for source_id, skill in sorted(skills.items()):
+            for reference in skill.mcp_integration_refs:
+                integration_id = reference.source_mcp_integration_id
+                meta = reference.hint
+                meta_key = McpIntegrationCorrelationKey(
+                    slug=meta.slug,
+                    server_type=meta.server_type,
+                    auth_type=meta.auth_type,
+                )
+                known = meta_by_source_id.get(integration_id)
+                if known is None:
+                    meta_by_source_id[integration_id] = meta
+                elif (
+                    McpIntegrationCorrelationKey(
+                        slug=known.slug,
+                        server_type=known.server_type,
+                        auth_type=known.auth_type,
+                    )
+                    != meta_key
+                ):
+                    conflicting_meta_ids.add(integration_id)
+                references.setdefault(integration_id, []).append(
+                    SkillMcpIntegrationReference(
+                        path=f"{SKILL_ROOT}/{source_id}/skill.yml",
+                        skill_source_id=source_id,
+                        skill_name=skill.name,
+                        tool_ids=tuple(reference.tool_ids),
                     )
                 )
 
@@ -933,6 +969,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             return CorrelatedMcpIntegrationRefs(
                 presets=presets,
                 workflows=workflows,
+                skills=skills,
                 diagnostics=diagnostics,
                 requirements=[],
             )
@@ -1030,6 +1067,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             return CorrelatedMcpIntegrationRefs(
                 presets=presets,
                 workflows=workflows,
+                skills=skills,
                 diagnostics=diagnostics,
                 requirements=requirements,
             )
@@ -1108,9 +1146,33 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 )
             )
 
+        correlated_skills: dict[str, SkillResourceSpec] = {}
+        for source_id, skill in sorted(skills.items()):
+            rewritten_refs = [
+                reference.model_copy(
+                    update={
+                        "source_mcp_integration_id": resolved[
+                            reference.source_mcp_integration_id
+                        ],
+                        "hint": local_hint_by_id[
+                            resolved[reference.source_mcp_integration_id]
+                        ],
+                    }
+                )
+                if reference.source_mcp_integration_id in resolved
+                else reference
+                for reference in skill.mcp_integration_refs
+            ]
+            correlated_skills[source_id] = (
+                skill
+                if rewritten_refs == skill.mcp_integration_refs
+                else skill.model_copy(update={"mcp_integration_refs": rewritten_refs})
+            )
+
         return CorrelatedMcpIntegrationRefs(
             presets=correlated_presets,
             workflows=correlated_workflows,
+            skills=correlated_skills,
             diagnostics=diagnostics,
             requirements=requirements,
         )
@@ -1250,13 +1312,25 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     for reference in references
                     if isinstance(reference, WorkflowMcpIntegrationReference)
                 ],
+                affected_skills=[
+                    McpIntegrationMappingAffectedSkill(
+                        skill_source_id=reference.skill_source_id,
+                        skill_name=reference.skill_name,
+                        path=reference.path,
+                        tool_ids=list(reference.tool_ids),
+                    )
+                    for reference in references
+                    if isinstance(reference, SkillMcpIntegrationReference)
+                ],
             )
         )
 
     def _mcp_reference_title(self, reference: McpIntegrationReference) -> str:
-        """Return the owning preset or workflow title for an MCP reference."""
+        """Return the owning preset, workflow, or skill title for an MCP ref."""
         if isinstance(reference, AgentPresetMcpIntegrationReference):
             return reference.preset_name
+        if isinstance(reference, SkillMcpIntegrationReference):
+            return reference.skill_name
         return reference.workflow_title
 
     async def import_specs(

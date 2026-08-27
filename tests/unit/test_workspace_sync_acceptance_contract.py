@@ -49,6 +49,7 @@ from tracecat.db.models import (
     Skill,
     SkillDraftFile,
     SkillVersion,
+    SkillVersionMcpTool,
     Table,
     Webhook,
     Workflow,
@@ -93,6 +94,7 @@ from tracecat.workspace_sync.schemas import (
     McpIntegrationHint,
     ResourceRef,
     SkillFileSpec,
+    SkillMcpIntegrationRef,
     SkillResourceSpec,
     WorkflowResourceSpec,
     WorkspaceManifest,
@@ -249,6 +251,43 @@ def test_agent_preset_mcp_contract_rejects_stale_hints() -> None:
                 )
             },
         )
+
+
+def test_skill_mcp_reference_contract_round_trips_on_the_skill_head() -> None:
+    """Portable MCP correlation metadata belongs to the desired skill head."""
+    source_id = uuid.uuid4()
+    spec = SkillResourceSpec(
+        id="qa-skill-mcp-contract",
+        slug="qa-skill-mcp-contract",
+        name="QA skill MCP contract",
+        mcp_integration_refs=[
+            SkillMcpIntegrationRef(
+                source_mcp_integration_id=source_id,
+                hint=McpIntegrationHint(
+                    slug="source_mcp",
+                    server_type="http",
+                    auth_type="OAUTH2",
+                    name="Source MCP",
+                ),
+                tool_ids=["mcp.source_mcp.find_issue"],
+            )
+        ],
+    )
+
+    exported = yaml.safe_load(serialize_yaml_model(spec))
+
+    assert exported["mcp_integration_refs"] == [
+        {
+            "source_mcp_integration_id": str(source_id),
+            "hint": {
+                "slug": "source_mcp",
+                "server_type": "http",
+                "auth_type": "OAUTH2",
+                "name": "Source MCP",
+            },
+            "tool_ids": ["mcp.source_mcp.find_issue"],
+        }
+    ]
 
 
 @pytest.mark.anyio
@@ -3107,6 +3146,103 @@ async def test_import_skill_rejects_missing_declared_file_content(
             session=session,
             role=svc_role,
         ).import_non_workflow_resources(spec)
+
+
+@pytest.mark.anyio
+async def test_skill_mcp_mapping_uses_existing_pull_selector(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Skill-head MCP refs use the same per-pull selector as preset refs."""
+    destination = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="destination-sync-mcp",
+        name="Destination MCP",
+    )
+    destination.tools = [
+        {
+            "name": "find_issue",
+            "description": "Find a synthetic issue",
+            "enabled": True,
+            "status": "available",
+        }
+    ]
+    source_integration_id = uuid.uuid4()
+    tool_id = "mcp.source-sync-mcp.find_issue"
+    markdown = """---
+name: workspace-sync-tools
+metadata:
+  tools:
+    - mcp.source-sync-mcp.find_issue
+---
+
+# Workspace Sync tools
+"""
+    source_ref = SkillMcpIntegrationRef(
+        source_mcp_integration_id=source_integration_id,
+        hint=McpIntegrationHint(
+            slug="source-sync-mcp",
+            server_type="http",
+            auth_type="OAUTH2",
+            name="Source MCP",
+        ),
+        tool_ids=[tool_id],
+    )
+    snapshot = WorkspaceRemoteSnapshot(
+        commit_sha="s" * 40,
+        files={},
+        spec=WorkspaceSpec(
+            skills={
+                "workspace-sync-tools": SkillResourceSpec(
+                    id="workspace-sync-tools",
+                    slug="workspace-sync-tools",
+                    name="Workspace Sync tools",
+                    files=[
+                        SkillFileSpec(
+                            path="SKILL.md",
+                            sha256=hashlib.sha256(markdown.encode()).hexdigest(),
+                        )
+                    ],
+                    file_contents={"SKILL.md": markdown},
+                    mcp_integration_refs=[source_ref],
+                )
+            }
+        ),
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert len(prepared.mcp_integration_mapping_requirements) == 1
+    requirement = prepared.mcp_integration_mapping_requirements[0]
+    assert requirement.source_mcp_integration_id == source_integration_id
+    assert requirement.slug == "source-sync-mcp"
+    assert requirement.affected_presets == []
+    assert requirement.affected_workflows == []
+    assert [affected.skill_name for affected in requirement.affected_skills] == [
+        "Workspace Sync tools"
+    ]
+    assert requirement.affected_skills[0].path == (
+        f"{SKILL_ROOT}/workspace-sync-tools/skill.yml"
+    )
+    assert requirement.affected_skills[0].tool_ids == [tool_id]
+
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_mcp_integration_mappings={source_integration_id: destination.id},
+    )
+
+    assert result.success is True, result.diagnostics
+    projected = await session.scalar(
+        select(SkillVersionMcpTool).where(
+            SkillVersionMcpTool.workspace_id == svc_role.workspace_id,
+            SkillVersionMcpTool.tool_id == tool_id,
+        )
+    )
+    assert projected is not None
+    assert projected.mcp_integration_id == destination.id
+    assert projected.tool_name == "find_issue"
 
 
 @pytest.mark.anyio

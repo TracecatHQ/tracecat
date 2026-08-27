@@ -15,15 +15,21 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from tracecat.agent.skill.frontmatter import SkillFrontmatter
 from tracecat.agent.skill.service import (
+    ManifestValidationResult,
     SkillFileBlobRef,
     SkillService,
 )
+from tracecat.agent.skill.types import SkillToolProjection
+from tracecat.authz.controls import check_scopes
 from tracecat.db.models import (
+    MCPIntegration,
     Skill,
     SkillBlob,
     SkillVersion,
     SkillVersionFile,
+    SkillVersionMcpTool,
 )
 from tracecat.exceptions import TracecatValidationError
 from tracecat.storage import blob
@@ -41,7 +47,9 @@ from tracecat.workspace_sync.adapters.base import (
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     SKILL_ROOT,
+    McpIntegrationHint,
     SkillFileSpec,
+    SkillMcpIntegrationRef,
     SkillResourceSpec,
     WorkspaceManifestResources,
     WorkspaceSpec,
@@ -300,9 +308,107 @@ class SkillAdapter(DirectoryManifestAdapter):
                 description=skill.description,
                 files=files,
                 file_contents=file_contents,
+                mcp_integration_refs=(
+                    await self._mcp_integration_refs_for_version(
+                        workspace_service,
+                        version_id=version.id,
+                    )
+                ),
             )
             resources.append(self.projected_resource(source_id, skill.id))
         return ResourceProjection(specs=specs, resources=resources)
+
+    async def _mcp_integration_refs_for_version(
+        self,
+        workspace_service: SyncMappingService,
+        *,
+        version_id: uuid.UUID,
+    ) -> list[SkillMcpIntegrationRef]:
+        """Export portable source identities for projected skill MCP tools."""
+        tool_rows = list(
+            (
+                await workspace_service.session.scalars(
+                    select(SkillVersionMcpTool)
+                    .where(
+                        SkillVersionMcpTool.workspace_id
+                        == workspace_service.workspace_id,
+                        SkillVersionMcpTool.skill_version_id == version_id,
+                    )
+                    .order_by(SkillVersionMcpTool.tool_id.asc())
+                )
+            ).all()
+        )
+        if not tool_rows:
+            return []
+
+        missing_integration_tool_ids = [
+            row.tool_id for row in tool_rows if row.mcp_integration_id is None
+        ]
+        if missing_integration_tool_ids:
+            raise TracecatValidationError(
+                "Workspace sync cannot export skill tools for deleted MCP integrations",
+                detail={
+                    "code": "workspace_sync_skill_mcp_integration_unavailable",
+                    "tool_ids": missing_integration_tool_ids,
+                },
+            )
+
+        integration_ids = {
+            row.mcp_integration_id
+            for row in tool_rows
+            if row.mcp_integration_id is not None
+        }
+        check_scopes(workspace_service.role, "integration:read")
+        integration_rows = (
+            (
+                await workspace_service.session.execute(
+                    select(
+                        MCPIntegration.id,
+                        MCPIntegration.slug,
+                        MCPIntegration.server_type,
+                        MCPIntegration.auth_type,
+                        MCPIntegration.name,
+                    ).where(
+                        MCPIntegration.workspace_id == workspace_service.workspace_id,
+                        MCPIntegration.id.in_(integration_ids),
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+        hints_by_id = {
+            integration_id: McpIntegrationHint(
+                slug=slug,
+                server_type=server_type,
+                auth_type=str(auth_type),
+                name=name,
+            )
+            for integration_id, slug, server_type, auth_type, name in integration_rows
+        }
+        if missing_ids := integration_ids - hints_by_id.keys():
+            raise TracecatValidationError(
+                "Workspace sync cannot export unavailable skill MCP integrations",
+                detail={
+                    "code": "workspace_sync_skill_mcp_integration_unavailable",
+                    "mcp_integration_ids": sorted(
+                        str(integration_id) for integration_id in missing_ids
+                    ),
+                },
+            )
+
+        tool_ids_by_integration: dict[uuid.UUID, list[str]] = defaultdict(list)
+        for row in tool_rows:
+            if row.mcp_integration_id is not None:
+                tool_ids_by_integration[row.mcp_integration_id].append(row.tool_id)
+        return [
+            SkillMcpIntegrationRef(
+                source_mcp_integration_id=integration_id,
+                hint=hints_by_id[integration_id],
+                tool_ids=tool_ids_by_integration[integration_id],
+            )
+            for integration_id in sorted(tool_ids_by_integration, key=str)
+        ]
 
     async def _skill_version_rows(
         self,
@@ -409,8 +515,28 @@ class SkillAdapter(DirectoryManifestAdapter):
                     spec,
                 )
                 validation = await skill_service._validate_manifest_rows(
-                    [(path, file_ref.blob) for path, file_ref in file_refs.items()]
+                    [(path, file_ref.blob) for path, file_ref in file_refs.items()],
+                    mcp_integration_overrides={
+                        tool_id: reference.source_mcp_integration_id
+                        for reference in spec.mcp_integration_refs
+                        for tool_id in reference.tool_ids
+                    },
                 )
+                if validation.errors and all(
+                    error.code in {"missing_root_skill_md", "missing_skill_name"}
+                    for error in validation.errors
+                ):
+                    # Desired-head sync owns display metadata in skill.yml. A
+                    # missing SKILL.md frontmatter therefore means an empty tool
+                    # declaration, while malformed or unknown declarations still
+                    # fail through the normal validation path.
+                    validation = ManifestValidationResult(
+                        frontmatter=SkillFrontmatter(
+                            name=spec.slug,
+                            description=spec.description,
+                        ),
+                        tool_projection=SkillToolProjection(),
+                    )
                 if validation.errors:
                     raise TracecatValidationError(
                         "Workspace-synced skill failed validation",
@@ -428,6 +554,10 @@ class SkillAdapter(DirectoryManifestAdapter):
                     validation=validation,
                     head_name=spec.name,
                 )
+                # skill.yml owns Workspace Sync display metadata even when the
+                # portable SKILL.md frontmatter uses a canonical slug-like name.
+                current.name = spec.name
+                current.description = spec.description
             else:
                 file_refs = await self._file_refs_for_version(
                     workspace_service,

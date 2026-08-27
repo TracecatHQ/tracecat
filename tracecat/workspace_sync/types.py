@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from tracecat.workspace_sync.schemas import (
         AgentPresetResourceSpec,
         McpIntegrationHint,
+        SkillResourceSpec,
         WorkflowResourceSpec,
         WorkspaceRemoteSnapshot,
     )
@@ -82,8 +83,20 @@ class WorkflowMcpIntegrationReference:
     action_ref: str
 
 
+@dataclass(frozen=True, slots=True)
+class SkillMcpIntegrationReference:
+    """One skill head declaring tools from a source MCP integration."""
+
+    path: str
+    skill_source_id: str
+    skill_name: str
+    tool_ids: tuple[str, ...]
+
+
 type McpIntegrationReference = (
-    AgentPresetMcpIntegrationReference | WorkflowMcpIntegrationReference
+    AgentPresetMcpIntegrationReference
+    | WorkflowMcpIntegrationReference
+    | SkillMcpIntegrationReference
 )
 
 
@@ -93,6 +106,7 @@ class CorrelatedMcpIntegrationRefs:
 
     presets: dict[str, AgentPresetResourceSpec]
     workflows: dict[str, WorkflowResourceSpec]
+    skills: dict[str, SkillResourceSpec]
     diagnostics: list[PullDiagnostic]
     requirements: list[McpIntegrationMappingRequirement]
 

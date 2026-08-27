@@ -19,7 +19,7 @@ export interface MappingRequirementItem {
   subtitle: string
   ariaLabel: string
   candidates: { value: string; label: string }[]
-  /** Human-readable list of preset versions and workflow actions rewritten by this choice. */
+  /** Human-readable list of resources rewritten by this choice. */
   affects: string
 }
 
@@ -103,12 +103,12 @@ export function MappingRequirementsCard({
 }
 
 /**
- * Join a requirement's affected preset versions and workflow actions into the
- * "Affects ..." summary line.
+ * Join a requirement's affected resources into the "Affects ..." summary.
  */
 export function mappingAffectsSummary(requirement: {
   affected_presets: { preset_name: string; version: number }[]
   affected_workflows: { workflow_title: string; action_ref: string }[]
+  affected_skills?: { skill_name: string }[]
 }): string {
   return [
     ...requirement.affected_presets.map(
@@ -117,5 +117,6 @@ export function mappingAffectsSummary(requirement: {
     ...requirement.affected_workflows.map(
       (workflow) => `${workflow.workflow_title} action ${workflow.action_ref}`
     ),
+    ...(requirement.affected_skills ?? []).map((skill) => skill.skill_name),
   ].join(", ")
 }

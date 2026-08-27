@@ -7,7 +7,7 @@ import base64
 import hashlib
 import mimetypes
 import uuid
-from collections.abc import Awaitable, Callable, Iterator, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
@@ -1163,7 +1163,12 @@ class SkillService(SkillBindingService):
             return
         result.frontmatter = parsed
 
-    async def _validate_declared_tools(self, result: ManifestValidationResult) -> None:
+    async def _validate_declared_tools(
+        self,
+        result: ManifestValidationResult,
+        *,
+        mcp_integration_overrides: Mapping[str, uuid.UUID] | None = None,
+    ) -> None:
         """Resolve declared tool IDs through actor-scoped availability indexes."""
 
         if result.frontmatter is None or result.errors:
@@ -1195,12 +1200,19 @@ class SkillService(SkillBindingService):
         integrations_by_slug = {
             integration.slug: integration for integration in integrations
         }
+        integrations_by_id = {
+            integration.id: integration for integration in integrations
+        }
+        mcp_integration_overrides = mcp_integration_overrides or {}
         resolved_mcp_tools: list[ResolvedSkillMcpTool] = []
         missing_mcp_tools: set[str] = set()
         unavailable_mcp_tools: set[str] = set()
         for tool_id in mcp_tool_ids:
             _, slug, *tool_name_parts = tool_id.split(".", 2)
-            integration = integrations_by_slug.get(slug)
+            if override_id := mcp_integration_overrides.get(tool_id):
+                integration = integrations_by_id.get(override_id)
+            else:
+                integration = integrations_by_slug.get(slug)
             if integration is None:
                 missing_mcp_tools.add(tool_id)
                 continue
@@ -1256,7 +1268,10 @@ class SkillService(SkillBindingService):
         )
 
     async def _validate_manifest_rows(
-        self, rows: Sequence[tuple[str, SkillBlob]]
+        self,
+        rows: Sequence[tuple[str, SkillBlob]],
+        *,
+        mcp_integration_overrides: Mapping[str, uuid.UUID] | None = None,
     ) -> ManifestValidationResult:
         """Validate a draft or published manifest."""
 
@@ -1351,7 +1366,10 @@ class SkillService(SkillBindingService):
             return result
 
         self._parse_manifest_frontmatter(markdown, result)
-        await self._validate_declared_tools(result)
+        await self._validate_declared_tools(
+            result,
+            mcp_integration_overrides=mcp_integration_overrides,
+        )
         return result
 
     async def _validate_prepared_upload_files(
