@@ -41,7 +41,8 @@ definition:
       type: str | None
       description: >-
         Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
-        `microsoft_outlook.base_url`, then https://graph.microsoft.com/v1.0.
+        `microsoft_outlook.base_url`, then
+        `microsoft_graph.base_url`, then https://graph.microsoft.com/v1.0.
         National clouds: https://graph.microsoft.us/v1.0 (US Government L4),
         https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD) and
         https://microsoftgraph.chinacloudapi.cn/v1.0 (China operated by 21Vianet).
@@ -90,7 +91,7 @@ definition:
       args:
         path: /users/${{ FN.url_encode(inputs.mailbox_user_id) }}/messages/${{ FN.url_encode(inputs.messageId) }}/attachments
         method: POST
-        base_url: ${{ inputs.base_url || VARS.microsoft_outlook.base_url || "https://graph.microsoft.com/v1.0" }}
+        base_url: ${{ inputs.base_url || VARS.microsoft_outlook.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
         auth_mode: ${{ inputs.auth_mode }}
         omit_none_payload_fields: true
         payload:
