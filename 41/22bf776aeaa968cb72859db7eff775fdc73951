@@ -1,0 +1,81 @@
+docs/tools/microsoft_outlook.mdx
+  s_cb812704bae2b3::t_f49fe7e35db4e9 62,141,196,247,392,449,498,547,596,657,706,765,822,901,966,1023,1120,1227,1324,1399,1506,1581,1700,1755,1818,1875,1918,2077,2126,2181,2236
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/attachments/add_file_attachment.yml
+  s_cb812704bae2b3::t_d8ae761d511247 44-45,94
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/attachments/get_message_attachment.yml
+  s_cb812704bae2b3::t_5419c95b867aba 42-43,85
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/attachments/list_message_attachments.yml
+  s_cb812704bae2b3::t_65f3af314ba547 41-42,87
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/create_child_folder.yml
+  s_cb812704bae2b3::t_2235aec10132e0 41-42,82
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/create_mail_folder.yml
+  s_cb812704bae2b3::t_3359e5c4a46559 41-42,77
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/delete_mail_folder.yml
+  s_cb812704bae2b3::t_a7b851be6174d9 41-42,71
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/get_mail_folder.yml
+  s_cb812704bae2b3::t_78c20a5b9d17cf 41-42,81
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/list_child_folders.yml
+  s_cb812704bae2b3::t_b914df3313ead8 42-43,100
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/list_folder_messages.yml
+  s_cb812704bae2b3::t_19db765d4921e7 42-43,112
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/list_mail_folders.yml
+  s_cb812704bae2b3::t_8805896b082947 42-43,95
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/update_mail_folder.yml
+  s_cb812704bae2b3::t_843f73ae585c3d 41-42,76
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/mailbox_settings/get_mailbox_settings.yml
+  s_cb812704bae2b3::t_fd4d5db35821b7 41-42,74
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/mailbox_settings/update_mailbox_settings.yml
+  s_cb812704bae2b3::t_ee6850a028cba5 40-41,81
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/copy_message.yml
+  s_cb812704bae2b3::t_46be768018e196 41-42,79
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/create_draft.yml
+  s_cb812704bae2b3::t_2379fba492de78 44-45,193
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/delete_message.yml
+  s_cb812704bae2b3::t_9785b96a953517 42-43,72
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/get_message.yml
+  s_cb812704bae2b3::t_bd86a28f732411 41-42,86
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/list_message_delta.yml
+  s_cb812704bae2b3::t_8ad9111c261e60 42-43,114
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/list_messages.yml
+  s_cb812704bae2b3::t_7a8e616593986a 44-45,114
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/move_message.yml
+  s_cb812704bae2b3::t_52b70d249d9ef1 42-43,80
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/update_message.yml
+  s_cb812704bae2b3::t_c02820218d37ec 41-42,91
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/rules/create_message_rule.yml
+  s_cb812704bae2b3::t_55fda5ab4ae5a7 42-43,81
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/rules/delete_message_rule.yml
+  s_cb812704bae2b3::t_98376a80f7e700 40-41,69
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/rules/get_message_rule.yml
+  s_cb812704bae2b3::t_81b459b09eeff9 40-41,73
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/rules/list_message_rules.yml
+  s_cb812704bae2b3::t_db37f02916b01d 41-42,83
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/rules/update_message_rule.yml
+  s_cb812704bae2b3::t_fd9b8d66668b0d 40-41,83
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/send/forward_message.yml
+  s_cb812704bae2b3::t_a6e648a4794be6 44-45,98
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/send/reply_all.yml
+  s_cb812704bae2b3::t_ddb58408f90567 42-43,81
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/send/reply_message.yml
+  s_cb812704bae2b3::t_f189caa5ed955e 42-43,81
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/send/send_draft.yml
+  s_cb812704bae2b3::t_caa519675992f0 42-43,72
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/send/send_mail.yml
+  s_cb812704bae2b3::t_25e1627d8210eb 44-45,208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4122bf776aeaa968cb72859db7eff775fdc73951",
+  "prompts": {},
+  "sessions": {
+    "s_cb812704bae2b3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0449d-ab74-7f62-b808-bdbc98dab27c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
