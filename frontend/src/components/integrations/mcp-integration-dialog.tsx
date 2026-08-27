@@ -33,6 +33,7 @@ import {
   isAllowedCommand,
   MCP_INTEGRATION_FORM_DEFAULTS,
   type MCPIntegrationFormValues,
+  missingRequiredHttpHeaderCredentials,
   missingRequiredOAuthClientCredentials,
   SERVER_TYPES,
   urlTypedStdioEnvKeys,
@@ -584,6 +585,22 @@ export function MCPIntegrationDialog({
   }, [urlEnvKeysKey, form])
 
   const hasCatalogOAuthClient = hasOAuthClientConfig(selectedCatalogSpec)
+  // The headers editor lives inside Advanced; open it up front when the
+  // catalog row cannot connect without a header value.
+  const catalogRequiresHttpHeaders = (
+    selectedCatalogSpec?.credentials ?? []
+  ).some(
+    (credential) => credential.target === "http_header" && credential.required
+  )
+  const [openSections, setOpenSections] = React.useState<string[]>([])
+  React.useEffect(() => {
+    if (!open || !catalogRequiresHttpHeaders) {
+      return
+    }
+    setOpenSections((sections) =>
+      sections.includes("advanced") ? sections : [...sections, "advanced"]
+    )
+  }, [open, catalogRequiresHttpHeaders])
   const catalogOptions = catalogEntry?.connection_options ?? []
   const connectedOAuthIntegrations =
     integrations?.filter(
@@ -840,11 +857,26 @@ export function MCPIntegrationDialog({
               })
               return
             }
+            // Rows like Google SecOps also need required headers alongside
+            // the OAuth client; those live in the separate headers editor.
+            const missingHeaders = missingRequiredHttpHeaderCredentials(
+              spec,
+              customCredentialsForCreate ?? ""
+            )
+            if (missingHeaders.length > 0) {
+              form.setError("custom_credentials", {
+                type: "manual",
+                message: `Missing required values: ${missingHeaders.join(", ")}`,
+              })
+              return
+            }
             setCatalogOAuthClientIsPending(true)
             hookHandledError = true
+            // custom_credentials stays the headers JSON; the OAuth client
+            // travels in its own field so both can be sent together.
             const result = await connectMcpIntegration({
               ...params,
-              custom_credentials: oauthClientCredentials,
+              oauth_client_credentials: oauthClientCredentials,
             })
             hookHandledError = false
             if (result.auth_url) {
@@ -865,6 +897,22 @@ export function MCPIntegrationDialog({
               return
             }
           } else {
+            // Reusing an existing OAuth integration skips /connect entirely,
+            // so this is the only place a catalog row's required headers get
+            // checked before the row is persisted.
+            const missingHeaders = selectedCatalogSpec
+              ? missingRequiredHttpHeaderCredentials(
+                  selectedCatalogSpec,
+                  customCredentialsForCreate ?? ""
+                )
+              : []
+            if (missingHeaders.length > 0) {
+              form.setError("custom_credentials", {
+                type: "manual",
+                message: `Missing required values: ${missingHeaders.join(", ")}`,
+              })
+              return
+            }
             hookHandledError = true
             await createMcpIntegration(params)
             hookHandledError = false
@@ -1443,7 +1491,11 @@ export function MCPIntegrationDialog({
                     </p>
                   ) : null}
 
-                  <Accordion type="multiple">
+                  <Accordion
+                    type="multiple"
+                    value={openSections}
+                    onValueChange={setOpenSections}
+                  >
                     {isEditMode && mcpIntegration?.tools != null ? (
                       <AccordionItem value="tools" className="border-t">
                         <AccordionTrigger className="py-3 hover:no-underline">

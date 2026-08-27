@@ -90,6 +90,7 @@ class RawHttpConnectionSpec(BaseModel):
     oauth_resource: str | None = None
     oauth_authorization_endpoint: str | None = None
     oauth_token_endpoint: str | None = None
+    oauth_authorize_params: dict[str, str] | None = None
 
 
 class RawStdioConnectionSpec(BaseModel):
