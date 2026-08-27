@@ -1366,3 +1366,59 @@ async def test_consumer_finishes_batch_on_stop_event(
     assert stop_event.is_set()
     assert xreadgroup_mock.await_count == 1
     assert handle_entries_mock.await_count == 1
+
+
+@pytest.mark.anyio
+async def test_claim_idle_messages_stops_claiming_after_stop_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shutdown mid-claim must not keep claiming fresh pending batches.
+
+    A large or continuously replenished pending list would otherwise keep
+    the consumer working until the drain deadline cancels it midway through
+    a claimed batch, recreating the unacked-job delay the graceful stop is
+    meant to avoid. Only the batch already claimed may complete.
+    """
+    stop_event = asyncio.Event()
+
+    class ClaimingFakeClient:
+        def __init__(self) -> None:
+            self.claim_calls = 0
+
+        async def xpending_range(
+            self, *args: object, **kwargs: object
+        ) -> list[dict[str, str]]:
+            # Always report a full pending batch: a continuously replenished
+            # pending list must not keep the shutdown-bound consumer busy.
+            return [{"message_id": f"{i}-0"} for i in range(10)]
+
+        async def xclaim(
+            self, *args: object, **kwargs: object
+        ) -> list[tuple[str, dict[str, str]]]:
+            self.claim_calls += 1
+            if self.claim_calls == 1:
+                # SIGTERM arrives as the first claimed batch completes.
+                stop_event.set()
+            return [
+                (
+                    f"{self.claim_calls}-0",
+                    {
+                        "workspace_id": str(uuid.uuid4()),
+                        "case_id": str(uuid.uuid4()),
+                        "reason": "case_event",
+                        "event_type": "case_updated",
+                    },
+                )
+            ]
+
+    client = ClaimingFakeClient()
+    consumer = CaseDurationSyncConsumer(
+        cast(RedisClient, client), stop_event=stop_event
+    )
+    handle_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(consumer, "_handle_entries", handle_mock)
+
+    await consumer._claim_idle_messages()
+
+    assert client.claim_calls == 1
+    handle_mock.assert_awaited_once()

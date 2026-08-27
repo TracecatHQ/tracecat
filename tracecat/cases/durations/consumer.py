@@ -439,6 +439,12 @@ class CaseDurationSyncConsumer:
                 message_ids,
             )
             await self._handle_entries(claimed)
+            # Graceful shutdown: complete the batch already claimed, but do
+            # not claim further pending work past the stop signal — otherwise
+            # a large or continuously replenished pending list keeps the
+            # consumer working until the drain deadline cancels it mid-batch.
+            if self._stop_event is not None and self._stop_event.is_set():
+                return
             if len(pending) < self.batch:
                 return
             await asyncio.sleep(0)
