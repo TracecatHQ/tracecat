@@ -383,7 +383,8 @@ async def test_prepare_subflow_cancellation_keeps_native_semantics() -> None:
 
 
 def test_workflow_error_preserves_all_action_envelopes() -> None:
-    """The terminal map wraps every task: envelope on the wrapper, payload beneath it."""
+    """The terminal map wraps every task; the platform-wins selection stamps the
+    outer error's message, type, and retryability regardless of task order."""
     user_envelope = ErrorEnvelope.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The action failed",
@@ -413,8 +414,9 @@ def test_workflow_error_preserves_all_action_envelopes() -> None:
 
     error = _capture_workflow_application_error(task_exceptions)
 
-    assert error.message == user_envelope.message
-    assert error.non_retryable is True
+    assert error.message == platform_envelope.message
+    assert error.type == platform_envelope.kind.value
+    assert error.non_retryable is False
     assert extract_error_envelopes(error) == (user_envelope, platform_envelope)
     assert error.details[0]["user_action"]["envelope"] == user_envelope.model_dump(
         mode="json"
@@ -475,6 +477,9 @@ def test_workflow_error_map_platform_entry_survives_terminal_aggregation() -> No
         }
     )
 
+    assert error.message == platform_envelope.message
+    assert error.type == platform_envelope.kind.value
+    assert error.non_retryable is False
     assert extract_error_envelopes(error) == (platform_envelope,)
     assert error.details[0]["call_child"]["envelope"] == platform_envelope.model_dump(
         mode="json"

@@ -86,30 +86,28 @@ def application_error_from_envelope(
 ) -> ApplicationError:
     """Build an ``ApplicationError`` with transport fields derived from its envelope.
 
-    Existing details remain in their original order. If none of them is a
+    The passed envelope is authoritative for the transport fields (message,
+    type, retryability) — detail order never overrides the caller's selection.
+    Existing details remain in their original order; if none of them is a
     classified detail, a bare wrapper is appended. Temporal's error type
     mirrors the stable product kind and is never supplied as a second
     classification input.
     """
-    existing_envelope = _envelope_from_details(details)
-    resolved_envelope = existing_envelope or envelope
     transported_details = tuple(_serialized_detail(detail) for detail in details)
-    if existing_envelope is None:
+    if _envelope_from_details(details) is None:
         transported_details = (
             *transported_details,
-            wrap_error(resolved_envelope).model_dump(mode="json"),
+            wrap_error(envelope).model_dump(mode="json"),
         )
 
-    non_retryable = (
-        resolved_envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
-    )
+    non_retryable = envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
     if non_retryable and next_retry_delay is not None:
         raise ValueError("A non-retryable error cannot set next_retry_delay")
 
     return ApplicationError(
-        resolved_envelope.message,
+        envelope.message,
         *transported_details,
-        type=resolved_envelope.kind.value,
+        type=envelope.kind.value,
         non_retryable=non_retryable,
         next_retry_delay=next_retry_delay,
     )
