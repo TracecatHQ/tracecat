@@ -1050,7 +1050,10 @@ class TestAgentPresetService:
             CursorPaginationParams(limit=10),
         )
 
-        assert detail.agents.enabled is False
+        assert detail.agents.enabled is True
+        assert [subagent.preset for subagent in detail.agents.subagents] == [
+            "projection-child"
+        ]
         assert detail.capabilities == ["subagents"]
         assert detail.subagent_eligibility.eligible is False
         assert versions.items[0].capabilities == ["subagents"]
