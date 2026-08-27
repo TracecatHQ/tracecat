@@ -153,6 +153,18 @@ export function buildDuplicateAgentPresetPayload(
   preset: AgentPresetRead,
   existingSlugs: Iterable<string>
 ): AgentPresetCreate {
+  const agents = preset.agents
+    ? buildAuthoredAgentsConfig({
+        enabled: preset.agents.enabled ?? false,
+        subagents: (preset.agents.subagents ?? []).map((subagent) => ({
+          preset: subagent.preset,
+          name: subagent.name,
+          description: subagent.description,
+          maxTurns: subagent.max_turns?.toString(),
+        })),
+      })
+    : undefined
+
   return {
     name: getDuplicateItemName(preset.name, "agent"),
     slug: buildDuplicateAgentSlug(preset.slug || preset.name, existingSlugs),
@@ -166,7 +178,7 @@ export function buildDuplicateAgentPresetPayload(
     namespaces: preset.namespaces ?? null,
     tool_approvals: preset.tool_approvals ?? null,
     mcp_integrations: preset.mcp_integrations ?? null,
-    agents: preset.agents,
+    agents,
     retries: preset.retries,
     enable_thinking: preset.enable_thinking,
     enable_internet_access: preset.enable_internet_access,
