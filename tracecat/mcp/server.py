@@ -2123,7 +2123,9 @@ validator rejects any other key name.
 `google_drive`, `microsoft_sentinel`). Custom providers get a `custom_` prefix.
 - Discover exact provider IDs with `list_integrations`; never derive one from a \
 display name.
-- When either grant may be configured, fall back across both keys:
+- Use the grant `list_integrations` reports as configured. Validation walks \
+both sides of a `||`, so a two-key fallback passes only when the provider has \
+both grants configured:
 
 ```yaml
 headers:
@@ -4947,11 +4949,12 @@ Args:
         case carries any listed tag. An empty list means no tag filtering. Refs
         that do not exist yet are created automatically.
 
-This tool replaces the whole trigger: every call sends `status`, `event_types`,
-and `tag_filters`, so a field you omit is cleared rather than preserved. Call
-`get_case_trigger` first and pass all three back, changing only what you mean to
-change. Patching `/case_trigger` through `edit_workflow` is partial, unlike this
-tool.
+This tool replaces the whole trigger: every call sends `status`, `event_types`
+and `tag_filters`, so pass all three. Omitting `event_types` or `tag_filters`
+clears them, and omitting `status` fails the write outright because the column
+is non-null. Call `get_case_trigger` first and send its current values back,
+changing only what you mean to change. Patching `/case_trigger` through
+`edit_workflow` is partial, unlike this tool.
 
 Returns a confirmation message.
 """
