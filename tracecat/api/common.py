@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import (
     AddSearchAttributesRequest,
+    ListSearchAttributesRequest,
     RemoveSearchAttributesRequest,
 )
 from tenacity import (
@@ -25,6 +26,12 @@ from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.workflow.executions.enums import TemporalSearchAttr
+
+# All Tracecat search attributes are Keyword-typed.
+_SEARCH_ATTRIBUTE_TYPES: dict[str, IndexedValueType.ValueType] = {
+    attr.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD
+    for attr in TemporalSearchAttr
+}
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:
@@ -179,18 +186,33 @@ async def add_temporal_search_attributes():
     """
     client = await get_temporal_client()
     namespace = TEMPORAL__CLUSTER_NAMESPACE
-    attrs = {
-        TemporalSearchAttr.TRIGGER_TYPE.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-        TemporalSearchAttr.TRIGGERED_BY_USER_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-        TemporalSearchAttr.WORKSPACE_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-        TemporalSearchAttr.ALIAS.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-        TemporalSearchAttr.CORRELATION_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-        TemporalSearchAttr.EXECUTION_TYPE.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-    }
+    attrs = _SEARCH_ATTRIBUTE_TYPES
     try:
+        registered = await client.operator_service.list_search_attributes(
+            ListSearchAttributesRequest(namespace=namespace)
+        )
+        missing_attrs: dict[str, IndexedValueType.ValueType] = {}
+        for name, expected_type in attrs.items():
+            registered_type = registered.custom_attributes.get(name)
+            if registered_type is None:
+                missing_attrs[name] = expected_type
+            elif registered_type != expected_type:
+                raise RuntimeError(
+                    "Temporal search attribute has an unexpected type: "
+                    f"{name} (expected {expected_type}, got {registered_type})"
+                )
+
+        if not missing_attrs:
+            logger.info(
+                "Temporal search attributes already registered",
+                namespace=namespace,
+                search_attributes=list(_SEARCH_ATTRIBUTE_TYPES),
+            )
+            return
+
         await client.operator_service.add_search_attributes(
             AddSearchAttributesRequest(
-                search_attributes=attrs,
+                search_attributes=missing_attrs,
                 namespace=namespace,
             )
         )
@@ -200,12 +222,12 @@ async def add_temporal_search_attributes():
             exc=e,
             namespace=namespace,
         )
-    else:
-        logger.info(
-            "Temporal search attributes added",
-            namespace=namespace,
-            search_attributes=list(attrs.keys()),
-        )
+        raise
+    logger.info(
+        "Temporal search attributes added",
+        namespace=namespace,
+        search_attributes=list(missing_attrs.keys()),
+    )
 
 
 @retry(
@@ -224,14 +246,7 @@ async def remove_temporal_search_attributes():
     try:
         await client.operator_service.remove_search_attributes(
             RemoveSearchAttributesRequest(
-                search_attributes=[
-                    TemporalSearchAttr.TRIGGER_TYPE.value,
-                    TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
-                    TemporalSearchAttr.WORKSPACE_ID.value,
-                    TemporalSearchAttr.ALIAS.value,
-                    TemporalSearchAttr.CORRELATION_ID.value,
-                    TemporalSearchAttr.EXECUTION_TYPE.value,
-                ],
+                search_attributes=list(_SEARCH_ATTRIBUTE_TYPES),
                 namespace=namespace,
             )
         )
@@ -240,17 +255,11 @@ async def remove_temporal_search_attributes():
             "Error removing temporal search attributes",
             exc=e,
             namespace=namespace,
+            search_attributes=list(_SEARCH_ATTRIBUTE_TYPES),
         )
     else:
         logger.info(
             "Temporal search attributes removed",
             namespace=namespace,
-            search_attributes=[
-                TemporalSearchAttr.TRIGGER_TYPE.value,
-                TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
-                TemporalSearchAttr.WORKSPACE_ID.value,
-                TemporalSearchAttr.ALIAS.value,
-                TemporalSearchAttr.CORRELATION_ID.value,
-                TemporalSearchAttr.EXECUTION_TYPE.value,
-            ],
+            search_attributes=list(_SEARCH_ATTRIBUTE_TYPES),
         )

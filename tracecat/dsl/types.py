@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 from pydantic import BaseModel, ConfigDict, Field
 
 from tracecat.expressions.common import ExprContext
-from tracecat.runtime.errors import ErrorEnvelope
 
 
 class ActionEdge(TypedDict):
@@ -64,13 +63,9 @@ class ActionErrorInfo(BaseModel):
     attempt: int = 1
     stream_id: StreamID = Field(default_factory=_root_stream_factory)
     children: list[ActionErrorInfo] | None = None
-    envelope: ErrorEnvelope | None = Field(
-        default=None,
-        exclude_if=lambda value: value is None,
-    )
 
     def model_post_init(self, context: Any, /) -> None:
-        """Preserve the pre-envelope Temporal wire shape for defaulted fields."""
+        """Preserve the established Temporal wire shape for defaulted fields."""
         del context
         self.__pydantic_fields_set__.update(
             {"expr_context", "attempt", "stream_id", "children"}

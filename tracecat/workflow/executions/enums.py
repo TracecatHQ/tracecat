@@ -165,6 +165,9 @@ class TemporalSearchAttr(StrEnum):
     EXECUTION_TYPE = "TracecatExecutionType"
     """The `Keyword` Search Attribute for the execution type (draft or published)."""
 
+    ERROR_OWNER = "TracecatErrorOwner"
+    """The `Keyword` Search Attribute for terminal runtime error ownership."""
+
     @cached_property
     def key(self) -> SearchAttributeKey[str]:
         return SearchAttributeKey.for_keyword(self.value)
