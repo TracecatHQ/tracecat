@@ -1,11 +1,17 @@
 """Generic interface for the Databricks SDK for Python."""
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from enum import Enum
 from typing import Annotated, Any
 from urllib.parse import urlsplit
 
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.config import Config
+from databricks.sdk.credentials_provider import (
+    CredentialsProvider,
+    CredentialsStrategy,
+)
 from databricks.sdk.service._internal import Wait
 from pydantic import Field
 
@@ -52,7 +58,6 @@ databricks_secret = RegistrySecret(
     name="databricks",
     keys=["DATABRICKS_HOST"],
     optional_keys=[
-        "DATABRICKS_TOKEN",
         "DATABRICKS_CLIENT_ID",
         "DATABRICKS_CLIENT_SECRET",
     ],
@@ -63,14 +68,27 @@ databricks_secret = RegistrySecret(
 - keys:
     - `DATABRICKS_HOST`
 - optional_keys:
-    - `DATABRICKS_TOKEN` (personal access token)
     - `DATABRICKS_CLIENT_ID` (OAuth M2M service principal)
     - `DATABRICKS_CLIENT_SECRET` (OAuth M2M service principal)
 
-As an alternative to a Databricks OAuth provider, configure either
-`DATABRICKS_TOKEN` or both OAuth M2M keys. The wrapper passes credentials
-explicitly so the SDK cannot discover ambient host credentials.
+As an alternative to a Databricks OAuth provider, configure both OAuth M2M
+keys. The wrapper passes credentials explicitly so the SDK cannot discover
+ambient host credentials.
 """
+
+
+@dataclass(frozen=True, slots=True)
+class _OAuthAccessTokenCredentials(CredentialsStrategy):
+    token: str
+
+    def auth_type(self) -> str:
+        return "oauth-access-token"
+
+    def __call__(self, _: Config) -> CredentialsProvider:
+        def headers() -> dict[str, str]:
+            return {"Authorization": f"Bearer {self.token}"}
+
+        return headers
 
 
 def _get_client() -> WorkspaceClient:
@@ -80,9 +98,10 @@ def _get_client() -> WorkspaceClient:
         secrets.get_or_default(databricks_user_oauth_secret.token_name)
         or secrets.get_or_default(databricks_service_oauth_secret.token_name)
     ):
-        return WorkspaceClient(host=host, token=token, auth_type="pat")
-    if token := secrets.get_or_default("DATABRICKS_TOKEN"):
-        return WorkspaceClient(host=host, token=token, auth_type="pat")
+        return WorkspaceClient(
+            host=host,
+            credentials_strategy=_OAuthAccessTokenCredentials(token),
+        )
     return WorkspaceClient(
         host=host,
         client_id=secrets.get("DATABRICKS_CLIENT_ID"),
