@@ -21,6 +21,10 @@ from tracecat.dsl.action import (
 )
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import PlatformAction
+from tracecat.dsl.error_transport import (
+    ActionErrorTransportDetail,
+    parse_classified_action_error_payload,
+)
 from tracecat.dsl.schemas import ActionStatement, ExecutionContext
 from tracecat.dsl.types import (
     ActionErrorInfo,
@@ -41,11 +45,9 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
 )
 from tracecat.temporal.errors import (
-    ErrorTransportDetail,
     build_error_transport_detail,
     extract_error_classification,
     extract_error_classifications,
-    parse_classified_error_payload,
 )
 from tracecat.temporal.exceptions import UserError
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
@@ -141,10 +143,10 @@ async def test_prepare_subflow_platform_failure_is_classified_and_history_safe()
     assert error.type == classification.kind.value
     assert error.__cause__ is None
 
-    detail = parse_classified_error_payload(error.details[0])
-    assert isinstance(detail, ErrorTransportDetail)
+    detail = parse_classified_action_error_payload(error.details[0])
+    assert isinstance(detail, ActionErrorTransportDetail)
     assert detail.classification == classification
-    assert detail.action_error == ActionErrorInfo(
+    assert detail.diagnostic == ActionErrorInfo(
         ref="call_child",
         message=classification.message,
         type="RuntimeError",
@@ -432,14 +434,14 @@ def test_workflow_error_preserves_all_action_classifications() -> None:
     assert error.details[0]["user_action"][
         "classification"
     ] == user_classification.model_dump(mode="json")
-    assert error.details[0]["user_action"]["action_error"] == user_detail.model_dump(
+    assert error.details[0]["user_action"]["diagnostic"] == user_detail.model_dump(
         mode="json"
     )
     assert error.details[0]["platform_action"][
         "classification"
     ] == platform_classification.model_dump(mode="json")
     assert error.details[0]["platform_action"][
-        "action_error"
+        "diagnostic"
     ] == platform_detail.model_dump(mode="json")
 
 
@@ -495,9 +497,9 @@ def test_workflow_error_map_platform_entry_survives_terminal_aggregation() -> No
     assert error.details[0]["call_child"][
         "classification"
     ] == platform_classification.model_dump(mode="json")
-    assert error.details[0]["call_child"][
-        "action_error"
-    ] == aggregate_detail.model_dump(mode="json")
+    assert error.details[0]["call_child"]["diagnostic"] == aggregate_detail.model_dump(
+        mode="json"
+    )
 
 
 def test_legacy_workflow_error_shape_is_unchanged() -> None:

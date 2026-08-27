@@ -12,6 +12,7 @@ from tests.shared import capture_application_error as _capture_application_error
 from tracecat.auth.types import Role
 from tracecat.dsl import scheduler as scheduler_module
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
+from tracecat.dsl.error_transport import parse_classified_action_error_payload
 from tracecat.dsl.scheduler import DSLScheduler
 from tracecat.dsl.schemas import (
     ROOT_STREAM,
@@ -33,7 +34,6 @@ from tracecat.runtime.errors import (
 from tracecat.temporal.errors import (
     build_error_transport_detail,
     extract_error_classifications,
-    parse_classified_error_payload,
 )
 
 
@@ -302,7 +302,7 @@ async def test_scheduler_rejects_undiscriminated_classification() -> None:
     await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
 
     details = scheduler.task_exceptions["task_0"].details
-    assert parse_classified_error_payload(invalid_detail) is None
+    assert parse_classified_action_error_payload(invalid_detail) is None
     assert details.ref == "task_0"
     assert details.message == fallback_classification.message
     assert (

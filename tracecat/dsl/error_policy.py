@@ -7,6 +7,7 @@ from typing import Any
 
 from temporalio.exceptions import ApplicationError
 
+from tracecat.dsl.error_transport import parse_classified_action_error_payload
 from tracecat.dsl.types import ActionErrorInfo, TaskExceptionInfo
 from tracecat.runtime.errors import (
     RuntimeErrorClassification,
@@ -16,7 +17,6 @@ from tracecat.temporal.errors import (
     application_error_from_classification,
     build_error_transport_detail,
     extract_error_classifications,
-    parse_classified_error_payload,
 )
 
 
@@ -80,10 +80,10 @@ def adapt_error_handler_details(
                 type=type(err_info_map).__name__,
             )
         ]
-    if isinstance(parsed := parse_classified_error_payload(err_info_map), dict):
+    if isinstance(parsed := parse_classified_action_error_payload(err_info_map), dict):
         return [
-            transport_detail.action_error
-            if transport_detail.action_error is not None
+            transport_detail.diagnostic
+            if transport_detail.diagnostic is not None
             else ActionErrorInfo(
                 ref=child_ref,
                 message=transport_detail.classification.message,

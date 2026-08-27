@@ -26,6 +26,7 @@ from tracecat.dsl.common import (
     ResolvedSubflowConfig,
 )
 from tracecat.dsl.enums import StreamErrorHandlingStrategy
+from tracecat.dsl.error_transport import is_classified_action_error_payload
 from tracecat.dsl.schemas import (
     ActionStatement,
     DSLConfig,
@@ -77,7 +78,6 @@ from tracecat.storage.utils import is_retryable_storage_transport_error
 from tracecat.temporal.errors import (
     build_error_transport_detail,
     extract_error_classification,
-    is_classified_error_payload,
     raise_wrapped_application_error,
 )
 from tracecat.temporal.exceptions import UserError
@@ -859,7 +859,9 @@ def _raise_classified_subflow_application_error(
     if isinstance(error, ApplicationError):
         error_type = error.type or type(error).__name__
         legacy_details = tuple(
-            detail for detail in error.details if is_classified_error_payload(detail)
+            detail
+            for detail in error.details
+            if is_classified_action_error_payload(detail)
         )
     else:
         error_type = type(error).__name__

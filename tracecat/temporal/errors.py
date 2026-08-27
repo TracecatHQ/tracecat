@@ -2,11 +2,13 @@
 
 Classified failures travel as ``ErrorTransportDetail`` values: a required
 discriminator, a ``RuntimeErrorClassification``, and an optional
-``ActionErrorInfo`` payload. Terminal workflow errors use the established
-``{ref: ErrorTransportDetail}`` map. Classification is structural — a payload
-either parses as one of those shapes or it is unclassified; there is no
-partially classified state. Bare legacy payloads (pre-classification histories)
-therefore fall through as unclassified by construction.
+workflow-specific diagnostic. Terminal workflow errors use the established
+``{ref: ErrorTransportDetail}`` map. The transport stays diagnostic-agnostic;
+workflow layers specialize and validate their own diagnostic models.
+Classification is structural — a payload either parses as one of those shapes
+or it is unclassified; there is no partially classified state. Bare legacy
+payloads (pre-classification histories) therefore fall through as unclassified
+by construction.
 """
 
 from __future__ import annotations
@@ -18,7 +20,6 @@ from typing import Any, Literal, Never
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from temporalio.exceptions import ApplicationError, FailureError
 
-from tracecat.dsl.types import ActionErrorInfo
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
@@ -28,8 +29,8 @@ from tracecat.runtime.errors import (
 ERROR_TRANSPORT_DETAIL_SCHEMA = "tracecat.temporal_error.v1"
 
 
-class ErrorTransportDetail(BaseModel):
-    """A classified transport detail with optional action diagnostics."""
+class ErrorTransportDetail[DiagnosticT](BaseModel):
+    """A classified transport detail with an optional typed diagnostic."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, serialize_by_alias=True)
 
@@ -37,29 +38,34 @@ class ErrorTransportDetail(BaseModel):
     # discriminator always survives ``exclude_unset`` serialization.
     schema_: Literal["tracecat.temporal_error.v1"] = Field(alias="schema")
     classification: RuntimeErrorClassification
-    action_error: ActionErrorInfo | None = None
+    diagnostic: DiagnosticT | None = None
 
 
 # The two classified transport shapes: a single detail, or the established
 # terminal workflow ``{ref: detail}`` map. Anything else —
-# including bare legacy ``ActionErrorInfo`` payloads — is unclassified.
-type ClassifiedErrorPayload = ErrorTransportDetail | dict[str, ErrorTransportDetail]
+# including bare legacy diagnostic payloads — is unclassified. The transport
+# parser deliberately treats the diagnostic as opaque; workflow-specific
+# adapters validate it before consumption or preservation.
+type OpaqueErrorTransportDetail = ErrorTransportDetail[object]
+type ClassifiedErrorPayload = (
+    OpaqueErrorTransportDetail | dict[str, OpaqueErrorTransportDetail]
+)
 
 _CLASSIFIED_ERROR_PAYLOAD_ADAPTER: TypeAdapter[ClassifiedErrorPayload] = TypeAdapter(
     ClassifiedErrorPayload
 )
 
 
-def build_error_transport_detail(
+def build_error_transport_detail[DiagnosticT](
     classification: RuntimeErrorClassification,
-    action_error: ActionErrorInfo | None = None,
-) -> ErrorTransportDetail:
-    """Build a transport detail from a classification and action diagnostics."""
-    return ErrorTransportDetail.model_validate(
+    diagnostic: DiagnosticT | None = None,
+) -> ErrorTransportDetail[DiagnosticT]:
+    """Build a transport detail from a classification and typed diagnostic."""
+    return ErrorTransportDetail[DiagnosticT].model_validate(
         {
             "schema": ERROR_TRANSPORT_DETAIL_SCHEMA,
             "classification": classification,
-            "action_error": action_error,
+            "diagnostic": diagnostic,
         }
     )
 
@@ -68,6 +74,8 @@ def parse_classified_error_payload(
     payload: Any,
 ) -> ClassifiedErrorPayload | None:
     """Parse a transport payload into its classified shape, or None."""
+    if isinstance(payload, ErrorTransportDetail):
+        payload = payload.model_dump(mode="json")
     try:
         return _CLASSIFIED_ERROR_PAYLOAD_ADAPTER.validate_python(payload)
     except ValidationError:

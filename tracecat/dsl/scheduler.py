@@ -43,6 +43,10 @@ with workflow.unsafe.imports_passed_through():
         SkipStrategy,
         StreamErrorHandlingStrategy,
     )
+    from tracecat.dsl.error_transport import (
+        ActionErrorTransportDetail,
+        parse_classified_action_error_payload,
+    )
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
         ActionStatement,
@@ -79,11 +83,9 @@ with workflow.unsafe.imports_passed_through():
         action_key,
     )
     from tracecat.temporal.errors import (
-        ErrorTransportDetail,
         application_error_from_classification,
         build_error_transport_detail,
         extract_error_classification,
-        parse_classified_error_payload,
     )
 
 
@@ -116,8 +118,8 @@ def _classified_action_error_info(
         return None
 
     for detail in error.details:
-        match parse_classified_error_payload(detail):
-            case ErrorTransportDetail(action_error=ActionErrorInfo() as info):
+        match parse_classified_action_error_payload(detail):
+            case ActionErrorTransportDetail(diagnostic=ActionErrorInfo() as info):
                 return (
                     info.model_copy(update={"ref": ref, "stream_id": stream_id}),
                     classification,
@@ -160,11 +162,11 @@ def _classified_action_error_info(
 
 def _action_error_from_transport_detail(
     ref: str,
-    transport_detail: ErrorTransportDetail,
+    transport_detail: ActionErrorTransportDetail,
 ) -> ActionErrorInfo:
     """Unwrap action diagnostics, synthesizing them when absent."""
-    if transport_detail.action_error is not None:
-        return transport_detail.action_error
+    if transport_detail.diagnostic is not None:
+        return transport_detail.diagnostic
     return ActionErrorInfo(
         ref=ref,
         message=transport_detail.classification.message,

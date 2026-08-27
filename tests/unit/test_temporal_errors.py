@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from datetime import timedelta
 from inspect import signature
+from typing import Literal
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
@@ -12,6 +13,10 @@ from temporalio.exceptions import ApplicationError
 from tests.shared import capture_application_error as _capture_application_error
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import FinalizeGatherActivityResult
+from tracecat.dsl.error_transport import (
+    ActionErrorTransportDetail,
+    parse_classified_action_error_payload,
+)
 from tracecat.dsl.types import ActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.runtime.errors import (
@@ -67,6 +72,13 @@ def _capture_wrapped_application_error(
     return exc_info.value
 
 
+class SyntheticAgentDiagnostic(BaseModel):
+    """Agent-shaped diagnostic proving the transport is workflow-agnostic."""
+
+    phase: Literal["model_call"]
+    message: str
+
+
 @pytest.mark.anyio
 async def test_legacy_action_error_payload_is_unchanged_without_classification() -> (
     None
@@ -104,14 +116,38 @@ async def test_transport_detail_carries_classification_and_preserves_payload() -
     assert error.type == RuntimeErrorKind.ACTION_EXECUTION_FAILED.value
     assert error.details[0]["schema"] == ERROR_TRANSPORT_DETAIL_SCHEMA
     assert error.details[0]["classification"]["schema"] == "tracecat.error.v1"
-    assert error.details[0]["action_error"] == error_info.model_dump(mode="json")
+    assert error.details[0]["diagnostic"] == error_info.model_dump(mode="json")
     assert extract_error_classification(error) == classification
     assert extract_error_classification(decoded) == classification
     assert isinstance(decoded, ApplicationError)
-    parsed = parse_classified_error_payload(decoded.details[0])
+    parsed = parse_classified_action_error_payload(decoded.details[0])
+    assert isinstance(parsed, ActionErrorTransportDetail)
+    assert parsed.classification == classification
+    assert parsed.diagnostic == error_info
+
+
+def test_transport_detail_supports_non_action_diagnostics() -> None:
+    classification = _platform_classification()
+    diagnostic = SyntheticAgentDiagnostic(
+        phase="model_call",
+        message="The model call failed",
+    )
+    serialized = build_error_transport_detail(
+        classification,
+        diagnostic,
+    ).model_dump(mode="json")
+
+    assert serialized["diagnostic"] == diagnostic.model_dump(mode="json")
+    assert "action_error" not in serialized
+
+    parsed = parse_classified_error_payload(serialized)
     assert isinstance(parsed, ErrorTransportDetail)
     assert parsed.classification == classification
-    assert parsed.action_error == error_info
+    assert parsed.diagnostic == diagnostic.model_dump(mode="json")
+    assert (
+        extract_error_classification(ApplicationError("Agent failed", serialized))
+        == classification
+    )
 
 
 def test_aggregate_action_error_attribution_lives_on_transport_detail() -> None:
@@ -150,11 +186,11 @@ def test_aggregate_action_error_attribution_lives_on_transport_detail() -> None:
             ).model_dump(mode="json")
         },
     )
-    parsed = parse_classified_error_payload(error.details[0])
+    parsed = parse_classified_action_error_payload(error.details[0])
 
     assert extract_error_classifications(error) == (classification,)
     assert isinstance(parsed, dict)
-    assert parsed["gather"].action_error == aggregate
+    assert parsed["gather"].diagnostic == aggregate
 
 
 @pytest.mark.parametrize("mapped", [False, True])
@@ -242,13 +278,13 @@ def test_error_handler_input_carries_unwrapped_action_errors() -> None:
         message=classification.message,
         type="RuntimeError",
     )
-    transport_detail = parse_classified_error_payload(
+    transport_detail = parse_classified_action_error_payload(
         build_error_transport_detail(classification, error_info).model_dump(mode="json")
     )
-    assert isinstance(transport_detail, ErrorTransportDetail)
-    assert isinstance(transport_detail.action_error, ActionErrorInfo)
+    assert isinstance(transport_detail, ActionErrorTransportDetail)
+    assert isinstance(transport_detail.diagnostic, ActionErrorInfo)
     assert transport_detail.classification == classification
-    assert transport_detail.action_error == error_info
+    assert transport_detail.diagnostic == error_info
 
     handler_wf_id = WorkflowUUID.new_uuid4()
     orig_wf_id = WorkflowUUID.new_uuid4()
@@ -259,7 +295,7 @@ def test_error_handler_input_carries_unwrapped_action_errors() -> None:
         orig_wf_exec_id=generate_exec_id(orig_wf_id),
         orig_wf_title="Synthetic workflow",
         trigger_type=TriggerType.MANUAL,
-        errors=[transport_detail.action_error],
+        errors=[transport_detail.diagnostic],
     )
 
     serialized = TypeAdapter(ErrorHandlerWorkflowInput).dump_python(
@@ -287,7 +323,7 @@ def test_legacy_action_error_is_transported_beside_classification_detail() -> No
     assert error.details[1] == build_error_transport_detail(classification).model_dump(
         mode="json"
     )
-    assert error.details[1]["action_error"] is None
+    assert error.details[1]["diagnostic"] is None
     assert extract_error_classification(error) == classification
 
 
@@ -463,7 +499,7 @@ def test_action_error_detail_requires_nested_schema_discriminator() -> None:
                 "retry_disposition": "non_retryable",
                 "cause_type": None,
             },
-            "action_error": {
+            "diagnostic": {
                 "ref": "action",
                 "message": "Missing discriminator",
                 "type": "ValueError",
@@ -496,7 +532,7 @@ def test_aggregate_action_error_requires_child_schema_discriminator() -> None:
             "retry_disposition": "non_retryable",
             "cause_type": None,
         },
-        "action_error": aggregate,
+        "diagnostic": aggregate,
     }
 
     assert (
