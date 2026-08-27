@@ -20,6 +20,14 @@ Canonical identifier of the run to cancel.
 
 </ParamField>
 
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
+
+</ParamField>
+
 ## Cancel SQL statement
 
 Action ID: `tools.databricks.cancel_statement`
@@ -33,6 +41,14 @@ Reference: [https://databricks-sdk-py.readthedocs.io/en/latest/workspace/sql/sta
 <ParamField path="statement_id" type="string" required>
 
 Identifier of the SQL statement to cancel.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
 
 </ParamField>
 
@@ -55,6 +71,14 @@ SQL statement to execute.
 <ParamField path="warehouse_id" type="string" required>
 
 Identifier of the SQL warehouse.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
 
 </ParamField>
 
@@ -114,6 +138,14 @@ Cluster about which to retrieve information.
 
 </ParamField>
 
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get job
 
 Action ID: `tools.databricks.get_job`
@@ -127,6 +159,14 @@ Reference: [https://databricks-sdk-py.readthedocs.io/en/latest/workspace/jobs/jo
 <ParamField path="job_id" type="integer" required>
 
 Canonical identifier of the job.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
 
 </ParamField>
 
@@ -159,6 +199,14 @@ Reference: [https://databricks-sdk-py.readthedocs.io/en/latest/workspace/jobs/jo
 <ParamField path="run_id" type="integer" required>
 
 Canonical identifier of the run.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
 
 </ParamField>
 
@@ -202,6 +250,14 @@ Identifier of the SQL statement.
 
 </ParamField>
 
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get SQL warehouse
 
 Action ID: `tools.databricks.get_warehouse`
@@ -218,6 +274,14 @@ Identifier of the SQL warehouse.
 
 </ParamField>
 
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
+
+</ParamField>
+
 ## List clusters
 
 Action ID: `tools.databricks.list_clusters`
@@ -227,6 +291,14 @@ Return pinned and active clusters and recently terminated clusters.
 Reference: [https://databricks-sdk-py.readthedocs.io/en/latest/workspace/compute/clusters.html#databricks.sdk.service.compute.ClustersExt.list](https://databricks-sdk-py.readthedocs.io/en/latest/workspace/compute/clusters.html#databricks.sdk.service.compute.ClustersExt.list)
 
 ### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
+
+</ParamField>
 
 <ParamField path="limit" type="integer">
 
@@ -265,6 +337,14 @@ Reference: [https://databricks-sdk-py.readthedocs.io/en/latest/workspace/jobs/jo
 <ParamField path="active_only" type="boolean | null">
 
 Whether to include only active runs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
 
 Default: `null`.
 
@@ -344,6 +424,14 @@ Reference: [https://databricks-sdk-py.readthedocs.io/en/latest/workspace/jobs/jo
 
 ### Input fields
 
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="expand_tasks" type="boolean | null">
 
 Whether to include task and cluster details in each job.
@@ -394,6 +482,14 @@ Reference: [https://databricks-sdk-py.readthedocs.io/en/latest/workspace/sql/war
 
 ### Input fields
 
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="limit" type="integer">
 
 Maximum number of warehouses to return across SDK pages.
@@ -431,6 +527,14 @@ Reference: [https://databricks-sdk-py.readthedocs.io/en/latest/workspace/jobs/jo
 <ParamField path="job_id" type="integer" required>
 
 Identifier of the job to run.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
 
 </ParamField>
 
@@ -498,6 +602,14 @@ Cluster to start.
 
 </ParamField>
 
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
+
+</ParamField>
+
 ## Start SQL warehouse
 
 Action ID: `tools.databricks.start_warehouse`
@@ -511,6 +623,14 @@ Reference: [https://databricks-sdk-py.readthedocs.io/en/latest/workspace/sql/war
 <ParamField path="id" type="string" required>
 
 Identifier of the SQL warehouse to start.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
 
 </ParamField>
 
@@ -530,6 +650,14 @@ Identifier of the SQL warehouse to stop.
 
 </ParamField>
 
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
+
+</ParamField>
+
 ## Terminate cluster
 
 Action ID: `tools.databricks.terminate_cluster`
@@ -543,5 +671,13 @@ Reference: [https://databricks-sdk-py.readthedocs.io/en/latest/workspace/compute
 <ParamField path="cluster_id" type="string" required>
 
 Cluster to terminate.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Databricks workspace URL.
+
+Default: `null`.
 
 </ParamField>

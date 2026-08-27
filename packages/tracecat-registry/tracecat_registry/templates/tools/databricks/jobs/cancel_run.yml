@@ -7,6 +7,10 @@ definition:
   namespace: tools.databricks
   name: cancel_run
   expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
     run_id:
       type: int
       description: Canonical identifier of the run to cancel.
@@ -14,6 +18,7 @@ definition:
     - ref: cancel_run
       action: tools.databricks_sdk.call_method
       args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
         service: jobs
         method_name: cancel_run
         params:

@@ -7,6 +7,10 @@ definition:
   namespace: tools.databricks
   name: execute_statement
   expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
     statement:
       type: str
       description: SQL statement to execute.
@@ -37,6 +41,7 @@ definition:
     - ref: execute_statement
       action: tools.databricks_sdk.call_method
       args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
         service: statement_execution
         method_name: execute_statement
         params:

@@ -7,6 +7,10 @@ definition:
   namespace: tools.databricks
   name: list_warehouses
   expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
     page_size:
       type: int | None
       description: Maximum number of warehouses returned per server page.
@@ -23,6 +27,7 @@ definition:
     - ref: list_warehouses
       action: tools.databricks_sdk.call_paginated_method
       args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
         service: warehouses
         method_name: list
         params:

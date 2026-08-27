@@ -7,6 +7,10 @@ definition:
   namespace: tools.databricks
   name: get_run
   expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
     run_id:
       type: int
       description: Canonical identifier of the run.
@@ -26,6 +30,7 @@ definition:
     - ref: get_run
       action: tools.databricks_sdk.call_method
       args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
         service: jobs
         method_name: get_run
         params:

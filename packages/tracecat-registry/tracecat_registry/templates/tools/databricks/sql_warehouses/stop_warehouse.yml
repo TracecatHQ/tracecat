@@ -7,6 +7,10 @@ definition:
   namespace: tools.databricks
   name: stop_warehouse
   expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
     id:
       type: str
       description: Identifier of the SQL warehouse to stop.
@@ -14,6 +18,7 @@ definition:
     - ref: stop_warehouse
       action: tools.databricks_sdk.call_method
       args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
         service: warehouses
         method_name: stop
         params:

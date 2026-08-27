@@ -1,6 +1,6 @@
 """Generic interface for the Databricks SDK for Python."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Annotated, Any
@@ -56,24 +56,22 @@ databricks_service_oauth_secret = RegistryOAuthSecret(
 
 databricks_secret = RegistrySecret(
     name="databricks",
-    keys=["DATABRICKS_HOST"],
-    optional_keys=[
+    keys=[
         "DATABRICKS_CLIENT_ID",
         "DATABRICKS_CLIENT_SECRET",
     ],
+    optional=True,
 )
-"""Databricks workspace credentials.
+"""Stored Databricks OAuth M2M service credentials.
 
 - name: `databricks`
 - keys:
-    - `DATABRICKS_HOST`
-- optional_keys:
     - `DATABRICKS_CLIENT_ID` (OAuth M2M service principal)
     - `DATABRICKS_CLIENT_SECRET` (OAuth M2M service principal)
 
-As an alternative to a Databricks OAuth provider, configure both OAuth M2M
-keys. The wrapper passes credentials explicitly so the SDK cannot discover
-ambient host credentials.
+As an alternative to a Databricks OAuth provider, configure both keys. The
+wrapper passes credentials explicitly so the SDK cannot discover ambient host
+credentials.
 """
 
 
@@ -91,19 +89,18 @@ class _OAuthAccessTokenCredentials(CredentialsStrategy):
         return headers
 
 
-def _get_client() -> WorkspaceClient:
-    host = secrets.get("DATABRICKS_HOST")
-    _validate_databricks_host(host)
+def _get_client(base_url: str) -> WorkspaceClient:
+    _validate_databricks_host(base_url)
     if token := (
         secrets.get_or_default(databricks_user_oauth_secret.token_name)
         or secrets.get_or_default(databricks_service_oauth_secret.token_name)
     ):
         return WorkspaceClient(
-            host=host,
+            host=base_url,
             credentials_strategy=_OAuthAccessTokenCredentials(token),
         )
     return WorkspaceClient(
-        host=host,
+        host=base_url,
         client_id=secrets.get("DATABRICKS_CLIENT_ID"),
         client_secret=secrets.get("DATABRICKS_CLIENT_SECRET"),
         auth_type="oauth-m2m",
@@ -118,7 +115,7 @@ def _validate_databricks_host(host: str) -> None:
         hostname == suffix or hostname.endswith(f".{suffix}")
         for suffix in _DATABRICKS_HOST_SUFFIXES
     ):
-        raise ValueError("DATABRICKS_HOST must be an HTTPS Databricks workspace URL")
+        raise ValueError("base_url must be an HTTPS Databricks workspace URL")
 
 
 def _get_sdk_method(client: WorkspaceClient, service: str, method_name: str) -> Any:
@@ -146,6 +143,10 @@ def _serialize(value: Any) -> Any:
         return {str(key): _serialize(item) for key, item in value.items()}
     if isinstance(value, Sequence):
         return [_serialize(item) for item in value]
+    if isinstance(value, Iterator):
+        raise TypeError(
+            "Paginated SDK iterators must use tools.databricks_sdk.call_paginated_method"
+        )
     if as_dict := getattr(value, "as_dict", None):
         return _serialize(as_dict())
     return value
@@ -164,6 +165,10 @@ def _serialize(value: Any) -> Any:
     ],
 )
 def call_method(
+    base_url: Annotated[
+        str,
+        Field(..., description="Databricks workspace URL."),
+    ],
     service: Annotated[
         str,
         Field(
@@ -189,7 +194,7 @@ def call_method(
         ),
     ] = None,
 ) -> Any:
-    method = _get_sdk_method(_get_client(), service, method_name)
+    method = _get_sdk_method(_get_client(base_url), service, method_name)
     return _serialize(method(**(params or {})))
 
 
@@ -209,6 +214,10 @@ def call_method(
     ],
 )
 def call_paginated_method(
+    base_url: Annotated[
+        str,
+        Field(..., description="Databricks workspace URL."),
+    ],
     service: Annotated[
         str,
         Field(..., description="WorkspaceClient service name."),
@@ -236,7 +245,7 @@ def call_paginated_method(
         ),
     ] = 1000,
 ) -> list[Any]:
-    method = _get_sdk_method(_get_client(), service, method_name)
+    method = _get_sdk_method(_get_client(base_url), service, method_name)
     result = method(**(params or {}))
 
     items: list[Any] = []

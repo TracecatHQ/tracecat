@@ -7,6 +7,10 @@ definition:
   namespace: tools.databricks
   name: run_job
   expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
     job_id:
       type: int
       description: Identifier of the job to run.
@@ -42,6 +46,7 @@ definition:
     - ref: run_job
       action: tools.databricks_sdk.call_method
       args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
         service: jobs
         method_name: run_now
         params:

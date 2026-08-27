@@ -7,6 +7,10 @@ definition:
   namespace: tools.databricks
   name: get_cluster
   expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
     cluster_id:
       type: str
       description: Cluster about which to retrieve information.
@@ -14,6 +18,7 @@ definition:
     - ref: get_cluster
       action: tools.databricks_sdk.call_method
       args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
         service: clusters
         method_name: get
         params:

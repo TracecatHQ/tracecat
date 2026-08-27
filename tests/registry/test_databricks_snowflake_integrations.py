@@ -56,6 +56,11 @@ def test_databricks_serializes_waiter_response_and_bindings() -> None:
     }
 
 
+def test_databricks_direct_dispatch_rejects_paginated_iterators() -> None:
+    with pytest.raises(TypeError, match="call_paginated_method"):
+        _serialize(iter([{"cluster_id": "cluster-123"}]))
+
+
 @pytest.mark.parametrize(
     "url",
     [

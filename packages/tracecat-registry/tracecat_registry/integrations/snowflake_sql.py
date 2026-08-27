@@ -29,10 +29,12 @@ snowflake_service_oauth_secret = RegistryOAuthSecret(
 
 snowflake_sql_secret = RegistrySecret(
     name="snowflake_sql",
-    optional_keys=[
+    keys=[
         "SNOWFLAKE_OAUTH_CLIENT_ID",
         "SNOWFLAKE_OAUTH_CLIENT_SECRET",
         "SNOWFLAKE_OAUTH_TOKEN_URL",
+    ],
+    optional_keys=[
         "SNOWFLAKE_OAUTH_SCOPE",
         "SNOWFLAKE_OAUTH_AUDIENCE",
         "SNOWFLAKE_OAUTH_TOKEN_ENDPOINT_AUTH_METHOD",
@@ -42,10 +44,11 @@ snowflake_sql_secret = RegistrySecret(
 """Stored Snowflake SQL API OAuth service credentials.
 
 - name: `snowflake_sql`
-- optional_keys:
+- keys:
     - `SNOWFLAKE_OAUTH_CLIENT_ID`
     - `SNOWFLAKE_OAUTH_CLIENT_SECRET`
     - `SNOWFLAKE_OAUTH_TOKEN_URL`
+- optional_keys:
     - `SNOWFLAKE_OAUTH_SCOPE`
     - `SNOWFLAKE_OAUTH_AUDIENCE`
     - `SNOWFLAKE_OAUTH_TOKEN_ENDPOINT_AUTH_METHOD`

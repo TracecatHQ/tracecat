@@ -7,6 +7,10 @@ definition:
   namespace: tools.databricks
   name: list_runs
   expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
     active_only:
       type: bool | None
       description: Whether to include only active runs.
@@ -47,6 +51,7 @@ definition:
     - ref: list_runs
       action: tools.databricks_sdk.call_paginated_method
       args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
         service: jobs
         method_name: list_runs
         params:

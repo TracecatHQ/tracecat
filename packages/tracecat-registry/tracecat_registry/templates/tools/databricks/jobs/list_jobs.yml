@@ -7,6 +7,10 @@ definition:
   namespace: tools.databricks
   name: list_jobs
   expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
     expand_tasks:
       type: bool | None
       description: Whether to include task and cluster details in each job.
@@ -31,6 +35,7 @@ definition:
     - ref: list_jobs
       action: tools.databricks_sdk.call_paginated_method
       args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
         service: jobs
         method_name: list
         params:

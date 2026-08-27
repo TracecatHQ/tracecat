@@ -14,16 +14,19 @@ Reference: [https://databricks-sdk-py.readthedocs.io/en/latest/workspace/](https
 
 ### Secrets
 
-Required secrets:
-
-- `databricks`: required values `DATABRICKS_HOST`; optional values `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`.
-
 Optional secrets:
 
 - `databricks_oauth`: OAuth token `DATABRICKS_USER_TOKEN`.
 - `databricks_oauth`: OAuth token `DATABRICKS_SERVICE_TOKEN`.
+- `databricks`: required values `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`.
 
 ### Input fields
+
+<ParamField path="base_url" type="string" required>
+
+Databricks workspace URL.
+
+</ParamField>
 
 <ParamField path="method_name" type="string" required>
 
@@ -55,16 +58,19 @@ Reference: [https://github.com/databricks/databricks-sdk-py#paginated-responses]
 
 ### Secrets
 
-Required secrets:
-
-- `databricks`: required values `DATABRICKS_HOST`; optional values `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`.
-
 Optional secrets:
 
 - `databricks_oauth`: OAuth token `DATABRICKS_USER_TOKEN`.
 - `databricks_oauth`: OAuth token `DATABRICKS_SERVICE_TOKEN`.
+- `databricks`: required values `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`.
 
 ### Input fields
+
+<ParamField path="base_url" type="string" required>
+
+Databricks workspace URL.
+
+</ParamField>
 
 <ParamField path="method_name" type="string" required>
 
