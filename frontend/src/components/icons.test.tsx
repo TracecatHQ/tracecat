@@ -1,12 +1,19 @@
 import { render } from "@testing-library/react"
 import type { ReactElement } from "react"
 import {
+  DatabricksIcon,
+  getIcon,
   MicrosoftGraphIcon,
   MicrosoftIcon,
   MicrosoftOutlookIcon,
   providerIcons,
+  SnowflakeIcon,
+  secretIcons,
   UDFIcons,
 } from "@/components/icons"
+
+const DATABRICKS_RED = "#FF3621"
+const SNOWFLAKE_BLUE = "#29B5E8"
 
 /** Fragment ids declared by the official Microsoft marks. */
 const GRAPH_CLIP_ID = "tracecat-microsoft-graph-clip"
@@ -32,6 +39,16 @@ function referencedFragmentIds(container: HTMLElement): string[] {
     }
   }
   return references
+}
+
+/** Render an icon element and return the rendered container. */
+function renderIcon(element: JSX.Element): HTMLElement {
+  return render(element).container
+}
+
+/** Read the accessible title of the first SVG an icon element renders. */
+function svgTitle(element: JSX.Element): string | null {
+  return renderIcon(element).querySelector("svg > title")?.textContent ?? null
 }
 
 describe("Microsoft registry icon mappings", () => {
@@ -101,5 +118,77 @@ describe("MicrosoftIcon sizing", () => {
     const Icon = UDFIcons["tools.microsoft_graph_security"]
     const { container } = render(<Icon />)
     expect(container.querySelector("svg")).toHaveClass("size-full")
+  })
+})
+
+describe("Databricks and Snowflake brand marks", () => {
+  it("renders self-contained vectors in the official brand colors", () => {
+    const databricks = renderIcon(<DatabricksIcon />)
+    expect(databricks.querySelector("svg > title")?.textContent).toBe(
+      "Databricks"
+    )
+    expect(
+      databricks.querySelector(`[fill="${DATABRICKS_RED}"]`)
+    ).not.toBeNull()
+
+    const snowflake = renderIcon(<SnowflakeIcon />)
+    expect(snowflake.querySelector("svg > title")?.textContent).toBe(
+      "Snowflake"
+    )
+    expect(
+      snowflake.querySelectorAll(`[fill="${SNOWFLAKE_BLUE}"]`).length
+    ).toBe(2)
+
+    // No <image>: the marks must stay vector, never an embedded raster.
+    expect(databricks.querySelector("image")).toBeNull()
+    expect(snowflake.querySelector("image")).toBeNull()
+  })
+
+  it("keeps the registration mark that Snowflake's brand guide requires", () => {
+    // The bug occupies the first 52.15 units of the viewBox; the second path is
+    // the registration mark tucked into its empty top-right corner.
+    const snowflake = renderIcon(<SnowflakeIcon />)
+    const svg = snowflake.querySelector("svg")
+    expect(svg?.getAttribute("viewBox")).toBe("0 0 54.26 51.02")
+    expect(svg?.querySelectorAll("path")).toHaveLength(2)
+  })
+})
+
+describe("action namespace icons", () => {
+  const cases: [namespace: string, title: string][] = [
+    ["tools.databricks", "Databricks"],
+    ["tools.databricks.jobs.run_job", "Databricks"],
+    ["tools.databricks_sdk", "Databricks"],
+    ["tools.databricks_sdk.call_method", "Databricks"],
+    ["tools.snowflake_sql", "Snowflake"],
+    ["tools.snowflake_sql.execute_statement", "Snowflake"],
+  ]
+
+  it.each(cases)("maps %s to the %s mark", (namespace, title) => {
+    expect(svgTitle(getIcon(namespace))).toBe(title)
+  })
+
+  it("falls back to a generic glyph for unregistered namespaces", () => {
+    // Proves the assertions above are not satisfied by the generic fallback.
+    expect(svgTitle(getIcon("tools.unregistered_vendor"))).toBeNull()
+  })
+})
+
+describe("OAuth provider and credential icons", () => {
+  const cases: [providerId: string, title: string][] = [
+    ["databricks", "Databricks"],
+    ["snowflake_sql", "Snowflake"],
+  ]
+
+  it.each(cases)("maps the %s provider to the %s mark", (providerId, title) => {
+    const Icon = providerIcons[providerId]
+    expect(Icon).toBeDefined()
+    expect(svgTitle(<Icon />)).toBe(title)
+  })
+
+  it.each(cases)("maps the %s secret to the %s mark", (secretName, title) => {
+    const Icon = secretIcons[secretName]
+    expect(Icon).toBeDefined()
+    expect(svgTitle(<Icon />)).toBe(title)
   })
 })
