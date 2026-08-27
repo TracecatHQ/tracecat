@@ -950,3 +950,36 @@ async def test_case_trigger_consumer_finishes_batch_on_stop_event():
 
     assert handled.is_set()
     assert client.xreadgroup.await_count == 1
+
+
+@pytest.mark.anyio
+async def test_run_does_not_claim_pending_after_stop_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A due pending-check must not fire once the stop signal is set.
+
+    The signal can arrive while the consumer is blocked in xreadgroup(); on
+    an empty read the loop body reaches the due pending-check. Starting
+    recovery there would claim fresh work the terminating pod never had in
+    flight.
+    """
+    stop_event = asyncio.Event()
+    client = MagicMock()
+
+    async def fake_xreadgroup(**kwargs: object) -> list:
+        # SIGTERM arrives during the blocked read; the read returns empty so
+        # the loop body reaches the due pending-check.
+        stop_event.set()
+        del kwargs
+        return []
+
+    client.xreadgroup = AsyncMock(side_effect=fake_xreadgroup)
+    consumer = CaseTriggerConsumer(cast(RedisClient, client), stop_event=stop_event)
+    consumer._pending_check_interval = 0.0
+    consumer._ensure_group = AsyncMock()
+    claim_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(consumer, "_claim_idle_messages", claim_mock)
+
+    await asyncio.wait_for(consumer.run(), timeout=5.0)
+
+    claim_mock.assert_not_awaited()

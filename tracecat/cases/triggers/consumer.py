@@ -60,6 +60,10 @@ class CaseTriggerConsumer:
         self._pending_check_interval = max(self.claim_idle_ms / 1000.0, 30.0)
         self._stop_event = stop_event
 
+    def _stop_signalled(self) -> bool:
+        """Whether a graceful shutdown signal has been received."""
+        return self._stop_event is not None and self._stop_event.is_set()
+
     async def run(self) -> None:
         if not config.TRACECAT__CASE_TRIGGERS_ENABLED:
             logger.info("Case triggers disabled; skipping consumer")
@@ -74,7 +78,7 @@ class CaseTriggerConsumer:
         )
         last_pending_check = monotonic()
         try:
-            while self._stop_event is None or not self._stop_event.is_set():
+            while not self._stop_signalled():
                 try:
                     messages = await self.client.xreadgroup(
                         group_name=self.group,
@@ -100,7 +104,14 @@ class CaseTriggerConsumer:
                             await self._handle_message(message_id, fields)
                 else:
                     now = monotonic()
-                    if now - last_pending_check >= self._pending_check_interval:
+                    # Do not start pending-message recovery past the stop
+                    # signal: recovery claims fresh work the terminating pod
+                    # never had in flight, and a claimed batch can exceed the
+                    # drain deadline.
+                    if (
+                        not self._stop_signalled()
+                        and now - last_pending_check >= self._pending_check_interval
+                    ):
                         await self._claim_idle_messages()
                         last_pending_check = now
                 await asyncio.sleep(0)

@@ -1422,3 +1422,42 @@ async def test_claim_idle_messages_stops_claiming_after_stop_event(
 
     assert client.claim_calls == 1
     handle_mock.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_run_does_not_start_pending_recovery_after_stop_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A due pending-check must not fire once the stop signal is set.
+
+    The signal can arrive while the consumer is blocked in xreadgroup() or
+    handling new-stream entries; the loop body then reaches the due
+    pending-check. Starting recovery there would claim fresh work the
+    terminating pod never had in flight.
+    """
+    stop_event = asyncio.Event()
+    client = FakeRedisClient()
+
+    async def fake_handle_entries(entries: object) -> None:
+        # SIGTERM arrives while new-stream entries are being handled; the
+        # pending-check interval is due on this same iteration.
+        stop_event.set()
+        del entries
+
+    client.xreadgroup = AsyncMock(
+        side_effect=lambda **kwargs: [("stream", [("1-0", {"workspace_id": "w"})])]
+    )
+    consumer = CaseDurationSyncConsumer(
+        cast(RedisClient, client), stop_event=stop_event
+    )
+    consumer._pending_check_interval = 0.0
+    monkeypatch.setattr(consumer, "_ensure_group", AsyncMock())
+    monkeypatch.setattr(
+        consumer, "_handle_entries", AsyncMock(side_effect=fake_handle_entries)
+    )
+    claim_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(consumer, "_claim_idle_messages", claim_mock)
+
+    await asyncio.wait_for(consumer.run(), timeout=5.0)
+
+    claim_mock.assert_not_awaited()

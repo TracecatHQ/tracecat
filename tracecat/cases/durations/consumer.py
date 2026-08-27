@@ -110,13 +110,17 @@ class CaseDurationSyncConsumer:
         self._pending_check_interval = max(self.claim_idle_ms / 1000.0, 30.0)
         self._stop_event = stop_event
 
+    def _stop_signalled(self) -> bool:
+        """Whether a graceful shutdown signal has been received."""
+        return self._stop_event is not None and self._stop_event.is_set()
+
     async def run(self) -> None:
         last_pending_check = monotonic()
         retry_delay = RETRY_BACKOFF_BASE_SECONDS
         group_ready = False
         rollout_enqueued = False
         started = False
-        while self._stop_event is None or not self._stop_event.is_set():
+        while not self._stop_signalled():
             try:
                 if not rollout_enqueued:
                     rollout_enqueued = await enqueue_rollout_backfill_once()
@@ -152,7 +156,13 @@ class CaseDurationSyncConsumer:
                     for _stream, entries in messages:
                         await self._handle_entries(entries)
                 now = monotonic()
-                if now - last_pending_check >= self._pending_check_interval:
+                # Do not start pending-message recovery past the stop signal:
+                # recovery claims fresh work the terminating pod never had in
+                # flight, and a claimed batch can exceed the drain deadline.
+                if (
+                    not self._stop_signalled()
+                    and now - last_pending_check >= self._pending_check_interval
+                ):
                     await self._claim_idle_messages()
                     last_pending_check = now
                 await asyncio.sleep(0)
@@ -443,7 +453,7 @@ class CaseDurationSyncConsumer:
             # not claim further pending work past the stop signal — otherwise
             # a large or continuously replenished pending list keeps the
             # consumer working until the drain deadline cancels it mid-batch.
-            if self._stop_event is not None and self._stop_event.is_set():
+            if self._stop_signalled():
                 return
             if len(pending) < self.batch:
                 return
