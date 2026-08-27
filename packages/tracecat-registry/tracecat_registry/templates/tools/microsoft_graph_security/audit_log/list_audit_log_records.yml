@@ -2,7 +2,7 @@ type: action
 definition:
   title: List audit log records
   description: >-
-    Get a list of the auditLogRecord objects and their properties for a completed
+    List auditLogRecord objects for a completed
     audit log query. Returns the single Microsoft Graph page, including
     `@odata.nextLink`. Auditing data is accessed through the Microsoft Purview
     Audit Search API. Least privileged permission: AuditLogsQuery-Entra.Read.All
@@ -16,7 +16,7 @@ definition:
     "supports some of the OData query parameters" without naming them, so none
     are exposed here; use `tools.microsoft_graph_security_sdk.call_method` to
     pass arbitrary query parameters.
-    Microsoft's endpoint reference does not state a separate licensing requirement.
+    No separate licensing requirement is documented.
   display_group: Microsoft Graph Security
   doc_url: https://learn.microsoft.com/en-us/graph/api/security-auditlogquery-list-records?view=graph-rest-1.0
   namespace: tools.microsoft_graph_security

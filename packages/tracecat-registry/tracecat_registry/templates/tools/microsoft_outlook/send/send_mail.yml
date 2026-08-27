@@ -2,30 +2,19 @@ type: action
 definition:
   title: Send mail
   description: >-
-    Send a message in JSON format from the specified user's mailbox and save it in
-    Sent Items. Returns `202 Accepted` with no response body; acceptance does not
-    mean processing finished, and delivery is subject to Exchange Online limits and
-    throttling. Least privileged permission: Mail.Send for delegated (work or
-    school account), delegated (personal Microsoft account) and application; no
-    higher privileged permission is available. Sending from another user's mailbox
-    with a user token additionally requires Mail.Send.Shared, and the signed-in
-    user must hold an Exchange mailbox permission on the from mailbox: Send on
-    Behalf, where the recipient sees that the message was sent on behalf of another
-    user and `sender` and `from` differ, or Send As, where there is no such
-    indication and `sender` and `from` are identical. Users can grant Send on
-    Behalf for their own mailbox; only administrators can grant Send As. Addressing
-    the mailbox through `/users/{id}`, as this action does, also requires the Full
-    Access mailbox permission. Applications that use application tokens and have
-    admin-consented Mail.Send can send mail as any user in the organization; scope
-    that down with RBAC for Applications in Exchange Online. This action exposes
-    the common message fields; for arbitrary Microsoft Graph JSON message shapes,
-    including attachments inline with the send, call
-    `tools.microsoft_outlook_sdk.call_method` directly. MIME requests are not
-    supported by the current dispatcher. Available in the global
-    service, US Government L4, US Government L5 (DOD) and China operated by
-    21Vianet. Microsoft's endpoint reference does not state a separate licensing
-    requirement; the mailbox itself still needs an Exchange Online or Outlook.com
-    account.
+    Send a JSON message from the specified mailbox and save it in Sent Items.
+    Returns `202 Accepted`; acceptance does not mean delivery finished. Least
+    privileged permission: Mail.Send for delegated work or school, delegated
+    personal Microsoft accounts and application; no higher permission is available.
+    Delegated send-from-another-user also requires Mail.Send.Shared and Exchange
+    Send As or Send on Behalf permission; using `/users/{id}` requires Full Access.
+    Application Mail.Send can send as any organization user, so restrict it with
+    RBAC for Applications in Exchange Online. For arbitrary Graph JSON message
+    shapes, including inline attachments, use
+    `tools.microsoft_outlook_sdk.call_method`; its current dispatcher does not
+    support MIME requests. Available in the global service, US Government L4, US
+    Government L5 (DOD) and China operated by 21Vianet. No separate licensing
+    requirement is documented; the mailbox needs Exchange Online or Outlook.com.
   display_group: Microsoft Outlook Mail
   doc_url: https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0
   namespace: tools.microsoft_outlook
