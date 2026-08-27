@@ -1,0 +1,88 @@
+type: action
+definition:
+  title: List rules
+  description: Lists Rules.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.rules/list
+  namespace: tools.google_chronicle
+  name: list_rules
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The parent, which owns this collection of rules. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    pageSize:
+      type: int | None
+      description: >-
+        The maximum number of rules to return. The service may return fewer than this
+        value. If unspecified, at most 100 rules will be returned. The maximum value is
+        1000, or 5000 if `view` is set to CONFIG_ONLY; values above the applicable
+        maximum will be coerced to that maximum.
+      default: null
+    pageToken:
+      type: str | None
+      description: >-
+        A page token, received from a previous rules.list call. Provide this to
+        retrieve the subsequent page. When paginating, all other parameters provided to
+        rules.list must match the call that provided the page token.
+      default: null
+    view:
+      type: str | None
+      description: >-
+        The scope of fields to populate for the Rule being returned. If unspecified,
+        defaults to BASIC. One of BASIC, FULL, REVISION_METADATA_ONLY, CONFIG_ONLY,
+        TRENDS.
+      default: null
+    filter:
+      type: str | None
+      description: >-
+        Only the following filters are allowed:
+        "referenceLists:{reference_list_name}" "dataTables:{dataTableName}"
+        "displayName:{displayName}"
+      default: null
+    orderBy:
+      type: str | None
+      description: >-
+        The sort order of the rules. If unspecified, rules will be sorted by
+        revisionCreateTime desc ruleId asc. Sorting is supported on a single field only.
+        Supported fields: "archived", "alertingEnabled", "author", "createTime",
+        "currentDayDetectionCount", "displayName", "executionState", "liveModeEnabled",
+        "revisionCreateTime", "ruleId", "ruleOwner", "severity", "type". Example:
+        "displayName desc"
+      default: null
+    skip:
+      type: int | None
+      description: >-
+        The number of rules to skip in the response. Skipping is only supported in
+        TRENDS view.
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules
+        method: GET
+        params:
+          pageSize: ${{ inputs.pageSize }}
+          pageToken: ${{ inputs.pageToken }}
+          view: ${{ inputs.view }}
+          filter: ${{ inputs.filter }}
+          orderBy: ${{ inputs.orderBy }}
+          skip: ${{ inputs.skip }}
+  returns: ${{ steps.call_api.result }}

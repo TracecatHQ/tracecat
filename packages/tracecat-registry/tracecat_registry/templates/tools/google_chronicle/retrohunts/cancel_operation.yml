@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Cancel operation
+  description: >-
+    Starts asynchronous cancellation on a long-running operation. The server makes a
+    best effort to cancel the operation, but success is not guaranteed. On successful
+    cancellation the operation is not deleted; it becomes an operation with an error
+    value whose code is CANCELLED.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.operations/cancel
+  namespace: tools.google_chronicle
+  name: cancel_operation
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        Chronicle instance this request is sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    operation:
+      type: str
+      description: The ID of the operation resource to be cancelled.
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/operations/${{ FN.url_encode(inputs.operation) }}:cancel
+        method: POST
+  returns: ${{ steps.call_api.result }}
