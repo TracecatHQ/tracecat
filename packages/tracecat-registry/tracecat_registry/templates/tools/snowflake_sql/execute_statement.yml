@@ -6,10 +6,6 @@ definition:
   doc_url: https://docs.snowflake.com/en/developer-guide/sql-api/reference#post-apiv2statements
   namespace: tools.snowflake_sql
   name: execute_statement
-  secrets:
-    - name: snowflake_sql
-      keys: ["SNOWFLAKE_TOKEN"]
-      optional_keys: ["SNOWFLAKE_TOKEN_TYPE"]
   expects:
     payload:
       # Generic: optional Snowflake request fields must be omitted rather than sent
@@ -40,16 +36,10 @@ definition:
       default: null
   steps:
     - ref: request
-      action: core.http_request
+      action: tools.snowflake_sql.call_api
       args:
         url: ${{ inputs.base_url || VARS.snowflake_sql.base_url }}/api/v2/statements
         method: POST
-        headers:
-          Accept: application/json
-          Content-Type: application/json
-          User-Agent: Tracecat-Snowflake-SQL-API/1.0
-          Authorization: Bearer ${{ SECRETS.snowflake_sql.SNOWFLAKE_TOKEN }}
-          X-Snowflake-Authorization-Token-Type: ${{ SECRETS.snowflake_sql.SNOWFLAKE_TOKEN_TYPE }}
         params:
           requestId: ${{ inputs.requestId }}
           async: ${{ inputs.async }}

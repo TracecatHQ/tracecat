@@ -2,17 +2,51 @@
 
 from collections.abc import Mapping, Sequence
 from enum import Enum
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service._internal import Wait
 from pydantic import Field
 
 from tracecat_registry import (
+    RegistryOAuthSecret,
     RegistrySecret,
     registry,
     secrets,
 )
+
+_DATABRICKS_HOST_SUFFIXES = ("databricks.com", "azuredatabricks.net")
+_UNSAFE_WORKSPACE_CLIENT_PROPERTIES = frozenset(
+    {
+        "api_client",
+        "config",
+        # These SDK mixins accept local paths and can read, overwrite, or delete
+        # files on the executor rather than only calling workspace APIs.
+        "dbfs",
+        "files",
+    }
+)
+_WORKSPACE_SERVICE_NAMES = frozenset(
+    name
+    for name, attribute in vars(WorkspaceClient).items()
+    if isinstance(attribute, property)
+    and name not in _UNSAFE_WORKSPACE_CLIENT_PROPERTIES
+)
+
+databricks_user_oauth_secret = RegistryOAuthSecret(
+    provider_id="databricks",
+    grant_type="authorization_code",
+    optional=True,
+)
+"""Databricks user OAuth credentials."""
+
+databricks_service_oauth_secret = RegistryOAuthSecret(
+    provider_id="databricks",
+    grant_type="client_credentials",
+    optional=True,
+)
+"""Databricks service principal OAuth credentials."""
 
 databricks_secret = RegistrySecret(
     name="databricks",
@@ -33,22 +67,47 @@ databricks_secret = RegistrySecret(
     - `DATABRICKS_CLIENT_ID` (OAuth M2M service principal)
     - `DATABRICKS_CLIENT_SECRET` (OAuth M2M service principal)
 
-Configure either `DATABRICKS_TOKEN` or both OAuth M2M keys. The wrapper passes
-credentials explicitly so the SDK cannot discover ambient host credentials.
+As an alternative to a Databricks OAuth provider, configure either
+`DATABRICKS_TOKEN` or both OAuth M2M keys. The wrapper passes credentials
+explicitly so the SDK cannot discover ambient host credentials.
 """
 
 
 def _get_client() -> WorkspaceClient:
     host = secrets.get("DATABRICKS_HOST")
-    token = secrets.get_or_default("DATABRICKS_TOKEN")
-    if token:
+    _validate_databricks_host(host)
+    if token := (
+        secrets.get_or_default(databricks_user_oauth_secret.token_name)
+        or secrets.get_or_default(databricks_service_oauth_secret.token_name)
+        or secrets.get_or_default("DATABRICKS_TOKEN")
+    ):
         return WorkspaceClient(host=host, token=token, auth_type="pat")
     return WorkspaceClient(
         host=host,
-        client_id=secrets.get_or_default("DATABRICKS_CLIENT_ID"),
-        client_secret=secrets.get_or_default("DATABRICKS_CLIENT_SECRET"),
+        client_id=secrets.get("DATABRICKS_CLIENT_ID"),
+        client_secret=secrets.get("DATABRICKS_CLIENT_SECRET"),
         auth_type="oauth-m2m",
     )
+
+
+def _validate_databricks_host(host: str) -> None:
+    """Keep Databricks credentials bound to an official workspace domain."""
+    parsed = urlsplit(host)
+    hostname = parsed.hostname or ""
+    if parsed.scheme != "https" or not any(
+        hostname == suffix or hostname.endswith(f".{suffix}")
+        for suffix in _DATABRICKS_HOST_SUFFIXES
+    ):
+        raise ValueError("DATABRICKS_HOST must be an HTTPS Databricks workspace URL")
+
+
+def _get_sdk_method(client: WorkspaceClient, service: str, method_name: str) -> Any:
+    """Resolve a public method from a generated Workspace API service."""
+    if service not in _WORKSPACE_SERVICE_NAMES or method_name.startswith("_"):
+        raise AttributeError(
+            f"Unknown public Databricks SDK method: {service}.{method_name}"
+        )
+    return getattr(getattr(client, service), method_name)
 
 
 def _serialize(value: Any) -> Any:
@@ -71,17 +130,17 @@ def _serialize(value: Any) -> Any:
     return value
 
 
-def _resolve_method(client: WorkspaceClient, service: str, method_name: str) -> Any:
-    return getattr(getattr(client, service), method_name)
-
-
 @registry.register(
     default_title="Call method",
     description="Instantiate a Databricks workspace client and call an SDK method.",
     display_group="Databricks SDK",
     doc_url="https://databricks-sdk-py.readthedocs.io/en/latest/workspace/",
     namespace="tools.databricks_sdk",
-    secrets=[databricks_secret],
+    secrets=[
+        databricks_user_oauth_secret,
+        databricks_service_oauth_secret,
+        databricks_secret,
+    ],
 )
 def call_method(
     service: Annotated[
@@ -109,8 +168,8 @@ def call_method(
         ),
     ] = None,
 ) -> Any:
-    method = _resolve_method(_get_client(), service, method_name)
-    return cast(Any, _serialize(method(**(params or {}))))
+    method = _get_sdk_method(_get_client(), service, method_name)
+    return _serialize(method(**(params or {})))
 
 
 @registry.register(
@@ -122,7 +181,11 @@ def call_method(
     display_group="Databricks SDK",
     doc_url="https://github.com/databricks/databricks-sdk-py#paginated-responses",
     namespace="tools.databricks_sdk",
-    secrets=[databricks_secret],
+    secrets=[
+        databricks_user_oauth_secret,
+        databricks_service_oauth_secret,
+        databricks_secret,
+    ],
 )
 def call_paginated_method(
     service: Annotated[
@@ -152,7 +215,7 @@ def call_paginated_method(
         ),
     ] = 1000,
 ) -> list[Any]:
-    method = _resolve_method(_get_client(), service, method_name)
+    method = _get_sdk_method(_get_client(), service, method_name)
     result = method(**(params or {}))
 
     items: list[Any] = []
