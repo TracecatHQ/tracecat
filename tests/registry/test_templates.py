@@ -85,9 +85,9 @@ async def test_base_registry_validate_template_actions():
     ids=lambda path: str(path.parts[-2:]),
 )
 async def test_template_action_validation(file_path):
-    # Initialize the repository
+    # Initialize an empty repository; each parameter registers only its template.
     repo = Repository()
-    repo.init(include_base=False, include_templates=True)
+    repo.init(include_base=False, include_templates=False)
 
     # Test parsing
     action = TemplateAction.from_yaml(file_path)
