@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Get SQL statement
+  description: Check statement status or retrieve a result partition.
+  display_group: Snowflake SQL API
+  doc_url: https://docs.snowflake.com/en/developer-guide/sql-api/reference#get-apiv2statementsstatementhandle
+  namespace: tools.snowflake_sql
+  name: get_statement
+  secrets:
+    - name: snowflake_sql
+      keys: ["SNOWFLAKE_TOKEN"]
+      optional_keys: ["SNOWFLAKE_TOKEN_TYPE"]
+  expects:
+    statementHandle:
+      type: str
+      description: Handle of the statement to check.
+    requestId:
+      type: str | None
+      description: Unique UUID for the API request.
+      default: null
+    partition:
+      type: int | None
+      description: Partition number to return.
+      default: null
+    base_url:
+      type: str | None
+      description: Snowflake account URL, for example https://org-account.snowflakecomputing.com.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.snowflake_sql.base_url }}/api/v2/statements/${{ FN.url_encode(inputs.statementHandle) }}
+        method: GET
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+          User-Agent: Tracecat-Snowflake-SQL-API/1.0
+          Authorization: Bearer ${{ SECRETS.snowflake_sql.SNOWFLAKE_TOKEN }}
+          X-Snowflake-Authorization-Token-Type: ${{ SECRETS.snowflake_sql.SNOWFLAKE_TOKEN_TYPE }}
+        params:
+          requestId: ${{ inputs.requestId }}
+          partition: ${{ inputs.partition }}
+  returns: ${{ steps.request.result }}

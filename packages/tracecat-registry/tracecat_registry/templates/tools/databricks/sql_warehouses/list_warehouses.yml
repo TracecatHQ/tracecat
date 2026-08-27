@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: List SQL warehouses
+  description: List SQL warehouses in the workspace.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/sql/warehouses.html#databricks.sdk.service.sql.WarehousesAPI.list
+  namespace: tools.databricks
+  name: list_warehouses
+  expects:
+    page_size:
+      type: int | None
+      description: Maximum number of warehouses returned per server page.
+      default: null
+    page_token:
+      type: str | None
+      description: Token for a subsequent page.
+      default: null
+    limit:
+      type: int
+      description: Maximum number of warehouses to return across SDK pages.
+      default: 1000
+  steps:
+    - ref: list_warehouses
+      action: tools.databricks_sdk.call_paginated_method
+      args:
+        service: warehouses
+        method_name: list
+        params:
+          page_size: ${{ inputs.page_size }}
+          page_token: ${{ inputs.page_token }}
+        limit: ${{ inputs.limit }}
+  returns: ${{ steps.list_warehouses.result }}

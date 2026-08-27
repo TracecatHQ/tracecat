@@ -1,0 +1,21 @@
+type: action
+definition:
+  title: Get SQL warehouse
+  description: Retrieve information about a SQL warehouse.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/sql/warehouses.html#databricks.sdk.service.sql.WarehousesAPI.get
+  namespace: tools.databricks
+  name: get_warehouse
+  expects:
+    id:
+      type: str
+      description: Identifier of the SQL warehouse.
+  steps:
+    - ref: get_warehouse
+      action: tools.databricks_sdk.call_method
+      args:
+        service: warehouses
+        method_name: get
+        params:
+          id: ${{ inputs.id }}
+  returns: ${{ steps.get_warehouse.result }}

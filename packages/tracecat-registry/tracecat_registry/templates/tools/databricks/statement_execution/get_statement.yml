@@ -1,0 +1,21 @@
+type: action
+definition:
+  title: Get SQL statement
+  description: Retrieve the status and result of a SQL statement.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/sql/statement_execution.html#databricks.sdk.service.sql.StatementExecutionAPI.get_statement
+  namespace: tools.databricks
+  name: get_statement
+  expects:
+    statement_id:
+      type: str
+      description: Identifier of the SQL statement.
+  steps:
+    - ref: get_statement
+      action: tools.databricks_sdk.call_method
+      args:
+        service: statement_execution
+        method_name: get_statement
+        params:
+          statement_id: ${{ inputs.statement_id }}
+  returns: ${{ steps.get_statement.result }}

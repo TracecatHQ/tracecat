@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: List job runs
+  description: List job runs in descending start-time order.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/jobs/jobs.html#databricks.sdk.service.jobs.JobsExt.list_runs
+  namespace: tools.databricks
+  name: list_runs
+  expects:
+    active_only:
+      type: bool | None
+      description: Whether to include only active runs.
+      default: null
+    completed_only:
+      type: bool | None
+      description: Whether to include only completed runs.
+      default: null
+    expand_tasks:
+      type: bool | None
+      description: Whether to include task and cluster details.
+      default: null
+    job_id:
+      type: int | None
+      description: Job identifier used to filter runs.
+      default: null
+    limit:
+      type: int | None
+      description: Number of runs returned per server page.
+      default: null
+    page_token:
+      type: str | None
+      description: Token for a subsequent page.
+      default: null
+    start_time_from:
+      type: int | None
+      description: Earliest run start time in epoch milliseconds.
+      default: null
+    start_time_to:
+      type: int | None
+      description: Latest run start time in epoch milliseconds.
+      default: null
+    max_items:
+      type: int
+      description: Maximum number of runs to return across SDK pages.
+      default: 1000
+  steps:
+    - ref: list_runs
+      action: tools.databricks_sdk.call_paginated_method
+      args:
+        service: jobs
+        method_name: list_runs
+        params:
+          active_only: ${{ inputs.active_only }}
+          completed_only: ${{ inputs.completed_only }}
+          expand_tasks: ${{ inputs.expand_tasks }}
+          job_id: ${{ inputs.job_id }}
+          limit: ${{ inputs.limit }}
+          page_token: ${{ inputs.page_token }}
+          start_time_from: ${{ inputs.start_time_from }}
+          start_time_to: ${{ inputs.start_time_to }}
+        limit: ${{ inputs.max_items }}
+  returns: ${{ steps.list_runs.result }}

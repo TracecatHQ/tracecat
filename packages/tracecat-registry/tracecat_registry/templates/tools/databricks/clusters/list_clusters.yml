@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: List clusters
+  description: Return pinned and active clusters and recently terminated clusters.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/compute/clusters.html#databricks.sdk.service.compute.ClustersExt.list
+  namespace: tools.databricks
+  name: list_clusters
+  expects:
+    page_size:
+      type: int | None
+      description: Maximum number of results for each server response.
+      default: null
+    page_token:
+      type: str | None
+      description: Token from a previous response for the next or previous page.
+      default: null
+    limit:
+      type: int
+      description: Maximum number of clusters to return across SDK pages.
+      default: 1000
+  steps:
+    - ref: list_clusters
+      action: tools.databricks_sdk.call_paginated_method
+      args:
+        service: clusters
+        method_name: list
+        params:
+          page_size: ${{ inputs.page_size }}
+          page_token: ${{ inputs.page_token }}
+        limit: ${{ inputs.limit }}
+  returns: ${{ steps.list_clusters.result }}

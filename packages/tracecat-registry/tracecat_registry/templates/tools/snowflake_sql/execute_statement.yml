@@ -1,0 +1,59 @@
+type: action
+definition:
+  title: Execute SQL statement
+  description: Submit one or more Snowflake SQL statements for execution.
+  display_group: Snowflake SQL API
+  doc_url: https://docs.snowflake.com/en/developer-guide/sql-api/reference#post-apiv2statements
+  namespace: tools.snowflake_sql
+  name: execute_statement
+  secrets:
+    - name: snowflake_sql
+      keys: ["SNOWFLAKE_TOKEN"]
+      optional_keys: ["SNOWFLAKE_TOKEN_TYPE"]
+  expects:
+    payload:
+      # Generic: optional Snowflake request fields must be omitted rather than sent
+      # as null, and a literal payload map cannot omit an unset optional field.
+      type: dict[str, Any]
+      description: >-
+        SQL API request body. Documented fields are statement, timeout, database,
+        schema, warehouse, role, bindings, and parameters.
+    requestId:
+      type: str | None
+      description: Unique UUID for the API request.
+      default: null
+    async:
+      type: bool | None
+      description: Execute asynchronously and return the statement handle.
+      default: null
+    nullable:
+      type: bool | None
+      description: Set false to return SQL NULL as the string "null".
+      default: null
+    retry:
+      type: bool | None
+      description: Set true with the same requestId when resubmitting a request.
+      default: null
+    base_url:
+      type: str | None
+      description: Snowflake account URL, for example https://org-account.snowflakecomputing.com.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.snowflake_sql.base_url }}/api/v2/statements
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+          User-Agent: Tracecat-Snowflake-SQL-API/1.0
+          Authorization: Bearer ${{ SECRETS.snowflake_sql.SNOWFLAKE_TOKEN }}
+          X-Snowflake-Authorization-Token-Type: ${{ SECRETS.snowflake_sql.SNOWFLAKE_TOKEN_TYPE }}
+        params:
+          requestId: ${{ inputs.requestId }}
+          async: ${{ inputs.async }}
+          nullable: ${{ inputs.nullable }}
+          retry: ${{ inputs.retry }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

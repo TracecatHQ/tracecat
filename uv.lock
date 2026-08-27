@@ -1078,6 +1078,21 @@ wheels = [
 ]
 
 [[package]]
+name = "databricks-sdk"
+version = "0.133.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-auth" },
+    { name = "protobuf" },
+    { name = "requests" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bd/f9/06ae3ac44172a4390483db78c0beef1794d69e82958a74ea9cef11314aef/databricks_sdk-0.133.0.tar.gz", hash = "sha256:00e99cd3aa31807d4c4835268eb9f5fbef8f4286f81b1c2b56cf13ac17cacc95", size = 1159796, upload-time = "2026-08-19T04:31:37.035Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ed/9e/be3efa4cacee78091dbfbfc2bbdf71220962528592539ccf337083fefa74/databricks_sdk-0.133.0-py3-none-any.whl", hash = "sha256:3733a0f2b45c6da5c628755df0d0d10a438cc7e1465546f641690561fd97bc9e", size = 1102159, upload-time = "2026-08-19T04:31:35.285Z" },
+]
+
+[[package]]
 name = "dateparser"
 version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
@@ -5181,6 +5196,7 @@ dependencies = [
     { name = "boto3" },
     { name = "cloudflare" },
     { name = "crowdstrike-falconpy" },
+    { name = "databricks-sdk" },
     { name = "dnspython" },
     { name = "docker" },
     { name = "duckdb" },
@@ -5224,6 +5240,7 @@ requires-dist = [
     { name = "boto3", specifier = "==1.40.61" },
     { name = "cloudflare", specifier = "==5.2.0" },
     { name = "crowdstrike-falconpy", specifier = "==1.6.2" },
+    { name = "databricks-sdk", specifier = "==0.133.0" },
     { name = "dnspython", specifier = "==2.6.1" },
     { name = "docker", specifier = "==7.1.0" },
     { name = "duckdb", specifier = "==1.4.3" },

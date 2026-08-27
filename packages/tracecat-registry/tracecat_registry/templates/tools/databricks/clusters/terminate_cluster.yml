@@ -1,0 +1,21 @@
+type: action
+definition:
+  title: Terminate cluster
+  description: Terminate a cluster asynchronously.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/compute/clusters.html#databricks.sdk.service.compute.ClustersExt.delete
+  namespace: tools.databricks
+  name: terminate_cluster
+  expects:
+    cluster_id:
+      type: str
+      description: Cluster to terminate.
+  steps:
+    - ref: terminate_cluster
+      action: tools.databricks_sdk.call_method
+      args:
+        service: clusters
+        method_name: delete
+        params:
+          cluster_id: ${{ inputs.cluster_id }}
+  returns: ${{ steps.terminate_cluster.result }}

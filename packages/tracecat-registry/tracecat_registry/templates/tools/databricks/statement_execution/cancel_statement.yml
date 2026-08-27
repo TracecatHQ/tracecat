@@ -1,0 +1,21 @@
+type: action
+definition:
+  title: Cancel SQL statement
+  description: Cancel execution of a SQL statement.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/sql/statement_execution.html#databricks.sdk.service.sql.StatementExecutionAPI.cancel_execution
+  namespace: tools.databricks
+  name: cancel_statement
+  expects:
+    statement_id:
+      type: str
+      description: Identifier of the SQL statement to cancel.
+  steps:
+    - ref: cancel_statement
+      action: tools.databricks_sdk.call_method
+      args:
+        service: statement_execution
+        method_name: cancel_execution
+        params:
+          statement_id: ${{ inputs.statement_id }}
+  returns: ${{ steps.cancel_statement.result }}
