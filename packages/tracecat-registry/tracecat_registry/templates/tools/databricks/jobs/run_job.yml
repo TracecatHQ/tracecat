@@ -15,14 +15,17 @@ definition:
       description: Token used to guarantee idempotency of the run request.
       default: null
     job_parameters:
+      # Free-form: parameter names are defined by the target Databricks job.
       type: dict[str, str] | None
       description: Job-level parameter values for the run.
       default: null
     notebook_params:
+      # Free-form: parameter names are defined by the target notebook task.
       type: dict[str, str] | None
       description: Parameters to pass to notebook tasks.
       default: null
     python_named_params:
+      # Free-form: parameter names are defined by the target Python wheel task.
       type: dict[str, str] | None
       description: Named parameters to pass to Python wheel tasks.
       default: null
@@ -31,6 +34,7 @@ definition:
       description: Parameters to pass to Python tasks.
       default: null
     sql_params:
+      # Free-form: parameter names are defined by the target SQL task.
       type: dict[str, str] | None
       description: Parameters to pass to SQL tasks.
       default: null
