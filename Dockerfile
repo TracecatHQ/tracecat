@@ -339,8 +339,14 @@ COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /app/packages/traceca
 COPY --chown=apiuser:apiuser ./pyproject.toml ./uv.lock ./.python-version ./README.md ./LICENSE ./alembic.ini /app/
 COPY --chown=apiuser:apiuser ./alembic /app/alembic
 
+# `--reinstall-package tracecat-ee` is load-bearing. The cache-prime sync above
+# already built and installed tracecat-ee non-editably, before the vendored
+# skills were copied in, and uv keys its build cache on package metadata rather
+# than arbitrary source files. Without a forced reinstall this sync reuses that
+# stale wheel, so `importlib.resources` serves skills that do not match
+# TRACECAT_PLUGINS_REF - silently, because staging warns and skips.
 RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
-    uv sync --locked --no-dev --no-editable
+    uv sync --locked --no-dev --no-editable --reinstall-package tracecat-ee
 
 ENV PATH="/app/.venv/bin:/home/apiuser/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
