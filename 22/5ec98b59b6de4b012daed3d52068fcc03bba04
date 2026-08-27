@@ -1,0 +1,24 @@
+frontend/src/components/icons.tsx
+  s_901fd07e564780::t_70ac4a8ff2c91c 1983-2150
+  s_901fd07e564780::t_9bcf498a975c42 850,855,860
+  s_901fd07e564780::t_05f9c418368b3d 1870
+  s_901fd07e564780::t_49f15073a479fd 637-642
+frontend/src/components/icons.test.tsx
+  s_901fd07e564780::t_646e73ea73b61a 1-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "225ec98b59b6de4b012daed3d52068fcc03bba04",
+  "prompts": {},
+  "sessions": {
+    "s_901fd07e564780": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "efb3eabb-639e-40fc-8a3e-7e3eb3f0ed95",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
