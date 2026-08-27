@@ -161,6 +161,52 @@ SDK-backed or not.
   template over an SDK wrapper declares the optional input and passes the
   resolved value into a required wrapper argument; the wrapper must not recover
   routing configuration from a secret or ambient environment variable.
+
+  Customer-specific SDK endpoint with no universal default — copy this shape:
+
+  ```yaml
+  type: action
+  definition:
+    namespace: tools.databricks
+    name: get_cluster
+    expects:
+      base_url:
+        type: str | None
+        description: Databricks workspace URL.
+        default: null
+      cluster_id:
+        type: str
+        description: Cluster about which to retrieve information.
+    steps:
+      - ref: get_cluster
+        action: tools.databricks_sdk.call_method
+        args:
+          base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
+          service: clusters
+          method_name: get
+          params:
+            cluster_id: ${{ inputs.cluster_id }}
+    returns: ${{ steps.get_cluster.result }}
+  ```
+
+  Public REST endpoint with an official default — copy this fallback order:
+
+  ```yaml
+  expects:
+    base_url:
+      type: str | None
+      description: GreyNoise API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.greynoise.base_url || "https://api.greynoise.io" }}/v3/gnql
+        method: GET
+  ```
+
+  In both examples, `base_url` is ordinary configuration. Do not replace the
+  input or `VARS` lookup with a secret key or an environment-variable lookup.
 - Distinguish multiple placements of one credential from genuinely different
   authentication modes. If the same API key can be sent in a query parameter,
   custom header, Bearer header, or Basic auth, implement one safest documented
@@ -204,6 +250,32 @@ SDK-backed or not.
   `optional_keys`; never model an optional secret group by moving its required
   fields into `optional_keys`. Follow `google_api_optional_secret` as the schema
   pattern.
+
+  Secret declarations are Python rather than template YAML. The matching
+  optional-group pattern is:
+
+  ```python
+  user_oauth = RegistryOAuthSecret(
+      provider_id="vendor",
+      grant_type="authorization_code",
+      optional=True,
+  )
+  service_oauth = RegistryOAuthSecret(
+      provider_id="vendor",
+      grant_type="client_credentials",
+      optional=True,
+  )
+  stored_fallback = RegistrySecret(
+      name="vendor",
+      keys=["VENDOR_CLIENT_ID", "VENDOR_CLIENT_SECRET", "VENDOR_TOKEN_URL"],
+      optional_keys=["VENDOR_SCOPE", "VENDOR_AUDIENCE"],
+      optional=True,
+  )
+  ```
+
+  Here the whole `stored_fallback` may be absent. If it exists, every entry in
+  `keys` is required. Never move the client ID, client secret, or token URL into
+  `optional_keys` merely because `optional=True` is set on the group.
 - Do not duplicate OAuth exchange logic unless the standard provider cannot
   represent a required vendor flow. Verify the grant, endpoint authentication
   method, scopes, PKCE requirements, refresh behavior, and any audience/resource
