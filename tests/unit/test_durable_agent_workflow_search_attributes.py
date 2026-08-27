@@ -943,6 +943,7 @@ def test_approved_registry_tool_failures_are_not_retried() -> None:
             registry_lock=registry_lock,
             service_role=role,
             logical_time=datetime(2026, 3, 18, tzinfo=UTC),
+            agent_session_id=uuid.uuid4(),
         )
 
     retry_policy = start_activity_mock.call_args.kwargs["retry_policy"]
