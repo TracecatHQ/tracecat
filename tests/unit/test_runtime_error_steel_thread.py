@@ -637,25 +637,72 @@ async def test_error_handler_failure_replaces_original_terminal_owner() -> None:
             "_run_error_handler_workflow",
             new=AsyncMock(side_effect=handler_error),
         ),
-        patch.object(
-            DSLWorkflow,
-            "_upsert_terminal_error_owner",
-        ) as upsert_mock,
+        patch(
+            "tracecat.dsl.workflow.workflow.patched",
+            return_value=True,
+        ) as patched_mock,
+        patch("tracecat.dsl.workflow.workflow.upsert_search_attributes") as upsert_mock,
         patch("tracecat.dsl.workflow.workflow.info"),
         patch(
             "tracecat.dsl.workflow.get_trigger_type",
             return_value=TriggerType.MANUAL,
         ),
-        pytest.raises(ApplicationError) as exc_info,
     ):
-        await instance._handle_application_error(
-            args,
-            original_error,
-            stamp_terminal_owner=True,
-        )
+        try:
+            raise original_error
+        except ApplicationError as active_error:
+            with pytest.raises(ApplicationError) as exc_info:
+                await instance._handle_application_error(
+                    args,
+                    active_error,
+                    stamp_terminal_owner=True,
+                )
 
     assert exc_info.value is handler_error
-    upsert_mock.assert_called_once_with(handler_error)
+    assert handler_error.__context__ is original_error
+    patched_mock.assert_called_once_with(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH)
+    upsert_mock.assert_called_once()
+    updates = upsert_mock.call_args.args[0]
+    assert len(updates) == 1
+    assert updates[0].key.name == TemporalSearchAttr.ERROR_OWNER.value
+    assert updates[0].value == RuntimeErrorOwner.PLATFORM.value
+
+
+@pytest.mark.anyio
+async def test_unclassified_handler_failure_does_not_inherit_original_owner() -> None:
+    """Incidental exception context cannot classify an unclassified handler failure."""
+    instance, args = _error_handler_workflow()
+    original_envelope = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    original_error = _capture_application_error(original_envelope)
+    handler_error = RuntimeError("Handler lookup failed")
+
+    with (
+        patch.object(
+            instance,
+            "_get_error_handler_workflow_id",
+            new=AsyncMock(side_effect=handler_error),
+        ),
+        patch("tracecat.dsl.workflow.workflow.patched") as patched_mock,
+        patch("tracecat.dsl.workflow.workflow.upsert_search_attributes") as upsert_mock,
+    ):
+        try:
+            raise original_error
+        except ApplicationError as active_error:
+            with pytest.raises(RuntimeError) as exc_info:
+                await instance._handle_application_error(
+                    args,
+                    active_error,
+                    stamp_terminal_owner=True,
+                )
+
+    assert exc_info.value is handler_error
+    assert handler_error.__context__ is original_error
+    patched_mock.assert_not_called()
+    upsert_mock.assert_not_called()
 
 
 @pytest.mark.anyio

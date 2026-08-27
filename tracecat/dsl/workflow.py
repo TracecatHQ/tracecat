@@ -831,7 +831,11 @@ class DSLWorkflow:
     @staticmethod
     def _upsert_terminal_error_owner(error: BaseException) -> None:
         """Stamp attribution only when a classified error reaches this boundary."""
-        envelopes = extract_error_envelopes(error)
+        # The escaping error owns terminal attribution. An error handler runs
+        # while the original workflow error remains the active exception, so
+        # following implicit ``__context__`` here can misclassify an
+        # unclassified handler failure as the original error's owner.
+        envelopes = extract_error_envelopes(error, include_implicit_context=False)
         if not envelopes:
             return
         if not workflow.patched(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH):

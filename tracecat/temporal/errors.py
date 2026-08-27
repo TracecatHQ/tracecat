@@ -179,11 +179,24 @@ def extract_error_envelope(error: BaseException) -> ErrorEnvelope | None:
     return None
 
 
-def extract_error_envelopes(error: BaseException) -> tuple[ErrorEnvelope, ...]:
-    """Extract every valid envelope from an exception chain in transport order."""
+def extract_error_envelopes(
+    error: BaseException,
+    *,
+    include_implicit_context: bool = True,
+) -> tuple[ErrorEnvelope, ...]:
+    """Extract every valid envelope from an exception chain in transport order.
+
+    Args:
+        error: The exception whose classification should be extracted.
+        include_implicit_context: Whether to traverse Python's incidental
+            ``__context__`` chain in addition to Temporal and explicit causes.
+    """
     envelopes: list[ErrorEnvelope] = []
     seen: set[ErrorEnvelope] = set()
-    for current in _error_chain(error):
+    for current in _error_chain(
+        error,
+        include_implicit_context=include_implicit_context,
+    ):
         if isinstance(current, TracecatRuntimeError):
             _append_unique_envelope(envelopes, seen, current.envelope)
         if isinstance(current, ApplicationError):
@@ -237,7 +250,11 @@ def _append_unique_envelope(
         envelopes.append(envelope)
 
 
-def _error_chain(error: BaseException) -> Iterator[BaseException]:
+def _error_chain(
+    error: BaseException,
+    *,
+    include_implicit_context: bool = True,
+) -> Iterator[BaseException]:
     current: BaseException | None = error
     seen: set[int] = set()
     while current is not None:
@@ -253,8 +270,10 @@ def _error_chain(error: BaseException) -> Iterator[BaseException]:
             current = current.cause
         elif isinstance(current.__cause__, BaseException):
             current = current.__cause__
-        elif not current.__suppress_context__ and isinstance(
-            current.__context__, BaseException
+        elif (
+            include_implicit_context
+            and not current.__suppress_context__
+            and isinstance(current.__context__, BaseException)
         ):
             current = current.__context__
         else:

@@ -511,6 +511,35 @@ def test_wrapper_map_extracts_every_classified_envelope() -> None:
     assert extract_error_envelopes(error) == (user_envelope, platform_envelope)
 
 
+def test_envelope_extraction_can_ignore_only_implicit_context() -> None:
+    """Boundary extraction skips incidental context but keeps deliberate causes."""
+    envelope = _user_envelope()
+    classified_error = _capture_application_error(envelope)
+
+    try:
+        raise classified_error
+    except ApplicationError:
+        try:
+            raise RuntimeError("Handler failed")
+        except RuntimeError as implicit_error:
+            assert implicit_error.__context__ is classified_error
+            assert extract_error_envelopes(implicit_error) == (envelope,)
+            assert (
+                extract_error_envelopes(
+                    implicit_error,
+                    include_implicit_context=False,
+                )
+                == ()
+            )
+
+    explicit_error = RuntimeError("Explicit wrapper")
+    explicit_error.__cause__ = classified_error
+    assert extract_error_envelopes(
+        explicit_error,
+        include_implicit_context=False,
+    ) == (envelope,)
+
+
 def test_arbitrary_nested_envelope_does_not_collide_with_action_error_map() -> None:
     envelope = _user_envelope()
     error = ApplicationError(
