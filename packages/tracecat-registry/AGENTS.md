@@ -152,6 +152,12 @@ SDK-backed or not.
 
 #### Credentials
 
+- Treat connection configuration separately from authentication material. Base
+  URLs, workspace hosts, account URLs, regions, and similar routing values are
+  not secrets. Expose them as a `base_url`/host action input and resolve them
+  through `inputs.<name> || VARS.<tool_name>.<name> || <official default>` where
+  a default exists. Never put a non-sensitive base URL or host in
+  `RegistrySecret`; this applies to SDK wrappers as well as HTTP templates.
 - Put credentials where the vendor documents them. **When a vendor offers several mechanisms,
   implement exactly one: the header token.** Do not also wire up the query parameter or Basic.
   Hunter documents an `api_key` query parameter, an `X-API-KEY` header and a Bearer header —
@@ -171,6 +177,22 @@ SDK-backed or not.
   `google_scc/*` declare an `oauth` secret and a key secret together.
 - Declare credentials through `RegistrySecret` or OAuth rather than ordinary action
   inputs. Document required scopes, API versions, and product-tier constraints.
+- When an integration is intentionally OAuth-only, do not add PAT, API-token,
+  raw bearer-token, ambient credential-discovery, or undocumented compatibility
+  paths. Implement only the approved OAuth grants.
+- For integrations that support user OAuth, service OAuth, and an
+  environment-scoped stored credential fallback, use this precedence:
+  authorization-code token, client-credentials token, then stored credentials.
+  Keep each OAuth secret optional so either grant can be configured independently.
+  The stored secret may also be optional, but if it is present its minimum usable
+  fields belong in `keys`; only genuinely optional modifiers belong in
+  `optional_keys`. Follow `google_api_optional_secret` as the schema pattern.
+- Do not duplicate OAuth exchange logic unless the standard provider cannot
+  represent a required vendor flow. Verify the grant, endpoint authentication
+  method, scopes, PKCE requirements, refresh behavior, and any audience/resource
+  parameters against current official documentation. If a generic service
+  provider cannot express provider-specific token parameters, state that limit
+  and keep those parameters in the environment-scoped credential fallback.
 - `core.http_request` types `headers` as `dict[str, str | None]`. String-valued expressions and
   nulls are allowed; a `bool` or `int` input fails validation before the request is made. Serialize
   booleans to the vendor's documented string values.
@@ -208,6 +230,31 @@ SDK-backed or not.
   add broad recursive parsing or magic conversions across generic payload maps.
 - For field-map inputs, support rich objects by allowing them as values inside the existing field
   maps rather than changing the outer input shape.
+
+#### SDK wrapper mechanics
+
+- Use an established generic SDK wrapper, especially `slack_sdk.py`, as the
+  structural reference before inventing a new dispatch pattern. Preserve simple
+  Python idioms from that reference, including an assignment expression such as
+  `if method := getattr(client, sdk_method, None):` when resolving an optional
+  callable.
+- Keep API semantics in the official SDK or provider. Wrapper-side validation is
+  limited to Tracecat-owned safety and protocol boundaries such as blocking
+  private dispatch, preventing credential exfiltration, bounding pagination, and
+  producing JSON-serializable results. Do not duplicate the provider's request
+  validation, enums, required-field checks, or error interpretation.
+- Separate direct and paginated dispatch explicitly. A direct dispatcher must
+  never return an `Iterator` or generator unchanged; reject it with a clear
+  instruction to use the paginated action. The paginated dispatcher must collect
+  only the caller-requested bounded number of items.
+- Inspect the exact pinned SDK implementation and runtime type before adapting
+  special values such as waiters, pagers, futures, and response wrappers. Do not
+  infer what `bind()`, `result()`, or a similarly named method returns. Serialize
+  the real public response and binding data without recursively serializing the
+  wrapper object itself.
+- Before declaring an SDK template complete, confirm against the pinned SDK that
+  every referenced `service.method` exists and every forwarded keyword is
+  accepted by that method's signature.
 
 #### Pagination and polling
 
@@ -258,8 +305,34 @@ SDK-backed or not.
   allowed for Tracecat-owned platform security or protocol boundaries, such as
   credential isolation, preventing host filesystem or subprocess access, blocking
   ambient credential discovery, network-target restrictions, and shared protocol
-  machinery. Provider-local dispatch, validation, pagination, or serialization is
-  not a platform-boundary exception merely because Tracecat implements it.
+  machinery. Generic SDK wrapper dispatch, bounded pagination, waiter handling,
+  and JSON serialization are wrapper-owned protocol boundaries: when fixing one,
+  add a narrow regression test using the pinned SDK's real runtime type or contract
+  rather than a mock with assumed behavior. Provider request validation is not a
+  platform-boundary exception merely because Tracecat implements it.
+
+### Integration assets
+
+- Add the provider's official vector logo when introducing an integration or
+  OAuth provider. Prefer the vendor's current SVG asset over a raster image,
+  unofficial redraw, wordmark screenshot, or generated approximation.
+- Verify the committed SVG at rendered integration-icon size on both light and
+  dark backgrounds. Preserve official brand colors, transparency, and aspect
+  ratio; add a deliberate light/dark variant only when the official mark is not
+  legible in both modes.
+
+### Integration review checklist
+
+Before handing off an integration PR, explicitly re-audit:
+
+- the full action/template inventory and each exact endpoint or SDK method;
+- action inputs and `VARS`, especially that no base URL or host leaked into a secret;
+- credential schemas, OAuth grant registrations, scopes, endpoints, and runtime
+  precedence, including the environment-scoped fallback;
+- absence of unapproved PAT, API-token, raw-token, and ambient-auth paths;
+- JSON serialization for ordinary responses, waiters, and paginated iterators;
+- official SVG mappings for action namespaces, credentials, and OAuth providers;
+- focused registry/provider tests and all current unresolved PR review threads.
 
 ## Jira ADF pattern
 
