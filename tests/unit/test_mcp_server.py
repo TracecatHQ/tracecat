@@ -10337,6 +10337,45 @@ async def test_prepare_skill_upload_checks_update_scope_before_creating_skill(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "paths",
+    [
+        ["SKILL.md", "references", "references/example.md"],
+        ["SKILL.md", "references/example.md", "references"],
+    ],
+)
+async def test_prepare_skill_upload_rejects_path_prefix_collisions_before_service(
+    monkeypatch: pytest.MonkeyPatch,
+    paths: list[str],
+) -> None:
+    def _unexpected_with_session(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("SkillService must not open for a path prefix collision")
+
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        _unexpected_with_session,
+    )
+
+    files = [
+        mcp_server.SkillUploadFileMetadata(
+            path=path,
+            sha256="a" * 64,
+            size_bytes=1,
+            content_type="text/plain",
+        )
+        for path in paths
+    ]
+    with pytest.raises(ToolError, match="conflicts with file path 'references'"):
+        await _tool(mcp_server.prepare_skill_upload)(
+            workspace_id=str(uuid.uuid4()),
+            name="triage-skill",
+            files=files,
+            ctx=_fake_ctx(),
+        )
+
+
+@pytest.mark.anyio
 async def test_prepare_skill_upload_rejects_oversized_manifest_before_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

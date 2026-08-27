@@ -1461,6 +1461,16 @@ def _validate_staged_skill_paths(paths: Sequence[str]) -> list[str]:
 
     if "SKILL.md" not in seen_paths:
         raise ToolError("Skill upload must include a root SKILL.md")
+
+    for normalized_path in normalized_paths:
+        parts = PurePosixPath(normalized_path).parts
+        for index in range(1, len(parts)):
+            ancestor = "/".join(parts[:index])
+            if ancestor in seen_paths:
+                raise ToolError(
+                    f"Skill upload path '{normalized_path}' conflicts with "
+                    f"file path '{ancestor}'"
+                )
     return normalized_paths
 
 
