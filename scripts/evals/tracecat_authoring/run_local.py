@@ -25,6 +25,7 @@ from fastmcp import Client
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ValidationError
 
+from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.mcp.json_patch import validate_patch_paths
@@ -46,6 +47,7 @@ PROMPT_SOURCE_MAX_CHARS = {
     "mcp_instructions": 14_500,
     "dsl_reference": 15_500,
     "best_practices_skill": 9_500,
+    "domain_reference": 1_500,
 }
 
 
@@ -1245,6 +1247,151 @@ def deterministic_prep_outside_agent(snapshots: Sequence[WorkflowSnapshot]) -> b
     )
 
 
+def configured_valid_case_trigger(
+    snapshots: Sequence[WorkflowSnapshot],
+) -> bool:
+    valid_event_types = {event_type.value for event_type in CaseEventType}
+    case_triggers: list[Mapping[str, Any]] = []
+    for snapshot in snapshots:
+        candidates = [
+            snapshot.yaml_payload.get("case_trigger")
+            if snapshot.yaml_payload is not None
+            else None,
+            snapshot.raw.get("case_trigger"),
+        ]
+        case_trigger = next(
+            (candidate for candidate in candidates if isinstance(candidate, dict)),
+            None,
+        )
+        if case_trigger is not None:
+            case_triggers.append(case_trigger)
+
+    return bool(case_triggers) and all(
+        isinstance(event_types := case_trigger.get("event_types"), list)
+        and bool(event_types)
+        and all(
+            isinstance(event_type, str) and event_type in valid_event_types
+            for event_type in event_types
+        )
+        for case_trigger in case_triggers
+    )
+
+
+def uses_real_case_trigger_payload(snapshots: Sequence[WorkflowSnapshot]) -> bool:
+    text = json.dumps(
+        [action.model_dump(mode="json") for action in all_actions(snapshots)]
+    )
+    required_patterns = [
+        r"\bTRIGGER\.case_id\b",
+        r"\bTRIGGER\.event\.[A-Za-z_][A-Za-z0-9_]*\b",
+        r"\bTRIGGER\.tags\b",
+        r"\bTRIGGER\.workspace_id\b",
+    ]
+    return all(
+        re.search(pattern, text) for pattern in required_patterns
+    ) and not re.search(r"\bTRIGGER\.payload\b", text)
+
+
+OAUTH_SECRET_REFERENCE_PATTERN = re.compile(
+    r"\bSECRETS\.([A-Za-z0-9_<>-]+)_oauth\.([A-Za-z0-9_<>-]+)\b"
+)
+
+
+def oauth_secret_reference_is_valid(provider_id: str, key: str) -> bool:
+    if any(character in provider_id or character in key for character in "<>"):
+        return True
+    expected_prefix = provider_id.upper()
+    return key in {
+        f"{expected_prefix}_USER_TOKEN",
+        f"{expected_prefix}_SERVICE_TOKEN",
+    }
+
+
+def workflow_oauth_secret_references_valid(
+    snapshots: Sequence[WorkflowSnapshot],
+) -> bool:
+    text = json.dumps(
+        [action.model_dump(mode="json") for action in all_actions(snapshots)]
+    )
+    references = OAUTH_SECRET_REFERENCE_PATTERN.findall(text)
+    return bool(references) and all(
+        oauth_secret_reference_is_valid(provider_id, key)
+        for provider_id, key in references
+    )
+
+
+def python_action_is_boolean_router(action: ActionStatement) -> bool:
+    if action.action != "core.script.run_python":
+        return False
+    script = action.args.get("script")
+    if not isinstance(script, str):
+        return False
+    nonempty_lines = [line for line in script.splitlines() if line.strip()]
+    if len(nonempty_lines) > 8:
+        return False
+    try:
+        tree = ast.parse(script)
+    except SyntaxError:
+        return False
+
+    def is_boolean_value(node: ast.expr | None) -> bool:
+        if isinstance(node, ast.Constant):
+            return isinstance(node.value, bool)
+        if isinstance(node, (ast.BoolOp, ast.Compare)):
+            return True
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return True
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            return node.func.id == "bool"
+        if isinstance(node, ast.Dict):
+            return bool(node.values) and all(
+                is_boolean_value(value) for value in node.values
+            )
+        return False
+
+    returns = [node for node in ast.walk(tree) if isinstance(node, ast.Return)]
+    return bool(returns) and all(is_boolean_value(node.value) for node in returns)
+
+
+def uses_run_if_without_boolean_router(
+    snapshots: Sequence[WorkflowSnapshot],
+) -> bool:
+    actions = all_actions(snapshots)
+    return any(action.run_if is not None for action in actions) and not any(
+        python_action_is_boolean_router(action) for action in actions
+    )
+
+
+def agent_granted_slack_posting_tool(
+    snapshots: Sequence[WorkflowSnapshot],
+) -> bool:
+    for action in all_actions(snapshots):
+        if action.action not in {"ai.agent", "ai.preset_agent"}:
+            continue
+        granted_actions = action.args.get("actions")
+        if not isinstance(granted_actions, list):
+            continue
+        if any(
+            isinstance(name, str)
+            and name.startswith("tools.slack.")
+            and any(token in name for token in ("post", "send", "message"))
+            for name in granted_actions
+        ):
+            return True
+    return False
+
+
+def agent_has_no_output_type(snapshots: Sequence[WorkflowSnapshot]) -> bool:
+    agent_actions = [
+        action
+        for action in all_actions(snapshots)
+        if action.action in {"ai.agent", "ai.preset_agent"}
+    ]
+    return bool(agent_actions) and all(
+        "output_type" not in action.args for action in agent_actions
+    )
+
+
 def workflow_execute_uses_alias(snapshots: Sequence[WorkflowSnapshot]) -> bool:
     return any(
         action.action == "core.workflow.execute"
@@ -1297,6 +1444,29 @@ MCP_SQL_TYPES = {
 
 def mcp_tool_called(calls: Sequence[McpToolCall], tool_name: str) -> bool:
     return any(call.tool_name == tool_name for call in calls)
+
+
+def listed_integrations_for_oauth(calls: Sequence[McpToolCall]) -> bool:
+    integration_index = next(
+        (
+            index
+            for index, call in enumerate(calls)
+            if call.tool_name == "list_integrations"
+        ),
+        None,
+    )
+    if integration_index is None:
+        return False
+    first_oauth_write = next(
+        (
+            index
+            for index, call in enumerate(calls)
+            if call.tool_name in {"create_workflow", "edit_workflow"}
+            and "_oauth" in json.dumps(call.arguments)
+        ),
+        None,
+    )
+    return first_oauth_write is None or integration_index < first_oauth_write
 
 
 def update_workflow_metadata_only(calls: Sequence[McpToolCall]) -> bool:
@@ -1447,6 +1617,10 @@ def evaluate_rubric_item(
             has_action(snapshots, "core.http_paginate"),
             "Expected core.http_paginate action.",
         ),
+        "uses_core_http_request": (
+            has_action(snapshots, "core.http_request"),
+            "Expected core.http_request action.",
+        ),
         "treats_paginate_result_as_list": (
             treats_paginate_result_as_list(snapshots),
             "Expected direct list handling of core.http_paginate result.",
@@ -1487,6 +1661,34 @@ def evaluate_rubric_item(
         "agent_without_broad_http_tool": (
             agent_without_broad_http_tool(snapshots),
             "Expected no broad core.http_request tool granted to agent.",
+        ),
+        "configured_valid_case_trigger": (
+            configured_valid_case_trigger(snapshots),
+            "Expected a case trigger with non-empty event_types from CaseEventType.",
+        ),
+        "uses_real_case_trigger_payload": (
+            uses_real_case_trigger_payload(snapshots),
+            "Expected real case-trigger payload keys and no TRIGGER.payload reference.",
+        ),
+        "oauth_secret_references_valid": (
+            workflow_oauth_secret_references_valid(snapshots),
+            "Expected OAuth secret references to use the provider-derived token key.",
+        ),
+        "listed_integrations_for_oauth": (
+            listed_integrations_for_oauth(mcp_calls),
+            "Expected list_integrations before selecting an OAuth provider id.",
+        ),
+        "uses_run_if_without_boolean_router": (
+            uses_run_if_without_boolean_router(snapshots),
+            "Expected run_if branching without a run-python boolean-only router.",
+        ),
+        "agent_granted_slack_posting_tool": (
+            agent_granted_slack_posting_tool(snapshots),
+            "Expected the agent action to be granted a Slack posting tool.",
+        ),
+        "agent_has_no_output_type": (
+            agent_has_no_output_type(snapshots),
+            "Expected agent actions to omit output_type.",
         ),
         "uses_workflow_execute": (
             has_action(snapshots, "core.workflow.execute"),
@@ -1951,6 +2153,136 @@ def validate_registered_action_section(text: str) -> CheckResult:
     )
 
 
+def validate_prompt_no_unrendered_placeholders(
+    sources: Sequence[PromptSource],
+) -> CheckResult:
+    placeholder_pattern = re.compile(r"\{_[A-Z][A-Z0-9_]*\}")
+    hits = [
+        f"{source.name}:{placeholder}"
+        for source in sources
+        for placeholder in placeholder_pattern.findall(source.text)
+    ]
+    return CheckResult(
+        "prompt_no_unrendered_placeholders",
+        not hits,
+        f"hits={hits}",
+    )
+
+
+def validate_prompt_case_event_types_match_enum(
+    sources: Sequence[PromptSource],
+) -> CheckResult:
+    valid_event_types = {event_type.value for event_type in CaseEventType}
+    suffixes = sorted(
+        {event_type.rsplit("_", 1)[-1] for event_type in valid_event_types},
+        key=len,
+        reverse=True,
+    )
+    event_token_pattern = re.compile(
+        r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)*_(?:"
+        + "|".join(re.escape(suffix) for suffix in suffixes)
+        + r")\b"
+    )
+    # Tokens written inside an `event_types: [...]` list are unambiguously event
+    # types, so validate them regardless of whether they end in a known suffix.
+    # The suffix heuristic alone misses an invented value such as
+    # `case_exploded`, which is exactly the drift this check exists to catch.
+    declared_list_pattern = re.compile(r"event_types\s*:\s*\[([^\]]*)\]")
+    quoted_value_pattern = re.compile(r"[\"']([a-z][a-z0-9_]*)[\"']")
+
+    failures: list[str] = []
+    for source in sources:
+        event_tokens = set(event_token_pattern.findall(source.text))
+        for declared in declared_list_pattern.findall(source.text):
+            event_tokens.update(quoted_value_pattern.findall(declared))
+        invalid = sorted(event_tokens - valid_event_types)
+        if invalid:
+            failures.append(f"{source.name}:invalid={invalid}")
+        mentioned = event_tokens & valid_event_types
+        if "case_created" in mentioned and len(mentioned) >= 5:
+            missing = sorted(valid_event_types - mentioned)
+            if missing:
+                failures.append(f"{source.name}:missing={missing}")
+    return CheckResult(
+        "prompt_case_event_types_match_enum",
+        not failures,
+        "; ".join(failures),
+    )
+
+
+def prompt_prose_lines(text: str) -> list[tuple[int, str]]:
+    prose_lines: list[tuple[int, str]] = []
+    in_fence = False
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            prose_lines.append((line_number, line))
+    return prose_lines
+
+
+def validate_prompt_expression_syntax_claims(
+    sources: Sequence[PromptSource],
+) -> CheckResult:
+    invalid_hits: list[str] = []
+    expression_pattern = re.compile(r"\$\{\{(?P<body>.*?)\}\}")
+    invalid_arrow_pattern = re.compile(r"->\s*(?P<target>[^\s]+)")
+    lowercase_literals = re.compile(r"`(?:true|false|null)`")
+
+    for source in sources:
+        lines = source.text.splitlines()
+        for line_number, line in enumerate(lines, start=1):
+            if "-> true_value" in line or "condition -> " in line:
+                invalid_hits.append(f"{source.name}:{line_number}:old_ternary")
+            for expression in expression_pattern.finditer(line):
+                for arrow in invalid_arrow_pattern.finditer(expression.group("body")):
+                    target = arrow.group("target")
+                    if target not in {"int", "float", "str", "bool"}:
+                        invalid_hits.append(
+                            f"{source.name}:{line_number}:invalid_arrow={target}"
+                        )
+            if "LOCAL." in line:
+                invalid_hits.append(f"{source.name}:{line_number}:LOCAL")
+            if "TRIGGER.payload" in line and not re.search(
+                r"\b(?:no|not)\b", line, re.IGNORECASE
+            ):
+                invalid_hits.append(f"{source.name}:{line_number}:TRIGGER.payload")
+
+        for line_number, line in prompt_prose_lines(source.text):
+            nearby_text = " ".join(
+                lines[max(0, line_number - 2) : min(len(lines), line_number + 1)]
+            )
+            if lowercase_literals.search(line) and not re.search(
+                r"\b(?:do not\s+parse|does not\s+parse|invalid|not valid)\b",
+                nearby_text,
+                re.IGNORECASE,
+            ):
+                invalid_hits.append(f"{source.name}:{line_number}:lowercase_literal")
+
+    return CheckResult(
+        "prompt_expression_syntax_claims",
+        not invalid_hits,
+        f"hits={invalid_hits}",
+    )
+
+
+def validate_prompt_oauth_examples(
+    sources: Sequence[PromptSource],
+) -> CheckResult:
+    invalid_references = [
+        f"{source.name}:SECRETS.{provider_id}_oauth.{key}"
+        for source in sources
+        for provider_id, key in OAUTH_SECRET_REFERENCE_PATTERN.findall(source.text)
+        if not oauth_secret_reference_is_valid(provider_id, key)
+    ]
+    return CheckResult(
+        "prompt_oauth_examples",
+        not invalid_references,
+        f"invalid={invalid_references}",
+    )
+
+
 def prompt_facing_sources() -> list[PromptSource]:
     return [
         PromptSource("mcp_instructions", load_mcp_instructions()),
@@ -1958,6 +2290,10 @@ def prompt_facing_sources() -> list[PromptSource]:
             "dsl_reference", load_server_string_literal("_DSL_REFERENCE_TEXT")
         ),
         PromptSource("best_practices_skill", SKILL_SOURCE.read_text(encoding="utf-8")),
+        PromptSource(
+            "domain_reference",
+            load_rendered_server_prompt("_DOMAIN_REFERENCE_TEXT"),
+        ),
     ]
 
 
@@ -2088,6 +2424,10 @@ def static_prompt_checks() -> list[CheckResult]:
     dsl_text = sources[1].text
     prompt_facing_text = combine_prompt_sources(sources)
     checks.extend(validate_prompt_source_budgets(sources))
+    checks.append(validate_prompt_no_unrendered_placeholders(sources))
+    checks.append(validate_prompt_case_event_types_match_enum(sources))
+    checks.append(validate_prompt_expression_syntax_claims(sources))
+    checks.append(validate_prompt_oauth_examples(sources))
 
     secret_pattern = re.compile(
         r"(?i)(sk-[a-z0-9]{20,}|ghp_[a-z0-9]{20,}|xox[baprs]-[a-z0-9-]{20,})"
@@ -2117,7 +2457,35 @@ def static_prompt_checks() -> list[CheckResult]:
 
 
 def load_mcp_instructions() -> str:
-    return load_server_string_literal("_MCP_INSTRUCTIONS")
+    """Return the MCP instructions exactly as they are sent to clients.
+
+    `_MCP_INSTRUCTIONS` is a non-f-string literal carrying named placeholders
+    that `tracecat.mcp.server._render_prompt_text` substitutes at import. Mirror
+    that substitution here so the budget and content checks measure the text
+    clients actually receive, not the unrendered template.
+    """
+    return load_rendered_server_prompt("_MCP_INSTRUCTIONS")
+
+
+def load_rendered_server_prompt(name: str) -> str:
+    """Mirror `tracecat.mcp.server._render_prompt_text` for a prompt literal."""
+    import json as _json
+
+    text = load_server_string_literal(name)
+    event_types = [event_type.value for event_type in CaseEventType]
+    substitutions = {
+        "{_TEMPLATE_FILE_WARNING}": load_server_string_literal(
+            "_TEMPLATE_FILE_WARNING"
+        ),
+        "{_CSV_FILE_WARNING}": load_server_string_literal("_CSV_FILE_WARNING"),
+        "{_CASE_EVENT_TYPE_VALUES_JSON}": _json.dumps(
+            event_types, separators=(",", ":")
+        ),
+        "{_CASE_EVENT_TYPE_VALUES_CSV}": ", ".join(event_types),
+    }
+    for placeholder, value in substitutions.items():
+        text = text.replace(placeholder, value)
+    return text
 
 
 def load_server_string_literal(name: str) -> str:

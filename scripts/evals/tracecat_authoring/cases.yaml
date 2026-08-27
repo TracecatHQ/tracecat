@@ -203,3 +203,71 @@ cases:
       - validated_workflow
       - ran_draft_workflow
       - inspected_execution
+
+  - id: case_triggered_workflow
+    groups: [full]
+    prompt: |
+      Create a workflow with an online case trigger for `case_created` and
+      `case_updated` events. Read the current case with the case id, then write
+      a concise summary as a case comment.
+
+      Include the event type, tags, and workspace id in the summary context so
+      the workflow uses the real case-trigger fields. Do not use a generic
+      trigger payload object.
+    rubric:
+      - starts_from_live_context
+      - created_workflow
+      - valid_workflow_yaml
+      - configured_valid_case_trigger
+      - uses_real_case_trigger_payload
+
+  - id: oauth_http_action
+    groups: [full]
+    prompt: |
+      Create a workflow that makes a GET request to
+      `https://api.example.com/v1/oauth/profile` and authenticates it with the
+      OAuth-backed Azure Log Analytics provider.
+
+      Call `list_integrations` to discover the exact provider id and grant type,
+      then use the matching OAuth token expression as a bearer token. Do not
+      hardcode a token or derive the provider id from its display name.
+    rubric:
+      - starts_from_live_context
+      - created_workflow
+      - valid_workflow_yaml
+      - uses_core_http_request
+      - oauth_secret_references_valid
+      - listed_integrations_for_oauth
+
+  - id: run_if_branching_no_python
+    groups: [full]
+    prompt: |
+      Create a workflow that accepts a `status` field and takes one of two
+      paths: one path for `status == "ready"` and one fallback path for every
+      other value. Use action-level `run_if` expressions for the routing.
+
+      Keep the branch actions simple and deterministic. Do not add a Python
+      action whose only purpose is calculating routing booleans.
+    rubric:
+      - starts_from_live_context
+      - created_workflow
+      - valid_workflow_yaml
+      - declares_trigger_inputs
+      - uses_run_if_without_boolean_router
+
+  - id: agent_no_output_type
+    groups: [full]
+    prompt: |
+      Create a workflow that accepts a synthetic alert from `example.com`, asks
+      an agent or preset agent to investigate it, and posts a concise summary to
+      the synthetic Slack channel `#example-alerts`.
+
+      Grant the agent the Slack posting action it needs. The posting side effect
+      is the outcome, so do not define an `output_type` on the agent action.
+    rubric:
+      - starts_from_live_context
+      - created_workflow
+      - valid_workflow_yaml
+      - uses_agent_action
+      - agent_granted_slack_posting_tool
+      - agent_has_no_output_type
