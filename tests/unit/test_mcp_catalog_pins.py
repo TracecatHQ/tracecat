@@ -84,11 +84,12 @@ RETIRED_STDIO_LAUNCHERS = (
     '"secops_mcp"',
 )
 
-# Rows dropped from the catalog: no replacement recipe ships for them.
+# Rows dropped from the catalog with no replacement recipe. Google SecOps left
+# this tuple once Google's managed remote server replaced the retired local
+# stdio recipe.
 RETIRED_CATALOG_SLUGS = (
     "google-security-command-center-mcp",
     "virustotal-mcp",
-    "google-cloud-secops-mcp",
 )
 
 

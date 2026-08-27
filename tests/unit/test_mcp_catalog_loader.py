@@ -681,6 +681,55 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
     assert headers["X-Wiz-MCP-Mode"].default_value == "gateway"
 
 
+def test_google_secops_row_ships_templated_uri_and_pinned_authorize_params() -> None:
+    """Google's managed remote SecOps server needs a region and offline consent."""
+    _clear_catalog_cache()
+    entry = loader.get_platform_mcp_catalog_entry_by_slug(
+        "google-cloud-secops-mcp", include_private=True
+    )
+    assert entry is not None
+    spec = entry.connection_spec
+    assert spec is not None
+    assert spec.kind == "http_oauth2"
+    assert spec.server_uri == "https://chronicle.{REGION}.rep.googleapis.com/mcp"
+    assert spec.requires_config is True
+    assert spec.scopes == ["https://www.googleapis.com/auth/chronicle"]
+    assert (
+        spec.oauth_authorization_endpoint
+        == "https://accounts.google.com/o/oauth2/v2/auth"
+    )
+    assert spec.oauth_token_endpoint == "https://oauth2.googleapis.com/token"
+    # Google only returns a refresh token when both params reach the authorize
+    # request, so the catalog pins them rather than relying on discovery.
+    assert spec.oauth_authorize_params == {
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+    assert {credential.key: credential.target for credential in spec.credentials} == {
+        "REGION": "server_uri",
+        "client_id": "oauth_client",
+        "client_secret": "oauth_client",
+        "x-goog-user-project": "http_header",
+    }
+
+
+def test_google_workspace_rows_pin_offline_consent_authorize_params() -> None:
+    """Gmail, Drive and Calendar share the SecOps missing-refresh-token bug."""
+    _clear_catalog_cache()
+    for slug in ("gmail-mcp", "google-drive-mcp", "google-calendar-mcp"):
+        entry = loader.get_platform_mcp_catalog_entry_by_slug(
+            slug, include_private=True
+        )
+        assert entry is not None
+        spec = entry.connection_spec
+        assert spec is not None
+        assert spec.kind == "http_oauth2"
+        assert spec.oauth_authorize_params == {
+            "access_type": "offline",
+            "prompt": "consent",
+        }
+
+
 def test_catalog_state_marks_unverified_non_oauth_mcp_rows_configured() -> None:
     state = PlatformMCPCatalogService._catalog_state(
         mcp_integration=MCPIntegration(

@@ -225,6 +225,69 @@
       }
     },
     {
+      "slug": "google-cloud-secops-mcp",
+      "docs": "https://docs.cloud.google.com/chronicle/docs/secops/use-google-secops-mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://chronicle.{REGION}.rep.googleapis.com/mcp",
+        "scopes": [
+          "https://www.googleapis.com/auth/chronicle"
+        ],
+        "oauth_authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+        "oauth_token_endpoint": "https://oauth2.googleapis.com/token",
+        "oauth_authorize_params": {
+          "access_type": "offline",
+          "prompt": "consent"
+        },
+        "credentials": [
+          {
+            "key": "REGION",
+            "label": "Google SecOps region",
+            "description": "Regional endpoint prefix used in https://chronicle.{REGION}.rep.googleapis.com/mcp. 21 regions are live, covering the multi-regions us and eu plus single regions such as asia-southeast1, europe-west2 and me-central1. Note that 'europe' is not valid: chronicle.europe.rep.googleapis.com does not resolve.",
+            "required": true,
+            "secret": false,
+            "placeholder": "us",
+            "target": "server_uri"
+          },
+          {
+            "key": "client_id",
+            "label": "Google OAuth client ID",
+            "description": "OAuth 2.0 client (Web application) in the Google Cloud project where the Chronicle API and its MCP surface are enabled, with <your Tracecat URL>/integrations/callback as an authorized redirect URI. The authorizing user needs roles/mcp.toolUser.",
+            "required": true,
+            "secret": false,
+            "target": "oauth_client"
+          },
+          {
+            "key": "client_secret",
+            "label": "Google OAuth client secret",
+            "description": "Client secret paired with the client ID.",
+            "required": true,
+            "secret": true,
+            "target": "oauth_client"
+          },
+          {
+            "key": "x-goog-user-project",
+            "label": "Quota project ID",
+            "description": "Google Cloud project ID sent as the x-goog-user-project header; required by the managed MCP server.",
+            "required": true,
+            "secret": false,
+            "target": "http_header"
+          }
+        ],
+        "_research": {
+          "confidence": "high",
+          "docker_only": false,
+          "notes": "Google's managed remote MCP server for Google SecOps, at https://chronicle.<region>.rep.googleapis.com/mcp. It is GA: Google's supported-products table labels Preview rows explicitly and the Google SecOps row carries no such label. An unauthenticated tools/list against the endpoint returns 70 tools. project_id, customer_id and region are per-call tool arguments rather than URL segments; only the regional host prefix is part of the URL. Auth is a Google OAuth bearer token, and the server's protected-resource metadata advertises exactly one scope, https://www.googleapis.com/auth/chronicle. Google does not support Dynamic Client Registration for this server, so the user brings their own OAuth client (Web application type); access_type=offline with prompt=consent is required to receive a refresh token. The authorizing principal needs roles/mcp.toolUser, and the MCP surface must first be enabled with 'gcloud beta services mcp enable chronicle.googleapis.com/mcp'. The SOAR tools additionally require the tenant to have migrated to Google Cloud.",
+          "sources": [
+            "https://docs.cloud.google.com/chronicle/docs/secops/use-google-secops-mcp",
+            "https://docs.cloud.google.com/mcp/supported-products",
+            "https://docs.cloud.google.com/chronicle/docs/reference/mcp"
+          ]
+        }
+      }
+    },
+    {
       "slug": "sumo-logic-mcp",
       "docs": "https://www.sumologic.com/demo/mcp-server",
       "connection_spec": {
@@ -1653,6 +1716,10 @@
         ],
         "oauth_authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
         "oauth_token_endpoint": "https://oauth2.googleapis.com/token",
+        "oauth_authorize_params": {
+          "access_type": "offline",
+          "prompt": "consent"
+        },
         "credentials": [
           {
             "key": "client_id",
@@ -2321,6 +2388,10 @@
         ],
         "oauth_authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
         "oauth_token_endpoint": "https://oauth2.googleapis.com/token",
+        "oauth_authorize_params": {
+          "access_type": "offline",
+          "prompt": "consent"
+        },
         "credentials": [
           {
             "key": "client_id",
@@ -2366,6 +2437,10 @@
         ],
         "oauth_authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
         "oauth_token_endpoint": "https://oauth2.googleapis.com/token",
+        "oauth_authorize_params": {
+          "access_type": "offline",
+          "prompt": "consent"
+        },
         "credentials": [],
         "_research": {
           "confidence": "high",
