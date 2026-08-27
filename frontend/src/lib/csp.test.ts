@@ -320,20 +320,22 @@ describe("buildContentSecurityPolicyFromEnv", () => {
     expect(warnSpy).not.toHaveBeenCalled()
   })
 
-  it("keeps valid origins and redacts sensitive invalid tokens in one warning", () => {
+  it("keeps valid origins and reports only the rejected token count", () => {
     const sensitiveToken =
-      "ftp://operator:password@private.example.com/path?access_token=secret#diagnostic"
+      "ftp://operator:password@sensitive.invalid/private-path?access_token=secret#diagnostic"
     const policy = buildContentSecurityPolicyFromEnv({
       TRACECAT__CSP_CONNECT_SRC_ORIGINS: `https://a.example.com, junk, ${sensitiveToken}`,
     })
     expect(connectSrc(policy)).toBe("connect-src 'self' https://a.example.com")
     expect(warnSpy).toHaveBeenCalledTimes(1)
     const warning = warnSpy.mock.calls[0][0]
-    expect(warning).toContain("junk")
-    expect(warning).toContain(
-      "ftp://<redacted>@private.example.com/path?<redacted>#<redacted>"
+    expect(warning).toBe(
+      "TRACECAT__CSP_CONNECT_SRC_ORIGINS: ignoring 2 invalid origin token(s)"
     )
     expect(warning).not.toContain(sensitiveToken)
+    expect(warning).not.toContain("sensitive.invalid")
+    expect(warning).not.toContain("private-path")
+    expect(warning).not.toContain("junk")
     expect(warning).not.toContain("operator")
     expect(warning).not.toContain("password")
     expect(warning).not.toContain("access_token")

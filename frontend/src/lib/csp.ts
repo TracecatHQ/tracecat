@@ -25,34 +25,6 @@ const POSTHOG_ORIGIN = "https://*.posthog.com"
  * and inject another one.
  */
 const HOST_PATTERN = /^(\*\.)?[a-z0-9.-]+(:\d+)?$/
-const REDACTED_URL_COMPONENT = "<redacted>"
-
-/** Preserve a rejected token's shape without logging URL secrets. */
-function redactRejectedOriginToken(token: string): string {
-  const queryIndex = token.indexOf("?")
-  const fragmentIndex = token.indexOf("#")
-  const hasQuery =
-    queryIndex !== -1 && (fragmentIndex === -1 || queryIndex < fragmentIndex)
-  const sensitiveSuffixIndexes = [
-    hasQuery ? queryIndex : -1,
-    fragmentIndex,
-  ].filter((index) => index !== -1)
-  const baseEnd =
-    sensitiveSuffixIndexes.length > 0
-      ? Math.min(...sensitiveSuffixIndexes)
-      : token.length
-  const redactedBase = token
-    .slice(0, baseEnd)
-    .replace(
-      /^([a-z][a-z0-9+.-]*:\/\/)?[^/@\s]+@/i,
-      `$1${REDACTED_URL_COMPONENT}@`
-    )
-
-  const redactedQuery = hasQuery ? `?${REDACTED_URL_COMPONENT}` : ""
-  const redactedFragment =
-    fragmentIndex !== -1 ? `#${REDACTED_URL_COMPONENT}` : ""
-  return `${redactedBase}${redactedQuery}${redactedFragment}`
-}
 
 /**
  * Parse a space-, comma-, or newline-separated list of origins into normalized
@@ -156,8 +128,8 @@ export function buildContentSecurityPolicy(options?: {
  *
  * Reads `NEXT_PUBLIC_POSTHOG_KEY` to decide whether PostHog origins are needed,
  * and `TRACECAT__CSP_CONNECT_SRC_ORIGINS` for extra `connect-src` origins.
- * Invalid origin tokens are dropped and reported once through `console.warn`,
- * with URL credentials, queries, and fragments redacted.
+ * Invalid origin tokens are dropped and reported once through `console.warn`.
+ * Only the rejected count is logged because tokens may contain tenant URLs.
  *
  * @param env Environment to read, normally `process.env`.
  * @returns The header value.
@@ -165,14 +137,15 @@ export function buildContentSecurityPolicy(options?: {
 export function buildContentSecurityPolicyFromEnv(
   env: Readonly<Record<string, string | undefined>>
 ): string {
-  const rejected: string[] = []
+  let rejectedCount = 0
   const extraConnectSrc = parseOrigins(env.TRACECAT__CSP_CONNECT_SRC_ORIGINS, {
-    onReject: (token) => rejected.push(token),
+    onReject: () => {
+      rejectedCount += 1
+    },
   })
-  if (rejected.length > 0) {
-    const redacted = rejected.map(redactRejectedOriginToken)
+  if (rejectedCount > 0) {
     console.warn(
-      `TRACECAT__CSP_CONNECT_SRC_ORIGINS: ignoring invalid origins: ${redacted.join(", ")}`
+      `TRACECAT__CSP_CONNECT_SRC_ORIGINS: ignoring ${rejectedCount} invalid origin token(s)`
     )
   }
   return buildContentSecurityPolicy({
