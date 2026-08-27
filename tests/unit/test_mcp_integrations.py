@@ -3557,6 +3557,237 @@ class TestMCPIntegrationCRUD:
         assert refreshed_session.mcp_integrations is not None
         assert str(created.id) not in refreshed_session.mcp_integrations
 
+    async def test_remove_mcp_provider_oauth_removes_auto_created_mcp_integration(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Removing MCP-provider OAuth removes its derived MCP rows."""
+        provider_key = ProviderKey(
+            id="github_mcp",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        oauth_integration = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("test_access_token"),
+            refresh_token=SecretStr("test_refresh_token"),
+            expires_in=3600,
+        )
+        oauth_integration_id = oauth_integration.id
+
+        auto_created = await integration_service.session.execute(
+            select(MCPIntegration).where(
+                MCPIntegration.workspace_id == integration_service.workspace_id,
+                MCPIntegration.oauth_integration_id == oauth_integration_id,
+            )
+        )
+        mcp_integration = auto_created.scalars().first()
+        assert mcp_integration is not None
+        mcp_integration_id = mcp_integration.id
+        server_uri = mcp_integration.server_uri
+        assert server_uri is not None
+
+        duplicate_managed_mcp = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Duplicate GitHub MCP",
+            slug="github_mcp-1",
+            server_type="http",
+            server_uri=server_uri,
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration_id,
+        )
+        integration_service.session.add(duplicate_managed_mcp)
+        await integration_service.session.flush()
+        duplicate_managed_mcp_id = duplicate_managed_mcp.id
+
+        wildcard_collision_mcp = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Wildcard collision GitHub MCP",
+            slug="github-mcp-1",
+            server_type="http",
+            server_uri=server_uri,
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration_id,
+        )
+        integration_service.session.add(wildcard_collision_mcp)
+        await integration_service.session.flush()
+        wildcard_collision_mcp_id = wildcard_collision_mcp.id
+
+        workspace_created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Workspace-authored MCP",
+                server_uri=server_uri,
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration_id,
+            )
+        )
+        workspace_created_id = workspace_created.id
+
+        preset = AgentPreset(
+            workspace_id=integration_service.workspace_id,
+            name="MCP provider removal preset",
+            slug="mcp-provider-removal-preset",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            mcp_integrations=[
+                str(mcp_integration_id),
+                str(duplicate_managed_mcp_id),
+                str(wildcard_collision_mcp_id),
+                str(workspace_created_id),
+            ],
+        )
+        agent_session = AgentSession(
+            workspace_id=integration_service.workspace_id,
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+            entity_id=integration_service.workspace_id,
+            mcp_integrations=[
+                str(mcp_integration_id),
+                str(duplicate_managed_mcp_id),
+                str(wildcard_collision_mcp_id),
+                str(workspace_created_id),
+            ],
+        )
+        integration_service.session.add(agent_session)
+        integration_service.session.add(preset)
+        await integration_service.session.flush()
+        agent_session_id = agent_session.id
+        preset_id = preset.id
+        initial_version = AgentPresetVersion(
+            workspace_id=integration_service.workspace_id,
+            preset_id=preset_id,
+            version=1,
+            model_name=preset.model_name,
+            model_provider=preset.model_provider,
+            mcp_integrations=list(preset.mcp_integrations or []),
+        )
+        integration_service.session.add(initial_version)
+        await integration_service.session.flush()
+        initial_version_id = initial_version.id
+        preset.current_version_id = initial_version_id
+        await integration_service.session.commit()
+
+        await integration_service.remove_integration(integration=oauth_integration)
+
+        assert (
+            await integration_service.session.get(
+                OAuthIntegration, oauth_integration_id
+            )
+            is None
+        )
+        assert (
+            await integration_service.get_mcp_integration(
+                mcp_integration_id=mcp_integration_id
+            )
+            is None
+        )
+        assert (
+            await integration_service.get_mcp_integration(
+                mcp_integration_id=duplicate_managed_mcp_id
+            )
+            is None
+        )
+
+        wildcard_collision = await integration_service.get_mcp_integration(
+            mcp_integration_id=wildcard_collision_mcp_id
+        )
+        assert wildcard_collision is not None
+
+        surviving_mcp = await integration_service.get_mcp_integration(
+            mcp_integration_id=workspace_created_id
+        )
+        assert surviving_mcp is not None
+
+        refreshed_preset_result = await integration_service.session.execute(
+            select(AgentPreset).where(AgentPreset.id == preset_id)
+        )
+        refreshed_preset = refreshed_preset_result.scalars().first()
+        assert refreshed_preset is not None
+        assert refreshed_preset.mcp_integrations is not None
+        assert str(mcp_integration_id) not in refreshed_preset.mcp_integrations
+        assert str(duplicate_managed_mcp_id) not in refreshed_preset.mcp_integrations
+        assert str(wildcard_collision_mcp_id) in refreshed_preset.mcp_integrations
+        assert str(workspace_created_id) in refreshed_preset.mcp_integrations
+        assert refreshed_preset.current_version_id != initial_version_id
+
+        refreshed_session_result = await integration_service.session.execute(
+            select(AgentSession).where(AgentSession.id == agent_session_id)
+        )
+        refreshed_session = refreshed_session_result.scalars().one()
+        assert refreshed_session.mcp_integrations is not None
+        assert str(mcp_integration_id) not in refreshed_session.mcp_integrations
+        assert str(duplicate_managed_mcp_id) not in refreshed_session.mcp_integrations
+        assert str(wildcard_collision_mcp_id) in refreshed_session.mcp_integrations
+        assert str(workspace_created_id) in refreshed_session.mcp_integrations
+
+        current_version_result = await integration_service.session.execute(
+            select(AgentPresetVersion).where(
+                AgentPresetVersion.id == refreshed_preset.current_version_id
+            )
+        )
+        current_version = current_version_result.scalars().one()
+        assert current_version.version == 2
+        assert current_version.mcp_integrations is not None
+        assert str(mcp_integration_id) not in current_version.mcp_integrations
+        assert str(duplicate_managed_mcp_id) not in current_version.mcp_integrations
+        assert str(wildcard_collision_mcp_id) in current_version.mcp_integrations
+        assert str(workspace_created_id) in current_version.mcp_integrations
+
+    async def test_remove_custom_mcp_oauth_deletes_mcp_rows_and_provider(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Removing custom MCP OAuth deletes linked MCP rows and its provider."""
+        oauth_integration = await integration_service._create_custom_mcp_oauth_provider(
+            name="Custom MCP removal",
+            description="Custom MCP provider removal test",
+            endpoints=integration_service_module.MCPOAuthDiscoveryEndpoints(
+                authorization_endpoint="https://auth.example.test/oauth/authorize",
+                token_endpoint="https://auth.example.test/oauth/token",
+                token_methods=["none"],
+                registration_endpoint=None,
+                resource="https://mcp.example.test/mcp",
+            ),
+            registration=integration_service_module.MCPOAuthRegistrationResult(
+                client_id="custom-mcp-removal-client",
+                client_secret=None,
+                auth_method="none",
+            ),
+            scopes=["mcp:read"],
+        )
+        oauth_integration_id = oauth_integration.id
+        provider_key = ProviderKey(
+            id=oauth_integration.provider_id,
+            grant_type=oauth_integration.grant_type,
+        )
+        mcp_integration = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Custom MCP removal",
+            slug="custom-mcp-removal",
+            server_type="http",
+            server_uri="https://mcp.example.test/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration_id,
+        )
+        integration_service.session.add(mcp_integration)
+        await integration_service.session.commit()
+        mcp_integration_id = mcp_integration.id
+
+        await integration_service.remove_integration(integration=oauth_integration)
+
+        assert (
+            await integration_service.session.get(MCPIntegration, mcp_integration_id)
+            is None
+        )
+        assert (
+            await integration_service.session.get(
+                OAuthIntegration, oauth_integration_id
+            )
+            is None
+        )
+        assert (
+            await integration_service.get_custom_provider(provider_key=provider_key)
+            is None
+        )
+
     async def test_delete_mcp_integration_rolls_back_on_disconnect_failure(
         self,
         integration_service: IntegrationService,

@@ -1827,16 +1827,25 @@ class IntegrationService(BaseWorkspaceService):
 
     @require_scope("integration:delete")
     async def remove_integration(self, *, integration: OAuthIntegration) -> None:
-        """Remove a user's integration for a specific provider."""
+        """Remove a user's integration and MCP rows owned by its provider."""
         # Capture provider info before deleting
         provider_key = ProviderKey(
             id=integration.provider_id, grant_type=integration.grant_type
         )
         is_custom_provider = integration.provider_id.startswith("custom_")
 
-        # Delete the integration record
-        await self.session.delete(integration)
-        await self.session.commit()
+        try:
+            if await self._is_mcp_lifecycle_owned_oauth_integration(
+                integration=integration
+            ):
+                await self._delete_mcp_integrations_for_oauth_integration(
+                    integration=integration
+                )
+            await self.session.delete(integration)
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
 
         # If this is a custom provider, also delete the custom provider definition
         if is_custom_provider:
