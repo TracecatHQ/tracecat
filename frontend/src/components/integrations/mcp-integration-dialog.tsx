@@ -897,6 +897,22 @@ export function MCPIntegrationDialog({
               return
             }
           } else {
+            // Reusing an existing OAuth integration skips /connect entirely,
+            // so this is the only place a catalog row's required headers get
+            // checked before the row is persisted.
+            const missingHeaders = selectedCatalogSpec
+              ? missingRequiredHttpHeaderCredentials(
+                  selectedCatalogSpec,
+                  customCredentialsForCreate ?? ""
+                )
+              : []
+            if (missingHeaders.length > 0) {
+              form.setError("custom_credentials", {
+                type: "manual",
+                message: `Missing required values: ${missingHeaders.join(", ")}`,
+              })
+              return
+            }
             hookHandledError = true
             await createMcpIntegration(params)
             hookHandledError = false
