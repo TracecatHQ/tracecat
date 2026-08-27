@@ -79,8 +79,9 @@ def _get_client() -> WorkspaceClient:
     if token := (
         secrets.get_or_default(databricks_user_oauth_secret.token_name)
         or secrets.get_or_default(databricks_service_oauth_secret.token_name)
-        or secrets.get_or_default("DATABRICKS_TOKEN")
     ):
+        return WorkspaceClient(host=host, token=token, auth_type="pat")
+    if token := secrets.get_or_default("DATABRICKS_TOKEN"):
         return WorkspaceClient(host=host, token=token, auth_type="pat")
     return WorkspaceClient(
         host=host,

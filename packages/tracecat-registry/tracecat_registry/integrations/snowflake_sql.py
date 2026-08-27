@@ -30,8 +30,6 @@ snowflake_service_oauth_secret = RegistryOAuthSecret(
 snowflake_sql_secret = RegistrySecret(
     name="snowflake_sql",
     optional_keys=[
-        "SNOWFLAKE_TOKEN",
-        "SNOWFLAKE_TOKEN_TYPE",
         "SNOWFLAKE_OAUTH_CLIENT_ID",
         "SNOWFLAKE_OAUTH_CLIENT_SECRET",
         "SNOWFLAKE_OAUTH_TOKEN_URL",
@@ -41,12 +39,10 @@ snowflake_sql_secret = RegistrySecret(
     ],
     optional=True,
 )
-"""Stored Snowflake SQL API credentials.
+"""Stored Snowflake SQL API OAuth service credentials.
 
 - name: `snowflake_sql`
 - optional_keys:
-    - `SNOWFLAKE_TOKEN`
-    - `SNOWFLAKE_TOKEN_TYPE`
     - `SNOWFLAKE_OAUTH_CLIENT_ID`
     - `SNOWFLAKE_OAUTH_CLIENT_SECRET`
     - `SNOWFLAKE_OAUTH_TOKEN_URL`
@@ -54,10 +50,9 @@ snowflake_sql_secret = RegistrySecret(
     - `SNOWFLAKE_OAUTH_AUDIENCE`
     - `SNOWFLAKE_OAUTH_TOKEN_ENDPOINT_AUTH_METHOD`
 
-Configure a token (and its Snowflake token type when required), or configure
-the client ID, client secret, external identity-provider token URL, and optional
-scope or audience used to mint a Snowflake-compatible OAuth token. Token
-endpoint authentication defaults to `client_secret_post`; set it to
+Configure the client ID, client secret, external identity-provider token URL,
+and optional scope or audience used to mint a Snowflake-compatible OAuth token.
+Token endpoint authentication defaults to `client_secret_post`; set it to
 `client_secret_basic` when required by the identity provider.
 """
 
@@ -103,14 +98,12 @@ async def _mint_stored_service_token() -> str:
     return cast(str, response.json()["access_token"])
 
 
-async def _get_authorization() -> tuple[str, str | None]:
+async def _get_oauth_token() -> str:
     if token := secrets.get_or_default(snowflake_user_oauth_secret.token_name):
-        return token, "OAUTH"
+        return token
     if token := secrets.get_or_default(snowflake_service_oauth_secret.token_name):
-        return token, "OAUTH"
-    if token := secrets.get_or_default("SNOWFLAKE_TOKEN"):
-        return token, secrets.get_or_default("SNOWFLAKE_TOKEN_TYPE")
-    return await _mint_stored_service_token(), "OAUTH"
+        return token
+    return await _mint_stored_service_token()
 
 
 def _validate_snowflake_url(url: str) -> None:
@@ -163,15 +156,14 @@ async def call_api(
 ) -> SnowflakeSQLResponse:
     """Call a Snowflake SQL API endpoint and return its HTTP response."""
     _validate_snowflake_url(url)
-    token, token_type = await _get_authorization()
+    token = await _get_oauth_token()
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
         "User-Agent": "Tracecat-Snowflake-SQL-API/1.0",
         "Authorization": f"Bearer {token}",
+        "X-Snowflake-Authorization-Token-Type": "OAUTH",
     }
-    if token_type:
-        headers["X-Snowflake-Authorization-Token-Type"] = token_type
 
     request_params = (
         {key: value for key, value in params.items() if value is not None}
