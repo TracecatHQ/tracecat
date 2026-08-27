@@ -1,0 +1,43 @@
+scripts/evals/tracecat_authoring/run_local.py
+  s_23cf65672012b0::t_5cea662febb561 35,37-38,55-64,541,1973-1976,2474
+  s_23cf65672012b0::t_fd80c11d279e11 36
+packages/tracecat-ee/tracecat_ee/workspace_chat/skills/__init__.py
+  s_23cf65672012b0::t_5cea662febb561 8-9,26-27
+justfile
+  s_23cf65672012b0::t_643225c9598736 128,132-136
+  s_23cf65672012b0::t_5cea662febb561 116-127,129-131,137-159
+Dockerfile
+  s_23cf65672012b0::t_5cea662febb561 1-2,219-247,265,284,291,300,310,340,352,359
+.gitignore
+  s_23cf65672012b0::t_5cea662febb561 239-243
+tests/unit/test_builtin_skills.py
+  s_23cf65672012b0::t_fa134762df8153 37-40
+  s_23cf65672012b0::t_4ae1b4e2245351 10,16,24,26-36,41-43,92,96-134,149,152,198,230-245,248-253,278,291
+  s_23cf65672012b0::t_fd80c11d279e11 25
+packages/tracecat-ee/tracecat_ee/workspace_chat/skills/tracecat-platform-guide/SKILL.md
+  s_9177a925180b65::t_2bbaffdbea47f8 3,6-45,47-50,52,54-57,59-61,63-64,68-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "6870cfd35ba42e436fb9bff488cebbce4756872f",
+  "prompts": {},
+  "sessions": {
+    "s_23cf65672012b0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044ae-ce26-7930-8cbb-fbe976161a91",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_9177a925180b65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cdc49770-5a42-40d5-969b-73d89a11a08f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
