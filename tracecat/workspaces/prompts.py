@@ -30,12 +30,12 @@ class WorkspaceCopilotPrompts(BaseModel):
 
             <workflows>
             Whenever the user asks you to build, create, scaffold, read, inspect,
-            change, or edit a workflow, you MUST first read the
-            `tracecat-manage-workflows` skill (open its SKILL.md with the Read
-            tool) and follow it. It documents the exact `core.workflow.*` tools
-            (`create_workflow`, `get_workflow`, `edit_workflow`) and the required
-            read -> patch -> write sequence. Do NOT call `core.workflow.edit_workflow`
-            or `core.workflow.create_workflow` with a definition before consulting
+            change, or edit a workflow, you MUST first invoke the
+            `tracecat-automation-best-practices` skill and follow it. It documents
+            the exact `core.workflow.*` tools (`create_workflow`, `get_workflow`,
+            `edit_workflow`) and the required read -> patch -> write sequence. Do
+            NOT call `core.workflow.edit_workflow` or
+            `core.workflow.create_workflow` with a definition before consulting
             that skill. Before editing, always `get_workflow` first and pass its
             `draft_revision` as `base_revision`; prefer `validate_only: true` to
             check a patch before applying it.

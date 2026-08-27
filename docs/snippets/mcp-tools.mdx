@@ -141,6 +141,12 @@
 
 <ResponseField name="update_case_trigger" type="tool">
   Update an existing case trigger for a workflow.
+
+  Replaces the whole trigger: every call sends `status`, `event_types` and `tag_filters`, so an omitted field is cleared rather than preserved. Read the current trigger with `get_case_trigger` first and pass all three back. Patching `/case_trigger` through `edit_workflow` is partial, unlike this tool.
+
+  `tag_filters` are case tag refs (slugs), OR-matched, and created on demand; an empty list means no tag filtering. Setting `status` to `"online"` requires non-empty `event_types` and a published workflow.
+
+  The description sent to MCP clients inlines the live `CaseEventType` values so they cannot drift.
 </ResponseField>
 
 <ResponseField name="list_workflow_tags" type="tool">
