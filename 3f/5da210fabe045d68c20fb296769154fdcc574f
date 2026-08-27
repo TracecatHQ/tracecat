@@ -1,0 +1,73 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/assign_case.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/change_case_stage.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/list_case_comments.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 74
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/update_case_comment.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 69
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/get_operation.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 39
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/list_rule_revisions.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 57
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/add_case_tag.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/create_case_comment.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 59
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/delete_case_comment.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/list_case_alerts.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 79
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/create_retrohunt.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 49
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/disable_rule.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/enable_rule.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/get_rule_deployment.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 40
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/update_rule_deployment.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 81
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/reopen_case_alert.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 40
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/get_case.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/get_retrohunt.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 41
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/delete_rule.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 48
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/get_rule.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 45
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/cancel_operation.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 41
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/close_case_alert.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 54
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/get_case_comment.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/change_case_priority.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/list_retrohunts.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 59
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/update_rule.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 54
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/get_case_alert.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 48
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/change_case_alert_priority.yml
+  s_39bab1cd8212fa::t_b3d4e28324069b 45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "3f5da210fabe045d68c20fb296769154fdcc574f",
+  "prompts": {},
+  "sessions": {
+    "s_39bab1cd8212fa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ff9-e8e1-71e0-9798-1708865c8fb5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
