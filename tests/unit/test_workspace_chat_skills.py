@@ -25,8 +25,9 @@ VENDORED_SKILLS_ROOT = (
     Path(__file__).parents[2] / "packages/tracecat-ee/tracecat_ee/workspace_chat/skills"
 )
 VENDORED_SKILLS_SKIP_REASON = (
-    "Vendored workspace-chat skills are absent; run `just sync-copilot-skills` "
-    "from the repository root to populate them."
+    "Vendored workspace-chat skills are absent. They are copied in by the "
+    "`plugin-skills` Dockerfile stage at image build time, so a source "
+    "checkout does not carry them."
 )
 
 

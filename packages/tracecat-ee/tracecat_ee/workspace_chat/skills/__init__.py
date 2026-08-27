@@ -21,8 +21,8 @@ BUILTIN_SKILL_NAME_PREFIX = "tracecat-"
 
 # Canonical, always-on skills staged for every entitled workspace-chat session.
 # Each entry MUST start with ``BUILTIN_SKILL_NAME_PREFIX`` and name a directory
-# vendored into this package at image build time (see ``just sync-copilot-skills``
-# for the local equivalent). Staging warns and skips an entry that is absent.
+# vendored into this package by the ``plugin-skills`` Dockerfile stage at image
+# build time. Staging warns and skips an entry that is absent.
 BUILTIN_WORKSPACE_CHAT_SKILLS: tuple[str, ...] = (
     "tracecat-automation-best-practices",
     "tracecat-slackbot-best-practices",
