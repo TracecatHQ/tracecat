@@ -845,6 +845,17 @@ class SkillService(BaseWorkspaceService):
         if not claim.is_owner:
             return claim.blob
 
+        # Record the prospective key before the network call: a CancelledError
+        # can arrive after object storage accepts the upload but before the
+        # client receives its response. Rollback cleanup may therefore issue a
+        # harmless no-op delete when the upload did not create an object.
+        if published is not None:
+            published.append(
+                PublishedBlobObject(
+                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                    key=storage_key,
+                )
+            )
         try:
             await blob.upload_file(
                 content=content,
@@ -855,13 +866,6 @@ class SkillService(BaseWorkspaceService):
         except Exception:
             await self.session.delete(claim.blob)
             raise
-        if published is not None:
-            published.append(
-                PublishedBlobObject(
-                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-                    key=storage_key,
-                )
-            )
         return claim.blob
 
     async def _delete_published_blob_objects_best_effort(

@@ -1602,6 +1602,75 @@ class TestSkillService:
         ).scalar_one_or_none()
         assert blob_row is None
 
+    async def test_upload_cancellation_cleans_registered_canonical_key(
+        self,
+        skill_service: SkillService,
+        svc_workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cancellation after an accepted upload must delete the canonical object."""
+
+        content = "upload accepted before cancellation\n"
+        sha256 = hashlib.sha256(content.encode()).hexdigest()
+        created = await skill_service.create_skill(SkillCreate(name="cancel-upload"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        canonical_key = skill_service._storage_key_for(sha256)
+        stored_keys: set[str] = set()
+        deleted: list[str] = []
+
+        async def cancel_after_accepted_upload(
+            *,
+            content: bytes,
+            key: str,
+            bucket: str,
+            content_type: str | None = None,
+        ) -> None:
+            del content, bucket, content_type
+            stored_keys.add(key)
+            raise asyncio.CancelledError()
+
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            del bucket
+            assert redact_log_identifiers is True
+            deleted.append(key)
+            stored_keys.discard(key)
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.upload_file",
+            cancel_after_accepted_upload,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftUpsertTextFileOp(
+                            path="references/uploaded.txt",
+                            content=content,
+                        )
+                    ],
+                ),
+            )
+
+        assert deleted == [canonical_key]
+        assert stored_keys == set()
+        blob_row = await skill_service.session.scalar(
+            select(SkillBlob).where(
+                SkillBlob.workspace_id == skill_service.workspace_id,
+                SkillBlob.sha256 == sha256,
+            )
+        )
+        assert blob_row is None
+        await skill_service.session.refresh(svc_workspace)
+
     async def test_copy_cancellation_cleans_registered_canonical_key(
         self,
         skill_service: SkillService,
