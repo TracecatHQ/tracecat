@@ -30,6 +30,9 @@ from tracecat.cases.agent_invocations.queue import (
 from tracecat.cases.agent_invocations.service import (
     CaseCommentAgentInvocationService,
 )
+from tracecat.cases.agent_sessions.service import (
+    CaseAgentSessionInteractionService,
+)
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueInput,
@@ -38,6 +41,7 @@ from tracecat.cases.dropdowns.schemas import (
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.enums import (
+    CaseAgentSessionInteractionOperation,
     CasePriority,
     CaseSeverity,
     CaseStatus,
@@ -226,6 +230,10 @@ class CasesService(BaseWorkspaceService):
         self.attachments = CaseAttachmentService(session=self.session, role=self.role)
         self.tags = CaseTagsService(session=self.session, role=self.role)
         self.dropdowns = CaseDropdownValuesService(session=self.session, role=self.role)
+        self.agent_session_interactions = CaseAgentSessionInteractionService(
+            session=self.session,
+            role=self.role,
+        )
 
     async def get_task_counts(
         self, case_ids: list[uuid.UUID]
@@ -827,6 +835,11 @@ class CasesService(BaseWorkspaceService):
             await self.session.flush()
             await self._assign_next_case_number(case)
 
+            await self.agent_session_interactions.record_from_context(
+                case_id=case.id,
+                operation=CaseAgentSessionInteractionOperation.CREATE,
+            )
+
             # Commit once to persist case, fields, and event atomically
             await self.session.commit()
             # Make sure to refresh the case to get the fields relationship loaded
@@ -962,6 +975,10 @@ class CasesService(BaseWorkspaceService):
                 case,
                 params,
                 force_version_fields=force_version_fields,
+            )
+            await self.agent_session_interactions.record_from_context(
+                case_id=case.id,
+                operation=CaseAgentSessionInteractionOperation.UPDATE,
             )
             # Commit once to persist all updates and emitted events atomically
             await self.session.commit()
@@ -1263,6 +1280,10 @@ class CasesService(BaseWorkspaceService):
                             with queue.checkpointed():
                                 async with self.session.begin_nested():
                                     await self._apply_case_update(case, params)
+                                    await self.agent_session_interactions.record_from_context(
+                                        case_id=case.id,
+                                        operation=CaseAgentSessionInteractionOperation.UPDATE,
+                                    )
                         except TracecatNotFoundError as exc:
                             results.append(
                                 CaseBatchItemResult(
@@ -1968,6 +1989,13 @@ class CaseCommentsService(BaseWorkspaceService):
     """Service for managing case comments."""
 
     service_name = "case_comments"
+
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role)
+        self.agent_session_interactions = CaseAgentSessionInteractionService(
+            session=self.session,
+            role=self.role,
+        )
 
     async def _get_case(self, case_id: uuid.UUID) -> Case:
         statement = select(Case).where(
@@ -2717,6 +2745,10 @@ class CaseCommentsService(BaseWorkspaceService):
                         "triggered_by_service_id": self.role.service_id,
                     },
                 }
+            await self.agent_session_interactions.record_from_context(
+                case_id=case.id,
+                operation=CaseAgentSessionInteractionOperation.UPDATE,
+            )
             await self.session.commit()
             await self.session.refresh(comment)
         except Exception:
@@ -2825,6 +2857,10 @@ class CaseCommentsService(BaseWorkspaceService):
                     comment_id=comment.id,
                     parent_id=comment.parent_id,
                 ),
+            )
+            await self.agent_session_interactions.record_from_context(
+                case_id=comment.case_id,
+                operation=CaseAgentSessionInteractionOperation.UPDATE,
             )
             await self.session.commit()
             await self.session.refresh(comment)
