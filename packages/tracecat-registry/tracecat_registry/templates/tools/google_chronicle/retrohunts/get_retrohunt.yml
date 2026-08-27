@@ -38,6 +38,6 @@ definition:
     - ref: call_api
       action: tools.google_chronicle.call_api
       args:
-        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules/${{ inputs.rule }}/retrohunts/${{ inputs.retrohunt }}
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules/${{ FN.url_encode(inputs.rule) }}/retrohunts/${{ FN.url_encode(inputs.retrohunt) }}
         method: GET
   returns: ${{ steps.call_api.result }}

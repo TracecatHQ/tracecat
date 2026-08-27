@@ -76,7 +76,7 @@ definition:
     - ref: call_api
       action: tools.google_chronicle.call_api
       args:
-        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}/caseAlerts
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ FN.url_encode(inputs.case) }}/caseAlerts
         method: GET
         params:
           pageSize: ${{ inputs.pageSize }}

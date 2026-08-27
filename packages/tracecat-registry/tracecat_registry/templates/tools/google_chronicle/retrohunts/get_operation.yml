@@ -36,6 +36,6 @@ definition:
     - ref: call_api
       action: tools.google_chronicle.call_api
       args:
-        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/operations/${{ inputs.operation }}
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/operations/${{ FN.url_encode(inputs.operation) }}
         method: GET
   returns: ${{ steps.call_api.result }}

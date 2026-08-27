@@ -43,7 +43,7 @@ definition:
     - ref: call_api
       action: tools.google_chronicle.call_api
       args:
-        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}/caseComments/${{ inputs.caseComment }}
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ FN.url_encode(inputs.case) }}/caseComments/${{ FN.url_encode(inputs.caseComment) }}
         method: GET
         params:
           expand: ${{ inputs.expand }}
