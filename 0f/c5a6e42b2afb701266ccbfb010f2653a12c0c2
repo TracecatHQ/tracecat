@@ -1,0 +1,42 @@
+scripts/evals/tracecat_authoring/run_local.py
+  s_d18768affed8ff::t_44d8ca5016bd62 2243
+  s_d18768affed8ff::t_5014b98422c68a 2427-2430
+  s_d18768affed8ff::t_32d8fdca8b6bae 2467-2474
+  s_d18768affed8ff::t_1434a5a0163566 1290-1292,1347-1349,2261
+  s_d18768affed8ff::t_897ccbc12b9c52 1460,1465,1469
+  s_d18768affed8ff::t_95a7af5409efa2 28,50
+  s_d18768affed8ff::t_3e6fed9ccb1c0d 1449,1620-1623,1678,2253-2255,2257-2258
+  s_d18768affed8ff::t_0b5f79d9976fa6 2230,2240-2241
+  s_d18768affed8ff::t_9ce832deb95bb6 2156-2229,2231-2239,2242,2244-2252,2256,2259-2260,2262-2285,2293-2296,2487
+  s_d18768affed8ff::t_dc1124362f316b 1250-1289,1293-1346,1350-1394,2476
+  s_d18768affed8ff::t_4733b443816787 1665-1677,1679-1692
+  s_d18768affed8ff::t_7570702357ebe6 1450-1459,1461-1464,1466-1468
+  s_9177a925180b65::t_7a3b7199f357ec 1470-1471,2460-2466,2475,2477-2486,2488
+scripts/evals/tracecat_authoring/cases.yaml
+  s_d18768affed8ff::t_d8238bb851cf1c 206-237,239-273
+  s_d18768affed8ff::t_bc42c9ad378e16 238
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0fc5a6e42b2afb701266ccbfb010f2653a12c0c2",
+  "prompts": {},
+  "sessions": {
+    "s_9177a925180b65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cdc49770-5a42-40d5-969b-73d89a11a08f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_d18768affed8ff": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0448c-40d8-7f92-932a-f4641a48b1a8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
