@@ -93,7 +93,11 @@ class CaseDurationSyncConsumer:
     """Consume and coalesce case duration sync jobs."""
 
     def __init__(
-        self, client: RedisClient, *, consumer_name: str | None = None
+        self,
+        client: RedisClient,
+        *,
+        consumer_name: str | None = None,
+        stop_event: asyncio.Event | None = None,
     ) -> None:
         self.client = client
         self.stream_key = config.TRACECAT__CASE_DURATION_SYNC_STREAM_KEY
@@ -104,6 +108,7 @@ class CaseDurationSyncConsumer:
         self.backfill_batch = config.TRACECAT__CASE_DURATION_SYNC_BACKFILL_BATCH
         self.consumer_name = consumer_name or f"{socket.gethostname()}:{os.getpid()}"
         self._pending_check_interval = max(self.claim_idle_ms / 1000.0, 30.0)
+        self._stop_event = stop_event
 
     async def run(self) -> None:
         last_pending_check = monotonic()
@@ -111,7 +116,7 @@ class CaseDurationSyncConsumer:
         group_ready = False
         rollout_enqueued = False
         started = False
-        while True:
+        while self._stop_event is None or not self._stop_event.is_set():
             try:
                 if not rollout_enqueued:
                     rollout_enqueued = await enqueue_rollout_backfill_once()
@@ -163,6 +168,10 @@ class CaseDurationSyncConsumer:
                 )
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, RETRY_BACKOFF_MAX_SECONDS)
+        else:
+            # Loop condition satisfied: the stop event was set and the last
+            # iteration (including the current batch) completed.
+            logger.info("Case duration sync consumer stopped gracefully")
 
     async def _ensure_group(self) -> None:
         # Read from the start of the stream ("0") rather than only new
@@ -435,7 +444,16 @@ class CaseDurationSyncConsumer:
             await asyncio.sleep(0)
 
 
-async def start_case_duration_sync_consumer() -> None:
+async def start_case_duration_sync_consumer(
+    stop_event: asyncio.Event | None = None,
+) -> None:
+    """Run the case duration sync consumer until cancelled or stopped.
+
+    The stop event enables graceful shutdown: setting it finishes the current
+    batch (including acks) and exits the loop without cancellation, so the
+    pod's terminating consumer does not strand jobs in the pending list
+    during rolling upgrades.
+    """
     client = await get_redis_client()
-    consumer = CaseDurationSyncConsumer(client)
+    consumer = CaseDurationSyncConsumer(client, stop_event=stop_event)
     await consumer.run()

@@ -8,9 +8,11 @@ cover them. This module owns that task lifecycle explicitly:
 - Every supervised task is kept in a strong reference set (asyncio only keeps
   weak references, so unowned tasks can be garbage collected mid-flight).
 - Once shutdown begins, no new tasks are spawned.
-- On shutdown, long-running consumers are cancelled immediately (cancellation
-  is their stop signal), and finite startup tasks are awaited for a bounded
-  drain period before the deadline cancels whatever remains.
+- On shutdown, stoppable consumers (case triggers, case duration sync) are
+  signalled via a stop event so they finish their in-flight batch — including
+  Redis stream acks — and exit cleanly; this prevents rolling upgrades from
+  stranding unacked events behind the terminating pod. Consumers without a
+  stop event, and any stragglers past the drain deadline, are cancelled.
 
 This protects in-process work during graceful shutdown (SIGTERM). Nothing
 survives SIGKILL, OOM kills, or node loss — correctness-critical work must be
@@ -40,12 +42,21 @@ class LifespanTaskSupervisor:
       triggers. Drain cancels these immediately; cancellation is their stop
       signal and they must clean up in response to it.
 
+    Long-running tasks may instead be spawned with a ``stop_event``: on
+    shutdown the supervisor sets the event and waits (bounded by
+    ``drain_timeout``) for the task to finish its in-flight work and exit on
+    its own, cancelling it only if it exceeds the deadline. This is the
+    preferred shutdown path for stream consumers: the last batch is fully
+    processed and acked instead of being redelivered to another pod after
+    the idle-claim window.
+
     The supervisor never resurrects or reschedules work. Tasks whose failure
     must not lose data should checkpoint to durable storage themselves.
     """
 
     def __init__(self, *, drain_timeout: float) -> None:
         self._tasks: dict[asyncio.Task[None], TaskKind] = {}
+        self._stop_events: dict[asyncio.Task[None], asyncio.Event] = {}
         self._drain_timeout = drain_timeout
         self._draining = False
 
@@ -60,24 +71,42 @@ class LifespanTaskSupervisor:
         *,
         name: str,
         kind: TaskKind = "finite",
+        stop_event: asyncio.Event | None = None,
     ) -> asyncio.Task[None]:
         """Create a task under supervision.
 
+        Args:
+            coro: Coroutine to run as a supervised task.
+            name: Unique name used for log lines and cancellation reporting.
+            kind: Whether the task is expected to finish ("finite") or run
+                until shutdown ("long_running").
+            stop_event: For long-running tasks only. When set, the supervisor
+                signals the task to finish its in-flight work and exit
+                gracefully instead of cancelling it.
+
         Raises:
+            ValueError: If a stop event is given for a finite task.
             RuntimeError: If called after drain has started.
         """
         if self._draining:
             raise RuntimeError(
                 f"Refusing to spawn task {name!r}: the supervisor is draining"
             )
+        if stop_event is not None and kind != "long_running":
+            raise ValueError(
+                f"Task {name!r}: a stop event requires kind='long_running'"
+            )
         task = asyncio.create_task(coro, name=name)
         self._tasks[task] = kind
+        if stop_event is not None:
+            self._stop_events[task] = stop_event
         task.add_done_callback(self._on_task_done)
         logger.debug("Spawned supervised lifespan task", task=name, kind=kind)
         return task
 
     def _on_task_done(self, task: asyncio.Task[None]) -> None:
         self._tasks.pop(task, None)
+        self._stop_events.pop(task, None)
         if task.cancelled():
             return
         # Surface unexpected failures of tasks that exit on their own while
@@ -91,30 +120,38 @@ class LifespanTaskSupervisor:
     async def drain(self) -> None:
         """Stop accepting tasks and drain supervised tasks in a bounded period.
 
-        Phase 1 cancels long-running consumers so they stop accepting work.
-        Phase 2 lets finite tasks finish within ``drain_timeout`` and cancels
-        the stragglers. Phase 3 awaits every task's cancellation for the same
-        budget so cleanup code runs before the process exits; tasks that
-        ignore cancellation past the deadline are reported and abandoned to
-        the process teardown.
+        Phase 1 signals stoppable consumers (they finish their in-flight
+        batch and exit) and immediately cancels consumers without a stop
+        event. Phase 2 lets finite tasks and stoppable consumers finish
+        within ``drain_timeout`` and cancels the stragglers. Phase 3 awaits
+        every task's cancellation for the same budget so cleanup code runs
+        before the process exits; tasks that ignore cancellation past the
+        deadline are reported and abandoned to the process teardown.
         """
         self._draining = True
         if not self._tasks:
             return
 
-        long_running = [
-            task for task, kind in self._tasks.items() if kind == "long_running"
-        ]
-        finite = [task for task, kind in self._tasks.items() if kind == "finite"]
+        stoppable: list[asyncio.Task[None]] = []
+        finite: list[asyncio.Task[None]] = []
+        for task, kind in self._tasks.items():
+            if kind == "long_running":
+                stop_event = self._stop_events.get(task)
+                if stop_event is not None:
+                    stop_event.set()
+                    stoppable.append(task)
+                else:
+                    # Cancellation is the only stop signal for consumers
+                    # without a stop event.
+                    task.cancel()
+            else:
+                finite.append(task)
 
-        # Phase 1: stop consumers immediately. They are expected to respond to
-        # cancellation promptly.
-        for task in long_running:
-            task.cancel()
-
-        # Phase 2: give finite tasks the full drain budget to complete.
-        if finite:
-            done, pending = await asyncio.wait(finite, timeout=self._drain_timeout)
+        # Phase 2: give tasks that should exit on their own the full drain
+        # budget to complete.
+        draining = finite + stoppable
+        if draining:
+            done, pending = await asyncio.wait(draining, timeout=self._drain_timeout)
             for task in pending:
                 logger.warning(
                     "Lifespan task did not complete within the drain timeout; cancelling",

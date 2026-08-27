@@ -29,6 +29,8 @@ class FakeRedisClient:
         self.acked: list[list[str]] = []
         self.deleted: list[list[str]] = []
         self.calls: list[tuple[str, list[str]]] = []
+        # Declared so tests can drive the run loop via the stream read.
+        self.xreadgroup: AsyncMock = AsyncMock(return_value=[])
 
     async def xack(
         self,
@@ -1306,3 +1308,61 @@ async def test_consumer_resets_backoff_after_successful_iteration(
         await consumer.run()
 
     assert [call.args[0] for call in sleep_mock.await_args_list] == [1.0, 0, 1.0]
+
+
+@pytest.mark.anyio
+async def test_consumer_finishes_batch_on_stop_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A SIGTERM stop signal lets the in-flight batch finish before exit.
+
+    Rolling upgrades cancel the API pod with SIGTERM; the consumer must not
+    strand the batch it is processing — it should complete handling (and ack)
+    the entries it already read, then exit its loop gracefully.
+    """
+    stop_event = asyncio.Event()
+    client = FakeRedisClient()
+
+    async def fake_xreadgroup(
+        **kwargs: object,
+    ) -> list[tuple[str, list[tuple[str, dict[str, str]]]]]:
+        del kwargs
+        return [
+            (
+                "stream",
+                [
+                    (
+                        "1-0",
+                        {
+                            "workspace_id": str(uuid.uuid4()),
+                            "case_id": str(uuid.uuid4()),
+                            "reason": "case_event",
+                            "event_type": "case_updated",
+                        },
+                    )
+                ],
+            )
+        ]
+
+    async def fake_handle_entries(entries: object) -> None:
+        # SIGTERM arrives while the batch is in flight; the stop signal
+        # arrives mid-processing but must not abort the batch.
+        stop_event.set()
+        await asyncio.sleep(0)
+        del entries
+
+    handle_entries_mock = AsyncMock(side_effect=fake_handle_entries)
+
+    consumer = CaseDurationSyncConsumer(
+        cast(RedisClient, client), stop_event=stop_event
+    )
+    monkeypatch.setattr(consumer, "_ensure_group", AsyncMock())
+    monkeypatch.setattr(consumer, "_handle_entries", handle_entries_mock)
+    xreadgroup_mock = AsyncMock(side_effect=fake_xreadgroup)
+    client.xreadgroup = xreadgroup_mock
+
+    await asyncio.wait_for(consumer.run(), timeout=5.0)
+
+    assert stop_event.is_set()
+    assert xreadgroup_mock.await_count == 1
+    assert handle_entries_mock.await_count == 1

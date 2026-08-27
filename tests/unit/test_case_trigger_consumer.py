@@ -19,6 +19,7 @@ from tracecat.cases.schemas import CaseCommentWorkflowStatus, CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.db.models import Case, CaseComment, CaseEvent, CaseTrigger, Workflow
+from tracecat.redis.client import RedisClient
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -898,3 +899,54 @@ async def test_dispatch_selected_workflow_treats_already_started_as_success(
     persisted = comment
     assert persisted.workflow_status == CaseCommentWorkflowStatus.RUNNING.value
     assert cast(AuditEventStatus, audit_calls[-1]["status"]).value == "SUCCESS"
+
+
+@pytest.mark.anyio
+async def test_case_trigger_consumer_finishes_batch_on_stop_event():
+    """A SIGTERM stop signal lets the in-flight batch finish before exit.
+
+    Rolling upgrades cancel the API pod with SIGTERM; the consumer must not
+    strand the batch it is processing — it should complete handling (and ack)
+    the messages it already read, then exit its loop gracefully.
+    """
+    stop_event = asyncio.Event()
+    handled = asyncio.Event()
+    client = MagicMock()
+
+    async def fake_xreadgroup(
+        **kwargs: object,
+    ) -> list[tuple[str, list[tuple[str, dict[str, str]]]]]:
+        del kwargs
+        return [
+            (
+                "stream",
+                [
+                    (
+                        "1-1",
+                        {
+                            "event_id": "e",
+                            "case_id": "c",
+                            "workspace_id": "w",
+                            "event_type": "t",
+                        },
+                    )
+                ],
+            )
+        ]
+
+    async def fake_handle_message(message_id: str, fields: dict[str, str]) -> None:
+        # SIGTERM arrives while the batch is in flight; the stop signal
+        # arrives mid-processing but must not abort the batch.
+        stop_event.set()
+        del message_id, fields
+        handled.set()
+
+    client.xreadgroup = AsyncMock(side_effect=fake_xreadgroup)
+    consumer = CaseTriggerConsumer(cast(RedisClient, client), stop_event=stop_event)
+    consumer._ensure_group = AsyncMock()
+    consumer._handle_message = AsyncMock(side_effect=fake_handle_message)
+
+    await asyncio.wait_for(consumer.run(), timeout=5.0)
+
+    assert handled.is_set()
+    assert client.xreadgroup.await_count == 1
