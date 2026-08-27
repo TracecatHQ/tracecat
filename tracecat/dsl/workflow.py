@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Coroutine, Mapping, Sequence
+from collections.abc import Awaitable, Coroutine, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Never
 
@@ -78,6 +78,10 @@ with workflow.unsafe.imports_passed_through():
         PlatformAction,
         WaitStrategy,
     )
+    from tracecat.dsl.error_policy import (
+        adapt_error_handler_details,
+        build_terminal_application_error,
+    )
     from tracecat.dsl.init_activities import (
         ResolveTimeAnchorActivityInputs,
         resolve_time_anchor_activity,
@@ -116,7 +120,7 @@ with workflow.unsafe.imports_passed_through():
         exec_id_to_parts,
     )
     from tracecat.registry.lock.types import RegistryLock
-    from tracecat.runtime.errors import ErrorEnvelope, RuntimeErrorOwner
+    from tracecat.runtime.errors import RuntimeErrorOwner, select_error_envelope
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -128,12 +132,7 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
-    from tracecat.temporal.errors import (
-        extract_error_envelopes,
-        parse_classified_detail,
-        raise_application_error_from_envelope,
-        wrap_error,
-    )
+    from tracecat.temporal.errors import extract_error_envelopes
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
@@ -182,56 +181,11 @@ ERROR_OWNER_CONTROL_FLOW_PATCH = "dsl-error-owner-control-flow-v1"
 ERROR_OWNER_AFTER_HANDLER_PATCH = "dsl-error-owner-after-handler-v1"
 
 
-def _platform_wins_envelope(envelopes: Sequence[ErrorEnvelope]) -> ErrorEnvelope:
-    """Select the first platform-owned envelope, else the first envelope."""
-    return next(
-        (
-            envelope
-            for envelope in envelopes
-            if envelope.owner is RuntimeErrorOwner.PLATFORM
-        ),
-        envelopes[0],
-    )
-
-
 def _raise_workflow_application_error(
     task_exceptions: Mapping[str, TaskExceptionInfo],
 ) -> Never:
     """Raise the terminal workflow error without changing legacy payloads."""
-    n_exceptions = len(task_exceptions)
-    task_envelopes: dict[str, ErrorEnvelope] = {}
-    for ref, info in task_exceptions.items():
-        envelopes = extract_error_envelopes(info.exception)
-        if not envelopes:
-            break
-        # Mirror the scheduler's platform-wins selection: a platform-owned
-        # envelope anywhere in the task's transport (e.g. a later child
-        # terminal map entry) must survive terminal re-extraction.
-        task_envelopes[ref] = _platform_wins_envelope(envelopes)
-    else:
-        if task_envelopes:
-            error_details = {
-                ref: wrap_error(task_envelopes[ref], info.details).model_dump(
-                    mode="json"
-                )
-                for ref, info in task_exceptions.items()
-            }
-            raise_application_error_from_envelope(
-                _platform_wins_envelope(tuple(task_envelopes.values())),
-                error_details,
-            )
-
-    formatted_exceptions = "\n".join(
-        f"{'=' * 10} ({i + 1}/{n_exceptions}) {details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
-        for i, (ref, info) in enumerate(task_exceptions.items())
-        if (details := info.details)
-    )
-    raise ApplicationError(
-        f"Workflow failed with {n_exceptions} error(s)\n\n{formatted_exceptions}",
-        {ref: info.details for ref, info in task_exceptions.items()},
-        non_retryable=True,
-        type=ApplicationError.__name__,
-    ) from None
+    raise build_terminal_application_error(task_exceptions) from None
 
 
 def _inherit_search_attributes_with_alias(
@@ -841,13 +795,7 @@ class DSLWorkflow:
         if not workflow.patched(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH):
             return
 
-        owner = (
-            RuntimeErrorOwner.PLATFORM
-            if any(
-                envelope.owner is RuntimeErrorOwner.PLATFORM for envelope in envelopes
-            )
-            else RuntimeErrorOwner.USER
-        )
+        owner = select_error_envelope(envelopes).owner
         workflow.upsert_search_attributes(
             [TemporalSearchAttr.ERROR_OWNER.key.value_set(owner.value)]
         )
@@ -855,8 +803,9 @@ class DSLWorkflow:
     @staticmethod
     def _has_user_error_cause(error: BaseException) -> bool:
         envelopes = extract_error_envelopes(error)
-        if envelopes and all(
-            envelope.owner is RuntimeErrorOwner.USER for envelope in envelopes
+        if (
+            envelopes
+            and select_error_envelope(envelopes).owner is RuntimeErrorOwner.USER
         ):
             return workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH)
 
@@ -1965,41 +1914,6 @@ class DSLWorkflow:
             ),
         )
 
-    @staticmethod
-    def _adapt_handler_errors(
-        details: Sequence[Any],
-    ) -> list[ActionErrorInfo] | None:
-        """Adapt legacy application error details for an error handler."""
-        if not details:
-            return None
-
-        err_info_map = details[0]
-        if not isinstance(err_info_map, dict):
-            return [
-                ActionErrorInfo(
-                    ref="N/A",
-                    message=(
-                        "Unexpected error info object of type "
-                        f"{type(err_info_map).__name__}: {err_info_map}"
-                    ),
-                    type=type(err_info_map).__name__,
-                )
-            ]
-        if isinstance(parsed := parse_classified_detail(err_info_map), dict):
-            # Classified terminal map: hand the handler the unwrapped payloads
-            # so its established input shape is unchanged.
-            return [
-                wrapped.error
-                if wrapped.error is not None
-                else ActionErrorInfo(
-                    ref=child_ref,
-                    message=wrapped.envelope.message,
-                    type=wrapped.envelope.kind.value,
-                )
-                for child_ref, wrapped in parsed.items()
-            ]
-        return [ActionErrorInfo.model_validate(data) for data in err_info_map.values()]
-
     async def _handle_application_error(
         self,
         args: DSLRunArgs,
@@ -2026,7 +1940,7 @@ class DSLWorkflow:
                             err_info_map=err_info_map,
                             type=type(err_info_map).__name__,
                         )
-                    errors = self._adapt_handler_errors(error.details)
+                    errors = adapt_error_handler_details(error.details)
                 else:
                     errors = None
 

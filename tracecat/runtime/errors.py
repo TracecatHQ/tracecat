@@ -20,7 +20,7 @@ alertable even when its parent handles that failure and completes. Diagnostic
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from enum import StrEnum
 from typing import Literal
 
@@ -169,6 +169,21 @@ class TracecatRuntimeError(Exception):
     def __init__(self, envelope: ErrorEnvelope) -> None:
         super().__init__(envelope.message)
         self.envelope = envelope
+
+
+def select_error_envelope(envelopes: Iterable[ErrorEnvelope]) -> ErrorEnvelope:
+    """Select the first platform-owned envelope, otherwise the first envelope."""
+    candidates = tuple(envelopes)
+    if not candidates:
+        raise ValueError("Cannot select from an empty error envelope collection")
+    return next(
+        (
+            envelope
+            for envelope in candidates
+            if envelope.owner is RuntimeErrorOwner.PLATFORM
+        ),
+        candidates[0],
+    )
 
 
 def parse_error_envelope(value: object) -> ErrorEnvelope | None:

@@ -68,6 +68,7 @@ with workflow.unsafe.imports_passed_through():
         RetryDisposition,
         RuntimeErrorKind,
         RuntimeErrorOwner,
+        select_error_envelope,
     )
     from tracecat.storage.object import (
         CollectionObject,
@@ -125,13 +126,8 @@ def _classified_action_error_info(
                 # A child workflow's terminal ``{ref: detail}`` map. Ownership
                 # aggregates platform-wins across entries so a platform-owned
                 # child failure is never hidden behind an earlier user entry.
-                map_envelope = next(
-                    (
-                        wrapped.envelope
-                        for wrapped in wrapped_map.values()
-                        if wrapped.envelope.owner is RuntimeErrorOwner.PLATFORM
-                    ),
-                    envelope,
+                map_envelope = select_error_envelope(
+                    wrapped.envelope for wrapped in wrapped_map.values()
                 )
                 children = [
                     _unwrapped_action_error(child_ref, wrapped)
@@ -1668,14 +1664,16 @@ class DSLScheduler:
                 for child in finalized.errors
             ]
             if all(envelope is not None for envelope in child_envelopes):
-                # Every child failure was classified: attribute the gather to
-                # platform if any child was platform-owned, else to the user.
-                platform_owned = any(
-                    envelope is not None
-                    and envelope.owner is RuntimeErrorOwner.PLATFORM
-                    for envelope in child_envelopes
+                # Every child failure was classified: attribute the gather using
+                # the canonical platform-wins selection policy.
+                selected_child_envelope = select_error_envelope(
+                    envelope for envelope in child_envelopes if envelope is not None
                 )
-                build = ErrorEnvelope.platform if platform_owned else ErrorEnvelope.user
+                build = (
+                    ErrorEnvelope.platform
+                    if selected_child_envelope.owner is RuntimeErrorOwner.PLATFORM
+                    else ErrorEnvelope.user
+                )
                 gather_envelope = build(
                     kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
                     message=message,

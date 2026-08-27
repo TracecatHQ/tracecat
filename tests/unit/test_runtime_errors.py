@@ -12,6 +12,7 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
     parse_error_envelope,
+    select_error_envelope,
 )
 
 
@@ -113,6 +114,49 @@ def test_named_constructors_require_enum_members() -> None:
             message="The action failed",
             retry_disposition=cast(RetryDisposition, "non_retryable"),
         )
+
+
+def test_select_error_envelope_prefers_first_platform_envelope() -> None:
+    first_user = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="First user error",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    first_platform = ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="First platform error",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    second_platform = ErrorEnvelope.platform(
+        kind=RuntimeErrorKind.WORKFLOW_SUBFLOW_PREPARATION_FAILED,
+        message="Second platform error",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+    assert (
+        select_error_envelope((first_user, first_platform, second_platform))
+        is first_platform
+    )
+
+
+def test_select_error_envelope_keeps_first_user_without_platform() -> None:
+    first_user = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="First user error",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    second_user = ErrorEnvelope.user(
+        kind=RuntimeErrorKind.WORKFLOW_SUBFLOW_INPUT_INVALID,
+        message="Second user error",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+    assert select_error_envelope((first_user, second_user)) is first_user
+
+
+def test_select_error_envelope_rejects_empty_collection() -> None:
+    with pytest.raises(ValueError, match="empty error envelope collection"):
+        select_error_envelope(())
 
 
 def test_platform_envelope_excludes_sensitive_cause_message() -> None:
