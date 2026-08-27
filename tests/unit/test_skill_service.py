@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 import pytest
 from asyncpg import UniqueViolationError
+from botocore.exceptions import ClientError
 from dotenv import dotenv_values
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -1303,8 +1304,11 @@ class TestSkillService:
                 yield content
 
         @asynccontextmanager
-        async def fake_open_download_stream(*, key: str, bucket: str):
-            del key, bucket
+        async def fake_open_download_stream(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ):
+            del bucket
+            assert redact_log_identifiers is (key == canonical_key)
             yield FakeStream(), len(content)
 
         async def fake_copy_file(
@@ -1539,8 +1543,11 @@ class TestSkillService:
                 yield self._payload
 
         @asynccontextmanager
-        async def fake_open_download_stream(*, key: str, bucket: str):
+        async def fake_open_download_stream(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ):
             del bucket
+            assert redact_log_identifiers is (key == canonical_key)
             payload = poisoned if key == canonical_key else content
             yield FakeStream(payload), len(payload)
 
@@ -1674,6 +1681,133 @@ class TestSkillService:
         )
         assert blob_row is None
         await skill_service.session.refresh(svc_workspace)
+
+    async def test_attach_redacts_canonical_verification_failure(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Canonical verification hides tenant identifiers on storage failure."""
+
+        content = b"verified staged bytes\n"
+        sha256 = hashlib.sha256(content).hexdigest()
+        created = await skill_service.create_skill(SkillCreate(name="verify-failure"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=sha256,
+                size_bytes=len(content),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        canonical_key = skill_service._storage_key_for(sha256)
+        provider_message = f"denied access to {upload.bucket}/{canonical_key}"
+        get_object_calls = 0
+        deleted: list[str] = []
+
+        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+            del key, bucket
+            return True
+
+        class FakeStream:
+            async def __aenter__(self) -> "FakeStream":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def iter_chunks(self, *, chunk_size: int):
+                del chunk_size
+                yield content
+
+        @asynccontextmanager
+        async def fake_get_storage_client():
+            client = AsyncMock()
+
+            async def get_object(*, Bucket: str, Key: str):
+                nonlocal get_object_calls
+                get_object_calls += 1
+                if get_object_calls == 1:
+                    return {"Body": FakeStream(), "ContentLength": len(content)}
+                raise ClientError(
+                    error_response={
+                        "Error": {
+                            "Code": "AccessDenied",
+                            "Message": provider_message,
+                        }
+                    },
+                    operation_name="GetObject",
+                )
+
+            client.get_object.side_effect = get_object
+            yield client
+
+        async def fake_copy_file(
+            *,
+            source_key: str,
+            destination_key: str,
+            bucket: str,
+            content_type: str | None = None,
+            redact_log_identifiers: bool = False,
+        ) -> None:
+            del source_key, destination_key, bucket, content_type
+            assert redact_log_identifiers is True
+
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            del bucket
+            assert redact_log_identifiers is True
+            deleted.append(key)
+
+        mock_logger = MagicMock()
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.get_storage_client",
+            fake_get_storage_client,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.copy_file", fake_copy_file
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+        )
+        monkeypatch.setattr("tracecat.storage.blob.logger", mock_logger)
+
+        with pytest.raises(skill_service_module.blob.StorageDownloadError) as raised:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            )
+
+        assert raised.value.error_code == "AccessDenied"
+        assert canonical_key not in str(raised.value)
+        assert provider_message not in str(raised.value)
+        mock_logger.error.assert_called_once_with(
+            "Failed to open download stream",
+            key="<redacted>",
+            bucket="<redacted>",
+            error_code="AccessDenied",
+            error_type="ClientError",
+        )
+        assert canonical_key not in str(mock_logger.mock_calls)
+        assert str(skill_service.workspace_id) not in str(mock_logger.mock_calls)
+        assert provider_message not in str(mock_logger.mock_calls)
+        assert get_object_calls == 2
+        assert deleted
+        assert set(deleted) == {canonical_key}
 
     async def test_copy_cancellation_cleans_registered_canonical_key(
         self,
@@ -2470,8 +2604,12 @@ class TestSkillService:
                 yield content
 
         @asynccontextmanager
-        async def fake_open_download_stream(*, key: str, bucket: str):
-            del key, bucket
+        async def fake_open_download_stream(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ):
+            del bucket
+            assert key == upload.key
+            assert redact_log_identifiers is False
             yield FakeStream(), len(content)
 
         monkeypatch.setattr(
@@ -2597,8 +2735,12 @@ class TestSkillService:
                     yield chunk
 
         @asynccontextmanager
-        async def fake_open_download_stream(*, key: str, bucket: str):
-            del key, bucket
+        async def fake_open_download_stream(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ):
+            del bucket
+            assert key == upload.key
+            assert redact_log_identifiers is False
             yield FakeStream(), None
 
         monkeypatch.setattr(
@@ -2645,6 +2787,7 @@ class TestSkillService:
                 content_type="text/plain; charset=utf-8",
             ),
         )
+        canonical_key = skill_service._storage_key_for(sha256)
 
         deleted: dict[str, str] = {}
 
@@ -2661,8 +2804,11 @@ class TestSkillService:
                 yield content
 
         @asynccontextmanager
-        async def fake_open_download_stream(*, key: str, bucket: str):
-            del key, bucket
+        async def fake_open_download_stream(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ):
+            del bucket
+            assert redact_log_identifiers is (key == canonical_key)
             yield FakeStream(), len(content)
 
         async def fake_copy_file(

@@ -911,12 +911,17 @@ class SkillService(BaseWorkspaceService):
         expected_sha256: str,
         expected_size_bytes: int,
         error_detail: dict[str, str],
+        redact_log_identifiers: bool = False,
     ) -> None:
         """Stream a stored object and require an exact size and SHA-256 match."""
 
         actual_size_bytes = 0
         hasher = hashlib.sha256()
-        async with blob.open_download_stream(key=key, bucket=bucket) as (
+        async with blob.open_download_stream(
+            key=key,
+            bucket=bucket,
+            redact_log_identifiers=redact_log_identifiers,
+        ) as (
             stream,
             content_length,
         ):
@@ -1036,6 +1041,7 @@ class SkillService(BaseWorkspaceService):
                         expected_sha256=normalized_upload_sha256,
                         expected_size_bytes=upload.size_bytes,
                         error_detail=integrity_error_detail,
+                        redact_log_identifiers=True,
                     )
                 except Exception:
                     await self.session.delete(claim.blob)
