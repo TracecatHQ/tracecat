@@ -8,8 +8,8 @@ definition:
     account), delegated (personal Microsoft account) and application. Drafting in
     another user's mailbox needs application permissions, or delegated permissions
     plus that user sharing the mail folder with, or granting delegate access to,
-    the signed-in user. This action exposes common message fields. For arbitrary
-    Graph JSON message shapes or extension properties, call
+    the signed-in user. This action exposes common API-native message properties.
+    For other Graph JSON message properties or extension properties, call
     `tools.microsoft_graph_sdk.call_method` with `oauth_provider` set to
     `microsoft_outlook`; the dispatcher does not support MIME requests. Available
     in the global service, US Government L4, US Government L5 (DOD) and China
@@ -66,45 +66,39 @@ definition:
       type: str | None
       description: The subject of the message.
       default: null
-    body_content:
-      type: str | None
-      description: The content of the message body.
-      default: null
-    body_content_type:
-      type: str
+    body:
+      type: dict[str, Any] | None
       description: >-
-        The type of the message body content. The possible values are `Text` and
-        `HTML`. Only used when `body_content` is supplied.
-      default: Text
-    to_recipients:
-      type: list[str] | None
+        The body of the message, as an API-native itemBody object with `contentType`
+        (`Text` or `HTML`) and `content` properties.
+      default: null
+    toRecipients:
+      type: list[dict[str, Any]] | None
+      description: The To recipients for the message, as Graph recipient objects.
+      default: null
+    ccRecipients:
+      type: list[dict[str, Any]] | None
+      description: The Cc recipients for the message, as Graph recipient objects.
+      default: null
+    bccRecipients:
+      type: list[dict[str, Any]] | None
+      description: The Bcc recipients for the message, as Graph recipient objects.
+      default: null
+    replyTo:
+      type: list[dict[str, Any]] | None
+      description: The email addresses to use when replying, as Graph recipient objects.
+      default: null
+    from:
+      type: dict[str, Any] | None
       description: >-
-        The To recipients, as SMTP addresses. Each address is sent as a Graph
-        recipient object.
-      default: null
-    cc_recipients:
-      type: list[str] | None
-      description: The Cc recipients, as SMTP addresses.
-      default: null
-    bcc_recipients:
-      type: list[str] | None
-      description: The Bcc recipients, as SMTP addresses.
-      default: null
-    reply_to:
-      type: list[str] | None
-      description: The email addresses to use when replying, as SMTP addresses.
-      default: null
-    from_address:
-      type: str | None
-      description: >-
-        The `from` address, that is, the mailbox owner and sender of the message.
+        The mailbox owner and sender of the message, as a Graph recipient object.
         It must correspond to the actual mailbox used.
       default: null
-    sender_address:
-      type: str | None
+    sender:
+      type: dict[str, Any] | None
       description: >-
-        The `sender` address, that is, the account actually used to generate the
-        message. Set it when drafting from a shared mailbox or as a delegate; the
+        The account actually used to generate the message, as a Graph recipient
+        object. Set it when drafting from a shared mailbox or as a delegate; the
         value must correspond to the actual mailbox used.
       default: null
     importance:
@@ -113,78 +107,15 @@ definition:
         The importance of the message. The possible values are `Low`, `Normal` and
         `High`.
       default: null
-    is_read_receipt_requested:
+    isReadReceiptRequested:
       type: bool | None
       description: Indicates whether a read receipt is requested for the message.
       default: null
-    is_delivery_receipt_requested:
+    isDeliveryReceiptRequested:
       type: bool | None
       description: Indicates whether a delivery receipt is requested for the message.
       default: null
   steps:
-    - ref: build_message
-      action: core.script.run_python
-      args:
-        inputs:
-          bcc_recipients: ${{ inputs.bcc_recipients }}
-          body_content: ${{ inputs.body_content }}
-          body_content_type: ${{ inputs.body_content_type }}
-          cc_recipients: ${{ inputs.cc_recipients }}
-          from_address: ${{ inputs.from_address }}
-          importance: ${{ inputs.importance }}
-          is_delivery_receipt_requested: ${{ inputs.is_delivery_receipt_requested }}
-          is_read_receipt_requested: ${{ inputs.is_read_receipt_requested }}
-          reply_to: ${{ inputs.reply_to }}
-          sender_address: ${{ inputs.sender_address }}
-          subject: ${{ inputs.subject }}
-          to_recipients: ${{ inputs.to_recipients }}
-        script: |
-          def main(
-              bcc_recipients,
-              body_content,
-              body_content_type,
-              cc_recipients,
-              from_address,
-              importance,
-              is_delivery_receipt_requested,
-              is_read_receipt_requested,
-              reply_to,
-              sender_address,
-              subject,
-              to_recipients,
-          ):
-              # Graph rejects an explicit null on most message properties, so unset
-              # optionals are omitted rather than serialized.
-              def recipients(addresses):
-                  return [{"emailAddress": {"address": a}} for a in addresses]
-
-              message = {}
-              if subject is not None:
-                  message["subject"] = subject
-              if body_content is not None:
-                  message["body"] = {
-                      "contentType": body_content_type,
-                      "content": body_content,
-                  }
-              if to_recipients is not None:
-                  message["toRecipients"] = recipients(to_recipients)
-              if cc_recipients is not None:
-                  message["ccRecipients"] = recipients(cc_recipients)
-              if bcc_recipients is not None:
-                  message["bccRecipients"] = recipients(bcc_recipients)
-              if reply_to is not None:
-                  message["replyTo"] = recipients(reply_to)
-              if from_address is not None:
-                  message["from"] = {"emailAddress": {"address": from_address}}
-              if sender_address is not None:
-                  message["sender"] = {"emailAddress": {"address": sender_address}}
-              if importance is not None:
-                  message["importance"] = importance
-              if is_read_receipt_requested is not None:
-                  message["isReadReceiptRequested"] = is_read_receipt_requested
-              if is_delivery_receipt_requested is not None:
-                  message["isDeliveryReceiptRequested"] = is_delivery_receipt_requested
-              return message
     - ref: call_graph
       action: tools.microsoft_graph_sdk.call_method
       args:
@@ -193,5 +124,17 @@ definition:
         method: POST
         base_url: ${{ inputs.base_url || VARS.microsoft_outlook.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
         auth_mode: ${{ inputs.auth_mode }}
-        payload: ${{ steps.build_message.result }}
+        payload:
+          subject: ${{ inputs.subject }}
+          body: ${{ inputs.body }}
+          toRecipients: ${{ inputs.toRecipients }}
+          ccRecipients: ${{ inputs.ccRecipients }}
+          bccRecipients: ${{ inputs.bccRecipients }}
+          replyTo: ${{ inputs.replyTo }}
+          from: ${{ inputs.from }}
+          sender: ${{ inputs.sender }}
+          importance: ${{ inputs.importance }}
+          isReadReceiptRequested: ${{ inputs.isReadReceiptRequested }}
+          isDeliveryReceiptRequested: ${{ inputs.isDeliveryReceiptRequested }}
+        omit_none_payload_fields: true
   returns: ${{ steps.call_graph.result }}

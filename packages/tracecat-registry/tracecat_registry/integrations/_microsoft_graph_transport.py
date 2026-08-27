@@ -1,4 +1,4 @@
-"""Shared Microsoft Graph v1.0 transport for the registered Graph SDK wrappers.
+"""Shared Microsoft Graph v1.0 transport for the unified Graph SDK.
 
 This module is internal: it registers no actions. It holds the single hardened
 request pipeline used by the unified `microsoft_graph_sdk`, so the URL, header,
@@ -11,9 +11,9 @@ scrubbing, telemetry) always applies. JSON bodies are written with
 `microsoft-kiota-serialization-json` and responses are handed back exactly as
 Microsoft Graph returned them.
 
-Each registered wrapper supplies a `GraphProduct`, which names the ordered OAuth
-tokens that product may use. A product-specific token always wins over the
-generic Microsoft Graph token, and products never see each other's tokens.
+Each SDK call supplies a `GraphProduct`, which names the ordered OAuth tokens
+that product may use. A product-specific token always wins over the generic
+Microsoft Graph token, and products never see each other's tokens.
 """
 
 import re
@@ -216,15 +216,6 @@ ContinuationUrlParam = Annotated[
         ),
     ),
 ]
-
-
-def auth_mode_description(product: GraphProduct) -> str:
-    """Describe `auth_mode` for one product, naming its tokens in precedence order."""
-    return (
-        f"Credential to use. `application` requires {_token_phrase(product, 'application')}, "
-        f"`delegated` requires {_token_phrase(product, 'delegated')}, and `auto` tries "
-        f"{_token_phrase(product, 'auto')} in that order."
-    )
 
 
 def _token_phrase(product: GraphProduct, auth_mode: MicrosoftGraphAuthMode) -> str:

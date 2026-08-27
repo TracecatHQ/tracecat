@@ -9,12 +9,12 @@ definition:
     Delegated send-from-another-user also requires Mail.Send.Shared and Exchange
     Send As or Send on Behalf permission; using `/users/{id}` requires Full Access.
     Application Mail.Send can send as any organization user, so restrict it with
-    RBAC for Applications in Exchange Online. For arbitrary Graph JSON message
-    shapes, including inline attachments, use `tools.microsoft_graph_sdk.call_method`
-    with `oauth_provider` set to `microsoft_outlook`; the dispatcher does not support
-    MIME. Available in the global service, US Government L4, US
-    Government L5 (DOD) and China operated by 21Vianet. No separate licensing
-    requirement is documented; the mailbox needs Exchange Online or Outlook.com.
+    RBAC for Applications in Exchange Online. Supply an API-native JSON `message`,
+    which can include attachments. This action and the generic dispatcher do not
+    support Graph's MIME request form. Available in the global service, US
+    Government L4, US Government L5 (DOD) and China operated by 21Vianet. No
+    separate licensing requirement is documented; the mailbox needs Exchange
+    Online or Outlook.com.
   display_group: Microsoft Outlook Mail
   doc_url: https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0
   namespace: tools.microsoft_outlook
@@ -62,68 +62,20 @@ definition:
         `/users/{id | userPrincipalName}` path. Delegated callers may pass their own
         userPrincipalName; application callers must always name the mailbox to send
         from, because an application token has no signed-in user.
-    subject:
-      type: str | None
-      description: The subject of the message.
-      default: null
-    body_content:
-      type: str | None
-      description: The content of the message body.
-      default: null
-    body_content_type:
-      type: str
+    message:
+      # Generic: Microsoft defines `message` as the extensible Message resource,
+      # including nested recipients, attachments and extension properties. This is
+      # the endpoint's named parameter, not an opaque replacement for its body.
+      type: dict[str, Any]
       description: >-
-        The type of the message body content. The possible values are `Text` and
-        `HTML`. Only used when `body_content` is supplied.
-      default: Text
-    to_recipients:
-      type: list[str] | None
-      description: >-
-        The To recipients, as SMTP addresses. Each address is sent as a Graph
-        recipient object.
-      default: null
-    cc_recipients:
-      type: list[str] | None
-      description: The Cc recipients, as SMTP addresses.
-      default: null
-    bcc_recipients:
-      type: list[str] | None
-      description: The Bcc recipients, as SMTP addresses.
-      default: null
-    reply_to:
-      type: list[str] | None
-      description: The email addresses to use when replying, as SMTP addresses.
-      default: null
-    from_address:
-      type: str | None
-      description: >-
-        The `from` address, that is, the mailbox owner and sender of the message.
-        It must correspond to the actual mailbox used. Set it for the send-from-
-        another-user scenario, together with the Exchange Send As or Send on Behalf
-        permission on that mailbox.
-      default: null
-    sender_address:
-      type: str | None
-      description: >-
-        The `sender` address, that is, the account actually used to generate the
-        message. With Send on Behalf, `sender` is the acting account and `from` is
-        the mailbox the message appears to come from; with Send As, the two are
-        identical. The value must correspond to the actual mailbox used.
-      default: null
-    importance:
-      type: str | None
-      description: >-
-        The importance of the message. The possible values are `Low`, `Normal` and
-        `High`.
-      default: null
-    is_read_receipt_requested:
-      type: bool | None
-      description: Indicates whether a read receipt is requested for the message.
-      default: null
-    is_delivery_receipt_requested:
-      type: bool | None
-      description: Indicates whether a delivery receipt is requested for the message.
-      default: null
+        The API-native Microsoft Graph message object to send. Required. Common
+        writable properties include subject (String), body (itemBody), toRecipients,
+        ccRecipients and bccRecipients (recipient collections), replyTo (recipient
+        collection), from and sender (recipient), importance (String),
+        isReadReceiptRequested and isDeliveryReceiptRequested (Boolean), and
+        attachments (attachment collection). For send-from-another-user, set the
+        message `from` property to that mailbox and use the required Exchange
+        delegation described above.
     saveToSentItems:
       type: bool | None
       description: >-
@@ -131,75 +83,6 @@ definition:
         parameter is false; the default is true.
       default: null
   steps:
-    - ref: build_payload
-      action: core.script.run_python
-      args:
-        inputs:
-          bcc_recipients: ${{ inputs.bcc_recipients }}
-          body_content: ${{ inputs.body_content }}
-          body_content_type: ${{ inputs.body_content_type }}
-          cc_recipients: ${{ inputs.cc_recipients }}
-          from_address: ${{ inputs.from_address }}
-          importance: ${{ inputs.importance }}
-          is_delivery_receipt_requested: ${{ inputs.is_delivery_receipt_requested }}
-          is_read_receipt_requested: ${{ inputs.is_read_receipt_requested }}
-          reply_to: ${{ inputs.reply_to }}
-          save_to_sent_items: ${{ inputs.saveToSentItems }}
-          sender_address: ${{ inputs.sender_address }}
-          subject: ${{ inputs.subject }}
-          to_recipients: ${{ inputs.to_recipients }}
-        script: |
-          def main(
-              bcc_recipients,
-              body_content,
-              body_content_type,
-              cc_recipients,
-              from_address,
-              importance,
-              is_delivery_receipt_requested,
-              is_read_receipt_requested,
-              reply_to,
-              save_to_sent_items,
-              sender_address,
-              subject,
-              to_recipients,
-          ):
-              # Graph rejects an explicit null on most message properties, so unset
-              # optionals are omitted rather than serialized.
-              def recipients(addresses):
-                  return [{"emailAddress": {"address": a}} for a in addresses]
-
-              message = {}
-              if subject is not None:
-                  message["subject"] = subject
-              if body_content is not None:
-                  message["body"] = {
-                      "contentType": body_content_type,
-                      "content": body_content,
-                  }
-              if to_recipients is not None:
-                  message["toRecipients"] = recipients(to_recipients)
-              if cc_recipients is not None:
-                  message["ccRecipients"] = recipients(cc_recipients)
-              if bcc_recipients is not None:
-                  message["bccRecipients"] = recipients(bcc_recipients)
-              if reply_to is not None:
-                  message["replyTo"] = recipients(reply_to)
-              if from_address is not None:
-                  message["from"] = {"emailAddress": {"address": from_address}}
-              if sender_address is not None:
-                  message["sender"] = {"emailAddress": {"address": sender_address}}
-              if importance is not None:
-                  message["importance"] = importance
-              if is_read_receipt_requested is not None:
-                  message["isReadReceiptRequested"] = is_read_receipt_requested
-              if is_delivery_receipt_requested is not None:
-                  message["isDeliveryReceiptRequested"] = is_delivery_receipt_requested
-
-              payload = {"message": message}
-              if save_to_sent_items is not None:
-                  payload["saveToSentItems"] = save_to_sent_items
-              return payload
     - ref: call_graph
       action: tools.microsoft_graph_sdk.call_method
       args:
@@ -208,5 +91,8 @@ definition:
         method: POST
         base_url: ${{ inputs.base_url || VARS.microsoft_outlook.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
         auth_mode: ${{ inputs.auth_mode }}
-        payload: ${{ steps.build_payload.result }}
+        payload:
+          message: ${{ inputs.message }}
+          saveToSentItems: ${{ inputs.saveToSentItems }}
+        omit_none_payload_fields: true
   returns: ${{ steps.call_graph.result }}

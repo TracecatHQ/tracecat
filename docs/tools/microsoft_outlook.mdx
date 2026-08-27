@@ -211,7 +211,7 @@ Default: `null`.
 
 Action ID: `tools.microsoft_outlook.create_draft`
 
-Create a draft of a new message in the specified user's mailbox. The draft can later be sent with `send_draft`. Returns `201 Created` and the message object. Least privileged permission: Mail.ReadWrite for delegated (work or school account), delegated (personal Microsoft account) and application. Drafting in another user's mailbox needs application permissions, or delegated permissions plus that user sharing the mail folder with, or granting delegate access to, the signed-in user. This action exposes common message fields. For arbitrary Graph JSON message shapes or extension properties, call `tools.microsoft_graph_sdk.call_method` with `oauth_provider` set to `microsoft_outlook`; the dispatcher does not support MIME requests. Available in the global service, US Government L4, US Government L5 (DOD) and China operated by 21Vianet. Microsoft's endpoint reference does not state a separate licensing requirement; the mailbox still needs Exchange Online or Outlook.com.
+Create a draft of a new message in the specified user's mailbox. The draft can later be sent with `send_draft`. Returns `201 Created` and the message object. Least privileged permission: Mail.ReadWrite for delegated (work or school account), delegated (personal Microsoft account) and application. Drafting in another user's mailbox needs application permissions, or delegated permissions plus that user sharing the mail folder with, or granting delegate access to, the signed-in user. This action exposes common API-native message properties. For other Graph JSON message properties or extension properties, call `tools.microsoft_graph_sdk.call_method` with `oauth_provider` set to `microsoft_outlook`; the dispatcher does not support MIME requests. Available in the global service, US Government L4, US Government L5 (DOD) and China operated by 21Vianet. Microsoft's endpoint reference does not state a separate licensing requirement; the mailbox still needs Exchange Online or Outlook.com.
 
 Reference: [https://learn.microsoft.com/en-us/graph/api/user-post-messages?view=graph-rest-1.0](https://learn.microsoft.com/en-us/graph/api/user-post-messages?view=graph-rest-1.0)
 
@@ -250,41 +250,33 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="bcc_recipients" type="array[string] | null">
+<ParamField path="bccRecipients" type="array[object] | null">
 
-The Bcc recipients, as SMTP addresses.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="body_content" type="string | null">
-
-The content of the message body.
+The Bcc recipients for the message, as Graph recipient objects.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="body_content_type" type="string">
+<ParamField path="body" type="object | null">
 
-The type of the message body content. The possible values are `Text` and `HTML`. Only used when `body_content` is supplied.
-
-Default: `"Text"`.
-
-</ParamField>
-
-<ParamField path="cc_recipients" type="array[string] | null">
-
-The Cc recipients, as SMTP addresses.
+The body of the message, as an API-native itemBody object with `contentType` (`Text` or `HTML`) and `content` properties.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="from_address" type="string | null">
+<ParamField path="ccRecipients" type="array[object] | null">
 
-The `from` address, that is, the mailbox owner and sender of the message. It must correspond to the actual mailbox used.
+The Cc recipients for the message, as Graph recipient objects.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="from" type="object | null">
+
+The mailbox owner and sender of the message, as a Graph recipient object. It must correspond to the actual mailbox used.
 
 Default: `null`.
 
@@ -298,7 +290,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="is_delivery_receipt_requested" type="boolean | null">
+<ParamField path="isDeliveryReceiptRequested" type="boolean | null">
 
 Indicates whether a delivery receipt is requested for the message.
 
@@ -306,7 +298,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="is_read_receipt_requested" type="boolean | null">
+<ParamField path="isReadReceiptRequested" type="boolean | null">
 
 Indicates whether a read receipt is requested for the message.
 
@@ -314,17 +306,17 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="reply_to" type="array[string] | null">
+<ParamField path="replyTo" type="array[object] | null">
 
-The email addresses to use when replying, as SMTP addresses.
+The email addresses to use when replying, as Graph recipient objects.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="sender_address" type="string | null">
+<ParamField path="sender" type="object | null">
 
-The `sender` address, that is, the account actually used to generate the message. Set it when drafting from a shared mailbox or as a delegate; the value must correspond to the actual mailbox used.
+The account actually used to generate the message, as a Graph recipient object. Set it when drafting from a shared mailbox or as a delegate; the value must correspond to the actual mailbox used.
 
 Default: `null`.
 
@@ -338,9 +330,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="to_recipients" type="array[string] | null">
+<ParamField path="toRecipients" type="array[object] | null">
 
-The To recipients, as SMTP addresses. Each address is sent as a Graph recipient object.
+The To recipients for the message, as Graph recipient objects.
 
 Default: `null`.
 
@@ -618,12 +610,6 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="comment" type="string" required>
-
-A comment to include. Can be an empty string. Microsoft returns HTTP 400 if both this comment and the message `body` property are specified.
-
-</ParamField>
-
 <ParamField path="mailbox_user_id" type="string" required>
 
 Sending mailbox, given as a user ID or userPrincipalName and used in the `/users/&#123;id | userPrincipalName&#125;` path. Delegated callers may pass their own userPrincipalName; application callers must always name the mailbox to forward from, because an application token has no signed-in user.
@@ -633,12 +619,6 @@ Sending mailbox, given as a user ID or userPrincipalName and used in the `/users
 <ParamField path="messageId" type="string" required>
 
 The unique identifier of the message to forward.
-
-</ParamField>
-
-<ParamField path="toRecipients" type="array[string]" required>
-
-The list of recipients, as SMTP addresses. Each address is sent as a Graph recipient object.
 
 </ParamField>
 
@@ -655,6 +635,30 @@ Allowed values: `application`, `delegated`, `auto`.
 <ParamField path="base_url" type="string | null">
 
 Microsoft Graph v1.0 API root. If omitted, uses the workspace variable `microsoft_outlook.base_url`, then `microsoft_graph.base_url`, then https://graph.microsoft.com/v1.0. National clouds: https://graph.microsoft.us/v1.0 (US Government L4), https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD) and https://microsoftgraph.chinacloudapi.cn/v1.0 (China operated by 21Vianet).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="comment" type="string | null">
+
+A comment to include. Can be an empty string.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="message" type="object | null">
+
+Any writable properties to update in the forwarded message. Specify either `comment` or the message `body` property, not both. Specify either `toRecipients` or the message `toRecipients` property; specifying both or neither returns HTTP 400.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="toRecipients" type="array[object] | null">
+
+The list of recipients, as Graph recipient objects.
 
 Default: `null`.
 
@@ -1882,7 +1886,7 @@ Default: `null`.
 
 Action ID: `tools.microsoft_outlook.send_mail`
 
-Send a JSON message from the specified mailbox and save it in Sent Items. Returns `202 Accepted`; acceptance does not mean delivery finished. Least privileged permission: Mail.Send for delegated work or school, delegated personal Microsoft accounts and application; no higher permission is available. Delegated send-from-another-user also requires Mail.Send.Shared and Exchange Send As or Send on Behalf permission; using `/users/&#123;id&#125;` requires Full Access. Application Mail.Send can send as any organization user, so restrict it with RBAC for Applications in Exchange Online. For arbitrary Graph JSON message shapes, including inline attachments, use `tools.microsoft_graph_sdk.call_method` with `oauth_provider` set to `microsoft_outlook`; the dispatcher does not support MIME. Available in the global service, US Government L4, US Government L5 (DOD) and China operated by 21Vianet. No separate licensing requirement is documented; the mailbox needs Exchange Online or Outlook.com.
+Send a JSON message from the specified mailbox and save it in Sent Items. Returns `202 Accepted`; acceptance does not mean delivery finished. Least privileged permission: Mail.Send for delegated work or school, delegated personal Microsoft accounts and application; no higher permission is available. Delegated send-from-another-user also requires Mail.Send.Shared and Exchange Send As or Send on Behalf permission; using `/users/&#123;id&#125;` requires Full Access. Application Mail.Send can send as any organization user, so restrict it with RBAC for Applications in Exchange Online. Supply an API-native JSON `message`, which can include attachments. This action and the generic dispatcher do not support Graph's MIME request form. Available in the global service, US Government L4, US Government L5 (DOD) and China operated by 21Vianet. No separate licensing requirement is documented; the mailbox needs Exchange Online or Outlook.com.
 
 Reference: [https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0)
 
@@ -1900,6 +1904,12 @@ Optional secrets:
 <ParamField path="mailbox_user_id" type="string" required>
 
 Sending mailbox, given as a user ID or userPrincipalName and used in the `/users/&#123;id | userPrincipalName&#125;` path. Delegated callers may pass their own userPrincipalName; application callers must always name the mailbox to send from, because an application token has no signed-in user.
+
+</ParamField>
+
+<ParamField path="message" type="object" required>
+
+The API-native Microsoft Graph message object to send. Required. Common writable properties include subject (String), body (itemBody), toRecipients, ccRecipients and bccRecipients (recipient collections), replyTo (recipient collection), from and sender (recipient), importance (String), isReadReceiptRequested and isDeliveryReceiptRequested (Boolean), and attachments (attachment collection). For send-from-another-user, set the message `from` property to that mailbox and use the required Exchange delegation described above.
 
 </ParamField>
 
@@ -1921,105 +1931,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="bcc_recipients" type="array[string] | null">
-
-The Bcc recipients, as SMTP addresses.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="body_content" type="string | null">
-
-The content of the message body.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="body_content_type" type="string">
-
-The type of the message body content. The possible values are `Text` and `HTML`. Only used when `body_content` is supplied.
-
-Default: `"Text"`.
-
-</ParamField>
-
-<ParamField path="cc_recipients" type="array[string] | null">
-
-The Cc recipients, as SMTP addresses.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="from_address" type="string | null">
-
-The `from` address, that is, the mailbox owner and sender of the message. It must correspond to the actual mailbox used. Set it for the send-from- another-user scenario, together with the Exchange Send As or Send on Behalf permission on that mailbox.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="importance" type="string | null">
-
-The importance of the message. The possible values are `Low`, `Normal` and `High`.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="is_delivery_receipt_requested" type="boolean | null">
-
-Indicates whether a delivery receipt is requested for the message.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="is_read_receipt_requested" type="boolean | null">
-
-Indicates whether a read receipt is requested for the message.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="reply_to" type="array[string] | null">
-
-The email addresses to use when replying, as SMTP addresses.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="saveToSentItems" type="boolean | null">
 
 Indicates whether to save the message in Sent Items. Specify it only if the parameter is false; the default is true.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="sender_address" type="string | null">
-
-The `sender` address, that is, the account actually used to generate the message. With Send on Behalf, `sender` is the acting account and `from` is the mailbox the message appears to come from; with Send As, the two are identical. The value must correspond to the actual mailbox used.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="subject" type="string | null">
-
-The subject of the message.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="to_recipients" type="array[string] | null">
-
-The To recipients, as SMTP addresses. Each address is sent as a Graph recipient object.
 
 Default: `null`.
 

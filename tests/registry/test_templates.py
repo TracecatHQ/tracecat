@@ -209,11 +209,10 @@ def test_outlook_templates_call_the_generic_graph_sdk():
     for action in actions:
         definition = action.definition
         assert definition.namespace == "tools.microsoft_outlook"
-        step_actions = [step.action for step in definition.steps]
-        assert step_actions[-1] == "tools.microsoft_graph_sdk.call_method"
-        assert definition.steps[-1].args["oauth_provider"] == "microsoft_outlook"
-        # A builder step is allowed; a second Graph call or auto-pagination is not.
-        assert set(step_actions[:-1]) <= {"core.script.run_python"}
+        assert [step.action for step in definition.steps] == [
+            "tools.microsoft_graph_sdk.call_method"
+        ]
+        assert definition.steps[0].args["oauth_provider"] == "microsoft_outlook"
         assert _declared_secrets(action) == [
             ("microsoft_outlook", "client_credentials"),
             ("microsoft_outlook", "authorization_code"),

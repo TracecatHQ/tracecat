@@ -66,30 +66,24 @@ definition:
       type: str
       description: The unique identifier of the message to forward.
     toRecipients:
-      type: list[str]
-      description: >-
-        The list of recipients, as SMTP addresses. Each address is sent as a Graph
-        recipient object.
+      type: list[dict[str, Any]] | None
+      description: The list of recipients, as Graph recipient objects.
+      default: null
     comment:
-      type: str
+      type: str | None
+      description: A comment to include. Can be an empty string.
+      default: null
+    message:
+      # Generic: Microsoft defines this named parameter as a partial, extensible
+      # Message resource; its writable nested shape cannot be flattened safely.
+      type: dict[str, Any] | None
       description: >-
-        A comment to include. Can be an empty string. Microsoft returns HTTP 400 if
-        both this comment and the message `body` property are specified.
+        Any writable properties to update in the forwarded message. Specify either
+        `comment` or the message `body` property, not both. Specify either
+        `toRecipients` or the message `toRecipients` property; specifying both or
+        neither returns HTTP 400.
+      default: null
   steps:
-    - ref: build_payload
-      action: core.script.run_python
-      args:
-        inputs:
-          comment: ${{ inputs.comment }}
-          to_recipients: ${{ inputs.toRecipients }}
-        script: |
-          def main(comment, to_recipients):
-              return {
-                  "comment": comment,
-                  "toRecipients": [
-                      {"emailAddress": {"address": a}} for a in to_recipients
-                  ],
-              }
     - ref: call_graph
       action: tools.microsoft_graph_sdk.call_method
       args:
@@ -98,5 +92,9 @@ definition:
         method: POST
         base_url: ${{ inputs.base_url || VARS.microsoft_outlook.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
         auth_mode: ${{ inputs.auth_mode }}
-        payload: ${{ steps.build_payload.result }}
+        payload:
+          comment: ${{ inputs.comment }}
+          toRecipients: ${{ inputs.toRecipients }}
+          message: ${{ inputs.message }}
+        omit_none_payload_fields: true
   returns: ${{ steps.call_graph.result }}
