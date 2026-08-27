@@ -182,7 +182,7 @@ def effective_subagents_enabled(subagents_enabled: bool, agents: object) -> bool
 
     if subagents_enabled:
         return True
-    return isinstance(agents, dict) and bool(agents.get("enabled"))
+    return isinstance(agents, dict) and agents.get("enabled") is True
 
 
 def build_agent_preset_read_minimal(

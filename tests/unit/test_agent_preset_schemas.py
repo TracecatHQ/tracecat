@@ -284,6 +284,26 @@ def test_agent_preset_read_minimal_uses_normalized_subagent_enabled_bit() -> Non
     assert payload.current_version_subagent_eligibility.reasons == ["agents_enabled"]
 
 
+@pytest.mark.parametrize("legacy_enabled", ["false", "true", 1, [True]])
+def test_agent_preset_read_minimal_rejects_non_boolean_legacy_enabled_values(
+    legacy_enabled: object,
+) -> None:
+    """Legacy projections enable subagents only for the literal boolean true."""
+
+    preset = make_agent_preset(
+        name="Malformed legacy enabled preset",
+        slug="malformed-legacy-enabled-preset",
+        agents={"enabled": legacy_enabled, "subagents": []},
+    )
+    preset.subagents_enabled = False
+
+    payload = build_agent_preset_read_minimal(preset)
+
+    assert payload.capabilities == []
+    assert payload.current_version_subagent_eligibility.eligible is True
+    assert payload.current_version_subagent_eligibility.reasons == []
+
+
 def test_build_subagent_eligibility_allows_plain_versions() -> None:
     eligibility = build_subagent_eligibility(
         agents_config={"enabled": False},
