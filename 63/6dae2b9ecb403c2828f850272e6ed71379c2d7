@@ -1,0 +1,22 @@
+tests/unit/test_mcp_integrations.py
+  s_d1e86c9775a20b::t_d80ffebaeef856 7432-7435,7437-7456,7791
+  s_d1e86c9775a20b::t_ccf3f089951c81 7436
+tracecat/integrations/service.py
+  s_d1e86c9775a20b::t_5dd95cc432bdbc 1274,1276-1282
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "636dae2b9ecb403c2828f850272e6ed71379c2d7",
+  "prompts": {},
+  "sessions": {
+    "s_d1e86c9775a20b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "103fc936-1b73-4ff8-a385-441c3b352db4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
