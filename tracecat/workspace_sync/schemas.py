@@ -196,6 +196,14 @@ class AgentPresetSubagentRef(BaseModel):
     slug: str = Field(
         min_length=1, description="Slug of the preset used as a subagent."
     )
+    source_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Stable sync source id for identity-sensitive references, including "
+            "historical edges to deleted presets."
+        ),
+    )
     version: int | None = Field(
         default=None,
         ge=1,

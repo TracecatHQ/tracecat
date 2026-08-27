@@ -1440,7 +1440,9 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         stmt = (
             select(
                 AgentPresetVersionSubagent.parent_preset_version_id,
+                AgentPreset.id,
                 AgentPreset.slug,
+                AgentPreset.deleted_at,
                 AgentPresetVersionSubagent.alias,
                 AgentPresetVersionSubagent.description,
                 AgentPresetVersionSubagent.max_turns,
@@ -1462,16 +1464,31 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
         )
         bindings: dict[uuid.UUID, list[AgentPresetSubagentRef]] = {}
+        source_ids_by_preset_id = await self.source_ids_by_local_id(workspace_service)
         # Historical version edges may point at a soft-deleted child preset;
         # the runtime binding (get_version_subagent_binding) keeps them, so
         # the projection must too — opt out of the global soft-delete filter,
         # mirroring _skill_bindings_for_versions.
-        for preset_version_id, slug, alias, description, max_turns in (
-            await workspace_service.session.execute(with_deleted(stmt))
-        ).tuples():
+        for (
+            preset_version_id,
+            child_preset_id,
+            slug,
+            deleted_at,
+            alias,
+            description,
+            max_turns,
+        ) in (await workspace_service.session.execute(with_deleted(stmt))).tuples():
+            source_id = source_ids_by_preset_id.get(child_preset_id)
+            if deleted_at is not None and source_id is None:
+                # A deleted preset without a prior sync mapping cannot be
+                # imported elsewhere. Still emit an identity that cannot
+                # collide with a newly active preset reusing the tombstone's
+                # slug; the importer will fail closed when it cannot map it.
+                source_id = f"tombstone-{child_preset_id}"
             bindings.setdefault(preset_version_id, []).append(
                 AgentPresetSubagentRef(
                     slug=slug,
+                    source_id=source_id if deleted_at is not None else None,
                     name=alias,
                     description=description,
                     max_turns=max_turns,
@@ -1909,16 +1926,39 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         subagent: AgentPresetSubagentRef,
     ) -> tuple[AgentPreset, AgentPresetVersion] | None:
         """Resolve a subagent ref to its child preset and desired version."""
-        # Look up the child preset by slug within the same workspace. Soft-deleted
-        # presets keep their slug, so exclude them to avoid binding a deleted
-        # child that runtime resolution would reject.
-        child = await workspace_service.session.scalar(
-            select(AgentPreset).where(
-                AgentPreset.workspace_id == workspace_service.workspace_id,
-                AgentPreset.slug == subagent.slug,
-                AgentPreset.deleted_at.is_(None),
+        if subagent.source_id is not None:
+            local_id = await self.local_id_for_source_id(
+                workspace_service,
+                subagent.source_id,
             )
-        )
+            if local_id is None:
+                raise TracecatValidationError(
+                    "Agent preset subagent source identity "
+                    f"{subagent.source_id!r} cannot be resolved"
+                )
+            child = await workspace_service.session.scalar(
+                with_deleted(
+                    select(AgentPreset).where(
+                        AgentPreset.workspace_id == workspace_service.workspace_id,
+                        AgentPreset.id == local_id,
+                    )
+                )
+            )
+            if child is None:
+                raise TracecatValidationError(
+                    "Agent preset subagent source identity "
+                    f"{subagent.source_id!r} maps to a missing preset"
+                )
+        else:
+            # Legacy slug-only refs remain portable. Exclude deleted presets so
+            # a tombstone can never be selected without a stable sync identity.
+            child = await workspace_service.session.scalar(
+                select(AgentPreset).where(
+                    AgentPreset.workspace_id == workspace_service.workspace_id,
+                    AgentPreset.slug == subagent.slug,
+                    AgentPreset.deleted_at.is_(None),
+                )
+            )
         if child is None:
             return None
 
@@ -1933,12 +1973,22 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         elif child.current_version_id is not None:
             stmt = stmt.where(AgentPresetVersion.id == child.current_version_id)
         else:
+            if subagent.source_id is not None:
+                raise TracecatValidationError(
+                    "Agent preset subagent source identity "
+                    f"{subagent.source_id!r} has no published version"
+                )
             return None
 
         # Treat an unresolvable version (e.g. requested number not found) as a
         # skip rather than an error.
         version = await workspace_service.session.scalar(stmt)
         if version is None:
+            if subagent.source_id is not None:
+                raise TracecatValidationError(
+                    "Agent preset subagent source identity "
+                    f"{subagent.source_id!r} does not provide the requested version"
+                )
             return None
         return child, version
 

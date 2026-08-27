@@ -4712,12 +4712,130 @@ async def test_agent_preset_projection_keeps_edges_to_soft_deleted_children(
         },
         {
             "slug": "b-doomed-child",
+            "source_id": f"tombstone-{doomed.id}",
             "version": 1,
             "name": "doomed-alias",
             "description": "Soft-delete this child",
             "max_turns": 3,
         },
     ]
+
+
+@pytest.mark.anyio
+async def test_agent_preset_subagent_source_identity_prevents_slug_rebinding(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A tombstone source id wins over an active preset reusing its slug."""
+
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    tombstone = AgentPreset(
+        workspace_id=workspace_id,
+        slug="reused-child",
+        name="Original child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        deleted_at=datetime.now(UTC),
+    )
+    active = AgentPreset(
+        workspace_id=workspace_id,
+        slug="reused-child",
+        name="Replacement child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+    )
+    session.add_all([tombstone, active])
+    await session.flush()
+    tombstone_version = AgentPresetVersion(
+        workspace_id=workspace_id,
+        preset_id=tombstone.id,
+        version=1,
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+    )
+    active_version = AgentPresetVersion(
+        workspace_id=workspace_id,
+        preset_id=active.id,
+        version=1,
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+    )
+    session.add_all([tombstone_version, active_version])
+    await session.flush()
+    tombstone.current_version_id = tombstone_version.id
+    active.current_version_id = active_version.id
+    session.add_all([tombstone, active])
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=SyncResourceType.AGENT_PRESET.value,
+            source_id="original-child",
+            source_path=f"{AGENT_PRESET_ROOT}/original-child/preset.yml",
+            local_id=tombstone.id,
+        )
+    )
+    await session.flush()
+    importer = WorkspaceResourceImportService(session=session, role=svc_role)
+
+    target = await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagent_target(
+        importer,
+        AgentPresetSubagentRef(
+            slug="reused-child",
+            source_id="original-child",
+        ),
+    )
+
+    assert target is not None
+    resolved_child, resolved_version = target
+    assert resolved_child.id == tombstone.id
+    assert resolved_version.id == tombstone_version.id
+
+
+@pytest.mark.anyio
+async def test_agent_preset_subagent_source_identity_fails_closed_when_unmapped(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """An unmapped tombstone identity never falls back to a reused slug."""
+
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    active = AgentPreset(
+        workspace_id=workspace_id,
+        slug="reused-unmapped-child",
+        name="Unrelated active child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+    )
+    session.add(active)
+    await session.flush()
+    active_version = AgentPresetVersion(
+        workspace_id=workspace_id,
+        preset_id=active.id,
+        version=1,
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+    )
+    session.add(active_version)
+    await session.flush()
+    active.current_version_id = active_version.id
+    session.add(active)
+    await session.flush()
+    importer = WorkspaceResourceImportService(session=session, role=svc_role)
+
+    with pytest.raises(
+        TracecatValidationError,
+        match="source identity 'missing-original-child' cannot be resolved",
+    ):
+        await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagent_target(
+            importer,
+            AgentPresetSubagentRef(
+                slug="reused-unmapped-child",
+                source_id="missing-original-child",
+            ),
+        )
 
 
 @pytest.mark.anyio
