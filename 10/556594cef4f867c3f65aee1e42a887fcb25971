@@ -1,0 +1,36 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/get_event_for_detection.yml
+  s_39bab1cd8212fa::t_bb11da103c4e77 40-50,61-63
+docs/tools/google_chronicle.mdx
+  s_39bab1cd8212fa::t_c028ca5c02d67f 420,422,1051,1053
+  s_39bab1cd8212fa::t_8baac36a0cc189 421,423-427,698,700,706,708,1052,1054-1058,1159-1183,1189,1191,1250,1272-1280,1282-1298,1637,1639-1655,2101,2103,2109,2111,2671-2799,2801-2833,2902,2904,2910,2912,3175-3183,3185-3193,3372,3374,3380,3382,3508,3510,3516,3518,3524,3526,3579,3581,3585,3587-3589
+packages/tracecat-registry/tracecat_registry/integrations/google_chronicle.py
+  s_39bab1cd8212fa::t_791293a7591c77 78-82
+  s_39bab1cd8212fa::t_c57ddc3c37bf80 77,83,92
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/hunting/execute_query.yml
+  s_39bab1cd8212fa::t_c57ddc3c37bf80 56,59,66
+  s_39bab1cd8212fa::t_791293a7591c77 57-58
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/hunting/find_entity_alerts.yml
+  s_39bab1cd8212fa::t_2ff7f4c5d78c4d 44-45,47-61,73-76
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/hunting/find_related_entities.yml
+  s_39bab1cd8212fa::t_2ff7f4c5d78c4d 46-47,49-63,106-109
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/search_findings.yml
+  s_39bab1cd8212fa::t_bb11da103c4e77 49-59,72-74
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/search_alerts.yml
+  s_39bab1cd8212fa::t_22fcfd179e19bd 63-145,193-213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "10556594cef4f867c3f65aee1e42a887fcb25971",
+  "prompts": {},
+  "sessions": {
+    "s_39bab1cd8212fa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ff9-e8e1-71e0-9798-1708865c8fb5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
