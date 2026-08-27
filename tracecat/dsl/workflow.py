@@ -120,7 +120,7 @@ with workflow.unsafe.imports_passed_through():
         exec_id_to_parts,
     )
     from tracecat.registry.lock.types import RegistryLock
-    from tracecat.runtime.errors import RuntimeErrorOwner, select_error_envelope
+    from tracecat.runtime.errors import RuntimeErrorOwner, select_error_classification
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -132,7 +132,7 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
-    from tracecat.temporal.errors import extract_error_envelopes
+    from tracecat.temporal.errors import extract_error_classifications
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
@@ -789,23 +789,27 @@ class DSLWorkflow:
         # while the original workflow error remains the active exception, so
         # following implicit ``__context__`` here can misclassify an
         # unclassified handler failure as the original error's owner.
-        envelopes = extract_error_envelopes(error, include_implicit_context=False)
-        if not envelopes:
+        classifications = extract_error_classifications(
+            error,
+            include_implicit_context=False,
+        )
+        if not classifications:
             return
         if not workflow.patched(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH):
             return
 
-        owner = select_error_envelope(envelopes).owner
+        owner = select_error_classification(classifications).owner
         workflow.upsert_search_attributes(
             [TemporalSearchAttr.ERROR_OWNER.key.value_set(owner.value)]
         )
 
     @staticmethod
     def _has_user_error_cause(error: BaseException) -> bool:
-        envelopes = extract_error_envelopes(error)
+        classifications = extract_error_classifications(error)
         if (
-            envelopes
-            and select_error_envelope(envelopes).owner is RuntimeErrorOwner.USER
+            classifications
+            and select_error_classification(classifications).owner
+            is RuntimeErrorOwner.USER
         ):
             return workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH)
 

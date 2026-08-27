@@ -8,12 +8,15 @@ from typing import Any
 from temporalio.exceptions import ApplicationError
 
 from tracecat.dsl.types import ActionErrorInfo, TaskExceptionInfo
-from tracecat.runtime.errors import ErrorEnvelope, select_error_envelope
+from tracecat.runtime.errors import (
+    RuntimeErrorClassification,
+    select_error_classification,
+)
 from tracecat.temporal.errors import (
-    application_error_from_envelope,
-    extract_error_envelopes,
-    parse_classified_detail,
-    wrap_error,
+    application_error_from_classification,
+    build_error_transport_detail,
+    extract_error_classifications,
+    parse_classified_error_payload,
 )
 
 
@@ -22,23 +25,26 @@ def build_terminal_application_error(
 ) -> ApplicationError:
     """Build the terminal workflow error without changing legacy payloads."""
     n_exceptions = len(task_exceptions)
-    task_envelopes: dict[str, ErrorEnvelope] = {}
+    task_classifications: dict[str, RuntimeErrorClassification] = {}
     for ref, info in task_exceptions.items():
-        envelopes = extract_error_envelopes(info.exception)
-        if not envelopes:
+        classifications = extract_error_classifications(info.exception)
+        if not classifications:
             break
-        task_envelopes[ref] = select_error_envelope(envelopes)
+        task_classifications[ref] = select_error_classification(classifications)
     else:
-        if task_envelopes:
-            terminal_envelope = select_error_envelope(task_envelopes.values())
+        if task_classifications:
+            terminal_classification = select_error_classification(
+                task_classifications.values()
+            )
             error_details = {
-                ref: wrap_error(task_envelopes[ref], info.details).model_dump(
-                    mode="json"
-                )
+                ref: build_error_transport_detail(
+                    task_classifications[ref],
+                    info.details,
+                ).model_dump(mode="json")
                 for ref, info in task_exceptions.items()
             }
-            return application_error_from_envelope(
-                terminal_envelope,
+            return application_error_from_classification(
+                terminal_classification,
                 error_details,
             )
 
@@ -74,15 +80,15 @@ def adapt_error_handler_details(
                 type=type(err_info_map).__name__,
             )
         ]
-    if isinstance(parsed := parse_classified_detail(err_info_map), dict):
+    if isinstance(parsed := parse_classified_error_payload(err_info_map), dict):
         return [
-            wrapped.error
-            if wrapped.error is not None
+            transport_detail.action_error
+            if transport_detail.action_error is not None
             else ActionErrorInfo(
                 ref=child_ref,
-                message=wrapped.envelope.message,
-                type=wrapped.envelope.kind.value,
+                message=transport_detail.classification.message,
+                type=transport_detail.classification.kind.value,
             )
-            for child_ref, wrapped in parsed.items()
+            for child_ref, transport_detail in parsed.items()
         ]
     return [ActionErrorInfo.model_validate(data) for data in err_info_map.values()]

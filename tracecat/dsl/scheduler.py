@@ -64,11 +64,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
     from tracecat.runtime.errors import (
-        ErrorEnvelope,
         RetryDisposition,
+        RuntimeErrorClassification,
         RuntimeErrorKind,
         RuntimeErrorOwner,
-        select_error_envelope,
+        select_error_classification,
     )
     from tracecat.storage.object import (
         CollectionObject,
@@ -79,11 +79,11 @@ with workflow.unsafe.imports_passed_through():
         action_key,
     )
     from tracecat.temporal.errors import (
-        ClassifiedErrorDetail,
-        application_error_from_envelope,
-        extract_error_envelope,
-        parse_classified_detail,
-        wrap_error,
+        ErrorTransportDetail,
+        application_error_from_classification,
+        build_error_transport_detail,
+        extract_error_classification,
+        parse_classified_error_payload,
     )
 
 
@@ -109,39 +109,40 @@ def _classified_action_error_info(
     *,
     ref: str,
     stream_id: StreamID,
-) -> tuple[ActionErrorInfo, ErrorEnvelope] | None:
+) -> tuple[ActionErrorInfo, RuntimeErrorClassification] | None:
     """Adapt a classified activity failure into the scheduler error shape."""
-    envelope = extract_error_envelope(error)
-    if envelope is None:
+    classification = extract_error_classification(error)
+    if classification is None:
         return None
 
     for detail in error.details:
-        match parse_classified_detail(detail):
-            case ClassifiedErrorDetail(error=ActionErrorInfo() as info):
+        match parse_classified_error_payload(detail):
+            case ErrorTransportDetail(action_error=ActionErrorInfo() as info):
                 return (
                     info.model_copy(update={"ref": ref, "stream_id": stream_id}),
-                    envelope,
+                    classification,
                 )
-            case dict() as wrapped_map if wrapped_map:
+            case dict() as transport_map if transport_map:
                 # A child workflow's terminal ``{ref: detail}`` map. Ownership
                 # aggregates platform-wins across entries so a platform-owned
                 # child failure is never hidden behind an earlier user entry.
-                map_envelope = select_error_envelope(
-                    wrapped.envelope for wrapped in wrapped_map.values()
+                map_classification = select_error_classification(
+                    transport_detail.classification
+                    for transport_detail in transport_map.values()
                 )
                 children = [
-                    _unwrapped_action_error(child_ref, wrapped)
-                    for child_ref, wrapped in wrapped_map.items()
+                    _action_error_from_transport_detail(child_ref, transport_detail)
+                    for child_ref, transport_detail in transport_map.items()
                 ]
                 return (
                     ActionErrorInfo(
                         ref=ref,
-                        message=map_envelope.message,
+                        message=map_classification.message,
                         type=error.type or error.__class__.__name__,
                         stream_id=stream_id,
                         children=children,
                     ),
-                    map_envelope,
+                    map_classification,
                 )
             case _:
                 continue
@@ -149,24 +150,25 @@ def _classified_action_error_info(
     return (
         ActionErrorInfo(
             ref=ref,
-            message=envelope.message,
+            message=classification.message,
             type=error.type or error.__class__.__name__,
             stream_id=stream_id,
         ),
-        envelope,
+        classification,
     )
 
 
-def _unwrapped_action_error(
-    ref: str, wrapped: ClassifiedErrorDetail
+def _action_error_from_transport_detail(
+    ref: str,
+    transport_detail: ErrorTransportDetail,
 ) -> ActionErrorInfo:
-    """Unwrap a classified detail's payload, synthesizing one for bare envelopes."""
-    if wrapped.error is not None:
-        return wrapped.error
+    """Unwrap action diagnostics, synthesizing them when absent."""
+    if transport_detail.action_error is not None:
+        return transport_detail.action_error
     return ActionErrorInfo(
         ref=ref,
-        message=wrapped.envelope.message,
-        type=wrapped.envelope.kind.value,
+        message=transport_detail.classification.message,
+        type=transport_detail.classification.kind.value,
     )
 
 
@@ -246,7 +248,9 @@ class DSLScheduler:
         # Mut
         self.task_exceptions: dict[str, TaskExceptionInfo] = {}
         self.stream_exceptions: dict[StreamID, TaskExceptionInfo] = {}
-        self.stream_error_envelopes: dict[StreamID, ErrorEnvelope] = {}
+        self.stream_error_classifications: dict[
+            StreamID, RuntimeErrorClassification
+        ] = {}
 
         # Build adjacency list with sets for efficient construction
         adj_temp: dict[str, set[AdjDst]] = defaultdict(set)
@@ -530,11 +534,11 @@ class DSLScheduler:
                     stream_id=task.stream_id,
                 )
             ):
-                details, envelope = classified
+                details, classification = classified
                 # Recorded so a later gather failure can aggregate ownership
                 # across its classified children; never pruned (bounded by
                 # failed tasks) so it survives stream cleanup.
-                self.stream_error_envelopes[task.stream_id] = envelope
+                self.stream_error_classifications[task.stream_id] = classification
             elif isinstance(exc, ApplicationError) and exc.details:
                 self.logger.info(
                     "Task failed with application error",
@@ -1659,31 +1663,36 @@ class DSLScheduler:
                 children=finalized.errors,
                 stream_id=parent_stream_id,
             )
-            child_envelopes = [
-                self.stream_error_envelopes.get(child.stream_id)
+            child_classifications = [
+                self.stream_error_classifications.get(child.stream_id)
                 for child in finalized.errors
             ]
-            if all(envelope is not None for envelope in child_envelopes):
+            if all(
+                classification is not None for classification in child_classifications
+            ):
                 # Every child failure was classified: attribute the gather using
                 # the canonical platform-wins selection policy.
-                selected_child_envelope = select_error_envelope(
-                    envelope for envelope in child_envelopes if envelope is not None
+                selected_child_classification = select_error_classification(
+                    classification
+                    for classification in child_classifications
+                    if classification is not None
                 )
                 build = (
-                    ErrorEnvelope.platform
-                    if selected_child_envelope.owner is RuntimeErrorOwner.PLATFORM
-                    else ErrorEnvelope.user
+                    RuntimeErrorClassification.platform
+                    if selected_child_classification.owner is RuntimeErrorOwner.PLATFORM
+                    else RuntimeErrorClassification.user
                 )
-                gather_envelope = build(
+                gather_classification = build(
                     kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
                     message=message,
                     retry_disposition=RetryDisposition.NON_RETRYABLE,
                 )
-                app_error = application_error_from_envelope(
-                    gather_envelope,
+                app_error = application_error_from_classification(
+                    gather_classification,
                     {
-                        gather_ref: wrap_error(
-                            gather_envelope, gather_error
+                        gather_ref: build_error_transport_detail(
+                            gather_classification,
+                            gather_error,
                         ).model_dump(mode="json")
                     },
                 )

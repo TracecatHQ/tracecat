@@ -32,7 +32,7 @@ from tracecat.dsl.workflow import (
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import InlineObject
-from tracecat.temporal.errors import extract_error_envelope
+from tracecat.temporal.errors import extract_error_classification
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 pytestmark = [pytest.mark.temporal, pytest.mark.integration]
@@ -159,7 +159,7 @@ async def test_dsl_workflow_replays_legacy_subflow_failure_history(
                 await handle.result()
 
     history = await handle.fetch_history()
-    assert extract_error_envelope(exc_info.value) is None
+    assert extract_error_classification(exc_info.value) is None
     patch_ids = await recorded_patch_ids(temporal_client, history)
     assert ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH not in patch_ids
     assert ERROR_OWNER_AFTER_HANDLER_PATCH not in patch_ids

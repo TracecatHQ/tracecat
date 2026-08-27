@@ -19,7 +19,7 @@ from temporalio.exceptions import ApplicationError
 from tracecat.identifiers.action import ref
 from tracecat.identifiers.workflow import EXEC_ID_PREFIX, WorkflowUUID
 from tracecat.registry.actions.schemas import TemplateAction
-from tracecat.runtime.errors import ErrorEnvelope
+from tracecat.runtime.errors import RuntimeErrorClassification
 from tracecat.storage.object import (
     CollectionObject,
     ExternalObject,
@@ -28,7 +28,7 @@ from tracecat.storage.object import (
     StoredObjectValidator,
     get_object_storage,
 )
-from tracecat.temporal.errors import raise_application_error_from_envelope
+from tracecat.temporal.errors import raise_application_error_from_classification
 
 
 def user_client() -> httpx.AsyncClient:
@@ -43,14 +43,14 @@ TEST_WF_ID = WorkflowUUID(int=0)
 
 
 def capture_application_error(
-    envelope: ErrorEnvelope,
+    classification: RuntimeErrorClassification,
     *details: object,
     next_retry_delay: timedelta | None = None,
 ) -> ApplicationError:
     """Capture a classified Temporal application error raised by the helper."""
     with pytest.raises(ApplicationError) as exc_info:
-        raise_application_error_from_envelope(
-            envelope,
+        raise_application_error_from_classification(
+            classification,
             *details,
             next_retry_delay=next_retry_delay,
         )

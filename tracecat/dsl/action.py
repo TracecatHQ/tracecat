@@ -54,8 +54,8 @@ from tracecat.integrations.mcp_validation import MCPValidationError
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
-    ErrorEnvelope,
     RetryDisposition,
+    RuntimeErrorClassification,
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
@@ -75,10 +75,10 @@ from tracecat.storage.object import (
 )
 from tracecat.storage.utils import is_retryable_storage_transport_error
 from tracecat.temporal.errors import (
-    extract_error_envelope,
-    is_classified_detail,
+    build_error_transport_detail,
+    extract_error_classification,
+    is_classified_error_payload,
     raise_wrapped_application_error,
-    wrap_error,
 )
 from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
@@ -775,19 +775,19 @@ class DSLActivities:
         try:
             return await _prepare_subflow(input)
         except Exception as error:
-            envelope = _subflow_error_envelope(error)
-            if envelope.owner is RuntimeErrorOwner.PLATFORM:
+            classification = _subflow_error_classification(error)
+            if classification.owner is RuntimeErrorOwner.PLATFORM:
                 logger.error(
                     "Platform error preparing child workflow",
                     error_type=type(error).__name__,
-                    error_kind=envelope.kind.value,
-                    retry_disposition=envelope.retry_disposition.value,
+                    error_kind=classification.kind.value,
+                    retry_disposition=classification.retry_disposition.value,
                     ref=input.task.ref,
                 )
             _raise_classified_subflow_application_error(
                 input=input,
                 error=error,
-                envelope=envelope,
+                classification=classification,
             )
 
 
@@ -815,10 +815,10 @@ async def _evaluate_agent_args(input: BuildAgentArgsActivityInput) -> dict[str, 
     return await asyncio.to_thread(eval_templated_object, args, operand=materialized)
 
 
-def _subflow_error_envelope(error: Exception) -> ErrorEnvelope:
+def _subflow_error_classification(error: Exception) -> RuntimeErrorClassification:
     """Classify a subflow error without overriding established semantics."""
-    if envelope := extract_error_envelope(error):
-        return envelope
+    if classification := extract_error_classification(error):
+        return classification
 
     retry_disposition = (
         RetryDisposition.NON_RETRYABLE
@@ -827,21 +827,21 @@ def _subflow_error_envelope(error: Exception) -> ErrorEnvelope:
     )
     match error:
         case SubflowDefinitionNotFoundError():
-            return ErrorEnvelope.user(
+            return RuntimeErrorClassification.user(
                 kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
                 message=error.message or "The child workflow could not be prepared",
                 retry_disposition=retry_disposition,
                 cause=error,
             )
         case ApplicationError() if UserError.matches(error):
-            return ErrorEnvelope.user(
+            return RuntimeErrorClassification.user(
                 kind=RuntimeErrorKind.WORKFLOW_SUBFLOW_INPUT_INVALID,
                 message=error.message or "The child workflow inputs are invalid",
                 retry_disposition=retry_disposition,
                 cause=error,
             )
         case _:
-            return ErrorEnvelope.platform(
+            return RuntimeErrorClassification.platform(
                 kind=RuntimeErrorKind.WORKFLOW_SUBFLOW_PREPARATION_FAILED,
                 message="Tracecat could not prepare the child workflow",
                 retry_disposition=retry_disposition,
@@ -853,29 +853,29 @@ def _raise_classified_subflow_application_error(
     *,
     input: PrepareSubflowActivityInput,
     error: BaseException,
-    envelope: ErrorEnvelope,
+    classification: RuntimeErrorClassification,
 ) -> Never:
     """Raise a history-safe classified failure for subflow preparation."""
     if isinstance(error, ApplicationError):
         error_type = error.type or type(error).__name__
         legacy_details = tuple(
-            detail for detail in error.details if is_classified_detail(detail)
+            detail for detail in error.details if is_classified_error_payload(detail)
         )
     else:
         error_type = type(error).__name__
         legacy_details = ()
 
-    detail = wrap_error(
-        envelope,
+    detail = build_error_transport_detail(
+        classification,
         ActionErrorInfo(
             ref=input.task.ref,
-            message=envelope.message,
+            message=classification.message,
             type=error_type,
         ),
     )
     raise_wrapped_application_error(
         error,
-        fallback=envelope,
+        fallback_classification=classification,
         details=(detail, *legacy_details),
     )
 
