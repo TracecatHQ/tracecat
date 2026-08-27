@@ -340,6 +340,8 @@ async def restore_skill_version(
     service = SkillService(session, role=role)
     try:
         return await service.restore_version(skill_id=skill_id, version_id=version_id)
+    except TracecatValidationError as exc:
+        _raise_skill_validation_error(exc)
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -25060,10 +25060,12 @@ export const $SkillRead = {
     name: {
       type: "string",
       title: "Name",
+      description: "User-facing display name; not a runtime key.",
     },
     slug: {
       type: "string",
       title: "Slug",
+      description: "Current published package locator.",
     },
     description: {
       anyOf: [
@@ -25171,10 +25173,12 @@ export const $SkillReadMinimal = {
     name: {
       type: "string",
       title: "Name",
+      description: "User-facing display name; not a runtime key.",
     },
     slug: {
       type: "string",
       title: "Slug",
+      description: "Current published package locator.",
     },
     description: {
       anyOf: [
