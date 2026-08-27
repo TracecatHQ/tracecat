@@ -1,0 +1,21 @@
+Dockerfile
+  s_9177a925180b65::t_412bef7e0cb51d 1,225
+justfile
+  s_9177a925180b65::t_3e09246f7c4abd 120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "dc1833808aadc88aa5d4439ad17b605bf08f7d9b",
+  "prompts": {},
+  "sessions": {
+    "s_9177a925180b65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cdc49770-5a42-40d5-969b-73d89a11a08f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
