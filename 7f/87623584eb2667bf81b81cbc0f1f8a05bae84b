@@ -1,0 +1,100 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/bulk_change_case_stage.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 30,43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/update_rule.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 43,57
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/list_detections.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 30,38,44,50,55,62,66,74,80,84,88,90,102-112
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/update_rule_deployment.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 39,62,67,84,89-90
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/delete_case_comment.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 35,42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/search_alerts.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 32,40,45,48,153,161,168,176,188-191,215-218
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/test_rule.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 31,34,39,44,65,67-69
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/update_case_comment.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 35,38,48,52,61,69,72,75-77
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/reopen_case_alert.yml
+  s_39bab1cd8212fa::t_da471629dfd959 33,40
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/list_rule_deployments.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 32,39,59-60
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/list_rule_execution_errors.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 30,38,62-63
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/hunting/find_related_entities.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 33,38,43,65,71,77,83,103-105,110-113
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/hunting/find_entity.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 35,38,41,54-56
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/search_cases.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 32,39,51,79,85,107,113,119,123,136,148,152,156,160,166,172,178,192-193,195,200-201,205-208,210,212-218
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/get_detection.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 31,37,47-48
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/search_findings.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 31,34,39,43,68-71
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/update_alert.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 30,42,46,59,61-62
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/list_retrohunts.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 35,42,62-63
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/create_retrohunt.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 35,40,53-54
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/hunting/execute_query.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 36,41,51,69-70,72
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/list_cases.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 32,39,55,68,79-80,82,84
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/list_operations.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 36,40,44,58-60
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/list_rules.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 30,38,59,82-83,86
+docs/tools/google_chronicle.mdx
+  s_39bab1cd8212fa::t_2fa21311b6a2b6 110,153,165,196,239,282,288,308,316,324,349,361,488,623,655,698,714,722,747,765,847,1003,1021,1043,1076,1094,1100,1131,1143,1157,1214,1226,1240,1248,1256,1264,1304,1382,1402,1478,1529,1574,1586,1617,1661,1868,1892,1900,1908,1969,1977,1985,2024,2048,2056,2064,2095,2101,2117,2125,2133,2135,2141,2149,2157,2165,2173,2181,2228,2236,2244,2297,2305,2352,2360,2407,2415,2460,2468,2523,2531,2539,2586,2623,2635,2641,2655,2663,2839,2847,2871,2902,2918,2926,2934,2942,2950,2958,2974,2998,3006,3014,3054,3062,3070,3078,3094,3110,3143,3149,3161,3199,3224,3236,3242,3256,3289,3315,3323,3354,3366,3372,3388,3404,3465,3502,3540,3548,3579
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/bulk_assign_cases.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 30,33,43-44
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/change_case_alert_priority.yml
+  s_39bab1cd8212fa::t_da471629dfd959 33,45
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/create_case_comment.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 38,42,51,63-65
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/verify_rule_text.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 31,41
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/list_rule_revisions.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 33,40,60-61
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/get_case_alert.yml
+  s_39bab1cd8212fa::t_da471629dfd959 35,48
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/get_alert.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 30,33,44-45
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/list_case_comments.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 35,42,56,77-78,80
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/close_case_alert.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 46,63
+  s_39bab1cd8212fa::t_da471629dfd959 35,54
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/get_event_for_detection.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 31,34,59-60
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/bulk_add_case_tag.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 32,45
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/bulk_change_case_priority.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 30,45
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/get_case_comment.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 35,46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/bulk_reopen_cases.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 32,35,45-46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/bulk_close_cases.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 32,35,40,44,48,61-65
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/list_case_alerts.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 35,42,58,71,82-83,85,87
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/hunting/find_entity_alerts.yml
+  s_39bab1cd8212fa::t_bceb30dfbe76cd 32,37,41,70-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "7f87623584eb2667bf81b81cbc0f1f8a05bae84b",
+  "prompts": {},
+  "sessions": {
+    "s_39bab1cd8212fa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ff9-e8e1-71e0-9798-1708865c8fb5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
