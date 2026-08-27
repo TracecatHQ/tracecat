@@ -1011,6 +1011,55 @@ class TestAgentPresetService:
         assert version.subagent_eligibility.reasons == ["agents_enabled"]
         assert version.subagent_eligibility.message is not None
 
+    async def test_version_reads_use_normalized_subagent_enabled_bit(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Detail and list projections fail closed when legacy JSON drifts."""
+
+        grandchild = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Projection grandchild", "slug": "projection-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Projection parent", "slug": "projection-parent"}
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        assert (
+            AgentSubagentsConfig.model_validate(parent_version.agents).enabled is False
+        )
+        parent_version.subagents_enabled = True
+        session.add(parent_version)
+        session.add(
+            AgentPresetVersionSubagent(
+                workspace_id=agent_preset_service.workspace_id,
+                parent_preset_version_id=parent_version.id,
+                child_preset_id=grandchild.id,
+                alias="projection-child",
+            )
+        )
+        await session.flush()
+        await session.refresh(parent_version)
+
+        detail = await agent_preset_service.build_version_read(parent_version)
+        versions = await agent_preset_service.list_versions(
+            parent.id,
+            CursorPaginationParams(limit=10),
+        )
+
+        assert detail.agents.enabled is False
+        assert detail.capabilities == ["subagents"]
+        assert detail.subagent_eligibility.eligible is False
+        assert versions.items[0].capabilities == ["subagents"]
+        assert versions.items[0].subagent_eligibility.eligible is False
+
     async def test_list_versions_rejects_invalid_cursor(
         self,
         agent_preset_service: AgentPresetService,

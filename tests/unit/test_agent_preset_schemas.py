@@ -267,6 +267,23 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
     assert "agents" not in dumped
 
 
+def test_agent_preset_read_minimal_uses_normalized_subagent_enabled_bit() -> None:
+    """Internal list projections fail closed when legacy JSON drifts."""
+
+    preset = make_agent_preset(
+        name="Normalized edge preset",
+        slug="normalized-edge-preset",
+        agents={"enabled": False, "subagents": []},
+    )
+    preset.subagents_enabled = True
+
+    payload = build_agent_preset_read_minimal(preset)
+
+    assert payload.capabilities == ["subagents"]
+    assert payload.current_version_subagent_eligibility.eligible is False
+    assert payload.current_version_subagent_eligibility.reasons == ["agents_enabled"]
+
+
 def test_build_subagent_eligibility_allows_plain_versions() -> None:
     eligibility = build_subagent_eligibility(
         agents_config={"enabled": False},

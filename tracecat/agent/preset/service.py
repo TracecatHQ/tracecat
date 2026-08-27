@@ -40,6 +40,7 @@ from tracecat.agent.preset.schemas import (
     ToolApprovalFieldChange,
     _agent_preset_capabilities,
     build_subagent_eligibility,
+    effective_subagents_enabled,
 )
 from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.skill.service import SkillService
@@ -474,6 +475,12 @@ class AgentPresetService(BaseWorkspaceService):
         """Build the response model for an immutable preset version."""
 
         agents = AgentSubagentsConfig.model_validate(version.agents)
+        effective_agents = AgentSubagentsConfig(
+            enabled=effective_subagents_enabled(
+                version.subagents_enabled,
+                version.agents,
+            )
+        )
         return AgentPresetVersionRead(
             id=version.id,
             preset_id=version.preset_id,
@@ -494,12 +501,12 @@ class AgentPresetService(BaseWorkspaceService):
             enable_thinking=version.enable_thinking,
             enable_internet_access=version.enable_internet_access,
             capabilities=_agent_preset_capabilities(
-                agents_config=agents,
+                agents_config=effective_agents,
                 tool_approvals=version.tool_approvals,
                 enable_internet_access=version.enable_internet_access,
             ),
             subagent_eligibility=build_subagent_eligibility(
-                agents_config=agents,
+                agents_config=effective_agents,
                 tool_approvals=version.tool_approvals,
             ),
             created_at=version.created_at,
@@ -1658,6 +1665,7 @@ class AgentPresetService(BaseWorkspaceService):
             AgentPresetVersion.preset_id,
             AgentPresetVersion.workspace_id,
             AgentPresetVersion.version,
+            AgentPresetVersion.subagents_enabled,
             AgentPresetVersion.agents,
             AgentPresetVersion.tool_approvals,
             AgentPresetVersion.enable_internet_access,
@@ -1716,12 +1724,22 @@ class AgentPresetService(BaseWorkspaceService):
                 workspace_id=workspace_id,
                 version=version_number,
                 capabilities=_agent_preset_capabilities(
-                    agents_config=agents,
+                    agents_config=AgentSubagentsConfig(
+                        enabled=effective_subagents_enabled(
+                            subagents_enabled,
+                            agents,
+                        )
+                    ),
                     tool_approvals=tool_approvals,
                     enable_internet_access=enable_internet_access,
                 ),
                 subagent_eligibility=build_subagent_eligibility(
-                    agents_config=agents,
+                    agents_config=AgentSubagentsConfig(
+                        enabled=effective_subagents_enabled(
+                            subagents_enabled,
+                            agents,
+                        )
+                    ),
                     tool_approvals=tool_approvals,
                 ),
                 created_at=created_at,
@@ -1732,6 +1750,7 @@ class AgentPresetService(BaseWorkspaceService):
                 row_preset_id,
                 workspace_id,
                 version_number,
+                subagents_enabled,
                 agents,
                 tool_approvals,
                 enable_internet_access,
