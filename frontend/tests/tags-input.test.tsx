@@ -10,6 +10,26 @@ describe("MultiTagCommandInput", () => {
     }
   })
 
+  it("gives selected-tag remove buttons accessible names", () => {
+    render(
+      <MultiTagCommandInput
+        value={["tools.alpha.run"]}
+        suggestions={[
+          {
+            id: "alpha",
+            label: "Alpha tool",
+            value: "tools.alpha.run",
+          },
+        ]}
+        searchKeys={["value", "label"]}
+      />
+    )
+
+    expect(
+      screen.getByRole("button", { name: "Remove Alpha tool" })
+    ).toBeInTheDocument()
+  })
+
   it("invokes the locked suggestion handler when clicking the action row", () => {
     const handleLockedSelect = jest.fn()
 
