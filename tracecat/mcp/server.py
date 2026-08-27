@@ -4934,20 +4934,10 @@ async def get_case_trigger(
         raise ToolError(f"Failed to get case trigger: {e}") from None
 
 
-_UPDATE_CASE_TRIGGER_DESCRIPTION = f"""Update an existing case trigger for a workflow.
-
-Args:
-    workspace_id: The workspace ID.
-    workflow_id: The workflow ID.
-    status: Enum string: `"online"` or `"offline"`. `"online"` is rejected
-        unless `event_types` is non-empty and the workflow has a runnable
-        published definition, so publish before enabling.
-    event_types: List of case event type strings using underscores. Valid
-        values: {_CASE_EVENT_TYPE_VALUES_CSV}.
-    tag_filters: List of case tag *refs* (slugs), e.g. `["malware","phishing"]`,
-        not tag names or UUIDs. Refs are OR-matched: the trigger fires when the
-        case carries any listed tag. An empty list means no tag filtering. Refs
-        that do not exist yet are created automatically.
+# Plain literal so `scripts/generate_mcp_docs.py` can resolve it statically. The
+# live `CaseEventType` values are appended at decoration time, below, rather
+# than interpolated here - that keeps this the single source of the prose.
+_UPDATE_CASE_TRIGGER_DESCRIPTION = """Update an existing case trigger for a workflow.
 
 This tool replaces the whole trigger: every call sends `status`, `event_types`
 and `tag_filters`, so pass all three. Omitting `event_types` or `tag_filters`
@@ -4956,11 +4946,27 @@ is non-null. Call `get_case_trigger` first and send its current values back,
 changing only what you mean to change. Patching `/case_trigger` through
 `edit_workflow` is partial, unlike this tool.
 
+Args:
+    workspace_id: The workspace ID.
+    workflow_id: The workflow ID.
+    status: Enum string: `"online"` or `"offline"`. `"online"` is rejected
+        unless `event_types` is non-empty and the workflow has a runnable
+        published definition, so publish before enabling.
+    event_types: List of case event type strings using underscores. The
+        valid values are listed at the end of this description.
+    tag_filters: List of case tag *refs* (slugs), e.g. `["malware","phishing"]`,
+        not tag names or UUIDs. Refs are OR-matched: the trigger fires when the
+        case carries any listed tag. An empty list means no tag filtering. Refs
+        that do not exist yet are created automatically.
+
 Returns a confirmation message.
 """
 
 
-@mcp.tool(description=_UPDATE_CASE_TRIGGER_DESCRIPTION)
+@mcp.tool(
+    description=_UPDATE_CASE_TRIGGER_DESCRIPTION
+    + f"\nValid `event_types` values: {_CASE_EVENT_TYPE_VALUES_CSV}.\n"
+)
 async def update_case_trigger(
     workspace_id: uuid.UUID,
     workflow_id: MCPWorkflowUUID,
@@ -4970,19 +4976,9 @@ async def update_case_trigger(
 ) -> MCPMessageResponse:
     """Update an existing case trigger for a workflow.
 
-    Replaces the whole trigger: every call sends `status`, `event_types` and
-    `tag_filters`, so pass all three. Omitting `event_types` or `tag_filters`
-    clears them, and omitting `status` fails the write outright because the
-    column is non-null. Call `get_case_trigger` first and send its current
-    values back, changing only what you mean to change. Patching
-    `/case_trigger` through `edit_workflow` is partial, unlike this tool.
-
-    `tag_filters` are case tag refs (slugs), OR-matched, and created on demand;
-    an empty list means no tag filtering. Setting `status` to `"online"`
-    requires non-empty `event_types` and a published workflow.
-
-    The description sent to MCP clients inlines the live `CaseEventType` values
-    so they cannot drift.
+    Client-facing text lives in `_UPDATE_CASE_TRIGGER_DESCRIPTION`, which both
+    the MCP decorator and the docs generator read, so there is one copy to keep
+    correct.
     """
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
