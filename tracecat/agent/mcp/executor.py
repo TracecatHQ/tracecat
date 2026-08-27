@@ -114,7 +114,12 @@ async def execute_action(
 
     logger.info("Executing action via executor workflow", action_name=action_name)
 
-    run_input = build_run_input(action_name, args, registry_lock)
+    run_input = build_run_input(
+        action_name,
+        args,
+        registry_lock,
+        agent_session_id=claims.session_id,
+    )
     stored = await _execute_action_workflow(
         ExecuteRegistryToolWorkflowInput(role=role, run_input=run_input),
         workflow_id=build_agent_tool_workflow_id(),
@@ -147,6 +152,7 @@ def build_run_input(
     execution_id: UUID | None = None,
     logical_time: datetime | None = None,
     environment: str = "default",
+    agent_session_id: UUID | None = None,
 ) -> RunActionInput:
     """Build a minimal RunActionInput for ActionRunner.
 
@@ -154,6 +160,7 @@ def build_run_input(
         action_name: The action to execute
         args: Arguments for the action
         registry_lock: Registry lock with origin→version mappings for action resolution
+        agent_session_id: Verified agent session provenance, when available.
     """
     task = ActionStatement(
         ref=f"mcp_{action_name.replace('.', '_')}",
@@ -174,6 +181,7 @@ def build_run_input(
         task=task,
         run_context=run_context,
         exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        agent_session_id=agent_session_id,
         registry_lock=registry_lock,
     )
 

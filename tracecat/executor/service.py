@@ -98,12 +98,16 @@ def _mint_action_executor_token(input: RunActionInput, role: Role) -> str:
     """Mint SDK credentials carrying the root action's trusted provenance."""
     if role.workspace_id is None:
         raise ValueError("workspace_id is required for action execution")
+    execution_origin = _execution_origin_for_role(role)
     return mint_executor_token(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
         service_id=role.service_id,
-        execution_origin=_execution_origin_for_role(role),
+        execution_origin=execution_origin,
         root_action=input.task.action,
+        agent_session_id=(
+            input.agent_session_id if execution_origin == "agent" else None
+        ),
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
     )
