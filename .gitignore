@@ -236,9 +236,3 @@ cython_debug/
 # Claude Code local runtime state (keep tracked commands/settings/skills)
 .claude/scheduled_tasks.lock
 .pi-subagents/
-
-# Vendored workspace-chat copilot skills, copied in by the `plugin-skills`
-# Dockerfile stage at image build time.
-/packages/tracecat-ee/tracecat_ee/workspace_chat/skills/tracecat-automation-best-practices/
-/packages/tracecat-ee/tracecat_ee/workspace_chat/skills/tracecat-slackbot-best-practices/
-/packages/tracecat-ee/tracecat_ee/workspace_chat/skills/tracecat-platform-guide/

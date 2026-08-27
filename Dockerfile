@@ -260,7 +260,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev --no-editable
 
 COPY --chown=apiuser:apiuser . /app/
-COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /app/packages/tracecat-ee/tracecat_ee/workspace_chat/skills/
+COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /var/lib/tracecat/copilot-skills/
 
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
@@ -335,18 +335,12 @@ RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
 
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./packages /app/packages
-COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /app/packages/tracecat-ee/tracecat_ee/workspace_chat/skills/
+COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /var/lib/tracecat/copilot-skills/
 COPY --chown=apiuser:apiuser ./pyproject.toml ./uv.lock ./.python-version ./README.md ./LICENSE ./alembic.ini /app/
 COPY --chown=apiuser:apiuser ./alembic /app/alembic
 
-# `--reinstall-package tracecat-ee` is load-bearing. The cache-prime sync above
-# already built and installed tracecat-ee non-editably, before the vendored
-# skills were copied in, and uv keys its build cache on package metadata rather
-# than arbitrary source files. Without a forced reinstall this sync reuses that
-# stale wheel, so `importlib.resources` serves skills that do not match
-# TRACECAT_PLUGINS_REF - silently, because staging warns and skips.
 RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
-    uv sync --locked --no-dev --no-editable --reinstall-package tracecat-ee
+    uv sync --locked --no-dev --no-editable
 
 ENV PATH="/app/.venv/bin:/home/apiuser/.local/bin:/usr/local/bin:/usr/bin:/bin"
 

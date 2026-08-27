@@ -1064,11 +1064,12 @@ class SandboxedAgentExecutor:
     async def _stage_builtin_skills(self, skills_dir: Path) -> None:
         """Stage always-on built-in (EE) platform skills into the run home dir.
 
-        Built-in skills are plain on-disk directories packaged inside
-        ``tracecat_ee``. They are identified by name only (resolved from the
+        Built-in skills are plain on-disk directories vendored from the public
+        ``tracecat-plugins`` repository into ``TRACECAT__COPILOT_SKILLS_DIR`` at
+        image build time. They are identified by name only (resolved from the
         config, which set them when the org is workspace-chat entitled), so this
-        method maps each reserved-prefix name to its packaged directory and
-        copies it into the staged skills directory. Built-in skills own the
+        method maps each reserved-prefix name to its directory and copies it
+        into the staged skills directory. Built-in skills own the
         ``tracecat-`` namespace and are staged BEFORE preset
         ``resolved_skills``, which skip any name already staged here — so a
         legacy user skill with a reserved-prefix name can never overlay or be
@@ -1079,7 +1080,16 @@ class SandboxedAgentExecutor:
         if not names:
             return
 
-        skills_root = files("tracecat_ee.workspace_chat.skills")
+        # Vendored directory first. It lives outside the package tree so that
+        # neither the wheel build nor a development bind mount over `packages/`
+        # can serve a stale copy. Fall back to the packaged location for
+        # environments that still ship skills inside `tracecat_ee`.
+        vendored_root = Path(app_config.TRACECAT__COPILOT_SKILLS_DIR)
+        skills_root: Any = (
+            vendored_root
+            if vendored_root.is_dir()
+            else files("tracecat_ee.workspace_chat.skills")
+        )
         for name in dict.fromkeys(names):
             if (
                 not name.startswith(BUILTIN_SKILL_NAME_PREFIX)

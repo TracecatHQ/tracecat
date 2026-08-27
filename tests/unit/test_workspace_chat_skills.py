@@ -15,19 +15,19 @@ from typing import Any
 import pytest
 import yaml
 
+from tracecat import config
 from tracecat.agent.executor.activity import SandboxedAgentExecutor
 from tracecat.agent.skill.schemas import (
     RESERVED_SKILL_NAME_PREFIX,
     SkillCreate,
 )
 
-VENDORED_SKILLS_ROOT = (
-    Path(__file__).parents[2] / "packages/tracecat-ee/tracecat_ee/workspace_chat/skills"
-)
+VENDORED_SKILLS_ROOT = Path(config.TRACECAT__COPILOT_SKILLS_DIR)
 VENDORED_SKILLS_SKIP_REASON = (
-    "Vendored workspace-chat skills are absent. They are copied in by the "
-    "`plugin-skills` Dockerfile stage at image build time, so a source "
-    "checkout does not carry them."
+    f"No vendored workspace-chat skills at {config.TRACECAT__COPILOT_SKILLS_DIR}. "
+    "The `plugin-skills` Dockerfile stage copies them in at image build time, so "
+    "a source checkout does not carry them. Set TRACECAT__COPILOT_SKILLS_DIR to "
+    "a populated directory to run these checks locally."
 )
 
 
@@ -232,10 +232,43 @@ class TestStageBuiltinSkills:
         assert list(skills_dir.iterdir()) == []
 
     @pytest.mark.anyio
-    async def test_stages_packaged_builtin_skill(
+    async def test_stages_from_vendored_directory(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
+        """The vendored directory is the source of truth when it exists."""
         from tracecat.agent.executor import activity as activity_mod
+
+        vendored_root = tmp_path / "vendored"
+        vendored_skill = vendored_root / "tracecat-automation-best-practices"
+        vendored_skill.mkdir(parents=True)
+        (vendored_skill / "SKILL.md").write_text("vendored content")
+        monkeypatch.setattr(
+            activity_mod.app_config,
+            "TRACECAT__COPILOT_SKILLS_DIR",
+            str(vendored_root),
+        )
+
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+        await _executor_with_builtin_skills(
+            ["tracecat-automation-best-practices"]
+        ).stage(skills_dir)
+        assert (
+            skills_dir / "tracecat-automation-best-practices" / "SKILL.md"
+        ).read_text() == "vendored content"
+
+    @pytest.mark.anyio
+    async def test_falls_back_to_package_when_vendored_dir_absent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """An image without the vendored directory still stages packaged skills."""
+        from tracecat.agent.executor import activity as activity_mod
+
+        monkeypatch.setattr(
+            activity_mod.app_config,
+            "TRACECAT__COPILOT_SKILLS_DIR",
+            str(tmp_path / "does-not-exist"),
+        )
 
         package_root = tmp_path / "package"
         packaged_skill = package_root / "tracecat-automation-best-practices"

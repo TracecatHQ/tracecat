@@ -1,12 +1,15 @@
 """Built-in workspace-chat copilot skills (Enterprise Edition).
 
-These skills are plain on-disk skill directories (``<name>/SKILL.md`` plus
-optional ``references/*.md``) that the agent executor stages into the copilot's
-``~/.claude/skills`` directory for every entitled workspace-chat session,
-independent of any agent preset. The claude_code runtime then discovers and
-fetches them on demand, so the guidance reaches the model regardless of model
-strength. The directories are vendored from the public ``tracecat-plugins``
-repository when the application image is built.
+This module holds only the allowlist. The skill directories themselves are
+vendored from the public ``tracecat-plugins`` repository into
+``config.TRACECAT__COPILOT_SKILLS_DIR`` when the image is built - deliberately
+outside the package tree, so that neither the wheel build nor a development bind
+mount over ``packages/`` can serve a stale copy.
+
+The agent executor stages each named directory into the copilot's
+``~/.claude/skills`` for every entitled workspace-chat session, independent of
+any agent preset. The claude_code runtime then discovers and fetches them on
+demand, so the guidance reaches the model regardless of model strength.
 
 Every built-in skill name MUST use the reserved ``tracecat-`` prefix. User and
 preset skill names are forbidden from using that prefix (enforced in
@@ -21,8 +24,8 @@ BUILTIN_SKILL_NAME_PREFIX = "tracecat-"
 
 # Canonical, always-on skills staged for every entitled workspace-chat session.
 # Each entry MUST start with ``BUILTIN_SKILL_NAME_PREFIX`` and name a directory
-# vendored into this package by the ``plugin-skills`` Dockerfile stage at image
-# build time. Staging warns and skips an entry that is absent.
+# under ``config.TRACECAT__COPILOT_SKILLS_DIR``. Staging warns and skips an entry
+# that is absent.
 BUILTIN_WORKSPACE_CHAT_SKILLS: tuple[str, ...] = (
     "tracecat-automation-best-practices",
     "tracecat-slackbot-best-practices",
