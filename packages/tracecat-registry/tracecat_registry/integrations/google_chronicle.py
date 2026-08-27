@@ -74,6 +74,13 @@ async def call_api(
         dict[str, Any] | None,
         Field(..., description="JSON request body for the Chronicle API method."),
     ] = None,
+    timeout: Annotated[
+        float | None,
+        Field(
+            ...,
+            description="Request timeout in seconds. Set to null to disable it.",
+        ),
+    ] = 60.0,
 ) -> Any:
     """Call a Chronicle REST API endpoint and return its response body."""
     token = get_access_token()
@@ -82,7 +89,7 @@ async def call_api(
         if params
         else None
     )
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.request(
             method=method,
             url=url,

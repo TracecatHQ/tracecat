@@ -417,6 +417,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="timeout" type="number | null">
+
+Request timeout in seconds. Set to null to disable it.
+
+Default: `60.0`.
+
+</ParamField>
+
 ## Cancel operation
 
 Action ID: `tools.google_chronicle.cancel_operation`
@@ -687,17 +695,17 @@ Chronicle instance this request is sent to. Format: projects/&#123;project&#125;
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
+<ParamField path="alert_identifier" type="string | null">
 
-Chronicle API base URL. If omitted, uses the workspace variable `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+The alert associated with the comment.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="alert_identifier" type="string | null">
+<ParamField path="base_url" type="string | null">
 
-The alert associated with the comment.
+Chronicle API base URL. If omitted, uses the workspace variable `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
 
 Default: `null`.
 
@@ -1040,6 +1048,14 @@ Default: `"YL2"`.
 
 </ParamField>
 
+<ParamField path="timeout" type="number | null">
+
+Request timeout in seconds. Set to null to disable it.
+
+Default: `60.0`.
+
+</ParamField>
+
 ## Find entity
 
 Action ID: `tools.google_chronicle.find_entity`
@@ -1140,15 +1156,39 @@ Default: `null`.
 
 <ParamField path="entity_id" type="string | null">
 
-ID of the entity. Identifies the entity together with, or instead of, `field_and_value`; the vendor accepts exactly one of the two.
+ID of the entity. Use this or the `field_and_value_*` inputs to identify the entity.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="field_and_value" type="object | null">
+<ParamField path="field_and_value_entity_namespace" type="string | null">
 
-Field path or type with value to identify entity.
+Entity namespace, applicable to asset entities.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="field_and_value_field_path" type="string | null">
+
+UDM field path identifying the indicator type.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="field_and_value_value" type="string | null">
+
+Indicator value used to identify the entity.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="field_and_value_value_type" type="string | null">
+
+Chronicle value type identifying the indicator type.
 
 Default: `null`.
 
@@ -1207,7 +1247,7 @@ Default: `null`.
 
 <ParamField path="entity_id" type="string | null">
 
-ID of the entity. Identifies the entity together with, or instead of, `field_and_value`; the vendor accepts exactly one of the two.
+ID of the entity. Use this or the `field_and_value_*` inputs to identify the entity.
 
 Default: `null`.
 
@@ -1229,9 +1269,33 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="field_and_value" type="object | null">
+<ParamField path="field_and_value_entity_namespace" type="string | null">
 
-Field path and value to identify entity.
+Entity namespace, applicable to asset entities.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="field_and_value_field_path" type="string | null">
+
+UDM field path identifying the indicator type.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="field_and_value_value" type="string | null">
+
+Indicator value used to identify the entity.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="field_and_value_value_type" type="string | null">
+
+Chronicle value type identifying the indicator type.
 
 Default: `null`.
 
@@ -1570,9 +1634,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="next_page_token" type="object | null">
+<ParamField path="next_page_token_last_row_id" type="string | null">
 
-Page token to support pagination. If no token is supplied, the first page of events will be returned.
+Last row ID from the previous response page token.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="next_page_token_last_row_time" type="string | null">
+
+Last row timestamp from the previous response page token.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="next_page_token_offset" type="integer | null">
+
+Offset from the previous response page token.
 
 Default: `null`.
 
@@ -2018,17 +2098,17 @@ The specific rule revision to search detections for. There are four acceptable f
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
+<ParamField path="alert_state" type="string | null">
 
-Chronicle API base URL. If omitted, uses the workspace variable `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+An enum that filters which detections are returned by their AlertState. One of UNSPECIFIED, NOT_ALERTING, ALERTING.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="alert_state" type="string | null">
+<ParamField path="base_url" type="string | null">
 
-An enum that filters which detections are returned by their AlertState. One of UNSPECIFIED, NOT_ALERTING, ALERTING.
+Chronicle API base URL. If omitted, uses the workspace variable `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
 
 Default: `null`.
 
@@ -2588,9 +2668,169 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="entity_indicator" type="object | null">
+<ParamField path="entity_indicator_asset_ip_address" type="string | null">
 
-Entity indicator to scope the alert list to. Carries `indicatorNamespace` plus exactly one of hostname, assetIpAddress, mac, productId, userName, email, employeeId, windowsSid, productObjectId, rawPid, processId, fullCommandLine, parentProcessId, hashMd5, hashSha1, hashSha256, filePath, destinationIpAddress, domainName, resourceName.
+Asset IP address entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_destination_ip_address" type="string | null">
+
+Destination IP entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_domain_name" type="string | null">
+
+Domain name entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_email" type="string | null">
+
+Email entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_employee_id" type="string | null">
+
+Employee ID entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_file_path" type="string | null">
+
+File path entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_full_command_line" type="string | null">
+
+Full command line entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_hash_md5" type="string | null">
+
+MD5 hash entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_hash_sha1" type="string | null">
+
+SHA-1 hash entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_hash_sha256" type="string | null">
+
+SHA-256 hash entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_hostname" type="string | null">
+
+Hostname entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_mac" type="string | null">
+
+MAC address entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_namespace" type="string | null">
+
+Namespace for an asset entity indicator.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_parent_process_id" type="string | null">
+
+Parent process ID entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_process_id" type="string | null">
+
+Process ID entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_product_id" type="string | null">
+
+Product-specific asset ID indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_product_object_id" type="string | null">
+
+Product object ID entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_raw_pid" type="string | null">
+
+Raw process ID entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_resource_name" type="string | null">
+
+Resource name entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_user_name" type="string | null">
+
+User name entity indicator. Set at most one indicator value.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="entity_indicator_windows_sid" type="string | null">
+
+Windows SID entity indicator. Set at most one indicator value.
 
 Default: `null`.
 
@@ -2659,17 +2899,17 @@ The instance to get the search results for. Format: projects/&#123;project&#125;
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
+<ParamField path="assigned_users" type="array[string] | null">
 
-Chronicle API base URL. If omitted, uses the workspace variable `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+A list of strings that represents the Users (analysts) / Roles that are assigned to the case. Available inputs: Username (GUID) / @Role name.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="assigned_users" type="array[string] | null">
+<ParamField path="base_url" type="string | null">
 
-A list of strings that represents the Users (analysts) / Roles that are assigned to the case. Available inputs: Username (GUID) / @Role name.
+Chronicle API base URL. If omitted, uses the workspace variable `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
 
 Default: `null`.
 
@@ -2932,9 +3172,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="next_page_token" type="object | null">
+<ParamField path="next_page_token_last_row_id" type="string | null">
 
-Page token to support pagination. If no token is supplied, the first page of findings will be returned.
+Last row ID from the previous response page token.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="next_page_token_last_row_time" type="string | null">
+
+Last row timestamp from the previous response page token.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="next_page_token_offset" type="integer | null">
+
+Offset from the previous response page token.
 
 Default: `null`.
 
@@ -3113,17 +3369,17 @@ The list of fields to update. This is a comma-separated list of fully qualified 
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
+<ParamField path="alert_identifier" type="string | null">
 
-Chronicle API base URL. If omitted, uses the workspace variable `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+The alert associated with the comment.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="alert_identifier" type="string | null">
+<ParamField path="base_url" type="string | null">
 
-The alert associated with the comment.
+Chronicle API base URL. If omitted, uses the workspace variable `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
 
 Default: `null`.
 
@@ -3249,14 +3505,6 @@ Required. The list of fields to update. This is a comma-separated list of fully 
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Chronicle API base URL. If omitted, uses the workspace variable `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="alerting" type="boolean | null">
 
 Whether detections resulting from this deployment should be considered alerts.
@@ -3268,6 +3516,14 @@ Default: `null`.
 <ParamField path="archived" type="boolean | null">
 
 The archive state of the rule deployment. Cannot be set to true unless enabled is set to false. If set to true, alerting will automatically be set to false. If currently set to true, enabled, alerting, and runFrequency cannot be updated.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Chronicle API base URL. If omitted, uses the workspace variable `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
 
 Default: `null`.
 
@@ -3320,16 +3576,16 @@ The name of the parent resource, which is the SecOps instance associated with th
 
 </ParamField>
 
+<ParamField path="rule_text" type="string" required>
+
+The rule text to verify as a UTF-8 string.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Chronicle API base URL. If omitted, uses the workspace variable `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
 
 Default: `null`.
-
-</ParamField>
-
-<ParamField path="rule_text" type="string" required>
-
-The rule text to verify as a UTF-8 string.
 
 </ParamField>

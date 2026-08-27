@@ -53,12 +53,17 @@ definition:
       description: >-
         Language of the query string. Chronicle supports YL2 and SQL.
       default: YL2
+    timeout:
+      type: float | None
+      description: Request timeout in seconds. Set to null to disable it.
+      default: 60.0
   steps:
     - ref: call_api
       action: tools.google_chronicle.call_api
       args:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}:udmSearch
         method: GET
+        timeout: ${{ inputs.timeout }}
         params:
           query: ${{ inputs.query }}
           timeRange.startTime: ${{ inputs.start_time }}

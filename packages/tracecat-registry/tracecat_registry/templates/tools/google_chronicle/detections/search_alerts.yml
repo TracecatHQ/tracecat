@@ -60,17 +60,89 @@ definition:
         Parameter for the Alerts that will be streamed back; caps the number of matched
         alerts returned in `alerts`.
       default: null
-    entity_indicator:
-      type: dict[str, Any] | None
-      # Union: `EntityIndicator` carries `indicatorNamespace` plus exactly one of
-      # ~20 mutually exclusive indicator fields, so there is no single field set
-      # to name.
-      description: >-
-        Entity indicator to scope the alert list to. Carries `indicatorNamespace` plus
-        exactly one of hostname, assetIpAddress, mac, productId, userName, email,
-        employeeId, windowsSid, productObjectId, rawPid, processId, fullCommandLine,
-        parentProcessId, hashMd5, hashSha1, hashSha256, filePath,
-        destinationIpAddress, domainName, resourceName.
+    entity_indicator_namespace:
+      type: str | None
+      description: Namespace for an asset entity indicator.
+      default: null
+    entity_indicator_hostname:
+      type: str | None
+      description: Hostname entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_asset_ip_address:
+      type: str | None
+      description: Asset IP address entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_mac:
+      type: str | None
+      description: MAC address entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_product_id:
+      type: str | None
+      description: Product-specific asset ID indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_user_name:
+      type: str | None
+      description: User name entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_email:
+      type: str | None
+      description: Email entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_employee_id:
+      type: str | None
+      description: Employee ID entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_windows_sid:
+      type: str | None
+      description: Windows SID entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_product_object_id:
+      type: str | None
+      description: Product object ID entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_raw_pid:
+      type: str | None
+      description: Raw process ID entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_process_id:
+      type: str | None
+      description: Process ID entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_full_command_line:
+      type: str | None
+      description: Full command line entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_parent_process_id:
+      type: str | None
+      description: Parent process ID entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_hash_md5:
+      type: str | None
+      description: MD5 hash entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_hash_sha1:
+      type: str | None
+      description: SHA-1 hash entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_hash_sha256:
+      type: str | None
+      description: SHA-256 hash entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_file_path:
+      type: str | None
+      description: File path entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_destination_ip_address:
+      type: str | None
+      description: Destination IP entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_domain_name:
+      type: str | None
+      description: Domain name entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_resource_name:
+      type: str | None
+      description: Resource name entity indicator. Set at most one indicator value.
       default: null
     max_values_per_field:
       type: int | None
@@ -118,7 +190,27 @@ definition:
           timeRange.startTime: ${{ inputs.start_time }}
           timeRange.endTime: ${{ inputs.end_time }}
           alertListOptions.maxReturnedAlerts: ${{ inputs.max_returned_alerts }}
-          alertListOptions.entityIndicator: ${{ inputs.entity_indicator }}
+          alertListOptions.entityIndicator.indicatorNamespace: ${{ inputs.entity_indicator_namespace }}
+          alertListOptions.entityIndicator.hostname: ${{ inputs.entity_indicator_hostname }}
+          alertListOptions.entityIndicator.assetIpAddress: ${{ inputs.entity_indicator_asset_ip_address }}
+          alertListOptions.entityIndicator.mac: ${{ inputs.entity_indicator_mac }}
+          alertListOptions.entityIndicator.productId: ${{ inputs.entity_indicator_product_id }}
+          alertListOptions.entityIndicator.userName: ${{ inputs.entity_indicator_user_name }}
+          alertListOptions.entityIndicator.email: ${{ inputs.entity_indicator_email }}
+          alertListOptions.entityIndicator.employeeId: ${{ inputs.entity_indicator_employee_id }}
+          alertListOptions.entityIndicator.windowsSid: ${{ inputs.entity_indicator_windows_sid }}
+          alertListOptions.entityIndicator.productObjectId: ${{ inputs.entity_indicator_product_object_id }}
+          alertListOptions.entityIndicator.rawPid: ${{ inputs.entity_indicator_raw_pid }}
+          alertListOptions.entityIndicator.processId: ${{ inputs.entity_indicator_process_id }}
+          alertListOptions.entityIndicator.fullCommandLine: ${{ inputs.entity_indicator_full_command_line }}
+          alertListOptions.entityIndicator.parentProcessId: ${{ inputs.entity_indicator_parent_process_id }}
+          alertListOptions.entityIndicator.hashMd5: ${{ inputs.entity_indicator_hash_md5 }}
+          alertListOptions.entityIndicator.hashSha1: ${{ inputs.entity_indicator_hash_sha1 }}
+          alertListOptions.entityIndicator.hashSha256: ${{ inputs.entity_indicator_hash_sha256 }}
+          alertListOptions.entityIndicator.filePath: ${{ inputs.entity_indicator_file_path }}
+          alertListOptions.entityIndicator.destinationIpAddress: ${{ inputs.entity_indicator_destination_ip_address }}
+          alertListOptions.entityIndicator.domainName: ${{ inputs.entity_indicator_domain_name }}
+          alertListOptions.entityIndicator.resourceName: ${{ inputs.entity_indicator_resource_name }}
           fieldAggregationOptions.maxValuesPerField: ${{ inputs.max_values_per_field }}
           enableCache: ${{ inputs.enable_cache }}
           includeNonAlertingDetections: ${{ inputs.include_non_alerting_detections }}

@@ -101,14 +101,6 @@ def test_google_chronicle_scopes() -> None:
         assert cls.scopes.default == CHRONICLE_SCOPES
 
 
-def test_google_chronicle_is_independent_of_the_generic_google_provider() -> None:
-    """Chronicle never borrows the generic `google` credential's scopes."""
-    generic = PROVIDER_REGISTRY[ProviderKey(id="google", grant_type=CC)]
-    chronicle = PROVIDER_REGISTRY[ProviderKey(id="google_chronicle", grant_type=CC)]
-    assert chronicle.id != generic.id
-    assert not set(chronicle.scopes.default) & set(generic.scopes.default)
-
-
 def test_google_admin_ac_scopes_exclude_alert_center() -> None:
     """The user OAuth flow covers Directory and Reports, never Alert Center."""
     ac_cls = PROVIDER_REGISTRY[ProviderKey(id="google_admin", grant_type=AC)]

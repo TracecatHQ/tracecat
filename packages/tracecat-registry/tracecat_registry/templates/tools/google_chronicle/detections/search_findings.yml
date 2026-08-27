@@ -46,14 +46,17 @@ definition:
         Number of findings to return per page. Default value is 1000 if the pageSize is
         not set in the request.
       default: null
-    next_page_token:
-      type: dict[str, Any] | None
-      # Opaque cursor: the vendor types this query parameter as the `NextPageToken`
-      # message and does not enumerate its fields, so it is echoed back from the
-      # previous response's `pageToken` rather than composed here.
-      description: >-
-        Page token to support pagination. If no token is supplied, the first page of
-        findings will be returned.
+    next_page_token_last_row_time:
+      type: str | None
+      description: Last row timestamp from the previous response page token.
+      default: null
+    next_page_token_offset:
+      type: int | None
+      description: Offset from the previous response page token.
+      default: null
+    next_page_token_last_row_id:
+      type: str | None
+      description: Last row ID from the previous response page token.
       default: null
   steps:
     - ref: call_api
@@ -66,5 +69,7 @@ definition:
           timestampRange.startTime: ${{ inputs.start_time }}
           timestampRange.endTime: ${{ inputs.end_time }}
           pageSize: ${{ inputs.page_size }}
-          nextPageToken: ${{ inputs.next_page_token }}
+          nextPageToken.lastRowTime: ${{ inputs.next_page_token_last_row_time }}
+          nextPageToken.offset: ${{ inputs.next_page_token_offset }}
+          nextPageToken.lastRowId: ${{ inputs.next_page_token_last_row_id }}
   returns: ${{ steps.call_api.result }}

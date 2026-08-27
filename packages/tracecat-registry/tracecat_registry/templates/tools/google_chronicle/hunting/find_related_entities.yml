@@ -43,15 +43,24 @@ definition:
     entity_id:
       type: str | None
       description: >-
-        ID of the entity. Identifies the entity together with, or instead of,
-        `field_and_value`; the vendor accepts exactly one of the two.
+        ID of the entity. Use this or the `field_and_value_*` inputs to identify the
+        entity.
       default: null
-    field_and_value:
-      type: dict[str, Any] | None
-      # Union: the vendor documents `id` as a union of `entityId` and the
-      # `FieldAndValue` message, and does not enumerate that message's fields on
-      # this method page, so there is no field set to name here.
-      description: Field path and value to identify entity.
+    field_and_value_value:
+      type: str | None
+      description: Indicator value used to identify the entity.
+      default: null
+    field_and_value_entity_namespace:
+      type: str | None
+      description: Entity namespace, applicable to asset entities.
+      default: null
+    field_and_value_field_path:
+      type: str | None
+      description: UDM field path identifying the indicator type.
+      default: null
+    field_and_value_value_type:
+      type: str | None
+      description: Chronicle value type identifying the indicator type.
       default: null
     entity_types:
       type: list[str] | None
@@ -94,7 +103,10 @@ definition:
           timeRange.startTime: ${{ inputs.start_time }}
           timeRange.endTime: ${{ inputs.end_time }}
           entityId: ${{ inputs.entity_id }}
-          fieldAndValue: ${{ inputs.field_and_value }}
+          fieldAndValue.value: ${{ inputs.field_and_value_value }}
+          fieldAndValue.entityNamespace: ${{ inputs.field_and_value_entity_namespace }}
+          fieldAndValue.fieldPath: ${{ inputs.field_and_value_field_path }}
+          fieldAndValue.valueType: ${{ inputs.field_and_value_value_type }}
           entityTypes: ${{ inputs.entity_types }}
           domainType: ${{ inputs.domain_type }}
           excludeFirstLastSeen: ${{ inputs.exclude_first_last_seen }}
