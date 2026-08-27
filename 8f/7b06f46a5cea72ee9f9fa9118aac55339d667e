@@ -1,0 +1,260 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/list_detections.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,99,101,113
+  s_39bab1cd8212fa::t_b547a7aecde819 84-89,111
+  s_63cd9b36b4d74b::t_b392ccdd16f64a 1-18,25-83,90-98,100,102-110,112
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/list_retrohunts.yml
+  s_63cd9b36b4d74b::t_34b617c60e67c6 1-18,25-58,60,62-64
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,59,61,65
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/bulk_change_case_stage.yml
+  s_63cd9b36b4d74b::t_52424e7c9f8bba 1-18,25-39,41,43-44
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,40,42,45
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/verify_rule_text.yml
+  s_39bab1cd8212fa::t_7d977ebd85f405 38
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,40,42
+  s_63cd9b36b4d74b::t_c6b3c2fe44b3c4 4
+  s_a734aec3ce7d80::t_bf81890b03eb2e 1-3,5-18,25-37,39,41
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/list_operations.yml
+  s_63cd9b36b4d74b::t_4ba93dcea3a5cc 1-20,27-43,50-53,55,57-59
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,54,56,61
+  s_39bab1cd8212fa::t_b547a7aecde819 44-49,60
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/search_findings.yml
+  s_63cd9b36b4d74b::t_05f89397aecc2b 1-18,25-61,63,65,68-69
+  s_39bab1cd8212fa::t_f1ca07a8c7b5e4 66-67
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,62,64,70
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/change_case_stage.yml
+  s_63cd9b36b4d74b::t_5e7bc92a590141 1-18,25-42,44,46,48
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,43,45,47,49
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/disable_rule.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,42,44,46,48
+  s_63cd9b36b4d74b::t_08e9d882da912f 1-20,27-41,43,45,47
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/get_case_alert.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,48,50,52
+  s_63cd9b36b4d74b::t_4fdbc81f8d6f05 1-20,27-47,49,51
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/update_rule.yml
+  s_63cd9b36b4d74b::t_d902ab9a61de5f 4,34,36-42,44,46-49,60
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,54,56,58,61
+  s_a734aec3ce7d80::t_39e146331db6c8 1-3,5-18,25-33,35,43,45,50-53,55,57,59
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/get_event_for_detection.yml
+  s_63cd9b36b4d74b::t_288b1f559388e1 1-18,25-52,54,56-58
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,53,55,59
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/add_case_tag.yml
+  s_63cd9b36b4d74b::t_0396ac65b739c5 1-20,27-41,43,45
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,42,44,46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/list_cases.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,76,78,85
+  s_63cd9b36b4d74b::t_74dbfaaaa807db 1-20,27-75,77,79-84
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/list_case_comments.yml
+  s_63cd9b36b4d74b::t_0bd05543d20f2b 1-20,27-73,75,77-81
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,74,76,82
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/bulk_reopen_cases.yml
+  s_63cd9b36b4d74b::t_d6effa7a7a2d0d 1-20,27-41,43,45-46
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,42,44,47
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/get_case_comment.yml
+  s_63cd9b36b4d74b::t_925e591815577e 1-20,27-45,47,49
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,46,48,50
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/get_operation.yml
+  s_63cd9b36b4d74b::t_075dbdcd91bb39 1-20,27-38,40
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,39,41
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/hunting/find_entity_alerts.yml
+  s_39bab1cd8212fa::t_7d977ebd85f405 58
+  s_39bab1cd8212fa::t_f1ca07a8c7b5e4 61-62
+  s_63cd9b36b4d74b::t_c44fac0bfcd213 1-20,27-57,59,63-64
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,60,65
+tests/unit/test_google_providers.py
+  s_63cd9b36b4d74b::t_4ef0d1fe8b89e8 13
+  s_63cd9b36b4d74b::t_87ac87f34641a1 94-111
+  s_63cd9b36b4d74b::t_f72d5c7256492e 25
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/update_rule_deployment.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 22-27,81,83,85,91
+  s_63cd9b36b4d74b::t_391b4f76cba03d 1-21,28-80,82,84,86-90
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/hunting/find_udm_field_values.yml
+  s_39bab1cd8212fa::t_7d977ebd85f405 44
+  s_63cd9b36b4d74b::t_3b53999d464e75 1-18,25-43,45,47-48
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,46,49
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/delete_case_comment.yml
+  s_63cd9b36b4d74b::t_774456d486a922 1-20,27-41,43
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,42,44
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/list_rule_execution_errors.yml
+  s_63cd9b36b4d74b::t_34295c59acf302 1-18,25-58,60,62-64
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,59,61,65
+tests/unit/test_google_chronicle_client.py
+  s_39bab1cd8212fa::t_2d06472aceb17f 32
+  s_39bab1cd8212fa::t_182bc301df489f 1-31,33-51
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/hunting/find_related_entities.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,93,103
+  s_39bab1cd8212fa::t_f1ca07a8c7b5e4 94-95
+  s_63cd9b36b4d74b::t_5aae32bd157797 1-20,27-90,92,96-102
+  s_39bab1cd8212fa::t_7d977ebd85f405 91
+docs/docs.json
+  s_63cd9b36b4d74b::t_f469a137b07167 207
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/change_case_priority.yml
+  s_63cd9b36b4d74b::t_bc84234568a80c 1-18,25-41,43,45,47
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,42,44,46,48
+packages/tracecat-registry/tracecat_registry/integrations/google_chronicle.py
+  s_39bab1cd8212fa::t_509b4e574e48c2 1-93
+  s_39bab1cd8212fa::t_8beff46f2c36fc 94
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/assign_case.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,42,44,46,48
+  s_63cd9b36b4d74b::t_a92341673525a3 1-18,25-41,43,45,47
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/get_rule.yml
+  s_63cd9b36b4d74b::t_f37af843c036ab 4,38-39
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,45,47,49
+  s_a734aec3ce7d80::t_14fb3a56fee6a4 1-3,5-18,25-37,40-44,46,48
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/change_case_alert_priority.yml
+  s_63cd9b36b4d74b::t_8668ad4cfe8128 1-18,25-44,46,48,50
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,45,47,49,51
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/list_rule_revisions.yml
+  s_63cd9b36b4d74b::t_07540a2fb3741e 4,50-51
+  s_a734aec3ce7d80::t_eb0eebdaf7e4b5 1-3,5-18,25-49,52-56,58,60-62
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,57,59,63
+tracecat/integrations/providers/__init__.py
+  s_39bab1cd8212fa::t_cf95522025536c 9-10,60-61
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/close_case_alert.yml
+  s_63cd9b36b4d74b::t_34c4e09fa4151d 1-20,27-53,55,57,59-63
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,54,56,58,64
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/bulk_assign_cases.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,40,42,45
+  s_63cd9b36b4d74b::t_1a8d5c8dff04d2 1-18,25-39,41,43-44
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/delete_rule.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,48,50,52
+  s_a734aec3ce7d80::t_fd8dec1ce511f1 1-3,5-18,25-47,49,51
+  s_63cd9b36b4d74b::t_8700a0e3371c73 4
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/list_case_alerts.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,79,81,88
+  s_63cd9b36b4d74b::t_268863efa6be98 1-20,27-78,80,82-87
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/get_retrohunt.yml
+  s_63cd9b36b4d74b::t_7863135ecb1140 1-18,25-40,42
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,41,43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/get_alert.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,41,43,46
+  s_63cd9b36b4d74b::t_219f6620f084b5 1-18,25-40,42,44-45
+docs/tools/google_chronicle.mdx
+  s_39bab1cd8212fa::t_7f15c3d19beaea 379
+  s_39bab1cd8212fa::t_63554436d773e8 997,1009,1015,1037
+  s_39bab1cd8212fa::t_394734dc0d441a 394,404,406,412,414
+  s_39bab1cd8212fa::t_010a6b00d12d9d 984
+  s_39bab1cd8212fa::t_87cbbc7be12cab 109,195,238,348,391,473,522,565,608,671,738,787,832,875,994,1054,1059,1114,1173,1317,1362,1407,1458,1509,1552,1642,1685,1730,1767,1852,1935-1940,2008,2127,2129-2131,2249,2251,2253-2255,2304,2306,2309-2310,2420,2422,2424-2425,2499,2542,2655,2657,2659-2660,2902,2967,3172,3233,3316,3318,3320-3321
+  s_39bab1cd8212fa::t_0faab3124fc8d6 398,400
+  s_39bab1cd8212fa::t_2b6c335c138f0e 2053-2060,2159-2166
+  s_63cd9b36b4d74b::t_f469a137b07167 1-38,47-81,88,91-108,110-124,129,134-167,172,177-194,196-210,219-237,239-256,265-296,303,306-347,349-363,370,373-378,380-390,392-393,402-403,405,407-411,413,415-445,450,455-472,474-494,503-521,523-537,544,547-564,566-580,589-607,609-635,638,645-670,672-686,695-737,739-759,768-786,788-796,803,806-831,833-847,852,857-874,876-884,889,894-929,938-969,978-983,985-993,995-996,998-1008,1010-1014,1022,1025-1028,1030-1036,1038-1053,1057,1060-1086,1091,1096-1113,1115-1129,1134,1139-1172,1174-1188,1193,1198-1281,1286,1291-1316,1318-1326,1331,1336-1361,1363-1371,1376,1381-1406,1408-1422,1427,1432-1457,1459-1473,1478,1483-1508,1510-1524,1529,1534-1551,1553-1561,1566,1571-1614,1619,1624-1641,1643-1657,1662,1667-1684,1686-1694,1699,1704-1729,1731-1739,1744,1749-1766,1768-1776,1781,1786-1851,1853-1861,1866,1871-1926,1933,1941-2007,2009-2017,2026-2052,2061-2125,2133,2137-2158,2167-2197,2206-2248,2257,2261-2303,2308,2312,2316-2368,2377-2419,2426,2428,2432-2498,2500-2514,2523-2541,2543-2563,2572-2654,2661,2663,2667-2901,2903-2923,2932-2966,2968-2988,2997-3047,3056-3112,3121-3171,3173-3181,3190-3232,3234-3248,3257-3315,3322,3324,3328-3335
+  s_39bab1cd8212fa::t_44f6ff8d4f83a6 1029
+  s_39bab1cd8212fa::t_3e0c63498448db 39-46,82-87,89-90,125-128,130-133,168-171,173-176,211-218,257-264,297-302,304-305,364-369,371-372,395-397,399,401,446-449,451-454,495-502,538-543,545-546,581-588,636-637,639-644,687-694,760-767,797-802,804-805,848-851,853-856,885-888,890-893,930-937,970-977,1016-1021,1023-1024,1055-1056,1058,1087-1090,1092-1095,1130-1133,1135-1138,1189-1192,1194-1197,1282-1285,1287-1290,1327-1330,1332-1335,1372-1375,1377-1380,1423-1426,1428-1431,1474-1477,1479-1482,1525-1528,1530-1533,1562-1565,1567-1570,1615-1618,1620-1623,1658-1661,1663-1666,1695-1698,1700-1703,1740-1743,1745-1748,1777-1780,1782-1785,1862-1865,1867-1870,1927-1932,1934,2018-2025,2126,2128,2132,2134-2136,2198-2205,2250,2252,2256,2258-2260,2305,2307,2311,2313-2315,2369-2376,2421,2423,2427,2429-2431,2515-2522,2564-2571,2656,2658,2662,2664-2666,2924-2931,2989-2996,3048-3055,3113-3120,3182-3189,3249-3256,3317,3319,3323,3325-3327
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/create_retrohunt.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,49,51,55
+  s_63cd9b36b4d74b::t_49ae617abd39bd 1-18,25-48,50,52-54
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/bulk_add_case_tag.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,42,44,47
+  s_63cd9b36b4d74b::t_beecf389ec2383 1-20,27-41,43,45-46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/bulk_change_case_priority.yml
+  s_63cd9b36b4d74b::t_8ce3b1f3bd97b4 1-18,25-41,43,45-46
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,42,44,47
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/hunting/execute_query.yml
+  s_39bab1cd8212fa::t_44f6ff8d4f83a6 48
+  s_39bab1cd8212fa::t_703a05ce9ebac8 1-47,49-68
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/search_alerts.yml
+  s_63cd9b36b4d74b::t_7390dc8b5ae1a2 1-20,27-112,114,116-117,123-126
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,113,115,127
+  s_39bab1cd8212fa::t_f1ca07a8c7b5e4 118-122
+tracecat/integrations/providers/google/__init__.py
+  s_39bab1cd8212fa::t_cf95522025536c 4,22-23
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/get_case.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,43,45,47
+  s_63cd9b36b4d74b::t_06020a833174d5 1-20,27-42,44,46
+tests/unit/test_google_chronicle_templates_contract.py
+  s_63cd9b36b4d74b::t_e78e6b266b4082 150-154,183-187,189,193
+  s_63cd9b36b4d74b::t_83475b70731c73 128
+  s_39bab1cd8212fa::t_937ef43268c7fc 30-58,61,63,66-89
+  s_39bab1cd8212fa::t_8f1fb22e9e78c0 129-132,142-143,171,174-177,194-195,197,224,237-245,247-250
+  s_39bab1cd8212fa::t_cd03057d0c4bb0 1,3,5,24-29
+  s_63cd9b36b4d74b::t_bcc313ef755430 122-124,219-221
+  s_63cd9b36b4d74b::t_43a459b6fd4eac 2,4,6-23,90-121,125-127,133-141,144-149,188,190-192,196,199-218,222-223,225-236
+  s_39bab1cd8212fa::t_a3a41e76056c60 59-60,62,64-65
+  s_39bab1cd8212fa::t_2d06472aceb17f 198
+  s_39bab1cd8212fa::t_49602480a88cac 155-169,172-173,178-182
+  s_39bab1cd8212fa::t_8aebb3439c5e2b 170
+  s_63cd9b36b4d74b::t_2eca68384a4e11 246
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/get_detection.yml
+  s_63cd9b36b4d74b::t_17a1cb7a35b1cd 1-18,25-43,45,47-48
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,44,46,49
+tracecat/integrations/providers/google/chronicle.py
+  s_39bab1cd8212fa::t_cf95522025536c 1-56
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/create_rule.yml
+  s_a734aec3ce7d80::t_0f3171df462561 1-3,5-18,25-38,40-45,47
+  s_63cd9b36b4d74b::t_d1d906535b1c66 4,39,49-50
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,46,48,51
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/bulk_close_cases.yml
+  s_63cd9b36b4d74b::t_513adab913b1c3 1-20,27-57,59,61-65
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,58,60,66
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/get_rule_deployment.yml
+  s_a734aec3ce7d80::t_8f21fa901577df 1-3,5-18,25-39,41
+  s_63cd9b36b4d74b::t_e63b6d9d2fe1f2 4
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,40,42
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/update_case_comment.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,69,71,73,78
+  s_63cd9b36b4d74b::t_90eb294ce75ded 1-20,27-68,70,72,74-77
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/list_rule_deployments.yml
+  s_63cd9b36b4d74b::t_31db3ef42b2114 1-18,25-55,57,59-61
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,56,58,62
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/hunting/find_entity.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,52,57
+  s_39bab1cd8212fa::t_7d977ebd85f405 50
+  s_63cd9b36b4d74b::t_95047dae69cf1d 1-20,27-49,51,53-56
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/detections/update_alert.yml
+  s_63cd9b36b4d74b::t_32ba2ff4d1f2d2 1-18,25-55,57,59-62
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,56,58,63
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/case_alerts/reopen_case_alert.yml
+  s_63cd9b36b4d74b::t_9c36e500daf046 1-18,25-39,41,43,45
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,40,42,44,46
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/list_rules.yml
+  s_63cd9b36b4d74b::t_f32333bc4b1ec4 4,48-50
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 19-24,79,81,88
+  s_a734aec3ce7d80::t_85552d717bf9ca 1-3,5-18,25-47,51-78,80,82-87
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/retrohunts/cancel_operation.yml
+  s_63cd9b36b4d74b::t_93d88f4bba9d8b 1-22,29-40,42
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 23-28,41,43
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/enable_rule.yml
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,42,44,46,48
+  s_63cd9b36b4d74b::t_781084477b3668 1-20,27-41,43,45,47
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/cases/search_cases.yml
+  s_63cd9b36b4d74b::t_8bb0b64cb5b3e8 1-20,27-188,190,192-218
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,189,191,219
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/rules/test_rule.yml
+  s_63cd9b36b4d74b::t_0310b0ce5d9d23 5,55-56,65-70
+  s_a734aec3ce7d80::t_67356a8a9c9ef9 1-4,6-19,26-54,57-61,63
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 20-25,62,64,71
+packages/tracecat-registry/tracecat_registry/templates/tools/google_chronicle/comments/create_case_comment.yml
+  s_63cd9b36b4d74b::t_e55c98b97e1fc4 1-20,27-58,60,62-65
+  s_39bab1cd8212fa::t_5e4c23b5bffbf2 21-26,59,61,66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "8f7b06f46a5cea72ee9f9fa9118aac55339d667e",
+  "prompts": {},
+  "sessions": {
+    "s_39bab1cd8212fa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ff9-e8e1-71e0-9798-1708865c8fb5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_63cd9b36b4d74b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e1ac21ff-473e-448c-a35a-3046f706d7e8",
+        "model": "unknown"
+      },
+      "human_author": null
+    },
+    "s_a734aec3ce7d80": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7ed587e-444c-4a52-84df-f6bcb8b65f3f",
+        "model": "unknown"
+      },
+      "human_author": null
+    }
+  }
+}
