@@ -1,0 +1,27 @@
+.gitignore
+  s_9177a925180b65::t_f21995f71ce16a 239-243
+Dockerfile
+  s_9177a925180b65::t_febb0fa5d5613f 1-2,219-247,265,284,291,300,310,340,352,359
+justfile
+  s_9177a925180b65::t_6e4a11c3e5899f 116-159
+packages/tracecat-ee/tracecat_ee/workspace_chat/skills/__init__.py
+  s_9177a925180b65::t_d4276df71f0088 8-9,23-25,27-28
+tests/unit/test_workspace_chat_skills.py
+  s_9177a925180b65::t_fa74f50a93c014 10,16,24-43,92,97-139,153,156,202,234-249,252-257,282,295
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "810c0c69c675079e8b9729218065ebfd7cb337a2",
+  "prompts": {},
+  "sessions": {
+    "s_9177a925180b65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cdc49770-5a42-40d5-969b-73d89a11a08f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
