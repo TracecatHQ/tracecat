@@ -218,7 +218,7 @@ WORKDIR /app
 # ====================
 FROM base AS plugin-skills
 
-ARG TRACECAT_PLUGINS_REF=4ad865a7cbff8a2d13c1e97a2cdbf4d9b1e58284
+ARG TRACECAT_PLUGINS_REF=5c193188a72213ba3e6a5ad72eed5e92371a49b4
 
 # Pinned to a tracecat-plugins commit on main. Bump when the vendored skills change.
 RUN set -eux; \
