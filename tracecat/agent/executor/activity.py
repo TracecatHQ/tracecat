@@ -1085,11 +1085,19 @@ class SandboxedAgentExecutor:
         # can serve a stale copy. Fall back to the packaged location for
         # environments that still ship skills inside `tracecat_ee`.
         vendored_root = Path(app_config.TRACECAT__COPILOT_SKILLS_DIR)
-        skills_root: Any = (
-            vendored_root
-            if vendored_root.is_dir()
-            else files("tracecat_ee.workspace_chat.skills")
-        )
+        if vendored_root.is_dir():
+            skills_root: Any = vendored_root
+        else:
+            # The image did not vendor the skills. Not fatal - the session runs
+            # without built-in guidance rather than failing - but it is the one
+            # signal that the `plugin-skills` build stage did not land, so say
+            # so plainly instead of only reporting the per-skill misses below.
+            skills_root = files("tracecat_ee.workspace_chat.skills")
+            logger.warning(
+                "Vendored copilot skills directory missing; falling back to the "
+                "packaged location",
+                vendored_dir=str(vendored_root),
+            )
         for name in dict.fromkeys(names):
             if (
                 not name.startswith(BUILTIN_SKILL_NAME_PREFIX)
@@ -1100,7 +1108,11 @@ class SandboxedAgentExecutor:
                 continue
             source = skills_root / name
             if not (source / "SKILL.md").is_file():
-                logger.warning("Built-in skill missing SKILL.md; skipping", skill=name)
+                logger.warning(
+                    "Built-in skill missing SKILL.md; skipping",
+                    skill=name,
+                    skills_root=str(skills_root),
+                )
                 continue
             with as_file(source) as source_path:
                 await asyncio.to_thread(
