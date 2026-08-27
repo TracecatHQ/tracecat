@@ -341,6 +341,13 @@ SDK-backed or not.
   infer what `bind()`, `result()`, or a similarly named method returns. Serialize
   the real public response and binding data without recursively serializing the
   wrapper object itself.
+- Inventory non-JSON SDK return types as well as method signatures. In particular,
+  download methods may return a binary stream directly or place one inside a
+  generated response model. Read the pinned SDK's real stream shape and encode
+  bytes using the registry's explicit `{"content_base64": "..."}` convention;
+  never let bytes, file-like objects, or SDK streams escape the wrapper unchanged.
+  Cover both a direct stream and a generated response containing a stream when
+  the SDK supports both shapes.
 - Before declaring an SDK template complete, confirm against the pinned SDK that
   every referenced `service.method` exists and every forwarded keyword is
   accepted by that method's signature.
@@ -422,7 +429,8 @@ Before handing off an integration PR, explicitly re-audit:
   has no hidden dependency on a stored basic secret and an optional stored secret
   still requires all fields needed to authenticate when it is configured;
 - absence of unapproved PAT, API-token, raw-token, and ambient-auth paths;
-- JSON serialization for ordinary responses, waiters, and paginated iterators;
+- JSON serialization for ordinary responses, waiters, paginated iterators, raw
+  bytes, direct binary streams, and generated responses containing streams;
 - official SVG mappings for action namespaces, credentials, and OAuth providers;
 - focused registry/provider tests and all current unresolved PR review threads.
 

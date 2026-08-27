@@ -1,9 +1,10 @@
 """Generic interface for the Databricks SDK for Python."""
 
+import base64
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Annotated, Any
+from typing import Annotated, Any, Protocol, runtime_checkable
 from urllib.parse import urlsplit
 
 from databricks.sdk import WorkspaceClient
@@ -89,6 +90,11 @@ class _OAuthAccessTokenCredentials(CredentialsStrategy):
         return headers
 
 
+@runtime_checkable
+class _BinaryStream(Protocol):
+    def read(self, size: int = -1, /) -> bytes: ...
+
+
 def _get_client(base_url: str) -> WorkspaceClient:
     _validate_databricks_host(base_url)
     if token := (
@@ -131,6 +137,12 @@ def _serialize(value: Any) -> Any:
     """Adapt Databricks SDK values into JSON-serializable values."""
     if value is None or isinstance(value, str | int | float | bool):
         return value
+    if isinstance(value, bytes | bytearray | memoryview):
+        return {
+            "content_base64": base64.b64encode(bytes(value)).decode("ascii"),
+        }
+    if isinstance(value, _BinaryStream):
+        return _serialize(value.read())
     if isinstance(value, Enum):
         return _serialize(value.value)
     if isinstance(value, Wait):
