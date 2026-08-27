@@ -1,0 +1,86 @@
+type: action
+definition:
+  title: Reply to message
+  description: >-
+    Reply to the sender of a message. The reply is saved in Sent Items. Returns
+    `202 Accepted` with no response body. Least privileged permission: Mail.Send
+    for delegated (work or school account), delegated (personal Microsoft account)
+    and application; no higher privileged permission is available. Replying from
+    another user's mailbox with a user token additionally requires Mail.Send.Shared
+    plus the Exchange Send As or Send on Behalf permission on that mailbox, and
+    addressing the mailbox through `/users/{id}` also requires Full Access.
+    Available in the global service, US Government L4, US Government L5 (DOD) and
+    China operated by 21Vianet. Microsoft's endpoint reference does not state a
+    separate licensing requirement; the mailbox itself still needs an Exchange
+    Online or Outlook.com account.
+  display_group: Microsoft Outlook Mail
+  doc_url: https://learn.microsoft.com/en-us/graph/api/message-reply?view=graph-rest-1.0
+  namespace: tools.microsoft_outlook
+  name: reply_message
+  secrets:
+    - type: oauth
+      provider_id: microsoft_outlook
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_outlook
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: authorization_code
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
+        `microsoft_outlook.base_url`, then https://graph.microsoft.com/v1.0.
+        National clouds: https://graph.microsoft.us/v1.0 (US Government L4),
+        https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD) and
+        https://microsoftgraph.chinacloudapi.cn/v1.0 (China operated by 21Vianet).
+      default: null
+    auth_mode:
+      type: enum["application", "delegated", "auto"]
+      description: >-
+        Credential to use. `application` requires MICROSOFT_OUTLOOK_SERVICE_TOKEN,
+        then MICROSOFT_GRAPH_SERVICE_TOKEN; `delegated` requires
+        MICROSOFT_OUTLOOK_USER_TOKEN, then MICROSOFT_GRAPH_USER_TOKEN; `auto` tries
+        all four in that order.
+      default: application
+    mailbox_user_id:
+      type: str
+      description: >-
+        Sending mailbox, given as a user ID or userPrincipalName and used in the
+        `/users/{id | userPrincipalName}` path. Delegated callers may pass their own
+        userPrincipalName; application callers must always name the mailbox to reply
+        from, because an application token has no signed-in user.
+    messageId:
+      type: str
+      description: The unique identifier of the message to reply to.
+    comment:
+      type: str
+      description: A comment to include. Can be an empty string.
+    prefer:
+      type: str | None
+      description: >-
+        `Prefer` request header. `outlook.timezone="<time zone>"` sets the time zone
+        for the `Sent` field of the reply message that this API creates in HTML.
+      default: null
+  steps:
+    - ref: call_graph
+      action: tools.microsoft_outlook_sdk.call_method
+      args:
+        path: /users/${{ FN.url_encode(inputs.mailbox_user_id) }}/messages/${{ FN.url_encode(inputs.messageId) }}/reply
+        method: POST
+        base_url: ${{ inputs.base_url || VARS.microsoft_outlook.base_url || "https://graph.microsoft.com/v1.0" }}
+        auth_mode: ${{ inputs.auth_mode }}
+        headers:
+          Prefer: ${{ inputs.prefer }}
+        payload:
+          comment: ${{ inputs.comment }}
+  returns: ${{ steps.call_graph.result }}

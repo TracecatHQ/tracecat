@@ -1,0 +1,83 @@
+type: action
+definition:
+  title: Update alert
+  description: >-
+    Update the properties of an alert object in an organization based on the
+    specified alert id property. Least privileged permission:
+    SecurityAlert.ReadWrite.All for both delegated (work or school account) and
+    application; no higher privileged permission is available. Delegated access
+    is not supported for personal Microsoft accounts. Delegated callers must hold
+    a supported Microsoft Entra role: Security Operator or Security
+    Administrator. Available in the global service, US Government L4 and US
+    Government L5 (DOD); not available in China operated by 21Vianet.
+    Microsoft's endpoint reference does not state a separate licensing requirement.
+  display_group: Microsoft Graph Security
+  doc_url: https://learn.microsoft.com/en-us/graph/api/security-alert-update?view=graph-rest-1.0
+  namespace: tools.microsoft_graph_security
+  name: update_alert
+  secrets:
+    - type: oauth
+      provider_id: microsoft_graph_security
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph_security
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: authorization_code
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
+        `microsoft_graph.base_url`, then https://graph.microsoft.com/v1.0.
+        National clouds: https://graph.microsoft.us/v1.0 (US Government L4) and
+        https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD).
+      default: null
+    auth_mode:
+      type: enum["application", "delegated", "auto"]
+      description: >-
+        Credential to use. `application` requires
+        MICROSOFT_GRAPH_SECURITY_SERVICE_TOKEN, then MICROSOFT_GRAPH_SERVICE_TOKEN;
+        `delegated` requires MICROSOFT_GRAPH_SECURITY_USER_TOKEN, then
+        MICROSOFT_GRAPH_USER_TOKEN; `auto` tries all four in that order.
+      default: application
+    alertId:
+      type: str
+      description: The unique identifier of the alert.
+    payload:
+      # Generic: this is a PATCH, where Microsoft assigns different meanings to an
+      # omitted property and an explicit null. Omitted properties "maintain their
+      # previous values or are recalculated", while `"assignedTo": null` clears the
+      # owner. A literal map of named inputs cannot express both, so the caller
+      # owns the body.
+      type: dict[str, Any]
+      description: >-
+        API-native request body. Supply only the values for properties to update.
+        Updatable properties for PATCH /security/alerts_v2/{alertId}: status
+        (new, inProgress, resolved, unknownFutureValue), classification (unknown,
+        falsePositive, truePositive, informationalExpectedActivity,
+        unknownFutureValue), customDetails (user defined custom fields with
+        string values), determination (unknown, apt, malware, securityPersonnel,
+        securityTesting, unwantedSoftware, other, multiStagedAttack,
+        compromisedUser, phishing, maliciousUserActivity, clean,
+        insufficientData, confirmedUserActivity, lineOfBusinessApplication,
+        unknownFutureValue) and assignedTo (owner of the incident, or null if no
+        owner is assigned).
+  steps:
+    - ref: call_graph
+      action: tools.microsoft_graph_security_sdk.call_method
+      args:
+        path: /security/alerts_v2/${{ FN.url_encode(inputs.alertId) }}
+        method: PATCH
+        base_url: ${{ inputs.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
+        auth_mode: ${{ inputs.auth_mode }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.call_graph.result }}

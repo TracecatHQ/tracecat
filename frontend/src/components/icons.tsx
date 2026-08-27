@@ -634,6 +634,11 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     ),
     "tools.microsoft_defender_xdr": createIconRenderer(MicrosoftDefenderIcon),
     "tools.microsoft_entra": createIconRenderer(MicrosoftEntraIcon),
+    "tools.microsoft_graph_sdk": createIconRenderer(MicrosoftIcon),
+    "tools.microsoft_graph_security": createIconRenderer(MicrosoftIcon),
+    "tools.microsoft_graph_security_sdk": createIconRenderer(MicrosoftIcon),
+    "tools.microsoft_outlook": createIconRenderer(MicrosoftIcon),
+    "tools.microsoft_outlook_sdk": createIconRenderer(MicrosoftIcon),
     "tools.microsoft_teams": createIconRenderer(MicrosoftTeamsIcon),
     "tools.microsoft_sentinel": createIconRenderer(MicrosoftSentinelIcon),
     "tools.azure_log_analytics": createIconRenderer(AzureLogAnalyticsIcon),
@@ -840,6 +845,16 @@ export const providerIcons: Record<
   (props: CustomIconProps) => JSX.Element
 > = {
   microsoft_graph: ({ className, ...rest }) => (
+    <div className={className}>
+      <MicrosoftIcon {...rest} />
+    </div>
+  ),
+  microsoft_graph_security: ({ className, ...rest }) => (
+    <div className={className}>
+      <MicrosoftIcon {...rest} />
+    </div>
+  ),
+  microsoft_outlook: ({ className, ...rest }) => (
     <div className={className}>
       <MicrosoftIcon {...rest} />
     </div>
