@@ -120,7 +120,12 @@ with workflow.unsafe.imports_passed_through():
         exec_id_to_parts,
     )
     from tracecat.registry.lock.types import RegistryLock
-    from tracecat.runtime.errors import RuntimeErrorOwner, select_error_classification
+    from tracecat.runtime.errors import (
+        RetryDisposition,
+        RuntimeErrorClassification,
+        RuntimeErrorOwner,
+        select_error_classification,
+    )
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -132,7 +137,12 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
-    from tracecat.temporal.errors import extract_error_classifications
+    from tracecat.temporal.errors import (
+        build_error_transport_detail,
+        extract_error_classification,
+        extract_error_classifications,
+        raise_application_error_from_classification,
+    )
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
@@ -202,6 +212,70 @@ def _inherit_search_attributes_with_alias(
             if p.key != TemporalSearchAttr.ALIAS.key
         )
     return TypedSearchAttributes(search_attributes=pairs)
+
+
+def _without_terminal_error_owner(
+    attrs: TypedSearchAttributes,
+) -> TypedSearchAttributes:
+    """Prevent a successful child from inheriting its parent's terminal owner."""
+    return TypedSearchAttributes(
+        search_attributes=[
+            pair
+            for pair in attrs.search_attributes
+            if pair.key != TemporalSearchAttr.ERROR_OWNER.key
+        ]
+    )
+
+
+def _raise_child_failures_application_error(
+    *, task_ref: str, failures: list[tuple[int, BaseException]]
+) -> None:
+    """Raise classified child failures, or return when none are classified."""
+    child_details: list[tuple[RuntimeErrorClassification, ActionErrorInfo]] = []
+    for child_index, failure in failures:
+        classifications = extract_error_classifications(failure)
+        if not classifications:
+            continue
+        classification = select_error_classification(classifications)
+        child_details.append(
+            (
+                classification,
+                ActionErrorInfo(
+                    ref=f"{task_ref}[{child_index}]",
+                    message=classification.message,
+                    type=classification.cause_type or type(failure).__name__,
+                ),
+            )
+        )
+
+    if not child_details:
+        return None
+
+    message = f"{len(failures)} child workflow(s) failed"
+    primary_classification = select_error_classification(
+        classification for classification, _ in child_details
+    )
+    aggregate_classification = primary_classification.model_copy(
+        update={
+            "message": message,
+            "retry_disposition": RetryDisposition.NON_RETRYABLE,
+            "cause_type": "ChildWorkflowAggregateError",
+        }
+    )
+    aggregate = ActionErrorInfo(
+        ref=task_ref,
+        message=message,
+        type="ChildWorkflowAggregateError",
+        children=[diagnostic for _, diagnostic in child_details],
+    )
+    raise_application_error_from_classification(
+        aggregate_classification,
+        build_error_transport_detail(aggregate_classification, aggregate),
+        *(
+            build_error_transport_detail(classification, diagnostic)
+            for classification, diagnostic in child_details
+        ),
+    )
 
 
 def _build_agent_child_search_attributes(
@@ -351,6 +425,13 @@ class DSLWorkflow:
                 result = await self._get_workflow_definition(args.wf_id)
                 self.dsl = result.dsl
                 registry_lock = result.registry_lock
+            except ActivityError as e:
+                if isinstance(
+                    e.cause, ApplicationError
+                ) and extract_error_classification(e.cause):
+                    self._upsert_terminal_error_owner(e.cause)
+                    raise e.cause from e
+                raise
             except TracecatException as e:
                 self.logger.error("Failed to fetch workflow definition")
                 raise ApplicationError(
@@ -906,6 +987,8 @@ class DSLWorkflow:
                     except Exception as e:
                         if self._has_user_error_cause(e):
                             raise
+                        if workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH):
+                            raise
                         root_error, root_message = self._unwrap_temporal_failure_cause(
                             e
                         )
@@ -1192,8 +1275,8 @@ class DSLWorkflow:
         except (ActivityError, ChildWorkflowError, FailureError) as e:
             # These are deterministic and expected errors that
             err_type = e.__class__.__name__
-            msg = self.ERROR_TYPE_TO_MESSAGE[err_type]
-            cause = e.cause
+            msg = self.ERROR_TYPE_TO_MESSAGE.get(err_type, "Workflow execution failed")
+            cause = e if isinstance(e, ApplicationError) else e.cause
             root_error, root_message = self._unwrap_temporal_failure_cause(
                 cause if isinstance(cause, BaseException) else e
             )
@@ -1212,11 +1295,15 @@ class DSLWorkflow:
                     err_type = cause.type or err_type
                     task_result = task_result.with_error(err_info, err_type)
                     # Reraise the cause, as it's wrapped by the ApplicationError
+                    if cause is e:
+                        raise
                     raise cause from e
                 case ApplicationError() as app_err:
                     err_type = app_err.type or err_type
                     err_message = app_err.message or root_message
                     task_result = task_result.with_error(err_message, err_type)
+                    if app_err is e:
+                        raise
                     raise app_err from e
                 case _:
                     resolved_type = root_error.__class__.__name__
@@ -1476,7 +1563,16 @@ class DSLWorkflow:
         )
 
         if fail_strategy == FailStrategy.ALL:
-            if any(isinstance(val, BaseException) for val in gather_result):
+            failures = [
+                (index, val)
+                for index, val in enumerate(gather_result, start=batch_start)
+                if isinstance(val, BaseException)
+            ]
+            if failures:
+                _raise_child_failures_application_error(
+                    task_ref=task.ref,
+                    failures=failures,
+                )
                 raise RuntimeError("One or more child workflows failed")
 
         result: list[StoredObject] = []
@@ -2082,7 +2178,9 @@ class DSLWorkflow:
             execution_timeout=wf_info.execution_timeout,
             task_timeout=wf_info.task_timeout,
             memo=memo.model_dump(),
-            search_attributes=wf_info.typed_search_attributes,
+            search_attributes=_without_terminal_error_owner(
+                wf_info.typed_search_attributes
+            ),
         )
 
     # ==================== Tier Limit Enforcement ====================

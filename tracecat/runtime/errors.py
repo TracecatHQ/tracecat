@@ -137,8 +137,6 @@ class RuntimeErrorClassification(BaseModel):
         retry_disposition: RetryDisposition,
         cause: BaseException | None,
     ) -> RuntimeErrorClassification:
-        cls._require_kind(kind)
-        cls._require_retry_disposition(retry_disposition)
         return cls.model_validate(
             {
                 "schema": RUNTIME_ERROR_CLASSIFICATION_SCHEMA,
@@ -149,18 +147,6 @@ class RuntimeErrorClassification(BaseModel):
                 "cause_type": type(cause).__name__ if cause is not None else None,
             }
         )
-
-    @staticmethod
-    def _require_kind(kind: RuntimeErrorKind) -> None:
-        if not isinstance(kind, RuntimeErrorKind):
-            raise TypeError("kind must be a RuntimeErrorKind enum member")
-
-    @staticmethod
-    def _require_retry_disposition(
-        retry_disposition: RetryDisposition,
-    ) -> None:
-        if not isinstance(retry_disposition, RetryDisposition):
-            raise TypeError("retry_disposition must be a RetryDisposition enum member")
 
 
 class TracecatRuntimeError(Exception):

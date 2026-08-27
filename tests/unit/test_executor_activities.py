@@ -6,11 +6,12 @@ These tests cover the Temporal activity that handles action execution.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from botocore.exceptions import HTTPClientError
 from temporalio.exceptions import ApplicationError
 
 from tests.shared import to_data
@@ -28,8 +29,11 @@ from tracecat.agent.mcp.stdio_probe_types import (
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
+from tracecat.dsl.error_transport import (
+    ActionErrorTransportDetail,
+    parse_classified_action_error_payload,
+)
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
-from tracecat.dsl.types import ActionErrorInfo
 from tracecat.exceptions import (
     EntitlementRequired,
     ExecutionError,
@@ -37,10 +41,26 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.executor.activities import ExecutorActivities
+from tracecat.executor.registry_artifacts import (
+    RegistryArtifactCacheCapacityError,
+    RegistryArtifactCacheLeaseContentionError,
+    RegistryArtifactExtractionError,
+)
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.sandbox.exceptions import SandboxExecutionError
+from tracecat.temporal.errors import (
+    build_error_transport_detail,
+    extract_error_classification,
+)
 
 
 @pytest.fixture
@@ -195,9 +215,211 @@ class TestExecuteActionActivity:
                 )
 
             app_error = exc_info.value
-            assert app_error.type == "ExecutionError"
+            assert app_error.type == RuntimeErrorKind.ACTION_EXECUTION_FAILED.value
             # Check that the error info is in the details
             assert len(app_error.details) > 0
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("cause", "kind", "retry_disposition"),
+        [
+            (
+                RegistryArtifactCacheLeaseContentionError(
+                    current_bytes=80,
+                    additional_bytes=30,
+                    max_bytes=100,
+                ),
+                RuntimeErrorKind.EXECUTOR_REGISTRY_LEASE_CONTENTION,
+                RetryDisposition.RETRYABLE,
+            ),
+            (
+                RegistryArtifactCacheCapacityError(
+                    current_bytes=80,
+                    additional_bytes=30,
+                    max_bytes=100,
+                ),
+                RuntimeErrorKind.EXECUTOR_REGISTRY_CAPACITY_EXHAUSTED,
+                RetryDisposition.NON_RETRYABLE,
+            ),
+            (
+                RegistryArtifactExtractionError(),
+                RuntimeErrorKind.EXECUTOR_REGISTRY_EXTRACTION_FAILED,
+                RetryDisposition.NON_RETRYABLE,
+            ),
+            (
+                SandboxExecutionError("synthetic sandbox diagnostic"),
+                RuntimeErrorKind.EXECUTOR_SANDBOX_INFRASTRUCTURE_FAILED,
+                RetryDisposition.RETRYABLE,
+            ),
+        ],
+    )
+    async def test_executor_infrastructure_failure_is_classified(
+        self,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        cause: Exception,
+        kind: RuntimeErrorKind,
+        retry_disposition: RetryDisposition,
+    ) -> None:
+        """Known activity-internal failures use typed platform attribution."""
+        error_info = ExecutorActionErrorInfo(
+            type=type(cause).__name__,
+            message="masked executor error",
+            action_name="test_action",
+            filename="<test>",
+            function="test_function",
+        )
+        exec_error = ExecutionError(info=error_info)
+        exec_error.__cause__ = cause
+
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.side_effect = exec_error
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input, mock_role
+                )
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.kind is kind
+        assert exc_info.value.type == kind.value
+        assert classification.retry_disposition is retry_disposition
+        assert classification.cause_type == type(cause).__name__
+        assert exc_info.value.non_retryable is (
+            retry_disposition is RetryDisposition.NON_RETRYABLE
+        )
+        assert str(cause) not in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_executor_backend_initialization_failure_is_classified(
+        self,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+    ) -> None:
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.side_effect = RuntimeError("backend diagnostic")
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input, mock_role
+                )
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert (
+            classification.kind
+            is RuntimeErrorKind.EXECUTOR_BACKEND_INITIALIZATION_FAILED
+        )
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.type == classification.kind.value
+        assert "backend diagnostic" not in exc_info.value.message
+        mock_dispatch.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_result_persistence_transport_failure_is_classified(
+        self,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+    ) -> None:
+        storage = MagicMock()
+        storage.store = AsyncMock(
+            side_effect=HTTPClientError(error=RuntimeError("storage diagnostic"))
+        )
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+            patch(
+                "tracecat.executor.activities.get_object_storage",
+                return_value=storage,
+            ),
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.return_value = {"ok": True}
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input, mock_role
+                )
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert (
+            classification.kind
+            is RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE
+        )
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.type == classification.kind.value
+        assert "storage diagnostic" not in exc_info.value.message
+
+    @pytest.mark.anyio
+    async def test_loop_platform_failure_preserves_origin_kind(
+        self,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+    ) -> None:
+        error_info = ExecutorActionErrorInfo(
+            type="RegistryArtifactExtractionError",
+            message="masked loop error",
+            action_name="test_action",
+            filename="<test>",
+            function="test_function",
+            loop_iteration=0,
+        )
+        iteration_error = ExecutionError(info=error_info)
+        iteration_error.__cause__ = RegistryArtifactExtractionError()
+        loop_error = LoopExecutionError([iteration_error])
+
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.side_effect = loop_error
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input, mock_role
+                )
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert (
+            classification.kind is RuntimeErrorKind.EXECUTOR_REGISTRY_EXTRACTION_FAILED
+        )
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.type == classification.kind.value
 
     @pytest.mark.anyio
     async def test_loop_execution_error_raises_application_error(
@@ -234,7 +456,7 @@ class TestExecuteActionActivity:
                 )
 
             app_error = exc_info.value
-            assert app_error.type == "LoopExecutionError"
+            assert app_error.type == RuntimeErrorKind.ACTION_EXECUTION_FAILED.value
 
     @pytest.mark.anyio
     async def test_unexpected_error_is_non_retryable(
@@ -259,7 +481,7 @@ class TestExecuteActionActivity:
                 )
 
             app_error = exc_info.value
-            assert app_error.type == "RuntimeError"
+            assert app_error.type == RuntimeErrorKind.RUNTIME_UNCLASSIFIED.value
             assert app_error.non_retryable is True
 
     @pytest.mark.anyio
@@ -285,12 +507,18 @@ class TestExecuteActionActivity:
                 )
 
             app_error = exc_info.value
-            assert app_error.type == "EntitlementRequired"
+            assert app_error.type == RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED.value
             assert app_error.non_retryable is True
             assert len(app_error.details) > 0
-            detail = app_error.details[0]
-            assert isinstance(detail, ActionErrorInfo)
+            transport = parse_classified_action_error_payload(app_error.details[0])
+            assert isinstance(transport, ActionErrorTransportDetail)
+            detail = transport.diagnostic
+            assert detail is not None
             assert "custom_registry" in detail.message
+            classification = extract_error_classification(app_error)
+            assert classification is not None
+            assert classification.owner is RuntimeErrorOwner.USER
+            assert classification.kind is RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED
 
     @pytest.mark.anyio
     async def test_application_error_passthrough(
@@ -317,7 +545,46 @@ class TestExecuteActionActivity:
                 )
 
             app_error = exc_info.value
-            assert app_error.type == "CustomError"
+            assert app_error.type == RuntimeErrorKind.RUNTIME_UNCLASSIFIED.value
+
+    @pytest.mark.anyio
+    async def test_non_retryable_application_error_passthrough_drops_retry_delay(
+        self, mock_run_action_input, mock_role
+    ):
+        classification = RuntimeErrorClassification.platform(
+            kind=RuntimeErrorKind.EXECUTOR_REGISTRY_CAPACITY_EXHAUSTED,
+            message="Tracecat executor artifact capacity is exhausted",
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+        )
+        original_error = ApplicationError(
+            "Original error",
+            build_error_transport_detail(classification).model_dump(mode="json"),
+            type="CustomError",
+            next_retry_delay=timedelta(seconds=1),
+        )
+
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.side_effect = original_error
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input, mock_role
+                )
+
+            app_error = exc_info.value
+            assert extract_error_classification(app_error) == classification
+            assert app_error.type == classification.kind.value
+            assert app_error.non_retryable is True
+            assert app_error.next_retry_delay is None
 
     @pytest.mark.anyio
     async def test_context_variables_are_set(self, mock_run_action_input, mock_role):
@@ -380,8 +647,10 @@ class TestExecuteActionActivity:
             # The ActionErrorInfo in details should have the stream_id
             app_error = exc_info.value
             assert len(app_error.details) > 0
-            action_error_info = app_error.details[0]
-            assert isinstance(action_error_info, ActionErrorInfo)
+            transport = parse_classified_action_error_payload(app_error.details[0])
+            assert isinstance(transport, ActionErrorTransportDetail)
+            action_error_info = transport.diagnostic
+            assert action_error_info is not None
             assert action_error_info.stream_id == "test-stream-123"
 
 

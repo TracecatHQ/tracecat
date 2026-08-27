@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from inspect import signature
 from typing import Literal
+from unittest.mock import Mock
 
 import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -30,6 +32,7 @@ from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import (
     ERROR_TRANSPORT_DETAIL_SCHEMA,
     ErrorTransportDetail,
+    activity_error_boundary,
     build_error_transport_detail,
     extract_error_classification,
     extract_error_classifications,
@@ -625,6 +628,45 @@ def test_arbitrary_nested_classification_does_not_collide_with_action_error_map(
     assert extract_error_classifications(error) == ()
 
 
+@pytest.mark.anyio
+async def test_aggregate_classifications_survive_failure_serialization() -> None:
+    user_classification = _user_classification()
+    platform_classification = _platform_classification()
+    children: list[ActionErrorInfo] = [
+        ActionErrorInfo(
+            ref="fanout[0]",
+            message=user_classification.message,
+            type="ValueError",
+        ),
+        ActionErrorInfo(
+            ref="fanout[1]",
+            message=platform_classification.message,
+            type="RuntimeError",
+        ),
+    ]
+    aggregate = ActionErrorInfo(
+        ref="fanout",
+        message="Two child workflows failed",
+        type="ChildWorkflowAggregateError",
+        children=children,
+    )
+    error = _capture_application_error(
+        user_classification,
+        build_error_transport_detail(user_classification, aggregate),
+        build_error_transport_detail(user_classification, children[0]),
+        build_error_transport_detail(platform_classification, children[1]),
+    )
+    failure = Failure()
+
+    await DataConverter.default.encode_failure(error, failure)
+    decoded = await DataConverter.default.decode_failure(failure)
+
+    assert extract_error_classifications(decoded) == (
+        user_classification,
+        platform_classification,
+    )
+
+
 @pytest.mark.parametrize("companion", ["arbitrary", "legacy"])
 def test_map_with_any_unwrapped_value_is_unclassified(companion: str) -> None:
     """Classification is all-or-nothing on the map: one unwrapped value voids it."""
@@ -773,6 +815,43 @@ def test_wrapping_clears_retry_delay_for_non_retryable_cause() -> None:
     assert wrapped.next_retry_delay is None
     assert wrapped.non_retryable is True
     assert extract_error_classification(wrapped) == classification
+
+
+def test_activity_error_boundary_classifies_unowned_failure() -> None:
+    classification = _platform_classification()
+
+    with pytest.raises(ApplicationError) as exc_info:
+        with activity_error_boundary(lambda _error: classification):
+            raise RuntimeError("raw platform diagnostic")
+
+    error = exc_info.value
+    assert extract_error_classification(error) == classification
+    assert error.type == classification.kind.value
+    assert "raw platform diagnostic" not in error.message
+
+
+def test_activity_error_boundary_preserves_existing_classification() -> None:
+    original = _capture_application_error(_platform_classification())
+    classify = Mock()
+
+    with pytest.raises(ApplicationError) as exc_info:
+        with activity_error_boundary(classify):
+            raise original
+
+    assert exc_info.value is original
+    classify.assert_not_called()
+
+
+def test_activity_error_boundary_preserves_cancellation() -> None:
+    cancellation = asyncio.CancelledError()
+    classify = Mock()
+
+    with pytest.raises(asyncio.CancelledError) as exc_info:
+        with activity_error_boundary(classify):
+            raise cancellation
+
+    assert exc_info.value is cancellation
+    classify.assert_not_called()
 
 
 def test_ambiguous_nested_classification_does_not_override_fallback() -> None:

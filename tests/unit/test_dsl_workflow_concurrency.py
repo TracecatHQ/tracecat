@@ -27,7 +27,7 @@ from tracecat.dsl.schemas import (
     RunContext,
     TaskResult,
 )
-from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.dsl.workflow import ERROR_OWNER_CONTROL_FLOW_PATCH, DSLWorkflow
 from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
@@ -305,7 +305,10 @@ async def test_execute_task_releases_action_permit_when_cancelled_during_heartbe
 
 
 @pytest.mark.anyio
-async def test_prepare_subflow_activity_failure_in_scatter_fails_workflow() -> None:
+@pytest.mark.parametrize("control_flow_patch", [True, False])
+async def test_prepare_subflow_activity_failure_control_flow_is_replay_gated(
+    control_flow_patch: bool,
+) -> None:
     workflow = _build_workflow()
     dsl = DSLInput(
         title="test",
@@ -362,14 +365,24 @@ async def test_prepare_subflow_activity_failure_in_scatter_fails_workflow() -> N
             "tracecat.dsl.workflow.workflow.execute_activity",
             new=AsyncMock(side_effect=execute_activity),
         ),
+        patch(
+            "tracecat.dsl.workflow.workflow.patched",
+            return_value=control_flow_patch,
+        ) as patched,
         patch.object(workflow, "_run_action", new=AsyncMock(side_effect=run_action)),
     ):
         task_exceptions = await scheduler.start()
 
-    assert task_exceptions is not None
-    assert "call_child" in task_exceptions
-    assert "prepare failed" in task_exceptions["call_child"].details.message
-    assert executed_refs == []
+    if control_flow_patch:
+        assert task_exceptions is None
+        assert executed_refs == ["handle_error"]
+        assert not scheduler.task_exceptions
+    else:
+        assert task_exceptions is not None
+        assert "call_child" in task_exceptions
+        assert "prepare failed" in task_exceptions["call_child"].details.message
+        assert executed_refs == []
+    patched.assert_called_once_with(ERROR_OWNER_CONTROL_FLOW_PATCH)
     assert not scheduler.stream_exceptions
 
 

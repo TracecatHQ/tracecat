@@ -76,6 +76,7 @@ from tracecat.storage.object import (
 )
 from tracecat.storage.utils import is_retryable_storage_transport_error
 from tracecat.temporal.errors import (
+    activity_error_boundary,
     build_error_transport_detail,
     extract_error_classification,
     raise_wrapped_application_error,
@@ -356,6 +357,30 @@ async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskR
     )
 
 
+def _materialization_error_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify one StoredObject materialization failure."""
+    retryable = is_retryable_storage_transport_error(error)
+    logger.warning(
+        "Error materializing context",
+        error=error,
+        retryable=retryable,
+    )
+    return RuntimeErrorClassification.platform(
+        kind=(
+            RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE
+            if retryable
+            else RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA
+        ),
+        message="Tracecat could not retrieve stored workflow data",
+        retry_disposition=(
+            RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
+        ),
+        cause=error,
+    )
+
+
 async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionContext:
     """Retrieve StoredObjects and replace with raw values in context copy.
 
@@ -402,25 +427,8 @@ async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionCon
         coros.append(retrieve_stored_object(validated))
 
     # Collect results and map back to their refs
-    try:
+    with activity_error_boundary(_materialization_error_classification):
         materialized_results = await asyncio.gather(*coros)
-    except Exception as e:
-        retryable = is_retryable_storage_transport_error(e)
-        logger.warning(
-            "Error materializing context",
-            error=e,
-            retryable=retryable,
-        )
-        if retryable:
-            raise ApplicationError(
-                "Failed to materialize context",
-                non_retryable=False,
-                type="StorageMaterializationError",
-            ) from e
-        raise ApplicationError(
-            "Failed to materialize context",
-            non_retryable=True,
-        ) from e
 
     # Reconstruct ACTIONS dict with materialized results
     if action_refs:

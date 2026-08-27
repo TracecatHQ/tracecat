@@ -13,7 +13,9 @@ by construction.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+import asyncio
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any, Literal, Never
 
@@ -68,6 +70,24 @@ def build_error_transport_detail[DiagnosticT](
             "diagnostic": diagnostic,
         }
     )
+
+
+@contextmanager
+def activity_error_boundary(
+    classify: Callable[[Exception], RuntimeErrorClassification],
+) -> Iterator[None]:
+    """Classify an exception at one platform-owned activity call boundary."""
+    try:
+        yield
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        if extract_error_classification(error) is not None:
+            raise
+        raise_wrapped_application_error(
+            error,
+            fallback_classification=classify(error),
+        )
 
 
 def parse_classified_error_payload(
