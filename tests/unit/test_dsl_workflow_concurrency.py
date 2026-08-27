@@ -900,7 +900,7 @@ async def test_run_cancellation_safe_cleanup_completes_after_cancellation() -> N
 
     cleanup_task = asyncio.create_task(
         workflow._run_cancellation_safe_cleanup(
-            cleanup(),
+            cleanup,
             operation="test_cleanup",
         )
     )
