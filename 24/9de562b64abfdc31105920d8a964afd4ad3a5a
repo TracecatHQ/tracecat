@@ -1,0 +1,65 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/statement_execution/cancel_statement.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/statement_execution/get_statement.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/run_job.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,49
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/sql_warehouses/stop_warehouse.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,21
+packages/tracecat-registry/tracecat_registry/integrations/snowflake_sql.py
+  s_58501ff1e81729::t_d578f959017842 32,36-37,47,51
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/sql_warehouses/list_warehouses.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,30
+tests/registry/test_databricks_snowflake_integrations.py
+  s_58501ff1e81729::t_d578f959017842 59-63
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/clusters/get_cluster.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/clusters/list_clusters.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,30
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/get_run.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,33
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/list_jobs.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,38
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/statement_execution/execute_statement.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,44
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/list_runs.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,54
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/clusters/start_cluster.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,21
+docs/tools/databricks_sdk.mdx
+  s_58501ff1e81729::t_00c2d3820807b9 21,25-30,65,69-73
+  s_58501ff1e81729::t_888577ec0ceff1 74
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/clusters/terminate_cluster.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,21
+docs/tools/databricks.mdx
+  s_58501ff1e81729::t_00c2d3820807b9 23-30,47-54,77-84,141-148,165-172,205-212,253-260,277-284,295-302,345-352,427-434,485-492,533-540,605-612,629-636,653-660,676-681,683
+  s_58501ff1e81729::t_2799dd79aa28d4 682
+docs/tools/snowflake_sql.mdx
+  s_58501ff1e81729::t_00c2d3820807b9 21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/sql_warehouses/start_warehouse.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/get_job.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,29
+packages/tracecat-registry/tracecat_registry/integrations/databricks_sdk.py
+  s_58501ff1e81729::t_d578f959017842 3,59,63,65,72-74,92-93,99,103,118,146-149,168-171,197,217-220,248
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/cancel_run.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/sql_warehouses/get_warehouse.yml
+  s_58501ff1e81729::t_e97c056fe81f18 10-13,21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "249de562b64abfdc31105920d8a964afd4ad3a5a",
+  "prompts": {},
+  "sessions": {
+    "s_58501ff1e81729": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044d1-6b3f-7060-b268-82273c1aed51",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
