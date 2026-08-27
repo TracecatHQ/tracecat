@@ -47,7 +47,15 @@ class StorageDownloadError(RuntimeError):
         self.error_code = error_code
 
 
-def _download_log_identifiers(
+class StorageDeleteError(RuntimeError):
+    """A storage deletion failed without exposing object identifiers."""
+
+    def __init__(self, *, error_code: str | None) -> None:
+        super().__init__("Storage deletion failed")
+        self.error_code = error_code
+
+
+def _storage_log_identifiers(
     key: str,
     bucket: str,
     *,
@@ -785,7 +793,7 @@ async def open_download_stream(
         StorageDownloadError: If a redacted download fails.
         FileNotFoundError: If the file doesn't exist.
     """
-    log_key, log_bucket = _download_log_identifiers(
+    log_key, log_bucket = _storage_log_identifiers(
         key,
         bucket,
         redact=redact_log_identifiers,
@@ -875,7 +883,7 @@ async def download_file_to_path(
 
     hasher = hashlib.sha256() if expected_sha256 is not None else None
     bytes_written = 0
-    log_key, log_bucket = _download_log_identifiers(
+    log_key, log_bucket = _storage_log_identifiers(
         key,
         bucket,
         redact=redact_log_identifiers,
@@ -969,26 +977,51 @@ async def download_file_to_path(
     return bytes_written
 
 
-async def delete_file(key: str, bucket: str) -> None:
+async def delete_file(
+    key: str,
+    bucket: str,
+    *,
+    redact_log_identifiers: bool = False,
+) -> None:
     """Delete a file from S3.
 
     Args:
         key: The S3 object key
-        bucket: Bucket name (required)
+        bucket: Bucket name (required).
+        redact_log_identifiers: Hide the key, bucket, and provider message in
+            logs and raised errors.
 
     Raises:
-        ClientError: If the deletion fails
+        ClientError: If an unredacted deletion fails.
+        StorageDeleteError: If a redacted deletion fails.
     """
 
+    log_key, log_bucket = _storage_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
     try:
         async with get_storage_client() as s3_client:
             await s3_client.delete_object(Bucket=bucket, Key=key)
             logger.info(
                 "File deleted successfully",
-                key=key,
-                bucket=bucket,
+                key=log_key,
+                bucket=log_bucket,
             )
     except ClientError as e:
+        if redact_log_identifiers:
+            error_code = _safe_storage_error_code(
+                e.response.get("Error", {}).get("Code")
+            )
+            logger.error(
+                "Failed to delete file",
+                key=log_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
+            )
+            raise StorageDeleteError(error_code=error_code) from None
         logger.error(
             "Failed to delete file",
             key=key,
@@ -996,6 +1029,17 @@ async def delete_file(key: str, bucket: str) -> None:
             error=str(e),
         )
         raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
+            raise
+        logger.error(
+            "Failed to delete file",
+            key=log_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StorageDeleteError(error_code=None) from None
 
 
 async def file_exists(key: str, bucket: str) -> bool:

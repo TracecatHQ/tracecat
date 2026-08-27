@@ -388,6 +388,47 @@ class TestS3Operations:
             await delete_file("k", "b")
 
     @pytest.mark.anyio
+    @patch("tracecat.storage.blob.logger")
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_delete_file_can_redact_transport_failure(
+        self, mock_get_client, mock_logger
+    ) -> None:
+        """Redacted deletions suppress storage identifiers and provider prose."""
+        sensitive_bucket = "affected-customer-bucket"
+        sensitive_key = "skills/tenant-id/private-object"
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+        mock_client.delete_object.side_effect = ClientError(
+            error_response={
+                "Error": {
+                    "Code": "AccessDenied",
+                    "Message": f"denied {sensitive_bucket}/{sensitive_key}",
+                }
+            },
+            operation_name="delete_object",
+        )
+
+        with pytest.raises(blob_module.StorageDeleteError) as raised:
+            await delete_file(
+                sensitive_key,
+                sensitive_bucket,
+                redact_log_identifiers=True,
+            )
+
+        assert raised.value.error_code == "AccessDenied"
+        assert sensitive_bucket not in str(raised.value)
+        assert sensitive_key not in str(raised.value)
+        mock_logger.error.assert_called_once_with(
+            "Failed to delete file",
+            key="<redacted>",
+            bucket="<redacted>",
+            error_code="AccessDenied",
+            error_type="ClientError",
+        )
+        assert sensitive_bucket not in str(mock_logger.mock_calls)
+        assert sensitive_key not in str(mock_logger.mock_calls)
+
+    @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")
     @patch("tracecat.storage.blob.config")
     async def test_generate_presigned_download_url(self, mock_config, mock_get_client):

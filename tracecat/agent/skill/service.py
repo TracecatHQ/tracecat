@@ -823,13 +823,15 @@ class SkillService(BaseWorkspaceService):
 
         for obj in published:
             try:
-                await blob.delete_file(key=obj.key, bucket=obj.bucket)
+                await blob.delete_file(
+                    key=obj.key,
+                    bucket=obj.bucket,
+                    redact_log_identifiers=True,
+                )
             except Exception as exc:
                 self.logger.warning(
                     "Failed to delete rolled-back skill blob object",
-                    key=obj.key,
-                    bucket=obj.bucket,
-                    error=str(exc),
+                    error_type=type(exc).__name__,
                 )
 
     async def _stream_verify_object(
@@ -968,12 +970,15 @@ class SkillService(BaseWorkspaceService):
                 except Exception:
                     await self.session.delete(claim.blob)
                     try:
-                        await blob.delete_file(key=canonical_key, bucket=upload.bucket)
+                        await blob.delete_file(
+                            key=canonical_key,
+                            bucket=upload.bucket,
+                            redact_log_identifiers=True,
+                        )
                     except Exception as exc:
                         self.logger.warning(
                             "Failed to delete unverified canonical blob object",
-                            key=canonical_key,
-                            error=str(exc),
+                            error_type=type(exc).__name__,
                         )
                     raise
 
@@ -992,15 +997,17 @@ class SkillService(BaseWorkspaceService):
         """Delete a temporary staged upload object without failing the caller."""
 
         try:
-            await blob.delete_file(key=upload.key, bucket=upload.bucket)
+            await blob.delete_file(
+                key=upload.key,
+                bucket=upload.bucket,
+                redact_log_identifiers=True,
+            )
         except Exception as exc:
             self.logger.warning(
                 "Failed to delete staged skill upload object",
                 upload_id=str(upload.id),
-                key=upload.key,
-                bucket=upload.bucket,
                 reason=reason,
-                error=str(exc),
+                error_type=type(exc).__name__,
             )
 
     async def _reap_expired_incomplete_uploads(self) -> list[SkillUploadModel]:
@@ -2544,13 +2551,15 @@ class SkillService(BaseWorkspaceService):
             raise
         for staged_key, staged_bucket in staged_upload_objects_to_delete:
             try:
-                await blob.delete_file(key=staged_key, bucket=staged_bucket)
+                await blob.delete_file(
+                    key=staged_key,
+                    bucket=staged_bucket,
+                    redact_log_identifiers=True,
+                )
             except Exception as exc:
                 self.logger.warning(
                     "Failed to delete staged skill upload after materialization",
-                    key=staged_key,
-                    bucket=staged_bucket,
-                    error=str(exc),
+                    error_type=type(exc).__name__,
                 )
         return await self._build_draft_read(skill)
 

@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 from urllib.parse import urlparse
 
 import pytest
@@ -1353,6 +1354,40 @@ class TestSkillService:
         assert blob_row.key == canonical_key
         assert blob_row.sha256 == sha256
 
+    async def test_delete_published_blob_objects_redacts_failure_logs(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Rollback cleanup must not log tenant-bearing storage identifiers."""
+
+        sensitive_bucket = "affected-customer-bucket"
+        sensitive_key = "skills/tenant-id/private-object"
+        delete_file = AsyncMock(
+            side_effect=RuntimeError(f"failed {sensitive_bucket}/{sensitive_key}")
+        )
+        mock_logger = MagicMock()
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", delete_file
+        )
+        monkeypatch.setattr(skill_service, "logger", mock_logger)
+
+        await skill_service._delete_blob_objects(
+            [PublishedBlobObject(bucket=sensitive_bucket, key=sensitive_key)]
+        )
+
+        delete_file.assert_awaited_once_with(
+            key=sensitive_key,
+            bucket=sensitive_bucket,
+            redact_log_identifiers=True,
+        )
+        mock_logger.warning.assert_called_once_with(
+            "Failed to delete rolled-back skill blob object",
+            error_type="RuntimeError",
+        )
+        assert sensitive_bucket not in str(mock_logger.mock_calls)
+        assert sensitive_key not in str(mock_logger.mock_calls)
+
     async def test_patch_draft_rollback_deletes_canonical_objects_it_published(
         self,
         skill_service: SkillService,
@@ -1515,7 +1550,10 @@ class TestSkillService:
         ) -> None:
             del source_key, destination_key, bucket, content_type
 
-        async def fake_delete_file(*, key: str, bucket: str) -> None:
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            assert redact_log_identifiers is True
             del bucket
             deleted.append(key)
 
@@ -2044,7 +2082,10 @@ class TestSkillService:
 
         deleted: dict[str, str] = {}
 
-        async def fake_delete_file(*, key: str, bucket: str) -> None:
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            assert redact_log_identifiers is True
             deleted["key"] = key
             deleted["bucket"] = bucket
 
@@ -2170,7 +2211,10 @@ class TestSkillService:
 
         deleted: dict[str, str] = {}
 
-        async def fake_delete_file(*, key: str, bucket: str) -> None:
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            assert redact_log_identifiers is True
             deleted["key"] = key
             deleted["bucket"] = bucket
 
@@ -2315,7 +2359,10 @@ class TestSkillService:
         ) -> None:
             del source_key, destination_key, bucket, content_type
 
-        async def fake_delete_file(*, key: str, bucket: str) -> None:
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            assert redact_log_identifiers is True
             deleted["key"] = key
             deleted["bucket"] = bucket
 
@@ -2570,7 +2617,10 @@ class TestSkillService:
 
         deleted: list[tuple[str, str]] = []
 
-        async def fake_delete_file(*, key: str, bucket: str) -> None:
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            assert redact_log_identifiers is True
             deleted.append((key, bucket))
 
         monkeypatch.setattr(
