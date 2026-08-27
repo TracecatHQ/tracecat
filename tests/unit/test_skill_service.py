@@ -28,6 +28,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.skill import service as skill_service_module
 from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDraftAttachUploadedBlobOp,
@@ -2080,12 +2081,16 @@ class TestSkillService:
         skill_service.session.add(stale_upload_row)
         await skill_service.session.commit()
 
+        deletion_started = asyncio.Event()
+        allow_deletion = asyncio.Event()
         deleted: dict[str, str] = {}
 
         async def fake_delete_file(
             *, key: str, bucket: str, redact_log_identifiers: bool = False
         ) -> None:
             assert redact_log_identifiers is True
+            deletion_started.set()
+            await allow_deletion.wait()
             deleted["key"] = key
             deleted["bucket"] = bucket
 
@@ -2104,6 +2109,12 @@ class TestSkillService:
         )
 
         assert fresh_upload.upload_id != stale_upload.upload_id
+        try:
+            await asyncio.wait_for(deletion_started.wait(), timeout=1)
+            assert deleted == {}
+        finally:
+            allow_deletion.set()
+            await asyncio.gather(*skill_service_module._reaped_upload_cleanup_tasks)
         assert deleted == {
             "key": stale_upload.key,
             "bucket": config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
@@ -2116,6 +2127,74 @@ class TestSkillService:
             )
             is None
         )
+
+    async def test_prepare_new_skill_upload_returns_before_reaped_object_cleanup(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Slow expired-object maintenance must not delay a committed plan."""
+
+        existing = await skill_service.create_skill(
+            SkillCreate(name="stale-upload-owner")
+        )
+        stale_upload = await skill_service.create_draft_upload(
+            skill_id=existing.id,
+            params=SkillUploadSessionCreate(
+                sha256=hashlib.sha256(b"stale upload").hexdigest(),
+                size_bytes=len(b"stale upload"),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        stale_upload_row = await skill_service.session.scalar(
+            select(SkillUploadModel).where(
+                SkillUploadModel.id == stale_upload.upload_id
+            )
+        )
+        assert stale_upload_row is not None
+        stale_upload_row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        skill_service.session.add(stale_upload_row)
+        await skill_service.session.commit()
+
+        deletion_started = asyncio.Event()
+        allow_deletion = asyncio.Event()
+
+        async def blocked_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            del key, bucket
+            assert redact_log_identifiers is True
+            deletion_started.set()
+            await allow_deletion.wait()
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file",
+            blocked_delete_file,
+        )
+
+        content = b"new upload"
+        prepared = await asyncio.wait_for(
+            skill_service.prepare_new_skill_draft_uploads(
+                skill_params=SkillCreate(name="nonblocking-cleanup"),
+                params=[
+                    SkillUploadSessionCreate(
+                        sha256=hashlib.sha256(content).hexdigest(),
+                        size_bytes=len(content),
+                        content_type="application/octet-stream",
+                    )
+                ],
+                url_expiry_seconds=60,
+            ),
+            timeout=5,
+        )
+
+        assert prepared.created is True
+        assert prepared.skill_id != existing.id
+        try:
+            await asyncio.wait_for(deletion_started.wait(), timeout=1)
+        finally:
+            allow_deletion.set()
+            await asyncio.gather(*skill_service_module._reaped_upload_cleanup_tasks)
 
     async def test_attach_uploaded_blob_rejects_size_mismatch(
         self,

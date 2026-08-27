@@ -71,6 +71,7 @@ from tracecat.db.models import (
 )
 from tracecat.db.soft_delete import with_deleted
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.logger import logger
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -88,6 +89,7 @@ SKILL_SLUG_MAX_LENGTH = 64
 SKILL_SLUG_INSERT_ATTEMPTS = 3
 SKILL_SLUG_UNIQUE_CONSTRAINT = "uq_skill_workspace_slug_active"
 POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
+EXPIRED_UPLOAD_REAP_BATCH_SIZE = 64
 # Lenient adapter for slug lookups: accepts legacy reserved-prefix identifiers.
 SKILL_SLUG_ADAPTER = TypeAdapter(SkillName)
 # Strict adapter for draft/publish manifest validation: rejects reserved names.
@@ -158,6 +160,68 @@ class PublishedBlobObject:
 
     bucket: str
     key: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReapedUploadObject:
+    """Detached staged object left by a committed expired-upload reap."""
+
+    upload_id: uuid.UUID
+    bucket: str
+    key: str
+
+
+_reaped_upload_cleanup_tasks: set[asyncio.Task[None]] = set()
+
+
+async def _delete_reaped_upload_objects(
+    reaped_objects: Sequence[ReapedUploadObject],
+) -> None:
+    """Delete committed reaped objects without retaining a service session."""
+
+    for reaped_object in reaped_objects:
+        try:
+            await blob.delete_file(
+                key=reaped_object.key,
+                bucket=reaped_object.bucket,
+                redact_log_identifiers=True,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to delete staged skill upload object",
+                upload_id=str(reaped_object.upload_id),
+                reason="reap_expired_upload",
+                error_type=type(exc).__name__,
+            )
+
+
+def _finalize_reaped_upload_cleanup(task: asyncio.Task[None]) -> None:
+    """Release a completed cleanup task and surface unexpected failures."""
+
+    _reaped_upload_cleanup_tasks.discard(task)
+    if task.cancelled():
+        return
+    if (exc := task.exception()) is not None:
+        logger.error(
+            "Expired skill upload cleanup task failed",
+            error_type=type(exc).__name__,
+        )
+
+
+def _schedule_reaped_upload_cleanup(
+    reaped_objects: Sequence[ReapedUploadObject],
+) -> None:
+    """Schedule best-effort object deletion outside the response path."""
+
+    if not reaped_objects:
+        return
+    for stranded in [
+        task for task in _reaped_upload_cleanup_tasks if task.get_loop().is_closed()
+    ]:
+        _reaped_upload_cleanup_tasks.discard(stranded)
+    task = asyncio.create_task(_delete_reaped_upload_objects(reaped_objects))
+    _reaped_upload_cleanup_tasks.add(task)
+    task.add_done_callback(_finalize_reaped_upload_cleanup)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1010,7 +1074,7 @@ class SkillService(BaseWorkspaceService):
                 error_type=type(exc).__name__,
             )
 
-    async def _reap_expired_incomplete_uploads(self) -> list[SkillUploadModel]:
+    async def _reap_expired_incomplete_uploads(self) -> list[ReapedUploadObject]:
         """Delete expired incomplete upload rows and return staged objects to clean up."""
 
         expired_stmt = (
@@ -1020,20 +1084,27 @@ class SkillService(BaseWorkspaceService):
                 SkillUploadModel.completed_at.is_(None),
                 SkillUploadModel.expires_at < datetime.now(UTC),
             )
+            .order_by(SkillUploadModel.expires_at.asc(), SkillUploadModel.id.asc())
+            .limit(EXPIRED_UPLOAD_REAP_BATCH_SIZE)
             .with_for_update(skip_locked=True)
         )
         expired_uploads = (await self.session.execute(expired_stmt)).scalars().all()
         if not expired_uploads:
             return []
 
-        for upload in expired_uploads:
-            await self.session.delete(upload)
-        await self.session.flush()
-        return [
-            upload
+        reaped_objects = [
+            ReapedUploadObject(
+                upload_id=upload.id,
+                bucket=upload.bucket,
+                key=upload.key,
+            )
             for upload in expired_uploads
             if self._is_staged_upload_object(upload)
         ]
+        for upload in expired_uploads:
+            await self.session.delete(upload)
+        await self.session.flush()
+        return reaped_objects
 
     async def _list_draft_rows(
         self, skill_id: uuid.UUID
@@ -2652,17 +2723,6 @@ class SkillService(BaseWorkspaceService):
             )
         return uploads
 
-    async def _delete_reaped_upload_objects(
-        self, expired_uploads: Sequence[SkillUploadModel]
-    ) -> None:
-        """Delete reaped staged objects after their database transaction commits."""
-
-        for expired_upload in expired_uploads:
-            await self._delete_staged_upload_object_best_effort(
-                expired_upload,
-                reason="reap_expired_upload",
-            )
-
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def prepare_draft_uploads(
@@ -2689,13 +2749,14 @@ class SkillService(BaseWorkspaceService):
         except Exception:
             await self.session.rollback()
             raise
-        await self._delete_reaped_upload_objects(expired_uploads)
-        return SkillUploadSessionBatchRead(
+        prepared = SkillUploadSessionBatchRead(
             skill_id=skill.id,
             draft_revision=skill.draft_revision,
             created=False,
             uploads=uploads,
         )
+        _schedule_reaped_upload_cleanup(expired_uploads)
+        return prepared
 
     @require_scope("agent:create", "agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
@@ -2710,7 +2771,7 @@ class SkillService(BaseWorkspaceService):
 
         self._validate_upload_session_batch(params)
         prepared_uploads: list[SkillUploadSessionRead] = []
-        expired_uploads: list[SkillUploadModel] = []
+        expired_uploads: list[ReapedUploadObject] = []
 
         async def default_draft_blob_map(
             published: list[PublishedBlobObject],
@@ -2736,13 +2797,14 @@ class SkillService(BaseWorkspaceService):
             path_to_blob_factory=default_draft_blob_map,
             before_commit=prepare_before_commit,
         )
-        await self._delete_reaped_upload_objects(expired_uploads)
-        return SkillUploadSessionBatchRead(
+        prepared = SkillUploadSessionBatchRead(
             skill_id=skill.id,
             draft_revision=skill.draft_revision,
             created=True,
             uploads=prepared_uploads,
         )
+        _schedule_reaped_upload_cleanup(expired_uploads)
+        return prepared
 
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
