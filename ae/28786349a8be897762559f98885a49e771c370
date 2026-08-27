@@ -1,0 +1,29 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/list_message_delta.yml
+  s_cb812704bae2b3::t_15e0980a4ee9ec 5-6,8-15
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/audit_log/list_audit_log_records.yml
+  s_cb812704bae2b3::t_15e0980a4ee9ec 5,19
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/audit_log/list_audit_log_queries.yml
+  s_cb812704bae2b3::t_15e0980a4ee9ec 5,19
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/send/send_mail.yml
+  s_cb812704bae2b3::t_15e0980a4ee9ec 5-17
+docs/tools/microsoft_graph_security.mdx
+  s_cb812704bae2b3::t_977564dc589f21 526,563
+docs/tools/microsoft_outlook.mdx
+  s_cb812704bae2b3::t_d603023820348b 1366,1885
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ae28786349a8be897762559f98885a49e771c370",
+  "prompts": {},
+  "sessions": {
+    "s_cb812704bae2b3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0449d-ab74-7f62-b808-bdbc98dab27c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
