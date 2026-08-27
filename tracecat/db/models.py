@@ -55,6 +55,7 @@ from tracecat.authz.enums import ScopeSource
 from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
+    CaseAgentSessionInteractionOperation,
     CaseCommentAgentInvocationStatus,
     CaseEventType,
     CasePriority,
@@ -3161,6 +3162,52 @@ class AgentSession(WorkspaceModel):
         back_populates="session",
         cascade="all, delete-orphan",
         order_by="AgentSessionHistory.surrogate_id",
+    )
+
+
+class CaseAgentSessionInteraction(WorkspaceModel):
+    """Durable association between a case and an Inbox-facing agent session."""
+
+    # Inherited created_at/updated_at are the first-seen/last-seen timestamps.
+    __tablename__ = "case_agent_session_interaction"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "case_id",
+            "agent_session_id",
+            "operation",
+            name="uq_case_agent_session_interaction_ws_case_session_operation",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_session.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    operation: Mapped[CaseAgentSessionInteractionOperation] = mapped_column(
+        String,
+        nullable=False,
+    )
+
+    case: Mapped[Case] = relationship("Case", lazy="raise")
+    agent_session: Mapped[AgentSession] = relationship(
+        "AgentSession",
+        lazy="raise",
     )
 
 
