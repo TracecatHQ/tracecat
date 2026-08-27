@@ -306,7 +306,7 @@ async def main() -> int:
     except Exception as e:
         logger.exception("Failed to load repository", error=str(e))
         # Output error as typed JSON
-        error_result = SyncResultError(error=str(e))
+        error_result = SyncResultError.from_exception(e)
         print(error_result.model_dump_json(), file=sys.stdout)
         return 1
 

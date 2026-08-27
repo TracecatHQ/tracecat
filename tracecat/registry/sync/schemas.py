@@ -9,15 +9,28 @@ for registry sync operations, including:
 
 from __future__ import annotations
 
-from typing import Literal
+from enum import StrEnum
+from typing import Literal, Self
 from uuid import UUID
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, TypeAdapter
 
+from tracecat.exceptions import (
+    RegistryError,
+    RegistrySyncContentError,
+    RegistryTemplateLoadError,
+)
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
     RegistryActionValidationErrorInfo,
 )
+
+
+class SyncErrorCode(StrEnum):
+    """Deterministic sync failures that retrying cannot fix."""
+
+    PACKAGE_NOT_FOUND = "package_not_found"
+    TEMPLATE_LOAD_FAILED = "template_load_failed"
 
 
 class SyncResultSuccess(BaseModel):
@@ -41,6 +54,27 @@ class SyncResultError(BaseModel):
     """Error result from sync subprocess."""
 
     error: str = Field(..., description="Error message from the subprocess.")
+    error_code: SyncErrorCode | None = Field(
+        default=None,
+        description="Machine-readable code for non-retryable content errors.",
+    )
+
+    @classmethod
+    def from_exception(cls, exc: BaseException) -> Self:
+        """Build an error result, classifying known content errors by type."""
+        error_code: SyncErrorCode | None = None
+        if isinstance(exc, ModuleNotFoundError):
+            # Wrong `git_repo_package_name`.
+            error_code = SyncErrorCode.PACKAGE_NOT_FOUND
+        elif isinstance(exc, RegistryTemplateLoadError):
+            error_code = SyncErrorCode.TEMPLATE_LOAD_FAILED
+        return cls(error=str(exc), error_code=error_code)
+
+    def to_exception(self) -> RegistryError:
+        """Convert back into the exception the sync caller should raise."""
+        if self.error_code is not None:
+            return RegistrySyncContentError(self.error, code=self.error_code)
+        return RegistryError(self.error)
 
 
 class RegistryCloneResult(BaseModel):

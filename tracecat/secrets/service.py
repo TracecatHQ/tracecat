@@ -462,6 +462,6 @@ class SecretsService(BaseOrgService):
             return SecretStr(raw_value)
         except TracecatNotFoundError as e:
             raise TracecatCredentialsNotFoundError(
-                f"SSH key {key_name} not found. Please check whether this key exists.\n\n"
-                " If not, please create a key in your organization's credentials page and try again."
+                f"SSH key {key_name} not found. "
+                "Add one under Organization settings -> Custom registry -> Repository."
             ) from e

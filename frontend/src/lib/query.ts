@@ -8,6 +8,21 @@ import { chainError } from "@/lib/errors"
 
 export * from "@tanstack/react-query"
 
+/** Meta flags Tracecat's query and mutation error pipeline reads. */
+interface TracecatQueryMeta extends Record<string, unknown> {
+  /** Skip the global fallback toast; the caller renders the failure inline. */
+  suppressErrorToast?: boolean
+  /** Title for the fallback toast when the error carries no detail. */
+  errorMessage?: string
+}
+
+declare module "@tanstack/react-query" {
+  interface Register {
+    queryMeta: TracecatQueryMeta
+    mutationMeta: TracecatQueryMeta
+  }
+}
+
 /**
  * Run a React Query mutation through Tracecat's shared error pipeline.
  *

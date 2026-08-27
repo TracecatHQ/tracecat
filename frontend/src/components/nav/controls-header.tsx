@@ -78,7 +78,6 @@ import {
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
 import { CreateGroupButton } from "@/components/rbac/create-group-button"
 import { CreateRoleButton } from "@/components/rbac/create-role-button"
-import { RegistryActionsControls } from "@/components/registry/workspace-actions-controls"
 import { CreateSkillButton } from "@/components/skills/create-skill-button"
 import { SkillsDetailActions } from "@/components/skills/skills-detail-actions"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
@@ -2063,7 +2062,6 @@ function getPageConfig(
   if (pagePath.startsWith("/actions")) {
     return {
       title: "Actions",
-      actions: <RegistryActionsControls />,
     }
   }
 

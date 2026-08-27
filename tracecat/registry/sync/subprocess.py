@@ -13,7 +13,7 @@ import json
 import os
 import sys
 
-from pydantic import UUID4
+from pydantic import UUID4, ValidationError
 
 from tracecat import config
 from tracecat.exceptions import RegistryError
@@ -146,16 +146,15 @@ async def fetch_actions_from_subprocess(
             exit_code=process.returncode,
             stderr=stderr_str,
         )
-        # Try to parse error from stdout
-        error_msg = f"Sync subprocess exited with code {process.returncode}"
+        # Try to parse the typed error from stdout
         if stdout_str:
             try:
                 result_data = json.loads(stdout_str)
-                if "error" in result_data:
-                    error_msg = result_data["error"]
-            except json.JSONDecodeError:
+                if isinstance(result_data, dict) and "error" in result_data:
+                    raise SyncResultError.model_validate(result_data).to_exception()
+            except (json.JSONDecodeError, ValidationError):
                 pass
-        raise RegistryError(error_msg)
+        raise RegistryError(f"Sync subprocess exited with code {process.returncode}")
 
     # Parse JSON output
     if not stdout_str:
@@ -174,7 +173,7 @@ async def fetch_actions_from_subprocess(
 
     # Check for error result
     if isinstance(result, SyncResultError):
-        raise RegistryError(result.error)
+        raise result.to_exception()
 
     logger.info(
         "Sync subprocess completed",

@@ -9,7 +9,7 @@ from pydantic import SecretStr
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.exceptions import RegistryError
+from tracecat.exceptions import RegistryError, RegistrySyncContentError
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
@@ -33,7 +33,11 @@ from tracecat.registry.sync.runner import (
     _SandboxedBackend,
     _UnsandboxedBackend,
 )
-from tracecat.registry.sync.schemas import RegistrySyncRequest, SyncResultSuccess
+from tracecat.registry.sync.schemas import (
+    RegistrySyncRequest,
+    SyncErrorCode,
+    SyncResultSuccess,
+)
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 
 
@@ -564,9 +568,36 @@ async def test_discover_actions_marks_template_load_errors_non_retryable(
     mocker.patch(
         "tracecat.registry.sync.runner.fetch_actions_from_subprocess",
         mocker.AsyncMock(
-            side_effect=RegistryError(
+            side_effect=RegistrySyncContentError(
                 "Failed to load template action from "
-                "/custom_actions/example_template.yml: invalid annotation"
+                "/custom_actions/example_template.yml: invalid annotation",
+                code=SyncErrorCode.TEMPLATE_LOAD_FAILED,
+            )
+        ),
+    )
+
+    with pytest.raises(ActionDiscoveryError) as exc_info:
+        await runner._discover_unsandboxed_actions(
+            RegistrySyncRequest(
+                repository_id=uuid4(),
+                origin="tracecat_registry",
+                origin_type="builtin",
+            ),
+            None,
+        )
+
+    assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
+async def test_discover_actions_marks_missing_package_non_retryable(mocker) -> None:
+    runner = RegistrySyncRunner()
+    mocker.patch(
+        "tracecat.registry.sync.runner.fetch_actions_from_subprocess",
+        mocker.AsyncMock(
+            side_effect=RegistrySyncContentError(
+                "No module named 'internal-registry'",
+                code=SyncErrorCode.PACKAGE_NOT_FOUND,
             )
         ),
     )
