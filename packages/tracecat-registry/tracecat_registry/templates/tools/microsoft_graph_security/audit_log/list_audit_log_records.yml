@@ -12,10 +12,10 @@ definition:
     AuditLogsQuery-SharePoint.Read.All or AuditLogsQuery.Read.All. Delegated
     access is not supported for personal Microsoft accounts. Available in the
     global service only; not available in US Government L4, US Government L5
-    (DOD) or China operated by 21Vianet. Microsoft documents that this method
-    "supports some of the OData query parameters" without naming them, so none
-    are exposed here; use `tools.microsoft_graph_security_sdk.call_method` to
-    pass arbitrary query parameters.
+    (DOD) or China operated by 21Vianet. Microsoft says this method supports
+    unnamed OData query parameters, so this action exposes none. For other
+    parameters, use `tools.microsoft_graph_sdk.call_method` with `oauth_provider`
+    set to `microsoft_graph_security`.
     No separate licensing requirement is documented.
   display_group: Microsoft Graph Security
   doc_url: https://learn.microsoft.com/en-us/graph/api/security-auditlogquery-list-records?view=graph-rest-1.0
@@ -60,8 +60,9 @@ definition:
       description: The unique identifier of the auditLogQuery.
   steps:
     - ref: call_graph
-      action: tools.microsoft_graph_security_sdk.call_method
+      action: tools.microsoft_graph_sdk.call_method
       args:
+        oauth_provider: microsoft_graph_security
         path: /security/auditLog/queries/${{ FN.url_encode(inputs.auditLogQueryId) }}/records
         method: GET
         base_url: ${{ inputs.base_url || VARS.microsoft_graph_security.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}

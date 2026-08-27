@@ -10,9 +10,9 @@ definition:
     Send As or Send on Behalf permission; using `/users/{id}` requires Full Access.
     Application Mail.Send can send as any organization user, so restrict it with
     RBAC for Applications in Exchange Online. For arbitrary Graph JSON message
-    shapes, including inline attachments, use
-    `tools.microsoft_outlook_sdk.call_method`; its current dispatcher does not
-    support MIME requests. Available in the global service, US Government L4, US
+    shapes, including inline attachments, use `tools.microsoft_graph_sdk.call_method`
+    with `oauth_provider` set to `microsoft_outlook`; the dispatcher does not support
+    MIME. Available in the global service, US Government L4, US
     Government L5 (DOD) and China operated by 21Vianet. No separate licensing
     requirement is documented; the mailbox needs Exchange Online or Outlook.com.
   display_group: Microsoft Outlook Mail
@@ -201,8 +201,9 @@ definition:
                   payload["saveToSentItems"] = save_to_sent_items
               return payload
     - ref: call_graph
-      action: tools.microsoft_outlook_sdk.call_method
+      action: tools.microsoft_graph_sdk.call_method
       args:
+        oauth_provider: microsoft_outlook
         path: /users/${{ FN.url_encode(inputs.mailbox_user_id) }}/sendMail
         method: POST
         base_url: ${{ inputs.base_url || VARS.microsoft_outlook.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}

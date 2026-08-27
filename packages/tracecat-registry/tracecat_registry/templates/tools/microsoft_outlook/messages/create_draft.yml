@@ -8,13 +8,13 @@ definition:
     account), delegated (personal Microsoft account) and application. Drafting in
     another user's mailbox needs application permissions, or delegated permissions
     plus that user sharing the mail folder with, or granting delegate access to,
-    the signed-in user. This action exposes the common message fields; for
-    arbitrary Microsoft Graph message shapes, extension properties or MIME content,
-    call `tools.microsoft_outlook_sdk.call_method` directly. Available in the
-    global service, US Government L4, US Government L5 (DOD) and China operated by
-    21Vianet. Microsoft's endpoint reference does not state a separate licensing
-    requirement; the mailbox itself still needs an Exchange Online or Outlook.com
-    account.
+    the signed-in user. This action exposes common message fields. For arbitrary
+    Graph JSON message shapes or extension properties, call
+    `tools.microsoft_graph_sdk.call_method` with `oauth_provider` set to
+    `microsoft_outlook`; the dispatcher does not support MIME requests. Available
+    in the global service, US Government L4, US Government L5 (DOD) and China
+    operated by 21Vianet. Microsoft's endpoint reference does not state a separate
+    licensing requirement; the mailbox still needs Exchange Online or Outlook.com.
   display_group: Microsoft Outlook Mail
   doc_url: https://learn.microsoft.com/en-us/graph/api/user-post-messages?view=graph-rest-1.0
   namespace: tools.microsoft_outlook
@@ -186,8 +186,9 @@ definition:
                   message["isDeliveryReceiptRequested"] = is_delivery_receipt_requested
               return message
     - ref: call_graph
-      action: tools.microsoft_outlook_sdk.call_method
+      action: tools.microsoft_graph_sdk.call_method
       args:
+        oauth_provider: microsoft_outlook
         path: /users/${{ FN.url_encode(inputs.mailbox_user_id) }}/messages
         method: POST
         base_url: ${{ inputs.base_url || VARS.microsoft_outlook.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}

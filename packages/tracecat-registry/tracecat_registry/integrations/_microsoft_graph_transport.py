@@ -1,9 +1,9 @@
 """Shared Microsoft Graph v1.0 transport for the registered Graph SDK wrappers.
 
 This module is internal: it registers no actions. It holds the single hardened
-request pipeline that `microsoft_graph_sdk`, `microsoft_graph_security_sdk` and
-`microsoft_outlook_sdk` share, so the URL, header, national-cloud, traversal,
-null and pagination-origin protections exist in exactly one place.
+request pipeline used by the unified `microsoft_graph_sdk`, so the URL, header,
+national-cloud, traversal, null and pagination-origin protections exist in
+exactly one place.
 
 Requests are built with Kiota primitives and sent through the `msgraph-core`
 request adapter so that the Graph middleware pipeline (retry, redirect header

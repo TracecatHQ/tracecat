@@ -1,11 +1,8 @@
-"""Credential-isolation tests for the product-scoped Microsoft Graph SDKs.
+"""Credential-isolation tests for the unified Microsoft Graph SDK.
 
-`tools.microsoft_graph_security_sdk` and `tools.microsoft_outlook_sdk` share one
-transport with `tools.microsoft_graph_sdk`, so the request pipeline itself is
-covered once in `test_microsoft_graph_sdk.py`. What is product-specific, and what
-is tested here, is which OAuth token each namespace is allowed to pick up: its own
-first, the generic Microsoft Graph token as a fallback, and never the other
-product's token.
+One SDK action selects a product-scoped OAuth chain. What is tested here is that
+the selected product uses its own token first, the generic Microsoft Graph token
+as a fallback, and never the other product's token.
 """
 
 import json
@@ -18,11 +15,14 @@ import httpx
 import pytest
 from tracecat_registry import (
     RegistryOAuthSecret,
-    RegistrySecretType,
     SecretNotFoundError,
 )
-from tracecat_registry.integrations import microsoft_graph_security_sdk as security
-from tracecat_registry.integrations import microsoft_outlook_sdk as outlook
+from tracecat_registry.integrations import microsoft_graph_sdk as graph
+from tracecat_registry.integrations._microsoft_graph_products import (
+    MICROSOFT_GRAPH_SECURITY,
+    MICROSOFT_OUTLOOK,
+    MicrosoftGraphOAuthProvider,
+)
 from tracecat_registry.integrations._microsoft_graph_transport import (
     GraphProduct,
     MicrosoftGraphAuthMode,
@@ -72,26 +72,26 @@ type GraphSdkCall = Callable[..., Awaitable[Any]]
 @dataclass(frozen=True, slots=True)
 class ProductCase:
     path: str
+    oauth_provider: MicrosoftGraphOAuthProvider
     call_method: GraphSdkCall
     call_paginated_method: GraphSdkCall
     call_continuation_method: GraphSdkCall
-    secrets: list[RegistrySecretType]
 
 
 PRODUCTS: dict[str, ProductCase] = {
     "security": ProductCase(
         path=SECURITY_PATH,
-        call_method=security.call_method,
-        call_paginated_method=security.call_paginated_method,
-        call_continuation_method=security.call_continuation_method,
-        secrets=security.MICROSOFT_GRAPH_SECURITY_SDK_SECRETS,
+        oauth_provider="microsoft_graph_security",
+        call_method=graph.call_method,
+        call_paginated_method=graph.call_paginated_method,
+        call_continuation_method=graph.call_continuation_method,
     ),
     "outlook": ProductCase(
         path=OUTLOOK_PATH,
-        call_method=outlook.call_method,
-        call_paginated_method=outlook.call_paginated_method,
-        call_continuation_method=outlook.call_continuation_method,
-        secrets=outlook.MICROSOFT_OUTLOOK_SDK_SECRETS,
+        oauth_provider="microsoft_outlook",
+        call_method=graph.call_method,
+        call_paginated_method=graph.call_paginated_method,
+        call_continuation_method=graph.call_continuation_method,
     ),
 }
 
@@ -103,12 +103,12 @@ PRODUCTS: dict[str, ProductCase] = {
     ("product", "expected_service", "expected_user"),
     [
         (
-            security.MICROSOFT_GRAPH_SECURITY,
+            MICROSOFT_GRAPH_SECURITY,
             (SECURITY_SERVICE, GRAPH_SERVICE),
             (SECURITY_USER, GRAPH_USER),
         ),
         (
-            outlook.MICROSOFT_OUTLOOK,
+            MICROSOFT_OUTLOOK,
             (OUTLOOK_SERVICE, GRAPH_SERVICE),
             (OUTLOOK_USER, GRAPH_USER),
         ),
@@ -125,27 +125,19 @@ def test_product_token_chains_put_the_product_first(
     assert product.token_names("auto") == expected_service + expected_user
 
 
-@pytest.mark.parametrize(
-    ("product_key", "provider_id", "service_token", "user_token"),
-    [
-        ("security", "microsoft_graph_security", SECURITY_SERVICE, SECURITY_USER),
-        ("outlook", "microsoft_outlook", OUTLOOK_SERVICE, OUTLOOK_USER),
-    ],
-    ids=["security", "outlook"],
-)
-def test_product_sdk_declares_product_and_fallback_secrets(
-    product_key: str, provider_id: str, service_token: str, user_token: str
-) -> None:
-    declared = PRODUCTS[product_key].secrets
+def test_graph_sdk_declares_all_selectable_provider_secrets() -> None:
+    declared = graph.MICROSOFT_GRAPH_SDK_SECRETS
     oauth_secrets = [
         secret for secret in declared if isinstance(secret, RegistryOAuthSecret)
     ]
     assert len(oauth_secrets) == len(declared)
     assert [(secret.provider_id, secret.token_name) for secret in oauth_secrets] == [
-        (provider_id, service_token),
-        (provider_id, user_token),
         ("microsoft_graph", GRAPH_SERVICE),
         ("microsoft_graph", GRAPH_USER),
+        ("microsoft_graph_security", SECURITY_SERVICE),
+        ("microsoft_graph_security", SECURITY_USER),
+        ("microsoft_outlook", OUTLOOK_SERVICE),
+        ("microsoft_outlook", OUTLOOK_USER),
     ]
     assert all(secret.optional for secret in oauth_secrets)
 
@@ -193,7 +185,12 @@ async def test_product_token_precedence(
     product = PRODUCTS[product_key]
     requests = install_graph_transport(ok_handler)
     with graph_secrets(**{name: token_value(name) for name in available}):
-        await product.call_method(path=product.path, method="GET", auth_mode=auth_mode)
+        await product.call_method(
+            oauth_provider=product.oauth_provider,
+            path=product.path,
+            method="GET",
+            auth_mode=auth_mode,
+        )
     assert requests[0].headers.get_list("authorization") == [
         f"Bearer {token_value(expected)}"
     ]
@@ -220,7 +217,10 @@ async def test_products_never_borrow_each_others_tokens(
     with graph_secrets(**present):
         with pytest.raises(SecretNotFoundError) as exc_info:
             await product.call_method(
-                path=product.path, method="GET", auth_mode=auth_mode
+                oauth_provider=product.oauth_provider,
+                path=product.path,
+                method="GET",
+                auth_mode=auth_mode,
             )
     message = str(exc_info.value)
     for name, value in present.items():
@@ -254,7 +254,10 @@ async def test_missing_token_errors_name_the_variables_only(
     with graph_secrets():
         with pytest.raises(SecretNotFoundError) as exc_info:
             await product.call_method(
-                path=product.path, method="GET", auth_mode=auth_mode
+                oauth_provider=product.oauth_provider,
+                path=product.path,
+                method="GET",
+                auth_mode=auth_mode,
             )
     message = str(exc_info.value)
     for name in expected_names:
@@ -275,6 +278,7 @@ async def test_product_wrappers_reject_unapproved_roots(
     with graph_secrets(**{GRAPH_SERVICE: token_value(GRAPH_SERVICE)}):
         with pytest.raises(ValueError, match="approved Microsoft Graph v1.0 API root"):
             await product.call_method(
+                oauth_provider=product.oauth_provider,
                 path=product.path,
                 method="GET",
                 base_url="https://attacker.example/v1.0",
@@ -290,6 +294,7 @@ async def test_product_wrappers_reject_sdk_owned_headers(
     with graph_secrets(**{GRAPH_SERVICE: token_value(GRAPH_SERVICE)}):
         with pytest.raises(ValueError, match="cannot be supplied by the caller"):
             await product.call_method(
+                oauth_provider=product.oauth_provider,
                 path=product.path,
                 method="GET",
                 headers={"Authorization": "Bearer attacker-token"},
@@ -304,7 +309,11 @@ async def test_product_wrappers_reject_traversal_paths(
     product = PRODUCTS[product_key]
     with graph_secrets(**{GRAPH_SERVICE: token_value(GRAPH_SERVICE)}):
         with pytest.raises(ValueError, match="Invalid Microsoft Graph path"):
-            await product.call_method(path="../beta/users", method="GET")
+            await product.call_method(
+                oauth_provider=product.oauth_provider,
+                path="../beta/users",
+                method="GET",
+            )
 
 
 @pytest.mark.anyio
@@ -327,7 +336,9 @@ async def test_product_wrappers_refuse_hostile_next_links(
     )
     with graph_secrets(**{GRAPH_SERVICE: token_value(GRAPH_SERVICE)}):
         with pytest.raises(ValueError, match="must stay on"):
-            await product.call_paginated_method(path=product.path)
+            await product.call_paginated_method(
+                oauth_provider=product.oauth_provider, path=product.path
+            )
 
 
 @pytest.mark.anyio
@@ -345,6 +356,7 @@ async def test_product_continuation_actions_use_the_generic_graph_fallback(
 
     with graph_secrets(**{GRAPH_SERVICE: token_value(GRAPH_SERVICE)}):
         await product.call_continuation_method(
+            oauth_provider=product.oauth_provider,
             continuation_url=continuation_url,
             auth_mode="application",
         )

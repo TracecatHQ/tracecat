@@ -71,8 +71,9 @@ definition:
       default: null
   steps:
     - ref: call_graph
-      action: tools.microsoft_graph_security_sdk.call_method
+      action: tools.microsoft_graph_sdk.call_method
       args:
+        oauth_provider: microsoft_graph_security
         path: /security/runHuntingQuery
         method: POST
         base_url: ${{ inputs.base_url || VARS.microsoft_graph_security.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}

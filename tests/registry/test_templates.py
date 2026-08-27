@@ -109,9 +109,9 @@ async def test_template_action_validation(file_path):
 
 # --- Microsoft Graph product namespaces -----------------------------------
 #
-# The Microsoft Graph products share one transport but must not share
-# credentials: each namespace calls its own SDK wrapper and declares its own
-# OAuth provider ahead of the generic Microsoft Graph fallback.
+# The Microsoft Graph products share one SDK transport but must not share
+# credentials: each template pins its product OAuth provider and declares that
+# provider ahead of the generic Microsoft Graph fallback.
 
 TEMPLATES_DIR = Path("packages/tracecat-registry/tracecat_registry/templates/tools")
 
@@ -180,7 +180,7 @@ def _declared_secrets(action: TemplateAction) -> list[tuple[str, str]]:
     ]
 
 
-def test_graph_security_templates_call_the_security_sdk():
+def test_graph_security_templates_call_the_generic_graph_sdk():
     actions = _load_templates("microsoft_graph_security")
     assert len(actions) == 19
 
@@ -188,8 +188,11 @@ def test_graph_security_templates_call_the_security_sdk():
         definition = action.definition
         assert definition.namespace == "tools.microsoft_graph_security"
         assert [step.action for step in definition.steps] == [
-            "tools.microsoft_graph_security_sdk.call_method"
+            "tools.microsoft_graph_sdk.call_method"
         ]
+        assert definition.steps[0].args["oauth_provider"] == (
+            "microsoft_graph_security"
+        )
         assert _declared_secrets(action) == [
             ("microsoft_graph_security", "client_credentials"),
             ("microsoft_graph_security", "authorization_code"),
@@ -198,7 +201,7 @@ def test_graph_security_templates_call_the_security_sdk():
         assert all(secret.optional for secret in definition.secrets or [])
 
 
-def test_outlook_templates_call_the_outlook_sdk():
+def test_outlook_templates_call_the_generic_graph_sdk():
     actions = _load_templates("microsoft_outlook")
     assert len(actions) == 31
     assert {action.definition.name for action in actions} == EXPECTED_OUTLOOK_ACTIONS
@@ -207,7 +210,8 @@ def test_outlook_templates_call_the_outlook_sdk():
         definition = action.definition
         assert definition.namespace == "tools.microsoft_outlook"
         step_actions = [step.action for step in definition.steps]
-        assert step_actions[-1] == "tools.microsoft_outlook_sdk.call_method"
+        assert step_actions[-1] == "tools.microsoft_graph_sdk.call_method"
+        assert definition.steps[-1].args["oauth_provider"] == "microsoft_outlook"
         # A builder step is allowed; a second Graph call or auto-pagination is not.
         assert set(step_actions[:-1]) <= {"core.script.run_python"}
         assert _declared_secrets(action) == [
@@ -229,9 +233,10 @@ def test_outlook_delta_preserves_opaque_continuation_urls():
 
     assert "deltatoken" not in definition.expects
     assert "skiptoken" not in definition.expects
-    assert "tools.microsoft_outlook_sdk.call_continuation_method" in (
+    assert "tools.microsoft_graph_sdk.call_continuation_method" in (
         definition.description or ""
     )
+    assert "microsoft_outlook" in (definition.description or "")
     orderby_description = definition.expects["orderby"].description or ""
     assert "receivedDateTime desc" in orderby_description
     assert "receivedDateTime+desc" not in orderby_description

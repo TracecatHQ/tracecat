@@ -57,8 +57,9 @@ definition:
         The `id` of the secureScoreControlProfile, for example "DLPEnabled".
   steps:
     - ref: call_graph
-      action: tools.microsoft_graph_security_sdk.call_method
+      action: tools.microsoft_graph_sdk.call_method
       args:
+        oauth_provider: microsoft_graph_security
         path: /security/secureScoreControlProfiles/${{ FN.url_encode(inputs.secureScoreControlProfileId) }}
         method: GET
         base_url: ${{ inputs.base_url || VARS.microsoft_graph_security.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}

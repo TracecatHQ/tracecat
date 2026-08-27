@@ -18,6 +18,10 @@ Optional secrets:
 
 - `microsoft_graph_oauth`: OAuth token `MICROSOFT_GRAPH_SERVICE_TOKEN`.
 - `microsoft_graph_oauth`: OAuth token `MICROSOFT_GRAPH_USER_TOKEN`.
+- `microsoft_graph_security_oauth`: OAuth token `MICROSOFT_GRAPH_SECURITY_SERVICE_TOKEN`.
+- `microsoft_graph_security_oauth`: OAuth token `MICROSOFT_GRAPH_SECURITY_USER_TOKEN`.
+- `microsoft_outlook_oauth`: OAuth token `MICROSOFT_OUTLOOK_SERVICE_TOKEN`.
+- `microsoft_outlook_oauth`: OAuth token `MICROSOFT_OUTLOOK_USER_TOKEN`.
 
 ### Input fields
 
@@ -29,7 +33,7 @@ Complete `@odata.nextLink` or `@odata.deltaLink` returned by Microsoft Graph. Th
 
 <ParamField path="auth_mode" type="MicrosoftGraphAuthMode">
 
-Credential to use. `application` requires `MICROSOFT_GRAPH_SERVICE_TOKEN`, `delegated` requires `MICROSOFT_GRAPH_USER_TOKEN`, and `auto` tries `MICROSOFT_GRAPH_SERVICE_TOKEN` or `MICROSOFT_GRAPH_USER_TOKEN` in that order.
+Credential type to use from the selected OAuth provider. `application` uses its service token, `delegated` uses its user token, and `auto` tries the service chain before the user chain. Product providers fall back to the matching generic Microsoft Graph token.
 
 Default: `"application"`.
 
@@ -48,6 +52,14 @@ Default: `null`.
 Additional request headers. `null` values are dropped. `Authorization` and `Host` are owned by the SDK and are rejected (case-insensitive).
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="oauth_provider" type="MicrosoftGraphOAuthProvider">
+
+OAuth provider to use. Product providers prefer their own token and fall back to the matching generic Microsoft Graph token. Security and Outlook credentials are never used as fallbacks for each other.
+
+Default: `"microsoft_graph"`.
 
 </ParamField>
 
@@ -65,6 +77,10 @@ Optional secrets:
 
 - `microsoft_graph_oauth`: OAuth token `MICROSOFT_GRAPH_SERVICE_TOKEN`.
 - `microsoft_graph_oauth`: OAuth token `MICROSOFT_GRAPH_USER_TOKEN`.
+- `microsoft_graph_security_oauth`: OAuth token `MICROSOFT_GRAPH_SECURITY_SERVICE_TOKEN`.
+- `microsoft_graph_security_oauth`: OAuth token `MICROSOFT_GRAPH_SECURITY_USER_TOKEN`.
+- `microsoft_outlook_oauth`: OAuth token `MICROSOFT_OUTLOOK_SERVICE_TOKEN`.
+- `microsoft_outlook_oauth`: OAuth token `MICROSOFT_OUTLOOK_USER_TOKEN`.
 
 ### Input fields
 
@@ -82,7 +98,7 @@ Resource path relative to the Microsoft Graph v1.0 root, e.g. `/security/alerts_
 
 <ParamField path="auth_mode" type="MicrosoftGraphAuthMode">
 
-Credential to use. `application` requires `MICROSOFT_GRAPH_SERVICE_TOKEN`, `delegated` requires `MICROSOFT_GRAPH_USER_TOKEN`, and `auto` tries `MICROSOFT_GRAPH_SERVICE_TOKEN` or `MICROSOFT_GRAPH_USER_TOKEN` in that order.
+Credential type to use from the selected OAuth provider. `application` uses its service token, `delegated` uses its user token, and `auto` tries the service chain before the user chain. Product providers fall back to the matching generic Microsoft Graph token.
 
 Default: `"application"`.
 
@@ -101,6 +117,14 @@ Default: `null`.
 Additional request headers. `null` values are dropped. `Authorization` and `Host` are owned by the SDK and are rejected (case-insensitive).
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="oauth_provider" type="MicrosoftGraphOAuthProvider">
+
+OAuth provider to use. Product providers prefer their own token and fall back to the matching generic Microsoft Graph token. Security and Outlook credentials are never used as fallbacks for each other.
+
+Default: `"microsoft_graph"`.
 
 </ParamField>
 
@@ -142,6 +166,10 @@ Optional secrets:
 
 - `microsoft_graph_oauth`: OAuth token `MICROSOFT_GRAPH_SERVICE_TOKEN`.
 - `microsoft_graph_oauth`: OAuth token `MICROSOFT_GRAPH_USER_TOKEN`.
+- `microsoft_graph_security_oauth`: OAuth token `MICROSOFT_GRAPH_SECURITY_SERVICE_TOKEN`.
+- `microsoft_graph_security_oauth`: OAuth token `MICROSOFT_GRAPH_SECURITY_USER_TOKEN`.
+- `microsoft_outlook_oauth`: OAuth token `MICROSOFT_OUTLOOK_SERVICE_TOKEN`.
+- `microsoft_outlook_oauth`: OAuth token `MICROSOFT_OUTLOOK_USER_TOKEN`.
 
 ### Input fields
 
@@ -153,7 +181,7 @@ Resource path relative to the Microsoft Graph v1.0 root, e.g. `/security/alerts_
 
 <ParamField path="auth_mode" type="MicrosoftGraphAuthMode">
 
-Credential to use. `application` requires `MICROSOFT_GRAPH_SERVICE_TOKEN`, `delegated` requires `MICROSOFT_GRAPH_USER_TOKEN`, and `auto` tries `MICROSOFT_GRAPH_SERVICE_TOKEN` or `MICROSOFT_GRAPH_USER_TOKEN` in that order.
+Credential type to use from the selected OAuth provider. `application` uses its service token, `delegated` uses its user token, and `auto` tries the service chain before the user chain. Product providers fall back to the matching generic Microsoft Graph token.
 
 Default: `"application"`.
 
@@ -180,6 +208,14 @@ Default: `null`.
 Maximum number of items to return across all pages. Paging stops as soon as the bound is reached. Set to `null` to follow every `@odata.nextLink`.
 
 Default: `1000`.
+
+</ParamField>
+
+<ParamField path="oauth_provider" type="MicrosoftGraphOAuthProvider">
+
+OAuth provider to use. Product providers prefer their own token and fall back to the matching generic Microsoft Graph token. Security and Outlook credentials are never used as fallbacks for each other.
+
+Default: `"microsoft_graph"`.
 
 </ParamField>
 

@@ -4,8 +4,9 @@ definition:
   description: >-
     List messages added, deleted or updated in a mail folder. Returns one Graph page
     with `@odata.nextLink` or the terminal `@odata.deltaLink`; pass either opaque URL
-    unchanged to `tools.microsoft_outlook_sdk.call_continuation_method`. Do not use
-    `call_paginated_method`, which discards the terminal delta link. Least privileged
+    unchanged to `tools.microsoft_graph_sdk.call_continuation_method` with
+    `oauth_provider` set to `microsoft_outlook`. Do not use `call_paginated_method`,
+    which discards the terminal delta link. Least privileged
     permission: Mail.ReadBasic for delegated work or school and personal Microsoft
     accounts, and Mail.ReadBasic.All for application; higher privileged: Mail.Read or
     Mail.ReadWrite. Tracking another user's folder needs application permissions, or
@@ -107,8 +108,9 @@ definition:
       default: null
   steps:
     - ref: call_graph
-      action: tools.microsoft_outlook_sdk.call_method
+      action: tools.microsoft_graph_sdk.call_method
       args:
+        oauth_provider: microsoft_outlook
         path: /users/${{ FN.url_encode(inputs.mailbox_user_id) }}/mailFolders/${{ FN.url_encode(inputs.folderId) }}/messages/delta
         method: GET
         base_url: ${{ inputs.base_url || VARS.microsoft_outlook.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}

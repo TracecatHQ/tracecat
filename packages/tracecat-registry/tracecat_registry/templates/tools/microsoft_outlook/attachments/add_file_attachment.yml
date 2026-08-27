@@ -87,8 +87,9 @@ definition:
       default: null
   steps:
     - ref: call_graph
-      action: tools.microsoft_outlook_sdk.call_method
+      action: tools.microsoft_graph_sdk.call_method
       args:
+        oauth_provider: microsoft_outlook
         path: /users/${{ FN.url_encode(inputs.mailbox_user_id) }}/messages/${{ FN.url_encode(inputs.messageId) }}/attachments
         method: POST
         base_url: ${{ inputs.base_url || VARS.microsoft_outlook.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}

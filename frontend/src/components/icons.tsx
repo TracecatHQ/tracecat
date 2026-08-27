@@ -636,10 +636,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.microsoft_entra": createIconRenderer(MicrosoftEntraIcon),
     "tools.microsoft_graph_sdk": createIconRenderer(MicrosoftGraphIcon),
     "tools.microsoft_graph_security": createIconRenderer(MicrosoftGraphIcon),
-    "tools.microsoft_graph_security_sdk":
-      createIconRenderer(MicrosoftGraphIcon),
     "tools.microsoft_outlook": createIconRenderer(MicrosoftOutlookIcon),
-    "tools.microsoft_outlook_sdk": createIconRenderer(MicrosoftOutlookIcon),
     "tools.microsoft_teams": createIconRenderer(MicrosoftTeamsIcon),
     "tools.microsoft_sentinel": createIconRenderer(MicrosoftSentinelIcon),
     "tools.azure_log_analytics": createIconRenderer(AzureLogAnalyticsIcon),

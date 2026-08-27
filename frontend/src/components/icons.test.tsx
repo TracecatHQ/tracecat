@@ -35,22 +35,18 @@ function referencedFragmentIds(container: HTMLElement): string[] {
 }
 
 describe("Microsoft registry icon mappings", () => {
-  it.each([
-    "tools.microsoft_graph_sdk",
-    "tools.microsoft_graph_security",
-    "tools.microsoft_graph_security_sdk",
-  ])("renders the Microsoft Graph mark for %s", (namespace) => {
-    const Icon = UDFIcons[namespace]
-    expect(renderedFragmentIds(<Icon />)).toContain(GRAPH_CLIP_ID)
-  })
-
-  it.each(["tools.microsoft_outlook", "tools.microsoft_outlook_sdk"])(
-    "renders the Microsoft Outlook mark for %s",
+  it.each(["tools.microsoft_graph_sdk", "tools.microsoft_graph_security"])(
+    "renders the Microsoft Graph mark for %s",
     (namespace) => {
       const Icon = UDFIcons[namespace]
-      expect(renderedFragmentIds(<Icon />)).toContain(OUTLOOK_GRADIENT_ID)
+      expect(renderedFragmentIds(<Icon />)).toContain(GRAPH_CLIP_ID)
     }
   )
+
+  it("renders the Microsoft Outlook mark for its tool namespace", () => {
+    const Icon = UDFIcons["tools.microsoft_outlook"]
+    expect(renderedFragmentIds(<Icon />)).toContain(OUTLOOK_GRADIENT_ID)
+  })
 
   it.each(["microsoft_graph", "microsoft_graph_security"])(
     "renders the Microsoft Graph mark for the %s provider",
