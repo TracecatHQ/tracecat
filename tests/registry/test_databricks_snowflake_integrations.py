@@ -1,8 +1,10 @@
-"""Credential-boundary tests for Databricks and Snowflake integrations."""
+"""Regression tests for Databricks and Snowflake integrations."""
 
 import pytest
+from databricks.sdk.service._internal import Wait
 from tracecat_registry.integrations.databricks_sdk import (
     _WORKSPACE_SERVICE_NAMES,
+    _serialize,
     _validate_databricks_host,
 )
 from tracecat_registry.integrations.snowflake_sql import _validate_snowflake_url
@@ -38,6 +40,20 @@ def test_databricks_dispatch_excludes_client_internals() -> None:
     assert {"api_client", "config", "dbfs", "files"}.isdisjoint(
         _WORKSPACE_SERVICE_NAMES
     )
+
+
+def test_databricks_serializes_waiter_response_and_bindings() -> None:
+    waiter = Wait(
+        lambda **_kwargs: None,
+        response={"run_id": 123},
+        run_id=123,
+        nested={"state": "PENDING"},
+    )
+
+    assert _serialize(waiter) == {
+        "response": {"run_id": 123},
+        "bind": {"run_id": 123, "nested": {"state": "PENDING"}},
+    }
 
 
 @pytest.mark.parametrize(

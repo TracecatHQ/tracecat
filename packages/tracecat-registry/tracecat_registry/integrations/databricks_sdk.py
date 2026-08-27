@@ -117,9 +117,10 @@ def _serialize(value: Any) -> Any:
     if isinstance(value, Enum):
         return _serialize(value.value)
     if isinstance(value, Wait):
+        bindings = value.bind()
         return {
             "response": _serialize(value.response),
-            "bind": _serialize(value.bind()),
+            "bind": {str(key): _serialize(item) for key, item in bindings.items()},
         }
     if isinstance(value, Mapping):
         return {str(key): _serialize(item) for key, item in value.items()}
