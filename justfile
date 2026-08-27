@@ -117,7 +117,7 @@ gen-functions-docs:
 sync-copilot-skills:
 	#!/usr/bin/env sh
 	set -eu
-	plugins_ref="${TRACECAT_PLUGINS_REF:-6a8fd6e}"
+	plugins_ref="${TRACECAT_PLUGINS_REF:-4ad865a7cbff8a2d13c1e97a2cdbf4d9b1e58284}"
 	destination="packages/tracecat-ee/tracecat_ee/workspace_chat/skills"
 	tmp_dir=""
 	if [ -d "../tracecat-plugins/plugins/tracecat/skills" ]; then

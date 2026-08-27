@@ -1,4 +1,4 @@
-ARG TRACECAT_PLUGINS_REF=6a8fd6e
+ARG TRACECAT_PLUGINS_REF=4ad865a7cbff8a2d13c1e97a2cdbf4d9b1e58284
 
 # ====================
 # Stage 1: Build nsjail from source
@@ -222,7 +222,7 @@ FROM base AS plugin-skills
 
 ARG TRACECAT_PLUGINS_REF
 
-# TODO: Re-pin TRACECAT_PLUGINS_REF to the merge commit once tracecat-plugins PR #2 lands.
+# Pinned to a tracecat-plugins commit on main. Bump when the vendored skills change.
 RUN set -eux; \
     mkdir -p /skills /tmp/tracecat-plugins; \
     curl -fsSL \
