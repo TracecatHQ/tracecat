@@ -7429,6 +7429,31 @@ class TestMCPProviderOAuth:
                 )
         assert await integration_service.list_mcp_integrations() == []
 
+    async def test_connect_rejects_missing_required_headers_on_existing_oauth(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Reusing an existing OAuth integration still requires catalog headers."""
+        await _seed_service_user(session, integration_service)
+
+        with pytest.raises(
+            ValueError, match="Missing required header values: x-goog-user-project"
+        ):
+            await integration_service.connect_mcp_oauth_discovery(
+                params=MCPHttpIntegrationCreate(
+                    name="SecOps MCP",
+                    server_uri="https://mcp.example.test/mcp",
+                    auth_type=MCPAuthType.OAUTH2,
+                    oauth_integration_id=oauth_integration.id,
+                ),
+                resolved_catalog=_resolved_catalog(
+                    _pinned_oauth_client_spec(with_header=True)
+                ),
+            )
+        assert await integration_service.list_mcp_integrations() == []
+
     async def test_connect_rejects_missing_required_client_secret(
         self,
         integration_service: IntegrationService,
@@ -7763,7 +7788,7 @@ class TestMCPProviderOAuth:
         assert query["state"] == [captured["state"]]
         assert captured["scope"] == "read"
         assert captured["resource"] != "evil"
-        assert str(captured["resource"]).startswith("https://mcp.example.test")
+        assert captured["resource"] == "https://mcp.example.test/mcp"
         # Named authlib parameters are dropped rather than forwarded.
         assert "code_verifier" not in captured
         assert "url" not in captured
