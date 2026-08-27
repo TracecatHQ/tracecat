@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import hashlib
+import os
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -556,7 +557,21 @@ class TestS3Operations:
     async def test_presigned_upload_checksum_rejects_changed_bytes(
         self,
         minio_bucket: str,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        monkeypatch.setenv(
+            "AWS_ACCESS_KEY_ID",
+            os.environ.get("AWS_ACCESS_KEY_ID")
+            or os.environ.get("MINIO_ROOT_USER")
+            or "minio",
+        )
+        monkeypatch.setenv(
+            "AWS_SECRET_ACCESS_KEY",
+            os.environ.get("AWS_SECRET_ACCESS_KEY")
+            or os.environ.get("MINIO_ROOT_PASSWORD")
+            or "password",
+        )
+
         payload = b"bound"
         checksum_sha256 = base64.b64encode(hashlib.sha256(payload).digest()).decode(
             "ascii"

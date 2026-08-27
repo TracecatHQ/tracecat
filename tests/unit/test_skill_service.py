@@ -1549,7 +1549,10 @@ class TestSkillService:
 
         assert excinfo.value.detail is not None
         assert excinfo.value.detail["code"] == "upload_integrity_error"
-        assert deleted == [canonical_key]
+        # Both the immediate integrity-error cleanup and the outer rollback
+        # cleanup may delete the canonical object; S3 deletes are idempotent.
+        assert deleted
+        assert set(deleted) == {canonical_key}
         blob_row = (
             await skill_service.session.execute(
                 select(SkillBlob).where(
