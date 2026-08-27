@@ -1,0 +1,61 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/send/send_mail.yml
+  s_cb812704bae2b3::t_057d5b36a46c5b 21-24
+docs/tools/microsoft_graph_security.mdx
+  s_cb812704bae2b3::t_000528c76f17ce 50,95,232,275,318,361,404,447,484,553,596,633,710,779,854,921,988,1045,1094
+docs/tools/microsoft_outlook.mdx
+  s_cb812704bae2b3::t_80aa33c45d19b0 1885
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/advanced_hunting/run_hunting_query.yml
+  s_cb812704bae2b3::t_f48e5a84783b09 39,78
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/alerts/create_alert_comment.yml
+  s_cb812704bae2b3::t_76e77a14c31c71 40,65
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/alerts/get_alert.yml
+  s_cb812704bae2b3::t_0db7f618734d82 40,62
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/alerts/list_alerts.yml
+  s_cb812704bae2b3::t_eae9679848cd09 41,79
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/alerts/move_alerts.yml
+  s_cb812704bae2b3::t_51222292864dbd 40,79
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/alerts/update_alert.yml
+  s_cb812704bae2b3::t_629334dce10c71 40,81
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/audit_log/create_audit_log_query.yml
+  s_cb812704bae2b3::t_a02119fb78244a 43,129
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/audit_log/get_audit_log_query.yml
+  s_cb812704bae2b3::t_a24ff4665a9fca 39,60
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/audit_log/list_audit_log_queries.yml
+  s_cb812704bae2b3::t_c9d0bc1605f8f7 46,64
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/audit_log/list_audit_log_records.yml
+  s_cb812704bae2b3::t_c100f1b6e87f2c 46,67
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/incidents/create_incident_comment.yml
+  s_cb812704bae2b3::t_4722492151d44d 39,64
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/incidents/get_incident.yml
+  s_cb812704bae2b3::t_24daef798841e0 40,62
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/incidents/list_incidents.yml
+  s_cb812704bae2b3::t_df5edacd70894f 42,85
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/incidents/merge_incidents.yml
+  s_cb812704bae2b3::t_6706fb1b15e9f8 40,73
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/incidents/update_incident.yml
+  s_cb812704bae2b3::t_71defb3d65ed6c 39,81
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/secure_score/get_secure_score.yml
+  s_cb812704bae2b3::t_8d679f6522e9dc 41,65
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/secure_score/get_secure_score_control_profile.yml
+  s_cb812704bae2b3::t_eb20f4485d71c5 41,64
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/secure_score/list_secure_score_control_profiles.yml
+  s_cb812704bae2b3::t_035a4fffb2b02c 39,77
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/secure_score/list_secure_scores.yml
+  s_cb812704bae2b3::t_74485fe8b12827 39,78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fcb223b872aa0398f6b3e0b1edff64768216c5e8",
+  "prompts": {},
+  "sessions": {
+    "s_cb812704bae2b3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0449d-ab74-7f62-b808-bdbc98dab27c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
