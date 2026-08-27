@@ -1,3 +1,5 @@
+ARG TRACECAT_PLUGINS_REF=4ad865a7cbff8a2d13c1e97a2cdbf4d9b1e58284
+
 # ====================
 # Stage 1: Build nsjail from source
 # ====================
@@ -214,7 +216,35 @@ RUN chmod u-s /usr/bin/mount /usr/bin/umount && \
 WORKDIR /app
 
 # ====================
-# Stage 4: Development app
+# Stage 4: Fetch workspace-chat copilot skills
+# ====================
+FROM base AS plugin-skills
+
+ARG TRACECAT_PLUGINS_REF
+
+# Pinned to a tracecat-plugins commit on main. Bump when the vendored skills change.
+RUN set -eux; \
+    mkdir -p /skills /tmp/tracecat-plugins; \
+    curl -fsSL \
+        "https://github.com/TracecatHQ/tracecat-plugins/archive/${TRACECAT_PLUGINS_REF}.tar.gz" \
+        -o /tmp/tracecat-plugins.tar.gz; \
+    tar -xzf /tmp/tracecat-plugins.tar.gz \
+        -C /tmp/tracecat-plugins \
+        --strip-components=1; \
+    for skill in \
+        tracecat-automation-best-practices \
+        tracecat-slackbot-best-practices \
+        tracecat-platform-guide; do \
+        source="/tmp/tracecat-plugins/plugins/tracecat/skills/${skill}"; \
+        test -d "${source}"; \
+        test -f "${source}/SKILL.md"; \
+        cp -a "${source}" /skills/; \
+    done; \
+    test "$(find /skills -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 3; \
+    rm -rf /tmp/tracecat-plugins /tmp/tracecat-plugins.tar.gz
+
+# ====================
+# Stage 5: Development app
 # ====================
 FROM base AS development-app
 
@@ -232,6 +262,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev --no-editable
 
 COPY --chown=apiuser:apiuser . /app/
+COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /app/packages/tracecat-ee/tracecat_ee/workspace_chat/skills/
 
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
@@ -250,14 +281,14 @@ EXPOSE $PORT
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --reload"]
 
 # ====================
-# Stage 5: Development registry manifest
+# Stage 6: Development registry manifest
 # ====================
 FROM development-app AS development-registry-manifest
 
 RUN /app/.venv/bin/python -m tracecat.registry.sync.prebuild
 
 # ====================
-# Stage 6: Development target
+# Stage 7: Development target
 # ====================
 FROM development-app AS development
 
@@ -266,7 +297,7 @@ FROM development-app AS development
 COPY --from=development-registry-manifest --chown=apiuser:apiuser /app/.registry-artifacts /app/.registry-artifacts
 
 # ====================
-# Stage 7: Test target (development + pytest)
+# Stage 8: Test target (development + pytest)
 # ====================
 FROM development AS test
 
@@ -276,7 +307,7 @@ RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 uv sync 
 CMD ["python", "-m", "pytest"]
 
 # ====================
-# Stage 8: Production app
+# Stage 9: Production app
 # ====================
 FROM base AS production-app
 
@@ -306,6 +337,7 @@ RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
 
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./packages /app/packages
+COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /app/packages/tracecat-ee/tracecat_ee/workspace_chat/skills/
 COPY --chown=apiuser:apiuser ./pyproject.toml ./uv.lock ./.python-version ./README.md ./LICENSE ./alembic.ini /app/
 COPY --chown=apiuser:apiuser ./alembic /app/alembic
 
@@ -317,14 +349,14 @@ ENV PATH="/app/.venv/bin:/home/apiuser/.local/bin:/usr/local/bin:/usr/bin:/bin"
 RUN ln -sf $(which uv) /home/apiuser/.local/bin/uv
 
 # ====================
-# Stage 9: Production registry manifest
+# Stage 10: Production registry manifest
 # ====================
 FROM production-app AS registry-manifest
 
 RUN /app/.venv/bin/python -m tracecat.registry.sync.prebuild
 
 # ====================
-# Stage 10: Production target
+# Stage 11: Production target
 # ====================
 FROM production-app AS production
 
