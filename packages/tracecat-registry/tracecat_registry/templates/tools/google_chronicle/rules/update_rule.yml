@@ -40,7 +40,7 @@ definition:
         Resource name of the DataAccessScope bound to this rule. Format:
         projects/{project}/locations/{location}/instances/{instance}/dataAccessScopes/{scope}
       default: null
-    update_mask:
+    updateMask:
       type: str | None
       description: >-
         The list of fields to update. If not included, all fields with a non-empty
@@ -54,7 +54,7 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules/${{ inputs.rule }}
         method: PATCH
         params:
-          updateMask: ${{ inputs.update_mask }}
+          updateMask: ${{ inputs.updateMask }}
         payload:
           text: ${{ inputs.text }}
           scope: ${{ inputs.scope }}

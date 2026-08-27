@@ -33,15 +33,15 @@ definition:
       type: str | None
       description: The standard list filter.
       default: null
-    page_size:
+    pageSize:
       type: int | None
       description: The standard list page size.
       default: null
-    page_token:
+    pageToken:
       type: str | None
       description: The standard list page token.
       default: null
-    return_partial_success:
+    returnPartialSuccess:
       type: bool | None
       description: >-
         Return reachable operations normally and report unreachable collections in the
@@ -55,7 +55,7 @@ definition:
         method: GET
         params:
           filter: ${{ inputs.filter }}
-          pageSize: ${{ inputs.page_size }}
-          pageToken: ${{ inputs.page_token }}
-          returnPartialSuccess: ${{ inputs.return_partial_success }}
+          pageSize: ${{ inputs.pageSize }}
+          pageToken: ${{ inputs.pageToken }}
+          returnPartialSuccess: ${{ inputs.returnPartialSuccess }}
   returns: ${{ steps.call_api.result }}

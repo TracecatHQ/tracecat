@@ -29,7 +29,7 @@ definition:
       description: >-
         The name of the parent resource, which is the SecOps instance. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    snapshot_query:
+    snapshotQuery:
       type: str
       description: >-
         This uses a syntax similar to UDM search, with support for all fields within 7
@@ -37,15 +37,15 @@ definition:
         filters prefixed with "collectionElements.references.event" or
         "collectionElements.references.entity" are also checked against one-level of
         producer detections.
-    start_time:
+    startTime:
       type: str
       description: >-
         Inclusive start of the time range to search, in RFC 3339 format, e.g.
         "2014-10-02T15:01:23Z".
-    end_time:
+    endTime:
       type: str
       description: Exclusive end of the time range to search, in RFC 3339 format.
-    baseline_query:
+    baselineQuery:
       type: str | None
       description: >-
         The baseline query is used for this request and its results are cached for
@@ -150,7 +150,7 @@ definition:
         Parameter for the Aggregated Alert fields that will be streamed back; caps the
         number of values returned per aggregated field.
       default: null
-    enable_cache:
+    enableCache:
       type: str | None
       description: >-
         If enabled, subsequent requests for the same time range and baseline query will
@@ -158,14 +158,14 @@ definition:
         snapshot query. One of ALERTS_FEATURE_PREFERENCE_UNSPECIFIED,
         ALERTS_FEATURE_PREFERENCE_ENABLED, ALERTS_FEATURE_PREFERENCE_DISABLED.
       default: null
-    include_non_alerting_detections:
+    includeNonAlertingDetections:
       type: str | None
       description: >-
         Whether to include non-alerting detections in the response. One of
         ALERTS_FEATURE_PREFERENCE_UNSPECIFIED, ALERTS_FEATURE_PREFERENCE_ENABLED,
         ALERTS_FEATURE_PREFERENCE_DISABLED.
       default: null
-    max_response_alerts_bytes:
+    maxResponseAlertsBytes:
       type: str | None
       description: >-
         The maximum size, in bytes, of the alerts data returned in the response, as an
@@ -173,7 +173,7 @@ definition:
         is truncated and `memoryLimitExceeded` is set in the response. If unspecified or
         set to 0, no size limit is applied.
       default: null
-    simulated_data_visibility:
+    simulatedDataVisibility:
       type: str | None
       description: >-
         Specifies visibility of simulated data to include in search results.
@@ -185,10 +185,10 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacy:legacyFetchAlertsView
         method: GET
         params:
-          baselineQuery: ${{ inputs.baseline_query }}
-          snapshotQuery: ${{ inputs.snapshot_query }}
-          timeRange.startTime: ${{ inputs.start_time }}
-          timeRange.endTime: ${{ inputs.end_time }}
+          baselineQuery: ${{ inputs.baselineQuery }}
+          snapshotQuery: ${{ inputs.snapshotQuery }}
+          timeRange.startTime: ${{ inputs.startTime }}
+          timeRange.endTime: ${{ inputs.endTime }}
           alertListOptions.maxReturnedAlerts: ${{ inputs.max_returned_alerts }}
           alertListOptions.entityIndicator.indicatorNamespace: ${{ inputs.entity_indicator_namespace }}
           alertListOptions.entityIndicator.hostname: ${{ inputs.entity_indicator_hostname }}
@@ -212,8 +212,8 @@ definition:
           alertListOptions.entityIndicator.domainName: ${{ inputs.entity_indicator_domain_name }}
           alertListOptions.entityIndicator.resourceName: ${{ inputs.entity_indicator_resource_name }}
           fieldAggregationOptions.maxValuesPerField: ${{ inputs.max_values_per_field }}
-          enableCache: ${{ inputs.enable_cache }}
-          includeNonAlertingDetections: ${{ inputs.include_non_alerting_detections }}
-          maxResponseAlertsBytes: ${{ inputs.max_response_alerts_bytes }}
-          simulatedDataVisibility: ${{ inputs.simulated_data_visibility }}
+          enableCache: ${{ inputs.enableCache }}
+          includeNonAlertingDetections: ${{ inputs.includeNonAlertingDetections }}
+          maxResponseAlertsBytes: ${{ inputs.maxResponseAlertsBytes }}
+          simulatedDataVisibility: ${{ inputs.simulatedDataVisibility }}
   returns: ${{ steps.call_api.result }}

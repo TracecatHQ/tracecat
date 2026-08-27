@@ -29,23 +29,23 @@ definition:
       description: >-
         The instance to execute bulk close on. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    cases_ids:
+    casesIds:
       type: list[int]
       description: Cases to close.
-    close_reason:
+    closeReason:
       type: str
       description: >-
         Close reason. One of CLOSE_REASON_UNSPECIFIED, MALICIOUS, NOT_MALICIOUS,
         MAINTENANCE, INCONCLUSIVE, UNKNOWN.
-    root_cause:
+    rootCause:
       type: str | None
       description: Root cause of closing the cases.
       default: null
-    close_comment:
+    closeComment:
       type: str | None
       description: Comment to add to the cases when closing them.
       default: null
-    dynamic_parameters:
+    dynamicParameters:
       type: list[dict[str, Any]] | None
       description: >-
         Dynamic parameters added to the close case action. Each entry carries id
@@ -58,9 +58,9 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases:executeBulkClose
         method: POST
         payload:
-          casesIds: ${{ inputs.cases_ids }}
-          closeReason: ${{ inputs.close_reason }}
-          rootCause: ${{ inputs.root_cause }}
-          closeComment: ${{ inputs.close_comment }}
-          dynamicParameters: ${{ inputs.dynamic_parameters }}
+          casesIds: ${{ inputs.casesIds }}
+          closeReason: ${{ inputs.closeReason }}
+          rootCause: ${{ inputs.rootCause }}
+          closeComment: ${{ inputs.closeComment }}
+          dynamicParameters: ${{ inputs.dynamicParameters }}
   returns: ${{ steps.call_api.result }}

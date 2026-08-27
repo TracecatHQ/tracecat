@@ -30,14 +30,14 @@ definition:
     rule:
       type: str
       description: The rule ID of the rule to list revisions for.
-    page_size:
+    pageSize:
       type: int | None
       description: >-
         The maximum number of revisions to return per page. The service may return fewer
         than this value. If unspecified, at most 100 revisions will be returned. The
         maximum value is 1000; values above 1000 will be coerced to 1000.
       default: null
-    page_token:
+    pageToken:
       type: str | None
       description: >-
         The page token, received from a previous rules.listRevisions call. Provide this
@@ -57,7 +57,7 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules/${{ inputs.rule }}:listRevisions
         method: GET
         params:
-          pageSize: ${{ inputs.page_size }}
-          pageToken: ${{ inputs.page_token }}
+          pageSize: ${{ inputs.pageSize }}
+          pageToken: ${{ inputs.pageToken }}
           view: ${{ inputs.view }}
   returns: ${{ steps.call_api.result }}

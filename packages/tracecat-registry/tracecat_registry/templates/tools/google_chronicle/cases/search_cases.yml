@@ -29,14 +29,14 @@ definition:
       description: >-
         The instance to get the search results for. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    start_time:
+    startTime:
       type: str | None
       description: >-
         The UTC start time to search for cases by creation time, in RFC 3339 format.
         Used if timeRangeFilter is set to the custom filter. Defaults to the start of
         epoch time.
       default: null
-    end_time:
+    endTime:
       type: str | None
       description: >-
         The UTC end time to search for cases by creation time, in RFC 3339 format. Used
@@ -48,7 +48,7 @@ definition:
         List of strings representing case tags. If one or more tags exist in the case,
         it will be fetched.
       default: null
-    case_source:
+    caseSource:
       type: list[str] | None
       description: >-
         List of strings representing case sources. Available inputs: System / Manual /
@@ -76,13 +76,13 @@ definition:
         List of strings representing the environments that the case is associated with.
         If the case matches at least one environment it will be fetched.
       default: null
-    assigned_users:
+    assignedUsers:
       type: list[str] | None
       description: >-
         A list of strings that represents the Users (analysts) / Roles that are assigned
         to the case. Available inputs: Username (GUID) / @Role name.
       default: null
-    external_alert_id:
+    externalAlertId:
       type: str | None
       description: Represents the 'TicketId' mapped from the original SIEM's alert ID.
       default: null
@@ -104,23 +104,23 @@ definition:
         List of strings that represents the Stages that case is on. Available inputs:
         Triage / Assessment / Investigation / Incident / Improvement / Research.
       default: null
-    rule_generator:
+    ruleGenerator:
       type: list[str] | None
       description: >-
         List of strings that represents the Rule Generator (Alert Type in the Platform)
         that exist in the case.
       default: null
-    category_outcomes:
+    categoryOutcomes:
       type: list[str] | None
       description: >-
         List of strings that represents whether to fetch cases that contain a specific
         value in CategoryOutcome. Available inputs: Allowed / Blocked / [] (empty).
       default: null
-    involved_entity:
+    involvedEntity:
       type: str | None
       description: A string that represents an entity to search for in cases.
       default: null
-    case_comment:
+    caseComment:
       type: str | None
       description: >-
         A string that represents a part of the body of a case comment to search for in
@@ -133,7 +133,7 @@ definition:
         inputs: free text / Entity: / AlertName: / DestinationEntity: / SourceEntity: /
         TicketIds: / CaseIDs:
       default: null
-    sort_by:
+    sortBy:
       type: dict[str, Any] | None
       # Generic: `SortBy` is not enumerated on this method page, so there is no
       # documented field set to name.
@@ -145,37 +145,37 @@ definition:
       # documented field set to name.
       description: Paging options for the search.
       default: null
-    requested_page:
+    requestedPage:
       type: int | None
       description: The requested page.
       default: null
-    page_size:
+    pageSize:
       type: int | None
       description: Number of entries to return.
       default: null
-    search_term:
+    searchTerm:
       type: str | None
       description: Search term.
       default: null
-    is_case_closed:
+    isCaseClosed:
       type: bool | None
       description: >-
         A boolean field that represents whether to filter by the case status (is closed
         or not). Available inputs: true / false / null.
       default: null
-    close_reason:
+    closeReason:
       type: str | None
       description: >-
         Represents the reason the case was closed and fetches cases that match the
         value.
       default: null
-    time_range_filter:
+    timeRangeFilter:
       type: str | None
       description: >-
         Represents the number of days back to search cases by creation time. For a
         custom time range use 0 and set the startTime and endTime parameters.
       default: null
-    disable_time_range_localization:
+    disableTimeRangeLocalization:
       type: bool | None
       description: >-
         A boolean field that represents whether the Localization (timezone) settings
@@ -189,31 +189,31 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacySearches:legacyCaseSearchEverything
         method: POST
         payload:
-          startTime: ${{ inputs.start_time }}
-          endTime: ${{ inputs.end_time }}
+          startTime: ${{ inputs.startTime }}
+          endTime: ${{ inputs.endTime }}
           tags: ${{ inputs.tags }}
-          caseSource: ${{ inputs.case_source }}
+          caseSource: ${{ inputs.caseSource }}
           priorities: ${{ inputs.priorities }}
           importance: ${{ inputs.importance }}
           incident: ${{ inputs.incident }}
           environments: ${{ inputs.environments }}
-          assignedUsers: ${{ inputs.assigned_users }}
-          externalAlertId: ${{ inputs.external_alert_id }}
+          assignedUsers: ${{ inputs.assignedUsers }}
+          externalAlertId: ${{ inputs.externalAlertId }}
           products: ${{ inputs.products }}
           ports: ${{ inputs.ports }}
           stage: ${{ inputs.stage }}
-          ruleGenerator: ${{ inputs.rule_generator }}
-          categoryOutcomes: ${{ inputs.category_outcomes }}
-          involvedEntity: ${{ inputs.involved_entity }}
-          caseComment: ${{ inputs.case_comment }}
+          ruleGenerator: ${{ inputs.ruleGenerator }}
+          categoryOutcomes: ${{ inputs.categoryOutcomes }}
+          involvedEntity: ${{ inputs.involvedEntity }}
+          caseComment: ${{ inputs.caseComment }}
           title: ${{ inputs.title }}
-          sortBy: ${{ inputs.sort_by }}
+          sortBy: ${{ inputs.sortBy }}
           paging: ${{ inputs.paging }}
-          requestedPage: ${{ inputs.requested_page }}
-          pageSize: ${{ inputs.page_size }}
-          searchTerm: ${{ inputs.search_term }}
-          isCaseClosed: ${{ inputs.is_case_closed }}
-          closeReason: ${{ inputs.close_reason }}
-          timeRangeFilter: ${{ inputs.time_range_filter }}
-          disableTimeRangeLocalization: ${{ inputs.disable_time_range_localization }}
+          requestedPage: ${{ inputs.requestedPage }}
+          pageSize: ${{ inputs.pageSize }}
+          searchTerm: ${{ inputs.searchTerm }}
+          isCaseClosed: ${{ inputs.isCaseClosed }}
+          closeReason: ${{ inputs.closeReason }}
+          timeRangeFilter: ${{ inputs.timeRangeFilter }}
+          disableTimeRangeLocalization: ${{ inputs.disableTimeRangeLocalization }}
   returns: ${{ steps.call_api.result }}

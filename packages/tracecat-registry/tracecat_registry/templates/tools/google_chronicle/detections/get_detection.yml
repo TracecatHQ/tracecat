@@ -28,13 +28,13 @@ definition:
         The name of the parent resource, which is the SecOps instance this request is
         sent to. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    rule_id:
+    ruleId:
       type: str
       description: >-
         The specific rule revision to get a detection for. There are two acceptable
         formats: "{ruleId}" gets a detection for the latest revision of the Rule, and
         "{ruleId}@{revisionId}" gets a detection for that revision.
-    detection_id:
+    detectionId:
       type: str
       description: The detection to get.
   steps:
@@ -44,6 +44,6 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacy:legacyGetDetection
         method: GET
         params:
-          ruleId: ${{ inputs.rule_id }}
-          detectionId: ${{ inputs.detection_id }}
+          ruleId: ${{ inputs.ruleId }}
+          detectionId: ${{ inputs.detectionId }}
   returns: ${{ steps.call_api.result }}

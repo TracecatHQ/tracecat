@@ -29,16 +29,16 @@ definition:
       description: >-
         The ID of the Instance to summarize entity for. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    start_time:
+    startTime:
       type: str
       description: >-
         Inclusive start of the time range to retrieve the alerts for, in RFC 3339
         format, e.g. "2014-10-02T15:01:23Z".
-    end_time:
+    endTime:
       type: str
       description: >-
         Exclusive end of the time range to retrieve the alerts for, in RFC 3339 format.
-    entity_id:
+    entityId:
       type: str | None
       description: >-
         ID of the entity. Use this or the `field_and_value_*` inputs to identify the
@@ -67,9 +67,9 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}:findEntityAlerts
         method: GET
         params:
-          timeRange.startTime: ${{ inputs.start_time }}
-          timeRange.endTime: ${{ inputs.end_time }}
-          entityId: ${{ inputs.entity_id }}
+          timeRange.startTime: ${{ inputs.startTime }}
+          timeRange.endTime: ${{ inputs.endTime }}
+          entityId: ${{ inputs.entityId }}
           fieldAndValue.value: ${{ inputs.field_and_value_value }}
           fieldAndValue.entityNamespace: ${{ inputs.field_and_value_entity_namespace }}
           fieldAndValue.fieldPath: ${{ inputs.field_and_value_field_path }}

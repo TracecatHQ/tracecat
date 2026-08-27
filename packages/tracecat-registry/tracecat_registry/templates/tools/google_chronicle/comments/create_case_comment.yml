@@ -35,11 +35,11 @@ definition:
     comment:
       type: str
       description: The content of the comment.
-    alert_identifier:
+    alertIdentifier:
       type: str | None
       description: The alert associated with the comment.
       default: null
-    case_attachment:
+    caseAttachment:
       type: dict[str, Any] | None
       # Union-ish: `CaseAttachment` is all-or-nothing — the vendor marks
       # attachmentBase64, fileType and fileName each Required once the message is
@@ -48,7 +48,7 @@ definition:
         The attachment associated with the comment. Required fields when present:
         attachmentBase64 (base64 encoded attachment), fileType, fileName.
       default: null
-    is_favorite:
+    isFavorite:
       type: bool | None
       description: Whether the comment is marked as a favorite.
       default: null
@@ -60,7 +60,7 @@ definition:
         method: POST
         payload:
           comment: ${{ inputs.comment }}
-          alertIdentifier: ${{ inputs.alert_identifier }}
-          caseAttachment: ${{ inputs.case_attachment }}
-          isFavorite: ${{ inputs.is_favorite }}
+          alertIdentifier: ${{ inputs.alertIdentifier }}
+          caseAttachment: ${{ inputs.caseAttachment }}
+          isFavorite: ${{ inputs.isFavorite }}
   returns: ${{ steps.call_api.result }}

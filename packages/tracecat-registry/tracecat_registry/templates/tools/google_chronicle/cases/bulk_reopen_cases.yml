@@ -29,10 +29,10 @@ definition:
       description: >-
         The instance to execute bulk reopen on. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    cases_ids:
+    casesIds:
       type: list[int]
       description: Cases to reopen.
-    reopen_comment:
+    reopenComment:
       type: str
       description: Comment to add to the cases when reopening them.
   steps:
@@ -42,6 +42,6 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases:executeBulkReopen
         method: POST
         payload:
-          casesIds: ${{ inputs.cases_ids }}
-          reopenComment: ${{ inputs.reopen_comment }}
+          casesIds: ${{ inputs.casesIds }}
+          reopenComment: ${{ inputs.reopenComment }}
   returns: ${{ steps.call_api.result }}

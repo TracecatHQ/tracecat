@@ -29,7 +29,7 @@ definition:
       description: >-
         The instance to execute bulk add tag on. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    cases_ids:
+    casesIds:
       type: list[int]
       description: Cases to add tags to.
     tags:
@@ -42,6 +42,6 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases:executeBulkAddTag
         method: POST
         payload:
-          casesIds: ${{ inputs.cases_ids }}
+          casesIds: ${{ inputs.casesIds }}
           tags: ${{ inputs.tags }}
   returns: ${{ steps.call_api.result }}

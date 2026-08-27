@@ -27,7 +27,7 @@ definition:
       description: >-
         The instance to execute bulk change stage on. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    cases_ids:
+    casesIds:
       type: list[int]
       description: Cases to change stage for.
     stage:
@@ -40,6 +40,6 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases:executeBulkChangeStage
         method: POST
         payload:
-          casesIds: ${{ inputs.cases_ids }}
+          casesIds: ${{ inputs.casesIds }}
           stage: ${{ inputs.stage }}
   returns: ${{ steps.call_api.result }}

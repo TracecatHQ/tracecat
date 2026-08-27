@@ -29,14 +29,14 @@ definition:
         projects/{project}/locations/{location}/instances/{instance}. The "-" wildcard
         token is used as the rule identifier so deployments across all rules are
         returned.
-    page_size:
+    pageSize:
       type: int | None
       description: >-
         The maximum number of rule deployments to return. The service may return fewer
         than this value. If unspecified, at most 100 rule deployments will be returned.
         The maximum value is 1000; values above 1000 will be coerced to 1000.
       default: null
-    page_token:
+    pageToken:
       type: str | None
       description: >-
         A page token, received from a previous deployments.list call. Provide this to
@@ -56,7 +56,7 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules/-/deployments
         method: GET
         params:
-          pageSize: ${{ inputs.page_size }}
-          pageToken: ${{ inputs.page_token }}
+          pageSize: ${{ inputs.pageSize }}
+          pageToken: ${{ inputs.pageToken }}
           filter: ${{ inputs.filter }}
   returns: ${{ steps.call_api.result }}

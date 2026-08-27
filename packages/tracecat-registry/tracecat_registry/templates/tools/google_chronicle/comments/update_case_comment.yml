@@ -32,10 +32,10 @@ definition:
     case:
       type: str
       description: The ID of the Case the comment belongs to.
-    case_comment:
+    caseComment:
       type: str
       description: The ID of the CaseComment to update.
-    update_mask:
+    updateMask:
       type: str
       description: >-
         The list of fields to update. This is a comma-separated list of fully qualified
@@ -45,11 +45,11 @@ definition:
       type: str | None
       description: The content of the comment.
       default: null
-    alert_identifier:
+    alertIdentifier:
       type: str | None
       description: The alert associated with the comment.
       default: null
-    case_attachment:
+    caseAttachment:
       type: dict[str, Any] | None
       # Union-ish: `CaseAttachment` is all-or-nothing — the vendor marks
       # attachmentBase64, fileType and fileName each Required once the message is
@@ -58,7 +58,7 @@ definition:
         The attachment associated with the comment. Required fields when present:
         attachmentBase64 (base64 encoded attachment), fileType, fileName.
       default: null
-    is_favorite:
+    isFavorite:
       type: bool | None
       description: Whether the comment is marked as a favorite.
       default: null
@@ -66,13 +66,13 @@ definition:
     - ref: call_api
       action: tools.google_chronicle.call_api
       args:
-        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}/caseComments/${{ inputs.case_comment }}
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}/caseComments/${{ inputs.caseComment }}
         method: PATCH
         params:
-          updateMask: ${{ inputs.update_mask }}
+          updateMask: ${{ inputs.updateMask }}
         payload:
           comment: ${{ inputs.comment }}
-          alertIdentifier: ${{ inputs.alert_identifier }}
-          caseAttachment: ${{ inputs.case_attachment }}
-          isFavorite: ${{ inputs.is_favorite }}
+          alertIdentifier: ${{ inputs.alertIdentifier }}
+          caseAttachment: ${{ inputs.caseAttachment }}
+          isFavorite: ${{ inputs.isFavorite }}
   returns: ${{ steps.call_api.result }}

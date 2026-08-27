@@ -28,20 +28,20 @@ definition:
       description: >-
         The Chronicle instance associated with the request. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    rule_text:
+    ruleText:
       type: str
       description: The rule text to be tested.
-    start_time:
+    startTime:
       type: str
       description: >-
         Inclusive start of the time range the rule should be tested on, in RFC 3339
         format, e.g. "2014-10-02T15:01:23Z".
-    end_time:
+    endTime:
       type: str
       description: >-
         Exclusive end of the time range the rule should be tested on, in RFC 3339
         format. The range is limited to 14 days.
-    max_results:
+    maxResults:
       type: int | None
       description: >-
         The maximum number of results to return. The service may return fewer than this
@@ -62,10 +62,10 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacy:legacyRunTestRule
         method: POST
         payload:
-          ruleText: ${{ inputs.rule_text }}
+          ruleText: ${{ inputs.ruleText }}
           timeRange:
-            startTime: ${{ inputs.start_time }}
-            endTime: ${{ inputs.end_time }}
-          maxResults: ${{ inputs.max_results }}
+            startTime: ${{ inputs.startTime }}
+            endTime: ${{ inputs.endTime }}
+          maxResults: ${{ inputs.maxResults }}
           scope: ${{ inputs.scope }}
   returns: ${{ steps.call_api.result }}

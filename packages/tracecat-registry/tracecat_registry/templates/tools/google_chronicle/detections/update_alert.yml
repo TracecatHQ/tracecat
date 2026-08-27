@@ -27,7 +27,7 @@ definition:
       description: >-
         Chronicle instance this request is sent to. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    alert_id:
+    alertId:
       type: str
       description: The id of the alert.
     feedback:
@@ -39,11 +39,11 @@ definition:
         The analyst-supplied feedback on the alert. Writable fields: verdict,
         reputation, confidenceScore (0-100), riskScore (0-100), disregarded, severity
         (1-100), comment, status, priority, rootCause, reason, severityDisplay.
-    case_name:
+    caseName:
       type: str | None
       description: The case name that the alert is associated with.
       default: null
-    response_platform_info:
+    responsePlatformInfo:
       type: dict[str, Any] | None
       # Generic: `ResponsePlatformInfo` is not enumerated on this method page, so
       # there is no documented field set to name.
@@ -56,8 +56,8 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacy:legacyUpdateAlert
         method: POST
         payload:
-          alertId: ${{ inputs.alert_id }}
+          alertId: ${{ inputs.alertId }}
           feedback: ${{ inputs.feedback }}
-          caseName: ${{ inputs.case_name }}
-          responsePlatformInfo: ${{ inputs.response_platform_info }}
+          caseName: ${{ inputs.caseName }}
+          responsePlatformInfo: ${{ inputs.responsePlatformInfo }}
   returns: ${{ steps.call_api.result }}

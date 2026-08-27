@@ -36,7 +36,7 @@ definition:
         The rule ID whose deployment to update. RuleDeployment is a child of the overall
         Rule, not any individual revision, so this must not reference a specific
         revision.
-    update_mask:
+    updateMask:
       type: str
       description: >-
         Required. The list of fields to update. This is a comma-separated list of fully
@@ -59,12 +59,12 @@ definition:
         is set to false. If set to true, alerting will automatically be set to false. If
         currently set to true, enabled, alerting, and runFrequency cannot be updated.
       default: null
-    run_frequency:
+    runFrequency:
       type: str | None
       description: >-
         The run frequency of the rule deployment. One of LIVE, HOURLY, DAILY.
       default: null
-    schedule_customizations:
+    scheduleCustomizations:
       type: dict[str, Any] | None
       # Generic: `scheduleCustomizations` is a nested message whose two documented
       # fields (ensureEnrichmentCompleteness, lateArrivingDataAdjustment) travel with
@@ -81,11 +81,11 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules/${{ inputs.rule }}/deployment
         method: PATCH
         params:
-          updateMask: ${{ inputs.update_mask }}
+          updateMask: ${{ inputs.updateMask }}
         payload:
           enabled: ${{ inputs.enabled }}
           alerting: ${{ inputs.alerting }}
           archived: ${{ inputs.archived }}
-          runFrequency: ${{ inputs.run_frequency }}
-          scheduleCustomizations: ${{ inputs.schedule_customizations }}
+          runFrequency: ${{ inputs.runFrequency }}
+          scheduleCustomizations: ${{ inputs.scheduleCustomizations }}
   returns: ${{ steps.call_api.result }}

@@ -32,14 +32,14 @@ definition:
     case:
       type: str
       description: The ID of the Case to list CaseAlerts for.
-    page_size:
+    pageSize:
       type: int | None
       description: >-
         The maximum number of CaseAlerts to return. The service may return fewer than
         this value. If unspecified, at most 50 CaseAlerts will be returned. The maximum
         value is 1000; values above 1000 will be coerced to 1000.
       default: null
-    page_token:
+    pageToken:
       type: str | None
       description: >-
         A page token, received from a previous caseAlerts.list call. Provide this to
@@ -55,7 +55,7 @@ definition:
         startTime, endTime, additionalProperties, involvedRelations. Example:
         filter="displayName='some_name'"
       default: null
-    order_by:
+    orderBy:
       type: str | None
       description: >-
         Configures ordering of CaseAlerts in the response. If not specified, CaseAlerts
@@ -68,7 +68,7 @@ definition:
         Expand the response to include the full alert object. Supported values: sla,
         involvedRelations. Example: "sla, involvedRelations"
       default: null
-    distinct_by:
+    distinctBy:
       type: str | None
       description: 'Fields to distinct results. Example: caseId'
       default: null
@@ -79,10 +79,10 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}/caseAlerts
         method: GET
         params:
-          pageSize: ${{ inputs.page_size }}
-          pageToken: ${{ inputs.page_token }}
+          pageSize: ${{ inputs.pageSize }}
+          pageToken: ${{ inputs.pageToken }}
           filter: ${{ inputs.filter }}
-          orderBy: ${{ inputs.order_by }}
+          orderBy: ${{ inputs.orderBy }}
           expand: ${{ inputs.expand }}
-          distinctBy: ${{ inputs.distinct_by }}
+          distinctBy: ${{ inputs.distinctBy }}
   returns: ${{ steps.call_api.result }}

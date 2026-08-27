@@ -32,13 +32,13 @@ definition:
     indicator:
       type: str
       description: Entity indicator to search for.
-    udm_field:
+    udmField:
       type: str
       description: The UDM field the entity indicator belongs to.
-    entity_namespace:
+    entityNamespace:
       type: str
       description: Namespace of the entity being queried.
-    reference_time:
+    referenceTime:
       type: str
       description: >-
         Reference time to lookup entity, in RFC 3339 format, e.g.
@@ -51,7 +51,7 @@ definition:
         method: GET
         params:
           indicator: ${{ inputs.indicator }}
-          udmField: ${{ inputs.udm_field }}
-          entityNamespace: ${{ inputs.entity_namespace }}
-          referenceTime: ${{ inputs.reference_time }}
+          udmField: ${{ inputs.udmField }}
+          entityNamespace: ${{ inputs.entityNamespace }}
+          referenceTime: ${{ inputs.referenceTime }}
   returns: ${{ steps.call_api.result }}

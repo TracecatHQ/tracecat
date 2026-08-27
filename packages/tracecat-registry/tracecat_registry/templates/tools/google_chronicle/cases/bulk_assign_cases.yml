@@ -27,10 +27,10 @@ definition:
       description: >-
         The instance to execute bulk assign case on. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    cases_ids:
+    casesIds:
       type: list[int]
       description: Cases to assign.
-    user_name:
+    userName:
       type: str
       description: The user name of the new assignee.
   steps:
@@ -40,6 +40,6 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases:executeBulkAssign
         method: POST
         payload:
-          casesIds: ${{ inputs.cases_ids }}
-          userName: ${{ inputs.user_name }}
+          casesIds: ${{ inputs.casesIds }}
+          userName: ${{ inputs.userName }}
   returns: ${{ steps.call_api.result }}

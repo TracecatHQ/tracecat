@@ -33,12 +33,12 @@ definition:
       type: str
       description: >-
         The UDM query to run, including event, statistics, or SQL queries.
-    start_time:
+    startTime:
       type: str
       description: >-
         Inclusive start of the time range to search, as an RFC 3339 timestamp, e.g.
         "2014-10-02T15:01:23Z".
-    end_time:
+    endTime:
       type: str
       description: >-
         Exclusive end of the time range to search, as an RFC 3339 timestamp.
@@ -48,7 +48,7 @@ definition:
         Maximum number of results to return. Chronicle coerces values over 10000 to
         10000.
       default: 100
-    query_dialect:
+    queryDialect:
       type: str
       description: >-
         Language of the query string. Chronicle supports YL2 and SQL.
@@ -66,8 +66,8 @@ definition:
         timeout: ${{ inputs.timeout }}
         params:
           query: ${{ inputs.query }}
-          timeRange.startTime: ${{ inputs.start_time }}
-          timeRange.endTime: ${{ inputs.end_time }}
+          timeRange.startTime: ${{ inputs.startTime }}
+          timeRange.endTime: ${{ inputs.endTime }}
           limit: ${{ inputs.limit }}
-          queryDialect: ${{ inputs.query_dialect }}
+          queryDialect: ${{ inputs.queryDialect }}
   returns: ${{ steps.call_api.result }}

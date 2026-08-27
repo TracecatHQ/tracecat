@@ -28,10 +28,10 @@ definition:
         The name of the parent resource, which is the SecOps instance this request is
         sent to. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    detection_id:
+    detectionId:
       type: str
       description: The unique ID of the curated detection, as a base64-encoded string.
-    page_size:
+    pageSize:
       type: int | None
       description: >-
         Number of events to return per page. Default value is 1000 if the pageSize is
@@ -56,8 +56,8 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacy:legacyGetEventForDetection
         method: GET
         params:
-          detectionId: ${{ inputs.detection_id }}
-          pageSize: ${{ inputs.page_size }}
+          detectionId: ${{ inputs.detectionId }}
+          pageSize: ${{ inputs.pageSize }}
           nextPageToken.lastRowTime: ${{ inputs.next_page_token_last_row_time }}
           nextPageToken.offset: ${{ inputs.next_page_token_offset }}
           nextPageToken.lastRowId: ${{ inputs.next_page_token_last_row_id }}

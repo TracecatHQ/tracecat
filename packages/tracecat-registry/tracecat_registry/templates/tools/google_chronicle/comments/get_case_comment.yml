@@ -32,7 +32,7 @@ definition:
     case:
       type: str
       description: The ID of the Case the comment belongs to.
-    case_comment:
+    caseComment:
       type: str
       description: The ID of the CaseComment to retrieve.
     expand:
@@ -43,7 +43,7 @@ definition:
     - ref: call_api
       action: tools.google_chronicle.call_api
       args:
-        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}/caseComments/${{ inputs.case_comment }}
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}/caseComments/${{ inputs.caseComment }}
         method: GET
         params:
           expand: ${{ inputs.expand }}

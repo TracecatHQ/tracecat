@@ -28,7 +28,7 @@ definition:
         The name of the parent resource, which is the SecOps instance associated with
         the request. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    rule_text:
+    ruleText:
       type: str
       description: The rule text to verify as a UTF-8 string.
   steps:
@@ -38,5 +38,5 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}:verifyRuleText
         method: POST
         payload:
-          ruleText: ${{ inputs.rule_text }}
+          ruleText: ${{ inputs.ruleText }}
   returns: ${{ steps.call_api.result }}

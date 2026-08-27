@@ -32,14 +32,14 @@ definition:
     case:
       type: str
       description: The ID of the Case to list CaseComments for.
-    page_size:
+    pageSize:
       type: int | None
       description: >-
         The maximum number of CaseComments to return. The service may return fewer than
         this value. If unspecified, at most 50 CaseComments will be returned. The
         maximum value is 1000; values above 1000 will be coerced to 1000.
       default: null
-    page_token:
+    pageToken:
       type: str | None
       description: >-
         A page token, received from a previous caseComments.list call. Provide this to
@@ -53,7 +53,7 @@ definition:
         createTime, updateTime, user, comment, deletionInvoker, favorite, alert,
         deleted. Example: filter="comment='some_comment'"
       default: null
-    order_by:
+    orderBy:
       type: str | None
       description: >-
         Configures ordering of CaseComments in the response. If not specified,
@@ -74,9 +74,9 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}/caseComments
         method: GET
         params:
-          pageSize: ${{ inputs.page_size }}
-          pageToken: ${{ inputs.page_token }}
+          pageSize: ${{ inputs.pageSize }}
+          pageToken: ${{ inputs.pageToken }}
           filter: ${{ inputs.filter }}
-          orderBy: ${{ inputs.order_by }}
+          orderBy: ${{ inputs.orderBy }}
           expand: ${{ inputs.expand }}
   returns: ${{ steps.call_api.result }}

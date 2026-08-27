@@ -107,7 +107,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="cases_ids" type="array[integer]" required>
+<ParamField path="casesIds" type="array[integer]" required>
 
 Cases to add tags to.
 
@@ -150,7 +150,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="cases_ids" type="array[integer]" required>
+<ParamField path="casesIds" type="array[integer]" required>
 
 Cases to assign.
 
@@ -162,7 +162,7 @@ The instance to execute bulk assign case on. Format: projects/&#123;project&#125
 
 </ParamField>
 
-<ParamField path="user_name" type="string" required>
+<ParamField path="userName" type="string" required>
 
 The user name of the new assignee.
 
@@ -193,7 +193,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="cases_ids" type="array[integer]" required>
+<ParamField path="casesIds" type="array[integer]" required>
 
 Cases to change priority for.
 
@@ -236,7 +236,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="cases_ids" type="array[integer]" required>
+<ParamField path="casesIds" type="array[integer]" required>
 
 Cases to change stage for.
 
@@ -279,13 +279,13 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="cases_ids" type="array[integer]" required>
+<ParamField path="casesIds" type="array[integer]" required>
 
 Cases to close.
 
 </ParamField>
 
-<ParamField path="close_reason" type="string" required>
+<ParamField path="closeReason" type="string" required>
 
 Close reason. One of CLOSE_REASON_UNSPECIFIED, MALICIOUS, NOT_MALICIOUS, MAINTENANCE, INCONCLUSIVE, UNKNOWN.
 
@@ -305,7 +305,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="close_comment" type="string | null">
+<ParamField path="closeComment" type="string | null">
 
 Comment to add to the cases when closing them.
 
@@ -313,7 +313,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="dynamic_parameters" type="array[object] | null">
+<ParamField path="dynamicParameters" type="array[object] | null">
 
 Dynamic parameters added to the close case action. Each entry carries id (integer) and values (list of strings).
 
@@ -321,7 +321,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="root_cause" type="string | null">
+<ParamField path="rootCause" type="string | null">
 
 Root cause of closing the cases.
 
@@ -346,7 +346,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="cases_ids" type="array[integer]" required>
+<ParamField path="casesIds" type="array[integer]" required>
 
 Cases to reopen.
 
@@ -358,7 +358,7 @@ The instance to execute bulk reopen on. Format: projects/&#123;project&#125;/loc
 
 </ParamField>
 
-<ParamField path="reopen_comment" type="string" required>
+<ParamField path="reopenComment" type="string" required>
 
 Comment to add to the cases when reopening them.
 
@@ -485,7 +485,7 @@ The ID of the Case the alert belongs to.
 
 </ParamField>
 
-<ParamField path="case_alert" type="string" required>
+<ParamField path="caseAlert" type="string" required>
 
 The ID of the CaseAlert to update.
 
@@ -620,7 +620,7 @@ The ID of the Case the alert belongs to.
 
 </ParamField>
 
-<ParamField path="case_alert" type="string" required>
+<ParamField path="caseAlert" type="string" required>
 
 The ID of the CaseAlert to close.
 
@@ -652,7 +652,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="root_cause" type="string | null">
+<ParamField path="rootCause" type="string | null">
 
 Alert closure root cause.
 
@@ -695,7 +695,7 @@ Chronicle instance this request is sent to. Format: projects/&#123;project&#125;
 
 </ParamField>
 
-<ParamField path="alert_identifier" type="string | null">
+<ParamField path="alertIdentifier" type="string | null">
 
 The alert associated with the comment.
 
@@ -711,7 +711,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="case_attachment" type="object | null">
+<ParamField path="caseAttachment" type="object | null">
 
 The attachment associated with the comment. Required fields when present: attachmentBase64 (base64 encoded attachment), fileType, fileName.
 
@@ -719,7 +719,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="is_favorite" type="boolean | null">
+<ParamField path="isFavorite" type="boolean | null">
 
 Whether the comment is marked as a favorite.
 
@@ -744,7 +744,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="end_time" type="string" required>
+<ParamField path="endTime" type="string" required>
 
 Exclusive end of the event time range this retrohunt processes, in RFC 3339 format.
 
@@ -762,7 +762,7 @@ The rule the retrohunt belongs to, optionally suffixed with `@&#123;revisionId&#
 
 </ParamField>
 
-<ParamField path="start_time" type="string" required>
+<ParamField path="startTime" type="string" required>
 
 Inclusive start of the event time range this retrohunt processes, in RFC 3339 format, e.g. "2014-10-02T15:01:23Z".
 
@@ -844,7 +844,7 @@ The ID of the Case the comment belongs to.
 
 </ParamField>
 
-<ParamField path="case_comment" type="string" required>
+<ParamField path="caseComment" type="string" required>
 
 The ID of the CaseComment to delete.
 
@@ -1000,7 +1000,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="end_time" type="string" required>
+<ParamField path="endTime" type="string" required>
 
 Exclusive end of the time range to search, as an RFC 3339 timestamp.
 
@@ -1018,7 +1018,7 @@ The UDM query to run, including event, statistics, or SQL queries.
 
 </ParamField>
 
-<ParamField path="start_time" type="string" required>
+<ParamField path="startTime" type="string" required>
 
 Inclusive start of the time range to search, as an RFC 3339 timestamp, e.g. "2014-10-02T15:01:23Z".
 
@@ -1040,7 +1040,7 @@ Default: `100`.
 
 </ParamField>
 
-<ParamField path="query_dialect" type="string">
+<ParamField path="queryDialect" type="string">
 
 Language of the query string. Chronicle supports YL2 and SQL.
 
@@ -1073,7 +1073,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="entity_namespace" type="string" required>
+<ParamField path="entityNamespace" type="string" required>
 
 Namespace of the entity being queried.
 
@@ -1091,13 +1091,13 @@ The ID of the Instance to find entity for. Format: projects/&#123;project&#125;/
 
 </ParamField>
 
-<ParamField path="reference_time" type="string" required>
+<ParamField path="referenceTime" type="string" required>
 
 Reference time to lookup entity, in RFC 3339 format, e.g. "2014-10-02T15:01:23Z".
 
 </ParamField>
 
-<ParamField path="udm_field" type="string" required>
+<ParamField path="udmField" type="string" required>
 
 The UDM field the entity indicator belongs to.
 
@@ -1128,7 +1128,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="end_time" type="string" required>
+<ParamField path="endTime" type="string" required>
 
 Exclusive end of the time range to retrieve the alerts for, in RFC 3339 format.
 
@@ -1140,7 +1140,7 @@ The ID of the Instance to summarize entity for. Format: projects/&#123;project&#
 
 </ParamField>
 
-<ParamField path="start_time" type="string" required>
+<ParamField path="startTime" type="string" required>
 
 Inclusive start of the time range to retrieve the alerts for, in RFC 3339 format, e.g. "2014-10-02T15:01:23Z".
 
@@ -1154,7 +1154,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="entity_id" type="string | null">
+<ParamField path="entityId" type="string | null">
 
 ID of the entity. Use this or the `field_and_value_*` inputs to identify the entity.
 
@@ -1211,7 +1211,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="end_time" type="string" required>
+<ParamField path="endTime" type="string" required>
 
 Exclusive end of the time range to search related entities for, in RFC 3339 format.
 
@@ -1223,7 +1223,7 @@ The name of the parent resource, which is the SecOps instance to find related en
 
 </ParamField>
 
-<ParamField path="start_time" type="string" required>
+<ParamField path="startTime" type="string" required>
 
 Inclusive start of the time range to search related entities for, in RFC 3339 format, e.g. "2014-10-02T15:01:23Z".
 
@@ -1237,7 +1237,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="domain_type" type="string | null">
+<ParamField path="domainType" type="string | null">
 
 The domain type to retrieve. This is taken into account when the entity type is specified as "DOMAIN_NAME".
 
@@ -1245,7 +1245,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="entity_id" type="string | null">
+<ParamField path="entityId" type="string | null">
 
 ID of the entity. Use this or the `field_and_value_*` inputs to identify the entity.
 
@@ -1253,7 +1253,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="entity_types" type="array[string] | null">
+<ParamField path="entityTypes" type="array[string] | null">
 
 Entity types to filter related entities by. If unspecified, will return all related entities for the given entity.
 
@@ -1261,7 +1261,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="exclude_first_last_seen" type="boolean | null">
+<ParamField path="excludeFirstLastSeen" type="boolean | null">
 
 If true, then the related entities will not have first/last seen info and reduce latency of endpoint.
 
@@ -1301,7 +1301,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="include_all_udm_event_types_for_first_last_seen" type="boolean | null">
+<ParamField path="includeAllUdmEventTypesForFirstLastSeen" type="boolean | null">
 
 If true, it includes all types of events we show in UDM Search to calculate the first and last seen time of an entity.
 
@@ -1379,7 +1379,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="alert_id" type="string" required>
+<ParamField path="alertId" type="string" required>
 
 The ID of the collection to return.
 
@@ -1399,7 +1399,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="include_detections" type="boolean | null">
+<ParamField path="includeDetections" type="boolean | null">
 
 If set to true, response will include non-alerting detections.
 
@@ -1475,7 +1475,7 @@ The ID of the Case the alert belongs to.
 
 </ParamField>
 
-<ParamField path="case_alert" type="string" required>
+<ParamField path="caseAlert" type="string" required>
 
 The ID of the CaseAlert to retrieve.
 
@@ -1526,7 +1526,7 @@ The ID of the Case the comment belongs to.
 
 </ParamField>
 
-<ParamField path="case_comment" type="string" required>
+<ParamField path="caseComment" type="string" required>
 
 The ID of the CaseComment to retrieve.
 
@@ -1571,7 +1571,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="detection_id" type="string" required>
+<ParamField path="detectionId" type="string" required>
 
 The detection to get.
 
@@ -1583,7 +1583,7 @@ The name of the parent resource, which is the SecOps instance this request is se
 
 </ParamField>
 
-<ParamField path="rule_id" type="string" required>
+<ParamField path="ruleId" type="string" required>
 
 The specific rule revision to get a detection for. There are two acceptable formats: "&#123;ruleId&#125;" gets a detection for the latest revision of the Rule, and "&#123;ruleId&#125;@&#123;revisionId&#125;" gets a detection for that revision.
 
@@ -1614,7 +1614,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="detection_id" type="string" required>
+<ParamField path="detectionId" type="string" required>
 
 The unique ID of the curated detection, as a base64-encoded string.
 
@@ -1658,7 +1658,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 Number of events to return per page. Default value is 1000 if the pageSize is not set in the request.
 
@@ -1865,7 +1865,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="distinct_by" type="string | null">
+<ParamField path="distinctBy" type="string | null">
 
 Fields to distinct results. Example: caseId
 
@@ -1889,7 +1889,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="order_by" type="string | null">
+<ParamField path="orderBy" type="string | null">
 
 Configures ordering of CaseAlerts in the response. If not specified, CaseAlerts are returned in descending order of their create time. The orderBy string is a comma separated list of fields. Example: "displayName desc, default"
 
@@ -1897,7 +1897,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 The maximum number of CaseAlerts to return. The service may return fewer than this value. If unspecified, at most 50 CaseAlerts will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000.
 
@@ -1905,7 +1905,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_token" type="string | null">
+<ParamField path="pageToken" type="string | null">
 
 A page token, received from a previous caseAlerts.list call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided to caseAlerts.list must match the call that provided the page token.
 
@@ -1966,7 +1966,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="order_by" type="string | null">
+<ParamField path="orderBy" type="string | null">
 
 Configures ordering of CaseComments in the response. If not specified, CaseComments are returned in descending order of their create time. Supported sort fields: createTime, updateTime, user, comment, deletionInvoker, favorite, alert, deleted. For example: "comment desc, favorite"
 
@@ -1974,7 +1974,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 The maximum number of CaseComments to return. The service may return fewer than this value. If unspecified, at most 50 CaseComments will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000.
 
@@ -1982,7 +1982,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_token" type="string | null">
+<ParamField path="pageToken" type="string | null">
 
 A page token, received from a previous caseComments.list call. Provide this to retrieve the subsequent page. When paginating, all other parameters must match the call that provided the page token.
 
@@ -2021,7 +2021,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="distinct_by" type="string | null">
+<ParamField path="distinctBy" type="string | null">
 
 The field to distinct the cases by.
 
@@ -2045,7 +2045,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="order_by" type="string | null">
+<ParamField path="orderBy" type="string | null">
 
 Configures ordering of Cases in the response. If not specified, Cases are returned in descending order of their create time. The orderBy string is a comma separated list of fields. Example: "displayName desc, priority"
 
@@ -2053,7 +2053,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 The maximum number of cases to return. The service may return fewer than this value. If unspecified, at most 50 Cases will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000.
 
@@ -2061,7 +2061,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_token" type="string | null">
+<ParamField path="pageToken" type="string | null">
 
 A page token, received from a previous cases.list call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided to cases.list must match the call that provided the page token.
 
@@ -2092,13 +2092,13 @@ Chronicle instance this request is sent to. Format: projects/&#123;project&#125;
 
 </ParamField>
 
-<ParamField path="rule_id" type="string" required>
+<ParamField path="ruleId" type="string" required>
 
 The specific rule revision to search detections for. There are four acceptable formats: "&#123;ruleId&#125;" retrieves detections for the latest revision of the Rule; "&#123;ruleId&#125;@&#123;revisionId&#125;" retrieves detections for that revision; "&#123;ruleId&#125;@-" retrieves detections for all revisions of the Rule; "-" retrieves detections for all revisions of all Rules.
 
 </ParamField>
 
-<ParamField path="alert_state" type="string | null">
+<ParamField path="alertState" type="string | null">
 
 An enum that filters which detections are returned by their AlertState. One of UNSPECIFIED, NOT_ALERTING, ALERTING.
 
@@ -2114,7 +2114,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="end_time" type="string | null">
+<ParamField path="endTime" type="string | null">
 
 The time to end searching detections to, exclusive, in RFC 3339 format.
 
@@ -2122,7 +2122,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="include_nested_detections" type="boolean | null">
+<ParamField path="includeNestedDetections" type="boolean | null">
 
 If true, include one level of nested detections in the response.
 
@@ -2130,15 +2130,15 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="include_simulated_detections" type="boolean | null">
+<ParamField path="includeSimulatedDetections" type="boolean | null">
 
-Deprecated. If true, include simulated detections in the response. Prefer simulated_data_visibility for new workflows.
+Deprecated. If true, include simulated detections in the response. Prefer simulatedDataVisibility for new workflows.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="list_basis" type="string | null">
+<ParamField path="listBasis" type="string | null">
 
 Basis for determining whether to apply startTime and endTime filters for detection time or creation time of the detection. One of LIST_BASIS_UNSPECIFIED, DETECTION_TIME, CREATED_TIME.
 
@@ -2146,7 +2146,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="max_resp_size_bytes" type="integer | null">
+<ParamField path="maxRespSizeBytes" type="integer | null">
 
 The maximum size of response in bytes. If it is set to 0 (or is omitted), the server will not enforce any max response size limit.
 
@@ -2154,7 +2154,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 Maximum number of detections to return.
 
@@ -2162,7 +2162,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_token" type="string | null">
+<ParamField path="pageToken" type="string | null">
 
 A page token, received from a previous legacy.legacySearchDetections call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided to legacy.legacySearchDetections must match the call that provided the page token.
 
@@ -2170,7 +2170,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="simulated_data_visibility" type="string | null">
+<ParamField path="simulatedDataVisibility" type="string | null">
 
 Specifies visibility of simulated data to include in search results.
 
@@ -2178,7 +2178,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="start_time" type="string | null">
+<ParamField path="startTime" type="string | null">
 
 The time to start search detections from, inclusive, in RFC 3339 format, e.g. "2014-10-02T15:01:23Z".
 
@@ -2225,7 +2225,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 The standard list page size.
 
@@ -2233,7 +2233,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_token" type="string | null">
+<ParamField path="pageToken" type="string | null">
 
 The standard list page token.
 
@@ -2241,7 +2241,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="return_partial_success" type="boolean | null">
+<ParamField path="returnPartialSuccess" type="boolean | null">
 
 Return reachable operations normally and report unreachable collections in the response. Chronicle may return UNIMPLEMENTED when this option is unsupported.
 
@@ -2294,7 +2294,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 The maximum number of retrohunt to return. The service may return fewer than this value. If unspecified, at most 100 retrohunts will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000.
 
@@ -2302,7 +2302,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_token" type="string | null">
+<ParamField path="pageToken" type="string | null">
 
 A page token, received from a previous retrohunts.list call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided to retrohunts.list must match the call that provided the page token.
 
@@ -2349,7 +2349,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 The maximum number of rule deployments to return. The service may return fewer than this value. If unspecified, at most 100 rule deployments will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000.
 
@@ -2357,7 +2357,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_token" type="string | null">
+<ParamField path="pageToken" type="string | null">
 
 A page token, received from a previous deployments.list call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided to deployments.list must match the call that provided the page token.
 
@@ -2404,7 +2404,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 The maximum number of rule execution errors to return. The service may return fewer than this value. If unspecified, at most 1000 rule execution errors will be returned. The maximum value is 10000; values above 10000 will be coerced to 10000.
 
@@ -2412,7 +2412,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_token" type="string | null">
+<ParamField path="pageToken" type="string | null">
 
 A page token, received from a previous ruleExecutionErrors.list call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided to ruleExecutionErrors.list must match the call that provided the page token.
 
@@ -2457,7 +2457,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 The maximum number of revisions to return per page. The service may return fewer than this value. If unspecified, at most 100 revisions will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000.
 
@@ -2465,7 +2465,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_token" type="string | null">
+<ParamField path="pageToken" type="string | null">
 
 The page token, received from a previous rules.listRevisions call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided to rules.listRevisions must match the call that provided the page token.
 
@@ -2520,7 +2520,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="order_by" type="string | null">
+<ParamField path="orderBy" type="string | null">
 
 The sort order of the rules. If unspecified, rules will be sorted by revisionCreateTime desc ruleId asc. Sorting is supported on a single field only. Supported fields: "archived", "alertingEnabled", "author", "createTime", "currentDayDetectionCount", "displayName", "executionState", "liveModeEnabled", "revisionCreateTime", "ruleId", "ruleOwner", "severity", "type". Example: "displayName desc"
 
@@ -2528,7 +2528,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 The maximum number of rules to return. The service may return fewer than this value. If unspecified, at most 100 rules will be returned. The maximum value is 1000, or 5000 if `view` is set to CONFIG_ONLY; values above the applicable maximum will be coerced to that maximum.
 
@@ -2536,7 +2536,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_token" type="string | null">
+<ParamField path="pageToken" type="string | null">
 
 A page token, received from a previous rules.list call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided to rules.list must match the call that provided the page token.
 
@@ -2583,7 +2583,7 @@ The ID of the Case the alert belongs to.
 
 </ParamField>
 
-<ParamField path="case_alert" type="string" required>
+<ParamField path="caseAlert" type="string" required>
 
 The ID of the CaseAlert to reopen.
 
@@ -2620,7 +2620,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="end_time" type="string" required>
+<ParamField path="endTime" type="string" required>
 
 Exclusive end of the time range to search, in RFC 3339 format.
 
@@ -2632,13 +2632,13 @@ The name of the parent resource, which is the SecOps instance. Format: projects/
 
 </ParamField>
 
-<ParamField path="snapshot_query" type="string" required>
+<ParamField path="snapshotQuery" type="string" required>
 
 This uses a syntax similar to UDM search, with support for all fields within 7 levels of nesting within the collection proto. For composite detections, the filters prefixed with "collectionElements.references.event" or "collectionElements.references.entity" are also checked against one-level of producer detections.
 
 </ParamField>
 
-<ParamField path="start_time" type="string" required>
+<ParamField path="startTime" type="string" required>
 
 Inclusive start of the time range to search, in RFC 3339 format, e.g. "2014-10-02T15:01:23Z".
 
@@ -2652,7 +2652,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="baseline_query" type="string | null">
+<ParamField path="baselineQuery" type="string | null">
 
 The baseline query is used for this request and its results are cached for subsequent requests, so that supplying additional filters in the snapshotQuery will not require re-running the baseline query. This uses a syntax similar to UDM search, and all fields are supported except for the path prefix `feedbackSummary.*`.
 
@@ -2660,7 +2660,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="enable_cache" type="string | null">
+<ParamField path="enableCache" type="string | null">
 
 If enabled, subsequent requests for the same time range and baseline query will try to leverage our cache to serve the response with filters applied in the snapshot query. One of ALERTS_FEATURE_PREFERENCE_UNSPECIFIED, ALERTS_FEATURE_PREFERENCE_ENABLED, ALERTS_FEATURE_PREFERENCE_DISABLED.
 
@@ -2836,7 +2836,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="include_non_alerting_detections" type="string | null">
+<ParamField path="includeNonAlertingDetections" type="string | null">
 
 Whether to include non-alerting detections in the response. One of ALERTS_FEATURE_PREFERENCE_UNSPECIFIED, ALERTS_FEATURE_PREFERENCE_ENABLED, ALERTS_FEATURE_PREFERENCE_DISABLED.
 
@@ -2844,7 +2844,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="max_response_alerts_bytes" type="string | null">
+<ParamField path="maxResponseAlertsBytes" type="string | null">
 
 The maximum size, in bytes, of the alerts data returned in the response, as an int64 string. If the total size of alerts exceeds this limit, the list of alerts is truncated and `memoryLimitExceeded` is set in the response. If unspecified or set to 0, no size limit is applied.
 
@@ -2868,7 +2868,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="simulated_data_visibility" type="string | null">
+<ParamField path="simulatedDataVisibility" type="string | null">
 
 Specifies visibility of simulated data to include in search results.
 
@@ -2899,7 +2899,7 @@ The instance to get the search results for. Format: projects/&#123;project&#125;
 
 </ParamField>
 
-<ParamField path="assigned_users" type="array[string] | null">
+<ParamField path="assignedUsers" type="array[string] | null">
 
 A list of strings that represents the Users (analysts) / Roles that are assigned to the case. Available inputs: Username (GUID) / @Role name.
 
@@ -2915,7 +2915,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="case_comment" type="string | null">
+<ParamField path="caseComment" type="string | null">
 
 A string that represents a part of the body of a case comment to search for in cases.
 
@@ -2923,7 +2923,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="case_source" type="array[string] | null">
+<ParamField path="caseSource" type="array[string] | null">
 
 List of strings representing case sources. Available inputs: System / Manual / Test.
 
@@ -2931,7 +2931,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="category_outcomes" type="array[string] | null">
+<ParamField path="categoryOutcomes" type="array[string] | null">
 
 List of strings that represents whether to fetch cases that contain a specific value in CategoryOutcome. Available inputs: Allowed / Blocked / [] (empty).
 
@@ -2939,7 +2939,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="close_reason" type="string | null">
+<ParamField path="closeReason" type="string | null">
 
 Represents the reason the case was closed and fetches cases that match the value.
 
@@ -2947,7 +2947,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="disable_time_range_localization" type="boolean | null">
+<ParamField path="disableTimeRangeLocalization" type="boolean | null">
 
 A boolean field that represents whether the Localization (timezone) settings should be ignored. Applies to startTime and endTime. Available inputs: true / false / null.
 
@@ -2955,7 +2955,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="end_time" type="string | null">
+<ParamField path="endTime" type="string | null">
 
 The UTC end time to search for cases by creation time, in RFC 3339 format. Used if timeRangeFilter is set to the custom filter. Defaults to current time.
 
@@ -2971,7 +2971,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="external_alert_id" type="string | null">
+<ParamField path="externalAlertId" type="string | null">
 
 Represents the 'TicketId' mapped from the original SIEM's alert ID.
 
@@ -2995,7 +2995,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="involved_entity" type="string | null">
+<ParamField path="involvedEntity" type="string | null">
 
 A string that represents an entity to search for in cases.
 
@@ -3003,7 +3003,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="is_case_closed" type="boolean | null">
+<ParamField path="isCaseClosed" type="boolean | null">
 
 A boolean field that represents whether to filter by the case status (is closed or not). Available inputs: true / false / null.
 
@@ -3011,7 +3011,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 Number of entries to return.
 
@@ -3051,7 +3051,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="requested_page" type="integer | null">
+<ParamField path="requestedPage" type="integer | null">
 
 The requested page.
 
@@ -3059,7 +3059,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="rule_generator" type="array[string] | null">
+<ParamField path="ruleGenerator" type="array[string] | null">
 
 List of strings that represents the Rule Generator (Alert Type in the Platform) that exist in the case.
 
@@ -3067,7 +3067,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="search_term" type="string | null">
+<ParamField path="searchTerm" type="string | null">
 
 Search term.
 
@@ -3075,7 +3075,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="sort_by" type="object | null">
+<ParamField path="sortBy" type="object | null">
 
 The sort by property and order.
 
@@ -3091,7 +3091,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="start_time" type="string | null">
+<ParamField path="startTime" type="string | null">
 
 The UTC start time to search for cases by creation time, in RFC 3339 format. Used if timeRangeFilter is set to the custom filter. Defaults to the start of epoch time.
 
@@ -3107,7 +3107,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="time_range_filter" type="string | null">
+<ParamField path="timeRangeFilter" type="string | null">
 
 Represents the number of days back to search cases by creation time. For a custom time range use 0 and set the startTime and endTime parameters.
 
@@ -3140,13 +3140,13 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="end_time" type="string" required>
+<ParamField path="endTime" type="string" required>
 
 Exclusive end of the times range to get the findings from, in RFC 3339 format.
 
 </ParamField>
 
-<ParamField path="finding_type" type="array[string]" required>
+<ParamField path="findingType" type="array[string]" required>
 
 Finding type: Uppercase, DSML, etc.
 
@@ -3158,7 +3158,7 @@ The name of the parent resource, which is the SecOps instance this request is se
 
 </ParamField>
 
-<ParamField path="start_time" type="string" required>
+<ParamField path="startTime" type="string" required>
 
 Inclusive start of the times range to get the findings from, in RFC 3339 format, e.g. "2014-10-02T15:01:23Z".
 
@@ -3196,7 +3196,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="page_size" type="integer | null">
+<ParamField path="pageSize" type="integer | null">
 
 Number of findings to return per page. Default value is 1000 if the pageSize is not set in the request.
 
@@ -3221,7 +3221,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="end_time" type="string" required>
+<ParamField path="endTime" type="string" required>
 
 Exclusive end of the time range the rule should be tested on, in RFC 3339 format. The range is limited to 14 days.
 
@@ -3233,13 +3233,13 @@ The Chronicle instance associated with the request. Format: projects/&#123;proje
 
 </ParamField>
 
-<ParamField path="rule_text" type="string" required>
+<ParamField path="ruleText" type="string" required>
 
 The rule text to be tested.
 
 </ParamField>
 
-<ParamField path="start_time" type="string" required>
+<ParamField path="startTime" type="string" required>
 
 Inclusive start of the time range the rule should be tested on, in RFC 3339 format, e.g. "2014-10-02T15:01:23Z".
 
@@ -3253,7 +3253,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="max_results" type="integer | null">
+<ParamField path="maxResults" type="integer | null">
 
 The maximum number of results to return. The service may return fewer than this value. If unspecified, at most 1000 detections will be returned. The maximum value is 10000; values above 10000 will be coerced to 10000.
 
@@ -3286,7 +3286,7 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="alert_id" type="string" required>
+<ParamField path="alertId" type="string" required>
 
 The id of the alert.
 
@@ -3312,7 +3312,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="case_name" type="string | null">
+<ParamField path="caseName" type="string | null">
 
 The case name that the alert is associated with.
 
@@ -3320,7 +3320,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="response_platform_info" type="object | null">
+<ParamField path="responsePlatformInfo" type="object | null">
 
 The response platform info of the alert.
 
@@ -3351,7 +3351,7 @@ The ID of the Case the comment belongs to.
 
 </ParamField>
 
-<ParamField path="case_comment" type="string" required>
+<ParamField path="caseComment" type="string" required>
 
 The ID of the CaseComment to update.
 
@@ -3363,13 +3363,13 @@ Chronicle instance this request is sent to. Format: projects/&#123;project&#125;
 
 </ParamField>
 
-<ParamField path="update_mask" type="string" required>
+<ParamField path="updateMask" type="string" required>
 
 The list of fields to update. This is a comma-separated list of fully qualified names of fields, e.g. "comment". If not included, all fields with default/non-default values will be overwritten.
 
 </ParamField>
 
-<ParamField path="alert_identifier" type="string | null">
+<ParamField path="alertIdentifier" type="string | null">
 
 The alert associated with the comment.
 
@@ -3385,7 +3385,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="case_attachment" type="object | null">
+<ParamField path="caseAttachment" type="object | null">
 
 The attachment associated with the comment. Required fields when present: attachmentBase64 (base64 encoded attachment), fileType, fileName.
 
@@ -3401,7 +3401,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="is_favorite" type="boolean | null">
+<ParamField path="isFavorite" type="boolean | null">
 
 Whether the comment is marked as a favorite.
 
@@ -3462,7 +3462,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="update_mask" type="string | null">
+<ParamField path="updateMask" type="string | null">
 
 The list of fields to update. If not included, all fields with a non-empty value will be overwritten. This is a comma-separated list of fully qualified names of fields, e.g. "text".
 
@@ -3499,7 +3499,7 @@ The rule ID whose deployment to update. RuleDeployment is a child of the overall
 
 </ParamField>
 
-<ParamField path="update_mask" type="string" required>
+<ParamField path="updateMask" type="string" required>
 
 Required. The list of fields to update. This is a comma-separated list of fully qualified names of fields, e.g. "enabled,alerting". Schedule customizations are tied to run frequency and must be updated with the "runFrequency" mask.
 
@@ -3537,7 +3537,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="run_frequency" type="string | null">
+<ParamField path="runFrequency" type="string | null">
 
 The run frequency of the rule deployment. One of LIVE, HOURLY, DAILY.
 
@@ -3545,7 +3545,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="schedule_customizations" type="object | null">
+<ParamField path="scheduleCustomizations" type="object | null">
 
 The schedule customizations of the rule deployment. Only valid for customizable run frequencies. Documented fields: ensureEnrichmentCompleteness (boolean), lateArrivingDataAdjustment (duration string, e.g. "3.5s").
 
@@ -3576,7 +3576,7 @@ The name of the parent resource, which is the SecOps instance associated with th
 
 </ParamField>
 
-<ParamField path="rule_text" type="string" required>
+<ParamField path="ruleText" type="string" required>
 
 The rule text to verify as a UTF-8 string.
 

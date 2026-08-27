@@ -27,10 +27,10 @@ definition:
       description: >-
         Chronicle instance this request is sent to. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    alert_id:
+    alertId:
       type: str
       description: The ID of the collection to return.
-    include_detections:
+    includeDetections:
       type: bool | None
       description: If set to true, response will include non-alerting detections.
       default: null
@@ -41,6 +41,6 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacy:legacyGetAlert
         method: GET
         params:
-          alertId: ${{ inputs.alert_id }}
-          includeDetections: ${{ inputs.include_detections }}
+          alertId: ${{ inputs.alertId }}
+          includeDetections: ${{ inputs.includeDetections }}
   returns: ${{ steps.call_api.result }}

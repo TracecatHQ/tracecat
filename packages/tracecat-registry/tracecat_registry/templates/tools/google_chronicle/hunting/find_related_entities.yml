@@ -30,17 +30,17 @@ definition:
         The name of the parent resource, which is the SecOps instance to find related
         entities for. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    start_time:
+    startTime:
       type: str
       description: >-
         Inclusive start of the time range to search related entities for, in RFC 3339
         format, e.g. "2014-10-02T15:01:23Z".
-    end_time:
+    endTime:
       type: str
       description: >-
         Exclusive end of the time range to search related entities for, in RFC 3339
         format.
-    entity_id:
+    entityId:
       type: str | None
       description: >-
         ID of the entity. Use this or the `field_and_value_*` inputs to identify the
@@ -62,25 +62,25 @@ definition:
       type: str | None
       description: Chronicle value type identifying the indicator type.
       default: null
-    entity_types:
+    entityTypes:
       type: list[str] | None
       description: >-
         Entity types to filter related entities by. If unspecified, will return all
         related entities for the given entity.
       default: null
-    domain_type:
+    domainType:
       type: str | None
       description: >-
         The domain type to retrieve. This is taken into account when the entity type is
         specified as "DOMAIN_NAME".
       default: null
-    exclude_first_last_seen:
+    excludeFirstLastSeen:
       type: bool | None
       description: >-
         If true, then the related entities will not have first/last seen info and reduce
         latency of endpoint.
       default: null
-    include_all_udm_event_types_for_first_last_seen:
+    includeAllUdmEventTypesForFirstLastSeen:
       type: bool | None
       description: >-
         If true, it includes all types of events we show in UDM Search to calculate the
@@ -100,16 +100,16 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}:findRelatedEntities
         method: GET
         params:
-          timeRange.startTime: ${{ inputs.start_time }}
-          timeRange.endTime: ${{ inputs.end_time }}
-          entityId: ${{ inputs.entity_id }}
+          timeRange.startTime: ${{ inputs.startTime }}
+          timeRange.endTime: ${{ inputs.endTime }}
+          entityId: ${{ inputs.entityId }}
           fieldAndValue.value: ${{ inputs.field_and_value_value }}
           fieldAndValue.entityNamespace: ${{ inputs.field_and_value_entity_namespace }}
           fieldAndValue.fieldPath: ${{ inputs.field_and_value_field_path }}
           fieldAndValue.valueType: ${{ inputs.field_and_value_value_type }}
-          entityTypes: ${{ inputs.entity_types }}
-          domainType: ${{ inputs.domain_type }}
-          excludeFirstLastSeen: ${{ inputs.exclude_first_last_seen }}
-          includeAllUdmEventTypesForFirstLastSeen: ${{ inputs.include_all_udm_event_types_for_first_last_seen }}
+          entityTypes: ${{ inputs.entityTypes }}
+          domainType: ${{ inputs.domainType }}
+          excludeFirstLastSeen: ${{ inputs.excludeFirstLastSeen }}
+          includeAllUdmEventTypesForFirstLastSeen: ${{ inputs.includeAllUdmEventTypesForFirstLastSeen }}
           limit: ${{ inputs.limit }}
   returns: ${{ steps.call_api.result }}

@@ -27,7 +27,7 @@ definition:
       description: >-
         The parent, which owns this collection of rules. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    page_size:
+    pageSize:
       type: int | None
       description: >-
         The maximum number of rules to return. The service may return fewer than this
@@ -35,7 +35,7 @@ definition:
         1000, or 5000 if `view` is set to CONFIG_ONLY; values above the applicable
         maximum will be coerced to that maximum.
       default: null
-    page_token:
+    pageToken:
       type: str | None
       description: >-
         A page token, received from a previous rules.list call. Provide this to
@@ -56,7 +56,7 @@ definition:
         "referenceLists:{reference_list_name}" "dataTables:{dataTableName}"
         "displayName:{displayName}"
       default: null
-    order_by:
+    orderBy:
       type: str | None
       description: >-
         The sort order of the rules. If unspecified, rules will be sorted by
@@ -79,10 +79,10 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules
         method: GET
         params:
-          pageSize: ${{ inputs.page_size }}
-          pageToken: ${{ inputs.page_token }}
+          pageSize: ${{ inputs.pageSize }}
+          pageToken: ${{ inputs.pageToken }}
           view: ${{ inputs.view }}
           filter: ${{ inputs.filter }}
-          orderBy: ${{ inputs.order_by }}
+          orderBy: ${{ inputs.orderBy }}
           skip: ${{ inputs.skip }}
   returns: ${{ steps.call_api.result }}

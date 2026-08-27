@@ -29,14 +29,14 @@ definition:
       description: >-
         The instance to list Cases for. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    page_size:
+    pageSize:
       type: int | None
       description: >-
         The maximum number of cases to return. The service may return fewer than this
         value. If unspecified, at most 50 Cases will be returned. The maximum value is
         1000; values above 1000 will be coerced to 1000.
       default: null
-    page_token:
+    pageToken:
       type: str | None
       description: >-
         A page token, received from a previous cases.list call. Provide this to retrieve
@@ -52,7 +52,7 @@ definition:
         score, alertsSla, sla, tags, products, closureDetails, tasks. Example:
         filter="displayName='some_name'"
       default: null
-    order_by:
+    orderBy:
       type: str | None
       description: >-
         Configures ordering of Cases in the response. If not specified, Cases are
@@ -65,7 +65,7 @@ definition:
         Expand the response to include the full case object. Supported values: tasks,
         tags, products. Example: "tags, products"
       default: null
-    distinct_by:
+    distinctBy:
       type: str | None
       description: The field to distinct the cases by.
       default: null
@@ -76,10 +76,10 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases
         method: GET
         params:
-          pageSize: ${{ inputs.page_size }}
-          pageToken: ${{ inputs.page_token }}
+          pageSize: ${{ inputs.pageSize }}
+          pageToken: ${{ inputs.pageToken }}
           filter: ${{ inputs.filter }}
-          orderBy: ${{ inputs.order_by }}
+          orderBy: ${{ inputs.orderBy }}
           expand: ${{ inputs.expand }}
-          distinctBy: ${{ inputs.distinct_by }}
+          distinctBy: ${{ inputs.distinctBy }}
   returns: ${{ steps.call_api.result }}

@@ -27,7 +27,7 @@ definition:
       description: >-
         Chronicle instance this request is sent to. Format:
         projects/{project}/locations/{location}/instances/{instance}
-    rule_id:
+    ruleId:
       type: str
       description: >-
         The specific rule revision to search detections for. There are four acceptable
@@ -35,35 +35,35 @@ definition:
         "{ruleId}@{revisionId}" retrieves detections for that revision;
         "{ruleId}@-" retrieves detections for all revisions of the Rule; "-" retrieves
         detections for all revisions of all Rules.
-    alert_state:
+    alertState:
       type: str | None
       description: >-
         An enum that filters which detections are returned by their AlertState. One of
         UNSPECIFIED, NOT_ALERTING, ALERTING.
       default: null
-    start_time:
+    startTime:
       type: str | None
       description: >-
         The time to start search detections from, inclusive, in RFC 3339 format, e.g.
         "2014-10-02T15:01:23Z".
       default: null
-    end_time:
+    endTime:
       type: str | None
       description: >-
         The time to end searching detections to, exclusive, in RFC 3339 format.
       default: null
-    list_basis:
+    listBasis:
       type: str | None
       description: >-
         Basis for determining whether to apply startTime and endTime filters for
         detection time or creation time of the detection. One of
         LIST_BASIS_UNSPECIFIED, DETECTION_TIME, CREATED_TIME.
       default: null
-    page_size:
+    pageSize:
       type: int | None
       description: Maximum number of detections to return.
       default: null
-    page_token:
+    pageToken:
       type: str | None
       description: >-
         A page token, received from a previous legacy.legacySearchDetections call.
@@ -71,23 +71,23 @@ definition:
         parameters provided to legacy.legacySearchDetections must match the call that
         provided the page token.
       default: null
-    max_resp_size_bytes:
+    maxRespSizeBytes:
       type: int | None
       description: >-
         The maximum size of response in bytes. If it is set to 0 (or is omitted), the
         server will not enforce any max response size limit.
       default: null
-    include_nested_detections:
+    includeNestedDetections:
       type: bool | None
       description: If true, include one level of nested detections in the response.
       default: null
-    include_simulated_detections:
+    includeSimulatedDetections:
       type: bool | None
       description: >-
         Deprecated. If true, include simulated detections in the response. Prefer
-        simulated_data_visibility for new workflows.
+        simulatedDataVisibility for new workflows.
       default: null
-    simulated_data_visibility:
+    simulatedDataVisibility:
       type: str | None
       description: >-
         Specifies visibility of simulated data to include in search results.
@@ -99,15 +99,15 @@ definition:
         url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacy:legacySearchDetections
         method: GET
         params:
-          ruleId: ${{ inputs.rule_id }}
-          alertState: ${{ inputs.alert_state }}
-          startTime: ${{ inputs.start_time }}
-          endTime: ${{ inputs.end_time }}
-          listBasis: ${{ inputs.list_basis }}
-          pageSize: ${{ inputs.page_size }}
-          pageToken: ${{ inputs.page_token }}
-          maxRespSizeBytes: ${{ inputs.max_resp_size_bytes }}
-          includeNestedDetections: ${{ inputs.include_nested_detections }}
-          includeSimulatedDetections: ${{ inputs.include_simulated_detections }}
-          simulatedDataVisibility: ${{ inputs.simulated_data_visibility }}
+          ruleId: ${{ inputs.ruleId }}
+          alertState: ${{ inputs.alertState }}
+          startTime: ${{ inputs.startTime }}
+          endTime: ${{ inputs.endTime }}
+          listBasis: ${{ inputs.listBasis }}
+          pageSize: ${{ inputs.pageSize }}
+          pageToken: ${{ inputs.pageToken }}
+          maxRespSizeBytes: ${{ inputs.maxRespSizeBytes }}
+          includeNestedDetections: ${{ inputs.includeNestedDetections }}
+          includeSimulatedDetections: ${{ inputs.includeSimulatedDetections }}
+          simulatedDataVisibility: ${{ inputs.simulatedDataVisibility }}
   returns: ${{ steps.call_api.result }}

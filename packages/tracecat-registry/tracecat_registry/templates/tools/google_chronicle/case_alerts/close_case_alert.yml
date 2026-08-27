@@ -32,7 +32,7 @@ definition:
     case:
       type: str
       description: The ID of the Case the alert belongs to.
-    case_alert:
+    caseAlert:
       type: str
       description: The ID of the CaseAlert to close.
     reason:
@@ -43,7 +43,7 @@ definition:
     comment:
       type: str
       description: Alert closure comment.
-    root_cause:
+    rootCause:
       type: str | None
       description: Alert closure root cause.
       default: null
@@ -51,7 +51,7 @@ definition:
     - ref: call_api
       action: tools.google_chronicle.call_api
       args:
-        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}/caseAlerts/${{ inputs.case_alert }}
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ inputs.case }}/caseAlerts/${{ inputs.caseAlert }}
         method: PATCH
         params:
           updateMask: status,closureDetails
@@ -60,5 +60,5 @@ definition:
           closureDetails:
             reason: ${{ inputs.reason }}
             comment: ${{ inputs.comment }}
-            rootCause: ${{ inputs.root_cause }}
+            rootCause: ${{ inputs.rootCause }}
   returns: ${{ steps.call_api.result }}

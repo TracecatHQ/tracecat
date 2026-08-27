@@ -32,12 +32,12 @@ definition:
       description: >-
         The rule the retrohunt belongs to, optionally suffixed with `@{revisionId}`.
         A retrohunt is the child of a rule revision.
-    start_time:
+    startTime:
       type: str
       description: >-
         Inclusive start of the event time range this retrohunt processes, in RFC 3339
         format, e.g. "2014-10-02T15:01:23Z".
-    end_time:
+    endTime:
       type: str
       description: >-
         Exclusive end of the event time range this retrohunt processes, in RFC 3339
@@ -50,6 +50,6 @@ definition:
         method: POST
         payload:
           processInterval:
-            startTime: ${{ inputs.start_time }}
-            endTime: ${{ inputs.end_time }}
+            startTime: ${{ inputs.startTime }}
+            endTime: ${{ inputs.endTime }}
   returns: ${{ steps.call_api.result }}
