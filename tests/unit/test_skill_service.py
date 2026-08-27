@@ -1602,6 +1602,98 @@ class TestSkillService:
         ).scalar_one_or_none()
         assert blob_row is None
 
+    async def test_copy_cancellation_cleans_registered_canonical_key(
+        self,
+        skill_service: SkillService,
+        svc_workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cancellation after an accepted copy must delete the canonical object."""
+
+        content = b"copy accepted before cancellation\n"
+        sha256 = hashlib.sha256(content).hexdigest()
+        created = await skill_service.create_skill(SkillCreate(name="cancel-copy"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=sha256,
+                size_bytes=len(content),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        canonical_key = skill_service._storage_key_for(sha256)
+        stored_keys: set[str] = set()
+        deleted: list[str] = []
+
+        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+            del key, bucket
+            return True
+
+        async def fake_stream_verify_object(**_kwargs: Any) -> None:
+            return None
+
+        async def cancel_after_accepted_copy(
+            *,
+            source_key: str,
+            destination_key: str,
+            bucket: str,
+            content_type: str | None = None,
+        ) -> None:
+            del source_key, bucket, content_type
+            stored_keys.add(destination_key)
+            raise asyncio.CancelledError()
+
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            del bucket
+            assert redact_log_identifiers is True
+            deleted.append(key)
+            stored_keys.discard(key)
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+        )
+        monkeypatch.setattr(
+            skill_service,
+            "_stream_verify_object",
+            fake_stream_verify_object,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.copy_file",
+            cancel_after_accepted_copy,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            )
+
+        assert deleted == [canonical_key]
+        assert stored_keys == set()
+        blob_row = await skill_service.session.scalar(
+            select(SkillBlob).where(
+                SkillBlob.workspace_id == skill_service.workspace_id,
+                SkillBlob.sha256 == sha256,
+            )
+        )
+        assert blob_row is None
+        await skill_service.session.refresh(svc_workspace)
+
     async def test_concurrent_blob_claims_reuse_the_committed_owner(
         self,
         svc_role: Role,
