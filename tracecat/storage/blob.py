@@ -55,6 +55,14 @@ class StorageDeleteError(RuntimeError):
         self.error_code = error_code
 
 
+class StorageCopyError(RuntimeError):
+    """A storage copy failed without exposing object identifiers."""
+
+    def __init__(self, *, error_code: str | None) -> None:
+        super().__init__("Storage copy failed")
+        self.error_code = error_code
+
+
 def _storage_log_identifiers(
     key: str,
     bucket: str,
@@ -631,8 +639,33 @@ async def copy_file(
     destination_key: str,
     bucket: str,
     content_type: str | None = None,
+    redact_log_identifiers: bool = False,
 ) -> None:
-    """Copy an object within a bucket without routing bytes through the app."""
+    """Copy an object within a bucket without routing bytes through the app.
+
+    Args:
+        source_key: Existing object key.
+        destination_key: Key for the copied object.
+        bucket: Bucket containing both objects.
+        content_type: Optional content type to replace on the copied object.
+        redact_log_identifiers: Hide both keys, the bucket, and provider prose
+            in logs and raised errors.
+
+    Raises:
+        ClientError: If an unredacted copy fails.
+        StorageCopyError: If a redacted copy fails.
+    """
+
+    log_source_key, log_bucket = _storage_log_identifiers(
+        source_key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
+    log_destination_key, _ = _storage_log_identifiers(
+        destination_key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
 
     try:
         async with get_storage_client() as s3_client:
@@ -648,11 +681,24 @@ async def copy_file(
             await s3_client.copy_object(**kwargs)
             logger.info(
                 "File copied successfully",
-                source_key=source_key,
-                destination_key=destination_key,
-                bucket=bucket,
+                source_key=log_source_key,
+                destination_key=log_destination_key,
+                bucket=log_bucket,
             )
     except ClientError as e:
+        if redact_log_identifiers:
+            error_code = _safe_storage_error_code(
+                e.response.get("Error", {}).get("Code")
+            )
+            logger.error(
+                "Failed to copy file",
+                source_key=log_source_key,
+                destination_key=log_destination_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
+            )
+            raise StorageCopyError(error_code=error_code) from None
         logger.error(
             "Failed to copy file",
             source_key=source_key,
@@ -661,6 +707,18 @@ async def copy_file(
             error=str(e),
         )
         raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
+            raise
+        logger.error(
+            "Failed to copy file",
+            source_key=log_source_key,
+            destination_key=log_destination_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StorageCopyError(error_code=None) from None
 
 
 async def download_file(key: str, bucket: str) -> bytes:

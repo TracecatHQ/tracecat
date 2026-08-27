@@ -1313,8 +1313,10 @@ class TestSkillService:
             destination_key: str,
             bucket: str,
             content_type: str | None = None,
+            redact_log_identifiers: bool = False,
         ) -> None:
             del source_key, bucket, content_type
+            assert redact_log_identifiers is True
             uploaded["key"] = destination_key
 
         monkeypatch.setattr(
@@ -1548,8 +1550,10 @@ class TestSkillService:
             destination_key: str,
             bucket: str,
             content_type: str | None = None,
+            redact_log_identifiers: bool = False,
         ) -> None:
             del source_key, destination_key, bucket, content_type
+            assert redact_log_identifiers is True
 
         async def fake_delete_file(
             *, key: str, bucket: str, redact_log_identifiers: bool = False
@@ -1709,8 +1713,10 @@ class TestSkillService:
             destination_key: str,
             bucket: str,
             content_type: str | None = None,
+            redact_log_identifiers: bool = False,
         ) -> None:
             del source_key, bucket, content_type
+            assert redact_log_identifiers is True
             stored_keys.add(destination_key)
             raise asyncio.CancelledError()
 
@@ -2665,8 +2671,10 @@ class TestSkillService:
             destination_key: str,
             bucket: str,
             content_type: str | None = None,
+            redact_log_identifiers: bool = False,
         ) -> None:
             del source_key, destination_key, bucket, content_type
+            assert redact_log_identifiers is True
 
         async def fake_delete_file(
             *, key: str, bucket: str, redact_log_identifiers: bool = False

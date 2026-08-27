@@ -1024,6 +1024,7 @@ class SkillService(BaseWorkspaceService):
                         destination_key=canonical_key,
                         bucket=upload.bucket,
                         content_type="application/octet-stream",
+                        redact_log_identifiers=True,
                     )
                     # The staged PUT URL may still be valid here, so a concurrent
                     # re-PUT between the verification above and the copy could

@@ -17,6 +17,7 @@ from botocore.exceptions import ClientError
 from tracecat.storage import blob as blob_module
 from tracecat.storage.blob import (
     configure_bucket_lifecycle,
+    copy_file,
     delete_file,
     download_file,
     download_file_to_path,
@@ -359,6 +360,95 @@ class TestS3Operations:
 
         with pytest.raises(FileNotFoundError):
             await download_file("nonexistent.txt", "test-bucket")
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.logger")
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_copy_file_can_redact_success_logs(
+        self, mock_get_client, mock_logger
+    ) -> None:
+        """Redacted copies keep storage identifiers out of success logs."""
+
+        sensitive_bucket = "affected-customer-bucket"
+        sensitive_source_key = "skill-uploads/tenant-id/private-object"
+        sensitive_destination_key = "skills/tenant-id/private-object"
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        await copy_file(
+            source_key=sensitive_source_key,
+            destination_key=sensitive_destination_key,
+            bucket=sensitive_bucket,
+            content_type="application/octet-stream",
+            redact_log_identifiers=True,
+        )
+
+        mock_client.copy_object.assert_awaited_once_with(
+            Bucket=sensitive_bucket,
+            Key=sensitive_destination_key,
+            CopySource={"Bucket": sensitive_bucket, "Key": sensitive_source_key},
+            ContentType="application/octet-stream",
+            MetadataDirective="REPLACE",
+        )
+        mock_logger.info.assert_called_once_with(
+            "File copied successfully",
+            source_key="<redacted>",
+            destination_key="<redacted>",
+            bucket="<redacted>",
+        )
+        assert sensitive_bucket not in str(mock_logger.mock_calls)
+        assert sensitive_source_key not in str(mock_logger.mock_calls)
+        assert sensitive_destination_key not in str(mock_logger.mock_calls)
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.logger")
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_copy_file_can_redact_transport_failure(
+        self, mock_get_client, mock_logger
+    ) -> None:
+        """Redacted copies suppress identifiers and provider error prose."""
+
+        sensitive_bucket = "affected-customer-bucket"
+        sensitive_source_key = "skill-uploads/tenant-id/private-object"
+        sensitive_destination_key = "skills/tenant-id/private-object"
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+        mock_client.copy_object.side_effect = ClientError(
+            error_response={
+                "Error": {
+                    "Code": "AccessDenied",
+                    "Message": (
+                        f"denied {sensitive_bucket}/{sensitive_source_key} to "
+                        f"{sensitive_destination_key}"
+                    ),
+                }
+            },
+            operation_name="copy_object",
+        )
+
+        with pytest.raises(blob_module.StorageCopyError) as raised:
+            await copy_file(
+                source_key=sensitive_source_key,
+                destination_key=sensitive_destination_key,
+                bucket=sensitive_bucket,
+                redact_log_identifiers=True,
+            )
+
+        assert raised.value.error_code == "AccessDenied"
+        assert sensitive_bucket not in str(raised.value)
+        assert sensitive_source_key not in str(raised.value)
+        assert sensitive_destination_key not in str(raised.value)
+        mock_logger.error.assert_called_once_with(
+            "Failed to copy file",
+            source_key="<redacted>",
+            destination_key="<redacted>",
+            bucket="<redacted>",
+            error_code="AccessDenied",
+            error_type="ClientError",
+        )
+        assert sensitive_bucket not in str(mock_logger.mock_calls)
+        assert sensitive_source_key not in str(mock_logger.mock_calls)
+        assert sensitive_destination_key not in str(mock_logger.mock_calls)
 
     @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")
