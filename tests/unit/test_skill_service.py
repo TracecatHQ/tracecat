@@ -1763,6 +1763,75 @@ class TestSkillService:
         assert blob_row is None
         await skill_service.session.refresh(svc_workspace)
 
+    async def test_patch_draft_returns_before_staged_object_cleanup(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Slow post-commit cleanup must not delay the committed draft response."""
+
+        content = b"background staged cleanup\n"
+        created = await skill_service.create_skill(
+            SkillCreate(name="background-cleanup")
+        )
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        await upload_file(
+            content=content,
+            key=upload.key,
+            bucket=upload.bucket,
+            content_type="application/octet-stream",
+        )
+
+        deletion_started = asyncio.Event()
+        allow_deletion = asyncio.Event()
+        deleted: list[tuple[str, str]] = []
+
+        async def blocked_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            assert redact_log_identifiers is True
+            deletion_started.set()
+            await allow_deletion.wait()
+            deleted.append((key, bucket))
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", blocked_delete_file
+        )
+
+        patched = await asyncio.wait_for(
+            skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            ),
+            timeout=5,
+        )
+
+        assert patched.draft_revision == draft.draft_revision + 1
+        try:
+            await asyncio.wait_for(deletion_started.wait(), timeout=1)
+            assert deleted == []
+        finally:
+            allow_deletion.set()
+            await asyncio.gather(*skill_service_module._staged_upload_cleanup_tasks)
+        assert deleted == [(upload.key, upload.bucket)]
+
     async def test_concurrent_blob_claims_reuse_the_committed_owner(
         self,
         svc_role: Role,
@@ -2275,7 +2344,7 @@ class TestSkillService:
             assert deleted == {}
         finally:
             allow_deletion.set()
-            await asyncio.gather(*skill_service_module._reaped_upload_cleanup_tasks)
+            await asyncio.gather(*skill_service_module._staged_upload_cleanup_tasks)
         assert deleted == {
             "key": stale_upload.key,
             "bucket": config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
@@ -2355,7 +2424,7 @@ class TestSkillService:
             await asyncio.wait_for(deletion_started.wait(), timeout=1)
         finally:
             allow_deletion.set()
-            await asyncio.gather(*skill_service_module._reaped_upload_cleanup_tasks)
+            await asyncio.gather(*skill_service_module._staged_upload_cleanup_tasks)
 
     async def test_attach_uploaded_blob_rejects_size_mismatch(
         self,
