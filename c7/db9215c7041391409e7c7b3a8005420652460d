@@ -1,0 +1,31 @@
+scripts/generate_mcp_docs.py
+  s_9177a925180b65::t_0e6e7f7a4ccac6 80-119,127,135-136
+tracecat/mcp/server.py
+  s_9177a925180b65::t_8dfdc57b6e7c6e 4937-4947,4955-4956,4966-4969,4979-4981
+docs/snippets/mcp-tools.mdx
+  s_89820fc66407f1::t_50b3d4e21f16e6 145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c7db9215c7041391409e7c7b3a8005420652460d",
+  "prompts": {},
+  "sessions": {
+    "s_89820fc66407f1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04515-ec3e-7b31-bdf0-347f7c539273",
+        "model": "unknown"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_9177a925180b65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cdc49770-5a42-40d5-969b-73d89a11a08f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
