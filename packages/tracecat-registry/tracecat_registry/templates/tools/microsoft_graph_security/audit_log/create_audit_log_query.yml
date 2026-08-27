@@ -40,6 +40,7 @@ definition:
       type: str | None
       description: >-
         Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
+        `microsoft_graph_security.base_url`, then
         `microsoft_graph.base_url`, then https://graph.microsoft.com/v1.0. This
         endpoint is only available in the global service.
       default: null
@@ -125,7 +126,7 @@ definition:
       args:
         path: /security/auditLog/queries
         method: POST
-        base_url: ${{ inputs.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
+        base_url: ${{ inputs.base_url || VARS.microsoft_graph_security.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
         auth_mode: ${{ inputs.auth_mode }}
         # Every property is optional and Microsoft never assigns a meaning to an
         # explicit null, so unset filters are omitted rather than sent as null.

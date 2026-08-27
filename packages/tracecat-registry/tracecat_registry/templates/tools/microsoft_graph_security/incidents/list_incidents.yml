@@ -39,6 +39,7 @@ definition:
       type: str | None
       description: >-
         Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
+        `microsoft_graph_security.base_url`, then
         `microsoft_graph.base_url`, then https://graph.microsoft.com/v1.0.
         National clouds: https://graph.microsoft.us/v1.0 (US Government L4) and
         https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD).
@@ -81,7 +82,7 @@ definition:
       args:
         path: /security/incidents
         method: GET
-        base_url: ${{ inputs.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
+        base_url: ${{ inputs.base_url || VARS.microsoft_graph_security.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
         auth_mode: ${{ inputs.auth_mode }}
         params:
           $count: ${{ inputs.count }}

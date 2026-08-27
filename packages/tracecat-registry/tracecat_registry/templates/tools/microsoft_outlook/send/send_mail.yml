@@ -18,9 +18,10 @@ definition:
     Access mailbox permission. Applications that use application tokens and have
     admin-consented Mail.Send can send mail as any user in the organization; scope
     that down with RBAC for Applications in Exchange Online. This action exposes
-    the common message fields; for arbitrary Microsoft Graph message shapes,
-    attachments inline with the send, or MIME content, call
-    `tools.microsoft_outlook_sdk.call_method` directly. Available in the global
+    the common message fields; for arbitrary Microsoft Graph JSON message shapes,
+    including attachments inline with the send, call
+    `tools.microsoft_outlook_sdk.call_method` directly. MIME requests are not
+    supported by the current dispatcher. Available in the global
     service, US Government L4, US Government L5 (DOD) and China operated by
     21Vianet. Microsoft's endpoint reference does not state a separate licensing
     requirement; the mailbox itself still needs an Exchange Online or Outlook.com
