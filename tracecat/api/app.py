@@ -184,12 +184,6 @@ async def lifespan(app: FastAPI):
     get_user_auth_secret()
     assert_soft_delete_listener_registered()
 
-    # Temporal
-    # Workflows may upsert these attributes as soon as the API accepts requests.
-    # Gate startup so a failed registration is retried and remains visible.
-    await add_temporal_search_attributes()
-    logger.debug("Temporal search attributes are ready")
-
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
@@ -217,6 +211,16 @@ async def lifespan(app: FastAPI):
     # shutdown. Critical work must still checkpoint to durable storage.
     supervisor = LifespanTaskSupervisor(
         drain_timeout=config.TRACECAT__API_TASK_DRAIN_TIMEOUT
+    )
+
+    # Temporal Cloud runtime credentials may not have operator-service access
+    # to inspect or register namespace search attributes. Keep registration
+    # supervised and visible without making that administrative permission a
+    # prerequisite for API availability.
+    supervisor.spawn(
+        add_temporal_search_attributes(),
+        name="temporal_search_attribute_registration",
+        kind="finite",
     )
 
     # Spawn platform registry sync as background task (non-blocking)
