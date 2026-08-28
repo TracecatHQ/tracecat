@@ -152,13 +152,18 @@ type ActiveSession = {
  * `unavailable`: a permissions problem should not surface as an upsell. A
  * scoped user missing an entitlement is `locked`, so the trigger still opens
  * and advertises the feature.
+ *
+ * `hasEntitlement` also answers false while its query is loading or errored,
+ * so an unresolved entitlement stays `unavailable` rather than telling a
+ * paying org that the feature it already has is Enterprise-only.
  */
 function resolveSourceState(
   config: MentionSourceConfig | undefined,
   hasScopes: boolean,
+  entitlementsKnown: boolean,
   hasEntitlement: (key: EntitlementKey) => boolean
 ): MentionSourceState {
-  if (!config || !hasScopes) {
+  if (!config || !hasScopes || !entitlementsKnown) {
     return "unavailable"
   }
   return config.entitlements.every(hasEntitlement) ? "enabled" : "locked"
@@ -205,15 +210,17 @@ export function useMentions({
     ["workflow:execute", "workflow:read"],
     { all: true }
   )
-  const { hasEntitlement } = useEntitlements()
+  const { hasEntitlement, hasEntitlementData } = useEntitlements()
   const agents = resolveSourceState(
     agentsConfig,
     canUseAgents === true,
+    hasEntitlementData,
     hasEntitlement
   )
   const workflows = resolveSourceState(
     workflowsConfig,
     canExecuteWorkflows === true,
+    hasEntitlementData,
     hasEntitlement
   )
 
