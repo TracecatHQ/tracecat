@@ -139,11 +139,12 @@ async def test_add_temporal_search_attributes_propagates_registration_failure(
         await single_attempt_add()
 
 
-def test_api_lifespan_waits_for_temporal_search_attributes() -> None:
+def test_api_lifespan_supervises_temporal_search_attribute_registration() -> None:
     source = inspect.getsource(lifespan)
 
-    assert "await add_temporal_search_attributes()" in source
-    assert "create_task(add_temporal_search_attributes())" not in source
+    assert "supervisor.spawn(\n        add_temporal_search_attributes()" in source
+    assert 'name="temporal_search_attribute_registration"' in source
+    assert "await add_temporal_search_attributes()" not in source
 
 
 @pytest.mark.anyio
