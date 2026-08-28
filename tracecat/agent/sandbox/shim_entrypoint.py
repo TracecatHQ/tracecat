@@ -12,6 +12,7 @@ import contextlib
 import json
 import logging
 import os
+import resource
 import socket
 import sys
 from pathlib import Path
@@ -472,8 +473,6 @@ def _enforce_nproc_limit() -> None:
     unprivileged processes, and the limit is enforced per real UID, which
     covers every process in the jail.
     """
-    import resource
-
     raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
     if not raw:
         return

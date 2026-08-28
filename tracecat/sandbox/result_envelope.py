@@ -134,7 +134,10 @@ def decode_result_envelope(
     return ResultEnvelopeOutcome(
         result=SandboxResult(
             success=envelope.success,
-            output=getattr(envelope, output_key),
+            # Explicit branch instead of getattr(): output_key is a Literal
+            # of exactly two envelope fields, and direct attribute access lets
+            # the type checker verify both branches (backend getattr rule).
+            output=(envelope.output if output_key == "output" else envelope.result),
             stdout=result_stdout,
             stderr=result_stderr,
             error=envelope.error,

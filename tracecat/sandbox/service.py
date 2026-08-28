@@ -1,6 +1,7 @@
 """High-level sandbox service for Python script execution."""
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import os
@@ -47,14 +48,29 @@ async def _await_task_rejoined(task: asyncio.Task[Any]) -> Any:
     Cancelling an ``asyncio.to_thread`` await does not stop the worker thread;
     a caller that proceeds to more filesystem work (cleanup removals,
     caller-side job-dir removal) would otherwise race the still-running
-    thread. Returns the task result when it completes; on cancellation, waits
-    for the thread to finish, then re-raises the cancellation.
+    thread. If cancellation arrives during the wait, the thread is joined
+    (further cancellation attempts are swallowed) and the cancellation is
+    re-raised afterwards — a cancelled caller must not silently fall through
+    to further execution (e.g. script execution after cleanup), and the
+    worker's outcome (result or error) is deliberately discarded so the
+    pending cancellation is never masked. Otherwise the task's result is
+    returned (or its exception re-raised).
     """
-    while not task.done():
-        try:
-            return await asyncio.shield(task)
-        except asyncio.CancelledError:
-            continue
+    done = asyncio.Event()
+    task.add_done_callback(lambda _task: done.set())
+    try:
+        await done.wait()
+    except asyncio.CancelledError:
+        # The worker thread keeps running; join it fully (swallowing further
+        # cancellation attempts) before surfacing the cancellation so no
+        # cleanup can race the in-flight worker.
+        while not done.is_set():
+            with contextlib.suppress(asyncio.CancelledError):
+                await done.wait()
+        # Retrieve the worker outcome so it does not linger as an
+        # unretrieved-exception; the pending cancellation supersedes it.
+        worker_outcome = task.exception()
+        raise asyncio.CancelledError() from worker_outcome
     return task.result()
 
 
@@ -347,8 +363,11 @@ class SandboxService:
                 )
         finally:
             # The copy thread is always joined before this point, but the
-            # removal itself must also survive cancellation: a stranded
-            # partial .tmp tree in the shared package cache persists forever.
+            # removal itself must also complete under cancellation (a stranded
+            # partial .tmp tree in the shared package cache persists forever).
+            # If cancellation arrives mid-removal, the rejoined helper
+            # re-raises it after the tree is gone so the cancelled activity
+            # does not continue into script execution.
             if temp_dest.exists():
                 rmtree_task = asyncio.create_task(
                     asyncio.to_thread(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import threading
 import time
 from pathlib import Path
 from typing import Any, cast
@@ -11,7 +12,7 @@ from typing import Any, cast
 import pytest
 import pytest_mock
 
-from tracecat.sandbox.service import SandboxService
+from tracecat.sandbox.service import SandboxService, _await_task_rejoined
 from tracecat.sandbox.types import SandboxResult
 
 
@@ -106,3 +107,70 @@ async def test_install_packages_rejoins_copy_before_cleanup_on_cancellation(
     published = cache_dir / "packages" / "abc123" / "site-packages"
     assert not published.exists()
     assert list((cache_dir / "packages").glob("*.tmp")) == []
+
+
+@pytest.mark.anyio
+async def test_await_task_rejoined_reraises_cancellation_after_worker_finishes() -> (
+    None
+):
+    """Suppressed cancellation during the wait must propagate after the join.
+
+    Regression for the PR #3088 review finding: the helper previously consumed
+    the CancelledError and returned normally once the worker finished, letting
+    a cancelled promotion fall through to script execution. The worker here is
+    release-gated so the cancellation deterministically lands mid-wait.
+    """
+    release = threading.Event()
+    finished = threading.Event()
+
+    def worker() -> int:
+        release.wait(timeout=5)
+        finished.set()
+        return 7
+
+    outer = asyncio.create_task(
+        _await_task_rejoined(asyncio.create_task(asyncio.to_thread(worker)))
+    )
+    await asyncio.sleep(0.05)  # Let the helper reach its shielded await.
+    outer.cancel()  # Cancellation arrives while the worker is still running.
+    release.set()  # Unblock the worker; the helper must still join it.
+
+    with pytest.raises(asyncio.CancelledError):
+        await outer
+    assert finished.is_set()
+
+
+@pytest.mark.anyio
+async def test_await_task_rejoined_cancellation_takes_priority_over_worker_error() -> (
+    None
+):
+    """A worker error under a suppressed cancellation must not mask it."""
+    release = threading.Event()
+    finished = threading.Event()
+
+    def worker() -> int:
+        release.wait(timeout=5)
+        finished.set()
+        raise RuntimeError("worker failure")
+
+    outer = asyncio.create_task(
+        _await_task_rejoined(asyncio.create_task(asyncio.to_thread(worker)))
+    )
+    await asyncio.sleep(0.05)
+    outer.cancel()
+    release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await outer
+    assert finished.is_set()
+
+
+@pytest.mark.anyio
+async def test_await_task_rejoined_returns_result_without_cancellation() -> None:
+    """Without cancellation the helper is a transparent pass-through."""
+
+    def worker() -> dict[str, int]:
+        return {"value": 5}
+
+    result = await _await_task_rejoined(asyncio.create_task(asyncio.to_thread(worker)))
+    assert result == {"value": 5}
