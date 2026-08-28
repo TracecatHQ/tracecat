@@ -2,7 +2,8 @@ import { organizationGetOrganizationEntitlements } from "@/client"
 import { useOrganization } from "@/hooks/use-organization"
 import { useQuery } from "@/lib/query"
 
-type EntitlementKey = keyof Awaited<
+/** Key of a single organization entitlement, as returned by the API. */
+export type EntitlementKey = keyof Awaited<
   ReturnType<typeof organizationGetOrganizationEntitlements>
 >
 

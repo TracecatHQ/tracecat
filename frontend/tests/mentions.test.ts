@@ -3,6 +3,7 @@ import {
   applyMentionRemoval,
   buildMentionSegments,
   diffTextSplice,
+  findAgentMention,
   findMentionEndingAt,
   findWorkflowMention,
   formatAgentMentionToken,
@@ -12,7 +13,7 @@ import {
   mentionDisplayText,
   remapMentions,
   serializeMentions,
-} from "@/lib/comment-mentions"
+} from "@/lib/mentions"
 
 function mention(
   start: number,
@@ -122,6 +123,26 @@ describe("findWorkflowMention", () => {
       target
     )
     expect(findWorkflowMention([mention(0, "Triage agent")])).toBeUndefined()
+  })
+})
+
+describe("findAgentMention", () => {
+  it("returns the agent range, ignoring workflows", () => {
+    const target = mention(0, "Triage agent")
+    expect(findAgentMention([target, workflow(14, "Escalate case")])).toBe(
+      target
+    )
+    expect(findAgentMention([workflow(0, "Escalate case")])).toBeUndefined()
+  })
+
+  it("returns the first agent when several survive", () => {
+    const first = mention(0, "Triage agent")
+    const second = mention(20, "Malware agent")
+    expect(findAgentMention([first, second])).toBe(first)
+  })
+
+  it("returns undefined for an empty range list", () => {
+    expect(findAgentMention([])).toBeUndefined()
   })
 })
 

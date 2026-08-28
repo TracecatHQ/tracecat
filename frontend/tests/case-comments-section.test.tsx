@@ -673,7 +673,7 @@ describe("CommentSection", () => {
 
     function getWorkflowHighlights(textarea: HTMLElement) {
       const overlay = textarea.parentElement?.querySelector(
-        "[data-testid='comment-mention-overlay']"
+        "[data-testid='mention-overlay']"
       )
       return overlay?.querySelectorAll("[data-mention-kind='workflow']") ?? []
     }
@@ -1662,7 +1662,7 @@ describe("CommentSection", () => {
 
       await waitFor(() => expect(composer).toHaveValue("@Triage agent "))
       const overlay = composer.parentElement?.querySelector(
-        "[data-testid='comment-mention-overlay']"
+        "[data-testid='mention-overlay']"
       )
       const highlighted = overlay?.querySelector("[data-mention-target]")
       expect(highlighted).toHaveTextContent("@Triage agent")
@@ -1758,15 +1758,77 @@ describe("CommentSection", () => {
     })
 
     it.each(["case_addons", "agent_addons"])(
-      "stays closed when only the %s entitlement is present",
+      "shows the Enterprise lock row when only the %s entitlement is present",
       (entitlement) => {
         mockEntitlements([entitlement])
 
         renderCommentSection()
         typeInto(getRootComposer(), "@")
 
+        expect(
+          screen.getByText("Agent mentions are an Enterprise feature")
+        ).toBeInTheDocument()
         expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+        expect(mockUseAgentPresets).toHaveBeenCalledWith(
+          "workspace-1",
+          expect.objectContaining({ enabled: false })
+        )
       }
     )
+
+    it("lets Enter fall through while the lock row is open", async () => {
+      mockEntitlements(["case_addons"])
+      const createComment = jest.fn().mockResolvedValue(undefined)
+      mockUseCreateCaseComment.mockReturnValue({
+        createComment,
+        createCommentIsPending: false,
+        createCommentError: null,
+      })
+
+      renderCommentSection()
+      const composer = getRootComposer()
+      typeInto(composer, "Ping @")
+
+      expect(
+        screen.getByText("Agent mentions are an Enterprise feature")
+      ).toBeInTheDocument()
+
+      fireEvent.keyDown(composer, { key: "Enter", metaKey: true })
+
+      await waitFor(() =>
+        expect(createComment).toHaveBeenCalledWith(
+          expect.objectContaining({ content: "Ping @" })
+        )
+      )
+    })
+
+    it("closes the lock row on Escape", () => {
+      mockEntitlements(["case_addons"])
+
+      renderCommentSection()
+      const composer = getRootComposer()
+      typeInto(composer, "@")
+
+      expect(
+        screen.getByText("Agent mentions are an Enterprise feature")
+      ).toBeInTheDocument()
+
+      fireEvent.keyDown(composer, { key: "Escape" })
+
+      expect(
+        screen.queryByText("Agent mentions are an Enterprise feature")
+      ).not.toBeInTheDocument()
+    })
+
+    it("keeps the hint visible for a locked org", () => {
+      mockEntitlements(["case_addons"])
+
+      renderCommentSection()
+      const composer = getRootComposer()
+      fireEvent.focus(composer)
+
+      const hint = screen.getAllByTestId("composer-hint").at(-1)
+      expect(hint).toHaveTextContent("Mention agent")
+    })
   })
 })

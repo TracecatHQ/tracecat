@@ -6,7 +6,7 @@ import type { AgentPresetReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useCommentWorkflows } from "@/hooks/use-comment-workflows"
-import { useEntitlements } from "@/hooks/use-entitlements"
+import { type EntitlementKey, useEntitlements } from "@/hooks/use-entitlements"
 import {
   applyMentionInsertion,
   applyMentionRemoval,
@@ -20,7 +20,7 @@ import {
   remapMentions,
   serializeMentions,
   type TextSplice,
-} from "@/lib/comment-mentions"
+} from "@/lib/mentions"
 import {
   type CaretCoordinates,
   getTextareaCaretCoordinates,
@@ -40,6 +40,19 @@ export type MentionSectionKey =
   | "users"
   | "cases"
   | "tables"
+
+/**
+ * How a mention source behaves on this surface.
+ *
+ * `unavailable` leaves the trigger character as plain text; `locked` opens the
+ * popover on an Enterprise upsell row; `enabled` lists real suggestions.
+ */
+export type MentionSourceState = "unavailable" | "locked" | "enabled"
+
+/** Entitlements an org needs for a source; missing any renders the lock row. */
+export interface MentionSourceConfig {
+  entitlements: EntitlementKey[]
+}
 
 /** One selectable row in the mention popover. */
 export interface MentionSuggestion {
@@ -63,15 +76,17 @@ export interface MentionSection {
  * keeps the text in its own form state, so the hook reads and writes it through
  * these callbacks rather than holding a copy.
  */
-export interface UseCommentMentionsOptions {
+export interface UseMentionsOptions {
   workspaceId: string
   textareaRef: RefObject<HTMLTextAreaElement | null>
   /** Current display text; read at edit time so splices see the old value. */
   getText: () => string
   /** Writes display text back to the owning form. */
   setText: (next: string) => void
-  /** Whether `/` workflow commands are offered; the case add-ons entitlement. */
-  workflowsEnabled: boolean
+  /** Omit a source to leave its trigger as plain text on this surface. */
+  agents?: MentionSourceConfig
+  /** Omit a source to leave its trigger as plain text on this surface. */
+  workflows?: MentionSourceConfig
 }
 
 /**
@@ -79,15 +94,17 @@ export interface UseCommentMentionsOptions {
  * the suggestion list, the ranges the highlight overlay paints, event handlers
  * to forward from the textarea, and the submit-time serializer.
  */
-export interface CommentMentions {
+export interface Mentions {
   /** Mention ranges into the display text, for the overlay and serializer. */
   ranges: MentionRange[]
-  /** True when `@` opens the agent popover for this user. */
-  agentsEnabled: boolean
-  /** True when `/` opens the workflow popover for this user. */
-  workflowsEnabled: boolean
+  /** How `@` behaves for this user on this surface. */
+  agents: MentionSourceState
+  /** How `/` behaves for this user on this surface. */
+  workflows: MentionSourceState
   /** True when the popover should be rendered. */
   isOpen: boolean
+  /** True when the open session's source is entitlement-locked. */
+  locked: boolean
   /** Which trigger opened the popover, for its copy. */
   kind: MentionKind | undefined
   /** Grouped suggestions; sections with no items are omitted. */
@@ -127,27 +144,46 @@ type ActiveSession = {
 }
 
 /**
- * Mentions in a plain comment `<Textarea>`: `@`-autocomplete for agent presets,
- * `/`-autocomplete for workflows to run, plus the display-value mapping that
- * turns highlighted display text into the wire value on submit.
+ * Resolve a source's three-state gating.
  *
- * Agents are gated on the `agent:execute` and `agent:read` scopes plus the
- * `agent_addons` and `case_addons` entitlements. Workflows are gated on the
- * `workflow:execute` and `workflow:read` scopes plus `workflowsEnabled` (the
- * `case_addons` entitlement, passed by the composer). When gated, the trigger
- * character behaves as plain text.
- *
- * While the popover is open with no rows to pick, Enter, Tab, and the arrow
- * keys fall through to the textarea so a query with no match still lets the
- * user type a newline or submit with Cmd/Ctrl+Enter.
+ * A source the surface never offers, or one the user lacks the scopes for, is
+ * `unavailable`: a permissions problem should not surface as an upsell. A
+ * scoped user missing an entitlement is `locked`, so the trigger still opens
+ * and advertises the feature.
  */
-export function useCommentMentions({
+function resolveSourceState(
+  config: MentionSourceConfig | undefined,
+  hasScopes: boolean,
+  hasEntitlement: (key: EntitlementKey) => boolean
+): MentionSourceState {
+  if (!config || !hasScopes) {
+    return "unavailable"
+  }
+  return config.entitlements.every(hasEntitlement) ? "enabled" : "locked"
+}
+
+/**
+ * Mentions in a plain `<textarea>` composer: `@`-autocomplete for agent
+ * presets, `/`-autocomplete for workflows to run, plus the display-value
+ * mapping that turns highlighted display text into the wire value on submit.
+ *
+ * Scopes are intrinsic to a source, so they are checked here: `agent:execute`
+ * plus `agent:read` for agents, `workflow:execute` plus `workflow:read` for
+ * workflows. Entitlements vary by surface and are passed in per source; a
+ * source the caller omits leaves its trigger character as plain text.
+ *
+ * While the popover is open with no rows to pick — including the locked
+ * state — Enter, Tab, and the arrow keys fall through to the textarea so the
+ * user can still type a newline or submit.
+ */
+export function useMentions({
   workspaceId,
   textareaRef,
   getText,
   setText,
-  workflowsEnabled: workflowsEntitled,
-}: UseCommentMentionsOptions): CommentMentions {
+  agents: agentsConfig,
+  workflows: workflowsConfig,
+}: UseMentionsOptions): Mentions {
   // `agent:read` is required as well as `agent:execute`: the suggestion list
   // comes from the preset-list endpoint, which is guarded by `agent:read`.
   // Without it the request 403s and the popover would claim there are no
@@ -168,27 +204,38 @@ export function useCommentMentions({
     { all: true }
   )
   const { hasEntitlement } = useEntitlements()
-  const agentsEnabled =
-    canUseAgents === true &&
-    hasEntitlement("agent_addons") &&
-    hasEntitlement("case_addons")
-  const workflowsEnabled = workflowsEntitled && canExecuteWorkflows === true
+  const agents = resolveSourceState(
+    agentsConfig,
+    canUseAgents === true,
+    hasEntitlement
+  )
+  const workflows = resolveSourceState(
+    workflowsConfig,
+    canExecuteWorkflows === true,
+    hasEntitlement
+  )
 
   const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
-    enabled: agentsEnabled,
+    enabled: agents === "enabled",
   })
-  const { items: workflows, isLoading: workflowsIsLoading } =
-    useCommentWorkflows(workspaceId, workflowsEnabled)
+  const { items: workflowItems, isLoading: workflowsIsLoading } =
+    useCommentWorkflows(workspaceId, workflows === "enabled")
   const [ranges, setRanges] = useState<MentionRange[]>([])
   const [session, setSession] = useState<ActiveSession | undefined>(undefined)
 
+  let sessionState: MentionSourceState | undefined
+  if (session) {
+    sessionState = session.kind === "agent" ? agents : workflows
+  }
+  const locked = sessionState === "locked"
+
   const sections = useMemo<MentionSection[]>(() => {
-    if (!session) {
+    if (!session || sessionState === "locked") {
       return []
     }
     const query = session.query.toLowerCase()
     if (session.kind === "workflow") {
-      const items = workflows
+      const items = workflowItems
         .filter(
           (workflow) =>
             workflow.title.toLowerCase().includes(query) ||
@@ -222,7 +269,7 @@ export function useCommentMentions({
       return []
     }
     return [{ section: "agents", label: "Agents", items }]
-  }, [session, presets, workflows])
+  }, [session, sessionState, presets, workflowItems])
 
   const items = useMemo(
     () => sections.flatMap((section) => section.items),
@@ -253,8 +300,8 @@ export function useCommentMentions({
         setSession(undefined)
         return
       }
-      const enabled = token.kind === "agent" ? agentsEnabled : workflowsEnabled
-      if (!enabled) {
+      const state = token.kind === "agent" ? agents : workflows
+      if (state === "unavailable") {
         setSession(undefined)
         return
       }
@@ -271,7 +318,7 @@ export function useCommentMentions({
         activeIndex: pinned ? (current?.activeIndex ?? 0) : 0,
       }))
     },
-    [agentsEnabled, workflowsEnabled, sessionCaret, sessionStart, textareaRef]
+    [agents, workflows, sessionCaret, sessionStart, textareaRef]
   )
 
   const handleSelectionChange = useCallback(() => {
@@ -337,7 +384,9 @@ export function useCommentMentions({
         }
 
         // With nothing to pick, the navigation and selection keys belong to
-        // the textarea: Enter inserts a newline and Cmd/Ctrl+Enter submits.
+        // the textarea: Enter inserts a newline or submits, depending on the
+        // surface. A locked source is always empty, so its popover never
+        // swallows a submit.
         if (items.length === 0) {
           return false
         }
@@ -396,8 +445,11 @@ export function useCommentMentions({
     setSession(undefined)
   }, [])
 
+  // A locked source fetches nothing, so it must never report a spinner.
   let isLoading = false
-  if (session?.kind === "agent") {
+  if (locked) {
+    isLoading = false
+  } else if (session?.kind === "agent") {
     isLoading = presetsIsLoading
   } else if (session?.kind === "workflow") {
     isLoading = workflowsIsLoading
@@ -405,9 +457,10 @@ export function useCommentMentions({
 
   return {
     ranges,
-    agentsEnabled,
-    workflowsEnabled,
+    agents,
+    workflows,
     isOpen,
+    locked,
     kind: session?.kind,
     sections,
     itemCount: items.length,

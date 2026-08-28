@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { AgentSessionsGetSessionVercelResponse } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -12,6 +12,12 @@ import { parseChatError, type useUpdateChat } from "@/hooks/use-chat"
 type DraftPresetSelection = {
   ownerId: string | null
   value: string | null
+}
+
+/** Preset and pinned version to persist onto a session. */
+export interface PresetSelection {
+  presetId: string | null
+  versionId: string | null
 }
 
 interface UseChatPresetManagerProps {
@@ -57,6 +63,22 @@ export function useChatPresetManager({
       : selectedChatId
         ? (chat?.agent_preset_version_id ?? null)
         : null
+
+  // Session creation on first send runs in the same tick as the preset change
+  // that can precede it, before React has re-rendered with the new draft. The
+  // ref is the only copy that is current at that point.
+  const pendingSelectionRef = useRef<PresetSelection>({
+    presetId: effectivePresetId,
+    versionId: effectivePresetVersionId,
+  })
+  pendingSelectionRef.current = {
+    presetId: effectivePresetId,
+    versionId: effectivePresetVersionId,
+  }
+  const getPendingPresetSelection = useCallback(
+    (): PresetSelection => pendingSelectionRef.current,
+    []
+  )
 
   useEffect(() => {
     if (!selectedChatId) {
@@ -118,6 +140,7 @@ export function useChatPresetManager({
     if (!selectedChatId) {
       setDraftPresetId({ ownerId: null, value: nextPresetId })
       setDraftPresetVersionId({ ownerId: null, value: null })
+      pendingSelectionRef.current = { presetId: nextPresetId, versionId: null }
       return
     }
 
@@ -233,6 +256,7 @@ export function useChatPresetManager({
     currentPresetVersionId: currentPresetVersion?.id ?? null,
     handlePresetChange,
     handlePresetVersionChange,
+    getPendingPresetSelection,
     presetMenuLabel,
     presetMenuDisabled,
     showPresetSpinner,

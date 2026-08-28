@@ -1,5 +1,5 @@
 /**
- * Display-value mapping for comment mentions.
+ * Display-value mapping for composer mentions.
  *
  * The composer's textarea holds *display* text — an agent mention reads as
  * `@Label` and a workflow command as `/Label` — while the value sent to the
@@ -219,6 +219,13 @@ export function findWorkflowMention(
   mentions: MentionRange[]
 ): MentionRange | undefined {
   return mentions.find((mention) => mention.kind === "workflow")
+}
+
+/** The single agent mention in the composer, if one has been picked. */
+export function findAgentMention(
+  mentions: MentionRange[]
+): MentionRange | undefined {
+  return mentions.find((mention) => mention.kind === "agent")
 }
 
 /** Caret-anchored `@query` or `/query` span that drives the mention popover. */

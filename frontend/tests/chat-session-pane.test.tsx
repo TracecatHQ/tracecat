@@ -7,13 +7,20 @@ import {
 } from "@testing-library/react"
 import type { UIMessage } from "ai"
 import { StrictMode } from "react"
-import type { AgentSessionReadVercel, MCPIntegrationRead } from "@/client"
+import type {
+  AgentPresetReadMinimal,
+  AgentSessionReadVercel,
+  MCPIntegrationRead,
+} from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   ChatSessionPane,
   MessagePart,
 } from "@/components/chat/chat-session-pane"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
@@ -90,6 +97,15 @@ jest.mock("@/hooks/use-auth", () => ({
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: jest.fn(),
+}))
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: jest.fn(),
+}))
+jest.mock("@/hooks/use-agent-presets", () => ({
+  useAgentPresets: jest.fn(),
+}))
 
 const mockUseVercelChat = useVercelChat as jest.MockedFunction<
   typeof useVercelChat
@@ -103,6 +119,64 @@ const mockUseBuilderRegistryActions =
   >
 const mockUseListMcpIntegrations =
   useListMcpIntegrations as jest.MockedFunction<typeof useListMcpIntegrations>
+const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
+  typeof useScopeCheck
+>
+const mockUseEntitlements = useEntitlements as jest.MockedFunction<
+  typeof useEntitlements
+>
+const mockUseAgentPresets = useAgentPresets as jest.MockedFunction<
+  typeof useAgentPresets
+>
+
+const TRIAGE_PRESET: AgentPresetReadMinimal = {
+  id: "preset-1",
+  name: "Triage agent",
+  description: "Triages new cases",
+  current_version_id: "version-1",
+  created_at: "2024-01-01T00:00:00.000Z",
+  updated_at: "2024-01-01T00:00:00.000Z",
+} as AgentPresetReadMinimal
+
+/** Grant or withhold every entitlement the mention layer looks at. */
+function mockEntitled(entitled: boolean) {
+  mockUseEntitlements.mockReturnValue({
+    hasEntitlement: () => entitled,
+    isLoading: false,
+    hasEntitlementData: true,
+  })
+}
+
+/** Serve the agent-mention popover a fixed preset list. */
+function mockPresets(presets: AgentPresetReadMinimal[]) {
+  mockUseAgentPresets.mockReturnValue({
+    presets,
+    presetsIsLoading: false,
+    presetsError: null,
+    refetchPresets: jest.fn(),
+    // biome-ignore lint/suspicious/noExplicitAny: partial mock of a query result
+  } as any)
+}
+
+/** Add a registry tool through the Tools picker, then close the popover. */
+async function addToolFromPicker(label: string) {
+  fireEvent.click(screen.getByRole("button", { name: /^Tools/ }))
+  const search = await screen.findByPlaceholderText(
+    "Search capabilities & tools..."
+  )
+  fireEvent.change(search, { target: { value: label } })
+  const row = (await screen.findByText(label)).closest("label")
+  if (!row) {
+    throw new Error(`Tool row for "${label}" should exist`)
+  }
+  fireEvent.click(within(row).getByRole("switch"))
+  fireEvent.keyDown(search, { key: "Escape" })
+  await waitFor(() =>
+    expect(
+      screen.queryByPlaceholderText("Search capabilities & tools...")
+    ).not.toBeInTheDocument()
+  )
+}
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -180,6 +254,9 @@ describe("ChatSessionPane", () => {
       mcpIntegrationsIsLoading: false,
       mcpIntegrationsError: null,
     })
+    mockUseScopeCheck.mockReturnValue(true)
+    mockEntitled(true)
+    mockPresets([])
     queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -956,7 +1033,7 @@ describe("ChatSessionPane", () => {
     expect(approvalSubmit).toBeDisabled()
   })
 
-  it("supports @ mention tools in draft mode and passes selected tools before first send", async () => {
+  it("passes tools picked in draft mode with the first send", async () => {
     const onBeforeSend = jest.fn().mockResolvedValue("chat-2")
     const action = {
       id: "action-1",
@@ -1003,16 +1080,13 @@ describe("ChatSessionPane", () => {
       </QueryClientProvider>
     )
 
-    const textarea = screen.getByRole("textbox")
-    fireEvent.change(textarea, { target: { value: "@li" } })
-
-    await screen.findByText("List cases")
-    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+    await addToolFromPicker("List cases")
 
     expect(
       screen.getByRole("button", { name: /remove list cases/i })
     ).toBeInTheDocument()
 
+    const textarea = screen.getByRole("textbox")
     fireEvent.change(textarea, { target: { value: "hello" } })
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
 
@@ -1083,10 +1157,7 @@ describe("ChatSessionPane", () => {
       </QueryClientProvider>
     )
 
-    const textarea = screen.getByRole("textbox")
-    fireEvent.change(textarea, { target: { value: "@li" } })
-    await screen.findByText("List cases")
-    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+    await addToolFromPicker("List cases")
 
     await waitFor(() => {
       expect(updateChat).toHaveBeenCalledTimes(1)
@@ -1166,16 +1237,13 @@ describe("ChatSessionPane", () => {
       </QueryClientProvider>
     )
 
-    const textarea = screen.getByRole("textbox")
-
-    fireEvent.change(textarea, { target: { value: "@li" } })
-    await screen.findByText("List cases")
-    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+    await addToolFromPicker("List cases")
 
     await waitFor(() => {
       expect(updateChat).toHaveBeenCalledTimes(1)
     })
 
+    const textarea = screen.getByRole("textbox")
     fireEvent.change(textarea, { target: { value: "hello" } })
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
 
@@ -1489,10 +1557,7 @@ describe("ChatSessionPane", () => {
       </StrictMode>
     )
 
-    const textarea = screen.getByRole("textbox")
-    fireEvent.change(textarea, { target: { value: "@li" } })
-    await screen.findByText("List cases")
-    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+    await addToolFromPicker("List cases")
 
     await waitFor(() => {
       expect(updateChat).toHaveBeenCalledTimes(1)
@@ -1572,18 +1637,13 @@ describe("ChatSessionPane", () => {
       </QueryClientProvider>
     )
 
-    const textarea = screen.getByRole("textbox")
-    fireEvent.change(textarea, { target: { value: "@li" } })
-    await screen.findByText("List cases")
-    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+    await addToolFromPicker("List cases")
 
     await waitFor(() => {
       expect(updateChat).toHaveBeenCalledTimes(1)
     })
 
-    fireEvent.change(textarea, { target: { value: "@ge" } })
-    await screen.findByText("Get case")
-    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+    await addToolFromPicker("Get case")
 
     expect(
       screen.getByRole("button", { name: /remove list cases/i })
@@ -1644,6 +1704,223 @@ describe("ChatSessionPane", () => {
     expect(
       screen.getByRole("button", { name: /remove get case/i })
     ).toBeInTheDocument()
+  })
+
+  describe("agent mentions", () => {
+    function renderPane(
+      props: Partial<Parameters<typeof ChatSessionPane>[0]> = {}
+    ) {
+      return render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <ChatSessionPane
+              chat={createChatFixture()}
+              workspaceId="workspace-1"
+              entityType="case"
+              entityId="case-1"
+              modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+              toolsEnabled
+              {...props}
+            />
+          </TooltipProvider>
+        </QueryClientProvider>
+      )
+    }
+
+    let sendMessage: jest.Mock
+
+    beforeEach(() => {
+      sendMessage = jest.fn()
+      mockUseVercelChat.mockReturnValue({
+        sendMessage,
+        setMessages: jest.fn(),
+        regenerate: jest.fn(),
+        messages: [],
+        status: "ready",
+        lastError: null,
+        clearError: jest.fn(),
+        // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+      } as any)
+      mockPresets([TRIAGE_PRESET])
+    })
+
+    it("sets the session preset from an @ mention and sends the text verbatim", async () => {
+      const onSelect = jest.fn().mockResolvedValue(undefined)
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect,
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@tri", selectionStart: 4 },
+      })
+
+      await screen.findByText("Triage agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+
+      await waitFor(() => expect(textarea).toHaveValue("@Triage agent "))
+      expect(sendMessage).not.toHaveBeenCalled()
+
+      fireEvent.change(textarea, {
+        target: { value: "@Triage agent hello", selectionStart: 19 },
+      })
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+
+      await waitFor(() => expect(onSelect).toHaveBeenCalledWith("preset-1"))
+      await waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          text: "@Triage agent hello",
+        })
+      )
+    })
+
+    it("no longer offers tools on @", async () => {
+      const action = {
+        id: "action-1",
+        name: "core.cases.list_cases",
+        action: "core.cases.list_cases",
+        default_title: "List cases",
+        description: "List all cases",
+        namespace: "core.cases",
+        type: "template" as const,
+        origin: "tracecat://test",
+        availability: { locked: false, missing_entitlements: [] },
+      }
+      mockUseBuilderRegistryActions.mockReturnValue({
+        registryActions: [action],
+        registryActionsIsLoading: false,
+        registryActionsError: null,
+        getRegistryAction: (key: string) =>
+          key === action.action ? action : undefined,
+      })
+
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect: jest.fn().mockResolvedValue(undefined),
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@li", selectionStart: 3 },
+      })
+
+      // `@` is the agent picker now: it says there is no matching agent rather
+      // than offering the registry tool that used to match this query.
+      expect(screen.queryByText("List cases")).not.toBeInTheDocument()
+      expect(await screen.findByText("No agents found")).toBeInTheDocument()
+    })
+
+    it("opens the Enterprise lock row without agent add-ons, and Enter still submits", async () => {
+      mockEntitled(false)
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect: jest.fn().mockResolvedValue(undefined),
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, { target: { value: "@", selectionStart: 1 } })
+
+      expect(
+        await screen.findByText("Agent mentions are an Enterprise feature")
+      ).toBeInTheDocument()
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+      expect(mockUseAgentPresets).toHaveBeenCalledWith(
+        "workspace-1",
+        expect.objectContaining({ enabled: false })
+      )
+
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+
+      await waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({ text: "@" })
+      )
+    })
+
+    it("shows the mention hint while the composer is focused and empty", () => {
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect: jest.fn().mockResolvedValue(undefined),
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      expect(screen.queryByTestId("composer-hint")).not.toBeInTheDocument()
+
+      fireEvent.focus(textarea)
+
+      const hint = screen.getByTestId("composer-hint")
+      expect(hint).toHaveTextContent("Mention agent")
+      expect(hint).not.toHaveTextContent("Run workflow")
+
+      fireEvent.change(textarea, {
+        target: { value: "hello", selectionStart: 5 },
+      })
+      expect(screen.queryByTestId("composer-hint")).not.toBeInTheDocument()
+
+      fireEvent.change(textarea, { target: { value: "", selectionStart: 0 } })
+      expect(screen.getByTestId("composer-hint")).toBeInTheDocument()
+
+      fireEvent.blur(textarea)
+      expect(screen.queryByTestId("composer-hint")).not.toBeInTheDocument()
+    })
+
+    it("leaves @ inert on surfaces that do not support presets", () => {
+      renderPane()
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.focus(textarea)
+      expect(screen.queryByTestId("composer-hint")).not.toBeInTheDocument()
+
+      fireEvent.change(textarea, { target: { value: "@", selectionStart: 1 } })
+
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+      expect(
+        screen.queryByText("Agent mentions are an Enterprise feature")
+      ).not.toBeInTheDocument()
+      expect(textarea).toHaveValue("@")
+    })
+
+    it("replaces the hint with the active preset badge and clears back to tools", () => {
+      const onSelect = jest.fn().mockResolvedValue(undefined)
+      renderPane({
+        agentMentionsSupported: true,
+        toolsEnabled: false,
+        presetSelector: {
+          label: "Triage agent",
+          selectedPresetId: "preset-1",
+          onSelect,
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.focus(textarea)
+
+      expect(screen.getByText("Triage agent")).toBeInTheDocument()
+      expect(screen.queryByTestId("composer-hint")).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: /^Tools/ })
+      ).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole("button", { name: "Clear agent" }))
+
+      expect(onSelect).toHaveBeenCalledWith(null)
+    })
   })
 
   // Ownership swap at quiescent boundaries: while a turn streams the stream

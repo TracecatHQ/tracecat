@@ -6,7 +6,6 @@ import Link from "next/link"
 import { type ReactNode, useEffect, useState } from "react"
 import type {
   AgentPresetRead,
-  AgentPresetReadMinimal,
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
 } from "@/client"
@@ -155,8 +154,12 @@ export function ChatInterface({
     onChatChange?.(selectedChatId ? chat : undefined)
   }, [chat, onChatChange, selectedChatId])
 
-  const presetsEnabled =
-    agentAddonsEnabled && (entityType === "case" || entityType === "copilot")
+  // Setting a session preset only means something where the session owns one;
+  // preset-builder, approval and workflow sessions get no `@` trigger at all.
+  // The entitlement is deliberately not folded in here: an un-entitled org
+  // still sees the trigger, on the mention popover's lock row.
+  const presetsSupported = entityType === "case" || entityType === "copilot"
+  const presetsEnabled = agentAddonsEnabled && presetsSupported
   const sessionMcpEnabled = agentAddonsEnabled && entityType === "copilot"
   const inWorkspaceChat = surface === "workspace-chat"
   // Surfaces that defer server-side session creation until the first message,
@@ -179,9 +182,6 @@ export function ChatInterface({
   }, [inWorkspaceChat, workspaceId, selectedChatId])
 
   const {
-    presets: presetOptions,
-    presetsIsLoading,
-    presetsError,
     selectedPreset,
     selectedPresetConfig,
     selectedPresetConfigError,
@@ -189,6 +189,7 @@ export function ChatInterface({
     selectedPresetId: effectivePresetId,
     selectedPresetVersionId,
     handlePresetChange,
+    getPendingPresetSelection,
     presetMenuLabel,
     presetMenuDisabled,
     showPresetSpinner,
@@ -297,6 +298,10 @@ export function ChatInterface({
       return null
     }
 
+    // Read the selection through the manager: an `@Agent` mention sets the
+    // preset moments before this runs, and render state is still behind.
+    const pendingPreset = getPendingPresetSelection()
+
     try {
       const newChat = await createChat({
         title: `Chat ${(chats?.length || 0) + 1}`,
@@ -304,8 +309,8 @@ export function ChatInterface({
         entity_id: entityId,
         tools: selectedTools,
         mcp_integrations: selectedMcpIntegrations,
-        agent_preset_id: effectivePresetId,
-        agent_preset_version_id: selectedPresetVersionId,
+        agent_preset_id: pendingPreset.presetId,
+        agent_preset_version_id: pendingPreset.versionId,
       })
 
       // Prime the vercel chat cache with the freshly created (empty) session so
@@ -377,15 +382,10 @@ export function ChatInterface({
   const presetSelector = presetsEnabled
     ? {
         label: presetMenuLabel,
-        presets: presetOptions,
-        presetsError,
-        presetsIsLoading,
         selectedPresetId: effectivePresetId,
         disabled: presetMenuDisabled,
         showSpinner: showPresetSpinner,
-        noPresetDescription: "Use workspace default case agent instructions.",
-        onSelect: (presetId: string | null) =>
-          void handlePresetChange(presetId),
+        onSelect: handlePresetChange,
       }
     : undefined
   const pendingMessageText =
@@ -488,6 +488,7 @@ export function ChatInterface({
           selectedPresetConfigError={selectedPresetConfigError}
           toolsEnabled={toolsEnabled}
           agentAddonsEnabled={agentAddonsEnabled}
+          agentMentionsSupported={presetsSupported}
           mcpEnabled={sessionMcpEnabled}
           draftMode={draftMode}
           presetSelector={presetSelector}
@@ -520,18 +521,16 @@ interface ChatBodyProps {
   selectedPresetConfigError?: unknown
   toolsEnabled: boolean
   agentAddonsEnabled: boolean
+  /** Whether `@` offers agent presets, regardless of the entitlement. */
+  agentMentionsSupported: boolean
   mcpEnabled: boolean
   draftMode: boolean
   presetSelector?: {
     label: string
-    presets?: AgentPresetReadMinimal[]
-    presetsIsLoading: boolean
-    presetsError: unknown
     selectedPresetId: string | null
-    onSelect: (presetId: string | null) => void | Promise<void>
+    onSelect: (presetId: string | null) => Promise<void>
     disabled?: boolean
     showSpinner?: boolean
-    noPresetDescription?: string
   }
   onCreateSessionBeforeSend?: (
     messageText: string,
@@ -560,6 +559,7 @@ function ChatBody({
   selectedPresetConfigError,
   toolsEnabled,
   agentAddonsEnabled,
+  agentMentionsSupported,
   mcpEnabled,
   draftMode,
   presetSelector,
@@ -673,6 +673,7 @@ function ChatBody({
         modelInfo={modelInfo ?? undefined}
         toolsEnabled={toolsEnabled}
         agentAddonsEnabled={agentAddonsEnabled}
+        agentMentionsSupported={agentMentionsSupported}
         mcpEnabled={mcpEnabled}
         presetSelector={presetSelector}
         onBeforeSend={onCreateSessionBeforeSend}
@@ -706,6 +707,7 @@ function ChatBody({
       modelInfo={modelInfo ?? undefined}
       toolsEnabled={toolsEnabled}
       agentAddonsEnabled={agentAddonsEnabled}
+      agentMentionsSupported={agentMentionsSupported}
       mcpEnabled={mcpEnabled}
       presetSelector={presetSelector}
       pendingMessage={pendingMessage ?? undefined}

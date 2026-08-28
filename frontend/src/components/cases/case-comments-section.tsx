@@ -30,8 +30,9 @@ import {
   CaseEventTimestamp,
   CaseUserAvatar,
 } from "@/components/cases/case-panel-common"
-import { CommentMentionOverlay } from "@/components/cases/comment-mention-overlay"
-import { CommentMentionPopover } from "@/components/cases/comment-mention-popover"
+import { MentionHint } from "@/components/mentions/mention-hint"
+import { MentionOverlay } from "@/components/mentions/mention-overlay"
+import { MentionPopover } from "@/components/mentions/mention-popover"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,21 +58,19 @@ import {
   FormItem,
   FormMessage,
 } from "@/components/ui/form"
-import { Kbd } from "@/components/ui/kbd"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
-import { useCommentMentions } from "@/hooks/use-comment-mentions"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useMentions } from "@/hooks/use-mentions"
 import { SYSTEM_USER_READ, User } from "@/lib/auth"
 import {
   createPastedImageFile,
   extractImageFiles,
   useCaseImageUpload,
 } from "@/lib/cases/use-case-image-upload"
-import type { TextSplice } from "@/lib/comment-mentions"
 import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import {
   useCaseComments,
@@ -81,6 +80,7 @@ import {
   useDeleteCaseComment,
   useUpdateCaseComment,
 } from "@/lib/hooks"
+import type { TextSplice } from "@/lib/mentions"
 import { cn, INSET_SURFACE } from "@/lib/utils"
 
 /**
@@ -237,7 +237,6 @@ export function CommentSection({
                 editingCommentId={editingCommentId}
                 onEdit={(commentId) => setEditingCommentId(commentId)}
                 onStopEditing={() => setEditingCommentId(null)}
-                workflowSelectionEnabled={repliesEnabled}
               />
             ))
           : caseComments
@@ -256,11 +255,7 @@ export function CommentSection({
                 </CommentThreadShell>
               ))}
       </div>
-      <CommentComposer
-        caseId={caseId}
-        workspaceId={workspaceId}
-        workflowSelectionEnabled={repliesEnabled}
-      />
+      <CommentComposer caseId={caseId} workspaceId={workspaceId} />
     </div>
   )
 }
@@ -286,7 +281,6 @@ function CommentThread({
   editingCommentId,
   onEdit,
   onStopEditing,
-  workflowSelectionEnabled,
 }: {
   caseId: string
   workspaceId: string
@@ -295,7 +289,6 @@ function CommentThread({
   editingCommentId: string | null
   onEdit: (commentId: string) => void
   onStopEditing: () => void
-  workflowSelectionEnabled: boolean
 }) {
   const { comment } = thread
   const replies = thread.replies ?? []
@@ -375,7 +368,6 @@ function CommentThread({
             parentId={comment.id}
             placeholder="Leave a reply..."
             mode="inline"
-            workflowSelectionEnabled={workflowSelectionEnabled}
           />
         </div>
       ) : null}
@@ -645,43 +637,6 @@ function useCommentImagePaste({
   return { handlePaste, isUploading: uploadingCount > 0 }
 }
 
-/**
- * Discoverability hint in the composer footer, shown only while the textarea
- * is focused and empty. Renders nothing when neither trigger applies.
- */
-function ComposerHint({
-  show,
-  workflowsEnabled,
-  agentsEnabled,
-}: {
-  show: boolean
-  workflowsEnabled: boolean
-  agentsEnabled: boolean
-}) {
-  if (!show || (!workflowsEnabled && !agentsEnabled)) {
-    return null
-  }
-  return (
-    <div
-      className="flex items-center gap-3 text-xs text-muted-foreground"
-      data-testid="composer-hint"
-    >
-      {workflowsEnabled ? (
-        <span className="flex items-center gap-1">
-          <Kbd>/</Kbd>
-          Run workflow
-        </span>
-      ) : null}
-      {agentsEnabled ? (
-        <span className="flex items-center gap-1">
-          <Kbd>@</Kbd>
-          Mention agent
-        </span>
-      ) : null}
-    </div>
-  )
-}
-
 function CommentComposer({
   caseId,
   workspaceId,
@@ -690,7 +645,6 @@ function CommentComposer({
   mode = "default",
   onSubmitted,
   autoFocus = false,
-  workflowSelectionEnabled = false,
 }: {
   caseId: string
   workspaceId: string
@@ -699,7 +653,6 @@ function CommentComposer({
   mode?: "default" | "inline"
   onSubmitted?: () => void
   autoFocus?: boolean
-  workflowSelectionEnabled?: boolean
 }) {
   const { createComment, createCommentIsPending } = useCreateCaseComment({
     caseId,
@@ -742,12 +695,13 @@ function CommentComposer({
     },
     [form]
   )
-  const mentions = useCommentMentions({
+  const mentions = useMentions({
     workspaceId,
     textareaRef,
     getText: getContent,
     setText: setContent,
-    workflowsEnabled: workflowSelectionEnabled,
+    agents: { entitlements: ["agent_addons", "case_addons"] },
+    workflows: { entitlements: ["case_addons"] },
   })
 
   const { handlePaste, isUploading: imageUploading } = useCommentImagePaste({
@@ -828,7 +782,7 @@ function CommentComposer({
             name="content"
             render={({ field }) => (
               <FormItem>
-                <CommentMentionPopover
+                <MentionPopover
                   open={mentions.isOpen}
                   kind={mentions.kind}
                   caret={mentions.caret}
@@ -836,9 +790,10 @@ function CommentComposer({
                   itemCount={mentions.itemCount}
                   activeIndex={mentions.activeIndex}
                   isLoading={mentions.isLoading}
+                  locked={mentions.locked}
                   onSelect={mentions.selectSuggestion}
                 >
-                  <CommentMentionOverlay
+                  <MentionOverlay
                     text={content}
                     mentions={mentions.ranges}
                     className={textMetricsClassName}
@@ -880,17 +835,17 @@ function CommentComposer({
                       value={field.value}
                     />
                   </FormControl>
-                </CommentMentionPopover>
+                </MentionPopover>
                 <FormMessage />
               </FormItem>
             )}
           />
 
           <div className="flex items-end justify-between gap-2">
-            <ComposerHint
+            <MentionHint
               show={isFocused && !trimmedContent}
-              workflowsEnabled={mentions.workflowsEnabled}
-              agentsEnabled={mentions.agentsEnabled}
+              agents={mentions.agents}
+              workflows={mentions.workflows}
             />
             <div className="ml-auto flex items-center gap-2">
               {imageUploading ? (
