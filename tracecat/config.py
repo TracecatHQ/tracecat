@@ -1079,10 +1079,12 @@ TRACECAT__API_TASK_DRAIN_TIMEOUT = float(
 )
 """Seconds to let finite in-process API tasks finish during shutdown.
 
-Long-running consumers (e.g. case triggers) are cancelled as soon as shutdown
-begins; this bounds how long finite startup tasks (e.g. registry sync) are
-awaited, and how long cancelled tasks may run cleanup. The deployment's
-termination grace period must exceed twice this value for full coverage.
+Stoppable consumers (e.g. case triggers) are signalled to finish in-flight
+work and are awaited alongside finite startup tasks (e.g. registry sync) for
+this duration. Stragglers are then cancelled and get the same duration again
+for cleanup; non-stoppable long-running tasks are cancelled immediately. The
+deployment's termination grace period must exceed twice this value for full
+coverage.
 """
 
 # === Context Compression === #

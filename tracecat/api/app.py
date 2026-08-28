@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
@@ -234,20 +233,14 @@ async def lifespan(app: FastAPI):
     )
 
     if config.TRACECAT__CASE_TRIGGERS_ENABLED:
-        case_trigger_stop = asyncio.Event()
-        supervisor.spawn(
-            start_case_trigger_consumer(case_trigger_stop),
+        supervisor.spawn_stoppable(
+            start_case_trigger_consumer,
             name="case_trigger_consumer",
-            kind="long_running",
-            stop_event=case_trigger_stop,
         )
 
-    case_duration_sync_stop = asyncio.Event()
-    supervisor.spawn(
-        start_case_duration_sync_consumer(case_duration_sync_stop),
+    supervisor.spawn_stoppable(
+        start_case_duration_sync_consumer,
         name="case_duration_sync_consumer",
-        kind="long_running",
-        stop_event=case_duration_sync_stop,
     )
 
     logger.info(

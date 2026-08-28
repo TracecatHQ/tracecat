@@ -22,12 +22,13 @@ drain budget for the bounded await to have any effect.
 """
 
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from typing import Any, Literal
 
 from tracecat.logger import logger
 
 type TaskKind = Literal["finite", "long_running"]
+type StoppableTaskFactory = Callable[[asyncio.Event], Coroutine[Any, Any, None]]
 
 
 class LifespanTaskSupervisor:
@@ -42,13 +43,13 @@ class LifespanTaskSupervisor:
       triggers. Drain cancels these immediately; cancellation is their stop
       signal and they must clean up in response to it.
 
-    Long-running tasks may instead be spawned with a ``stop_event``: on
-    shutdown the supervisor sets the event and waits (bounded by
-    ``drain_timeout``) for the task to finish its in-flight work and exit on
-    its own, cancelling it only if it exceeds the deadline. This is the
-    preferred shutdown path for stream consumers: the last batch is fully
-    processed and acked instead of being redelivered to another pod after
-    the idle-claim window.
+    ``spawn_stoppable()`` creates a stop event and injects it into a
+    long-running task factory atomically. On shutdown the supervisor sets the
+    event and waits (bounded by ``drain_timeout``) for the task to finish its
+    in-flight work and exit on its own, cancelling it only if it exceeds the
+    deadline. This is the preferred shutdown path for stream consumers: the
+    last batch is fully processed and acked instead of being redelivered to
+    another pod after the idle-claim window.
 
     The supervisor never resurrects or reschedules work. Tasks whose failure
     must not lose data should checkpoint to durable storage themselves.
@@ -71,7 +72,6 @@ class LifespanTaskSupervisor:
         *,
         name: str,
         kind: TaskKind = "finite",
-        stop_event: asyncio.Event | None = None,
     ) -> asyncio.Task[None]:
         """Create a task under supervision.
 
@@ -80,22 +80,57 @@ class LifespanTaskSupervisor:
             name: Unique name used for log lines and cancellation reporting.
             kind: Whether the task is expected to finish ("finite") or run
                 until shutdown ("long_running").
-            stop_event: For long-running tasks only. When set, the supervisor
-                signals the task to finish its in-flight work and exit
-                gracefully instead of cancelling it.
 
         Raises:
-            ValueError: If a stop event is given for a finite task.
             RuntimeError: If called after drain has started.
         """
+        self._raise_if_draining(name)
+        return self._create_task(coro, name=name, kind=kind)
+
+    def spawn_stoppable(
+        self,
+        factory: StoppableTaskFactory,
+        *,
+        name: str,
+    ) -> asyncio.Task[None]:
+        """Create a stoppable long-running task under supervision.
+
+        The supervisor creates the stop event and passes the exact same object
+        to the task factory and its shutdown registry, so callers cannot wire
+        the consumer to a different event than the one drain signals.
+
+        Args:
+            factory: Callable that accepts the supervisor-owned stop event and
+                returns the consumer coroutine.
+            name: Unique name used for log lines and cancellation reporting.
+
+        Raises:
+            RuntimeError: If called after drain has started. The factory is not
+                invoked when registration is rejected.
+        """
+        self._raise_if_draining(name)
+        stop_event = asyncio.Event()
+        return self._create_task(
+            factory(stop_event),
+            name=name,
+            kind="long_running",
+            stop_event=stop_event,
+        )
+
+    def _raise_if_draining(self, name: str) -> None:
         if self._draining:
             raise RuntimeError(
                 f"Refusing to spawn task {name!r}: the supervisor is draining"
             )
-        if stop_event is not None and kind != "long_running":
-            raise ValueError(
-                f"Task {name!r}: a stop event requires kind='long_running'"
-            )
+
+    def _create_task(
+        self,
+        coro: Coroutine[Any, Any, None],
+        *,
+        name: str,
+        kind: TaskKind,
+        stop_event: asyncio.Event | None = None,
+    ) -> asyncio.Task[None]:
         task = asyncio.create_task(coro, name=name)
         self._tasks[task] = kind
         if stop_event is not None:
@@ -151,7 +186,7 @@ class LifespanTaskSupervisor:
         # budget to complete.
         draining = finite + stoppable
         if draining:
-            done, pending = await asyncio.wait(draining, timeout=self._drain_timeout)
+            _, pending = await asyncio.wait(draining, timeout=self._drain_timeout)
             for task in pending:
                 logger.warning(
                     "Lifespan task did not complete within the drain timeout; cancelling",
@@ -159,27 +194,15 @@ class LifespanTaskSupervisor:
                     timeout=self._drain_timeout,
                 )
                 task.cancel()
-            _log_completed_errors(done)
 
         # Phase 3: await cancellation-completion for everything, bounded.
         remaining = [task for task in self._tasks if not task.done()]
         if not remaining:
             return
-        done, pending = await asyncio.wait(remaining, timeout=self._drain_timeout)
-        _log_completed_errors(done)
+        _, pending = await asyncio.wait(remaining, timeout=self._drain_timeout)
         for task in pending:
             logger.warning(
                 "Lifespan task did not shut down within the grace period",
                 task=task.get_name(),
                 timeout=self._drain_timeout,
-            )
-
-
-def _log_completed_errors(tasks: set[asyncio.Task[None]]) -> None:
-    for task in tasks:
-        if task.cancelled():
-            continue
-        if (exc := task.exception()) is not None:
-            logger.warning(
-                "Lifespan task stopped with error", task=task.get_name(), err=exc
             )

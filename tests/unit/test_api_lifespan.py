@@ -159,28 +159,35 @@ async def test_drain_stops_stoppable_consumer_gracefully() -> None:
     supervisor = LifespanTaskSupervisor(drain_timeout=5.0)
     started = asyncio.Event()
     batch_done = asyncio.Event()
-    stop_event = asyncio.Event()
     batch_gate = asyncio.Event()
+    injected_stop_event: asyncio.Event | None = None
 
-    async def consume() -> None:
-        while not stop_event.is_set():
-            started.set()
-            # Simulate an in-flight batch being processed.
-            await batch_gate.wait()
-        # Current batch finishes after the stop signal.
-        batch_done.set()
+    def factory(stop_event: asyncio.Event):
+        nonlocal injected_stop_event
+        injected_stop_event = stop_event
 
-    task = supervisor.spawn(
-        consume(),
+        async def consume() -> None:
+            while not stop_event.is_set():
+                started.set()
+                # Simulate an in-flight batch being processed.
+                await batch_gate.wait()
+            # Current batch finishes after the stop signal.
+            batch_done.set()
+
+        return consume()
+
+    task = supervisor.spawn_stoppable(
+        factory,
         name="stoppable_consumer",
-        kind="long_running",
-        stop_event=stop_event,
     )
     await started.wait()
+    assert injected_stop_event is not None
+    assert not injected_stop_event.is_set()
 
     drain_task = asyncio.create_task(supervisor.drain())
     # Let drain signal the stop event, then let the in-flight batch finish.
     await asyncio.sleep(0)
+    assert injected_stop_event.is_set()
     batch_gate.set()
     await asyncio.wait_for(drain_task, timeout=5.0)
 
@@ -193,20 +200,22 @@ async def test_drain_cancels_stoppable_consumer_past_the_deadline() -> None:
     supervisor = LifespanTaskSupervisor(drain_timeout=0.0)
     started = asyncio.Event()
     stopped = asyncio.Event()
-    stop_event = asyncio.Event()
     hang_gate = asyncio.Event()
 
-    async def consume() -> None:
-        started.set()
-        # Ignores the stop event; the drain deadline must cancel it.
-        await hang_gate.wait()
-        stopped.set()
+    def factory(stop_event: asyncio.Event):
+        assert not stop_event.is_set()
 
-    task = supervisor.spawn(
-        consume(),
+        async def consume() -> None:
+            started.set()
+            # Ignore the injected stop event; the deadline must cancel this.
+            await hang_gate.wait()
+            stopped.set()
+
+        return consume()
+
+    task = supervisor.spawn_stoppable(
+        factory,
         name="stubborn_consumer",
-        kind="long_running",
-        stop_event=stop_event,
     )
     await started.wait()
     await supervisor.drain()
@@ -216,26 +225,39 @@ async def test_drain_cancels_stoppable_consumer_past_the_deadline() -> None:
 
 
 @pytest.mark.anyio
-async def test_stop_event_requires_long_running_kind() -> None:
+async def test_spawn_stoppable_rejects_after_drain_without_invoking_factory() -> None:
     supervisor = LifespanTaskSupervisor(drain_timeout=5.0)
+    factory_called = False
 
-    async def noop() -> None:
-        await asyncio.sleep(0)
+    def factory(stop_event: asyncio.Event):
+        nonlocal factory_called
+        factory_called = True
 
-    coro = noop()
-    with pytest.raises(ValueError, match="long_running"):
-        supervisor.spawn(
-            coro,
-            name="finite_with_stop",
-            kind="finite",
-            stop_event=asyncio.Event(),
-        )
-    coro.close()
+        async def consume() -> None:
+            await stop_event.wait()
+
+        return consume()
+
+    await supervisor.drain()
+    with pytest.raises(RuntimeError, match="draining"):
+        supervisor.spawn_stoppable(factory, name="late_stoppable_task")
+
+    assert not factory_called
 
 
 @pytest.mark.anyio
-async def test_drain_surfaces_completed_task_errors() -> None:
+async def test_drain_surfaces_completed_task_errors_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.api import lifespan as lifespan_module
+
     supervisor = LifespanTaskSupervisor(drain_timeout=5.0)
+    logged_errors: list[tuple[str, dict[str, object]]] = []
+
+    def capture_error(message: str, **kwargs: object) -> None:
+        logged_errors.append((message, kwargs))
+
+    monkeypatch.setattr(lifespan_module.logger, "error", capture_error)
 
     async def failing_task() -> None:
         raise ValueError("boom")
@@ -243,3 +265,10 @@ async def test_drain_surfaces_completed_task_errors() -> None:
     supervisor.spawn(failing_task(), name="failing_task")
     # Drain must not raise or hang when a finite task fails.
     await supervisor.drain()
+    await asyncio.sleep(0)
+
+    assert len(logged_errors) == 1
+    message, context = logged_errors[0]
+    assert message == "Supervised lifespan task failed"
+    assert context["task"] == "failing_task"
+    assert isinstance(context["err"], ValueError)
