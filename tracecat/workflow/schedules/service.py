@@ -318,24 +318,22 @@ class WorkflowSchedulesService(BaseWorkspaceService):
 
         self.session.add(schedule)
 
-        # After-commit callback to update Temporal schedule
-        async def _update_schedule():
-            try:
-                await bridge.update_schedule(schedule_id, params)
-                logger.info(
-                    "Updated schedule",
-                    schedule_id=schedule_id,
-                )
-            except Exception as e:
-                logger.error(
-                    "The schedules service couldn't update the Temporal schedule after commit",
-                    error=str(e),
-                    schedule_id=schedule_id,
-                )
-
-        AfterCommitQueue.of(self.session).add(_update_schedule)
-
         await self.session.commit()
+
+        # Update Temporal schedule synchronously (awaiting it) so we guarantee it's updated.
+        try:
+            await bridge.update_schedule(schedule_id, params)
+            logger.info(
+                "Updated Temporal schedule",
+                schedule_id=schedule_id,
+            )
+        except Exception as e:
+            logger.error(
+                "The schedules service couldn't update the Temporal schedule after commit",
+                error=str(e),
+                schedule_id=schedule_id,
+            )
+
         await self.session.refresh(schedule)
         return schedule
 

@@ -1,4 +1,7 @@
 import asyncio
+from collections.abc import Sequence
+from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
@@ -19,6 +22,21 @@ from tracecat.workflow.schedules.schemas import (
 )
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
+
+async def _get_schedule_run_times_bounded(
+    service: WorkflowSchedulesService,
+    schedules: list[Schedule] | Sequence[Schedule],
+    limit: int = 10,
+) -> list[tuple[datetime | None, datetime | None]]:
+    sem = asyncio.Semaphore(limit)
+
+    async def _bounded_get(s_id: Any):
+        async with sem:
+            return await service.get_schedule_run_times(s_id)
+
+    return await asyncio.gather(*(_bounded_get(s.id) for s in schedules))
+
+
 router = APIRouter(prefix="/schedules", tags=["schedules"])
 
 
@@ -32,9 +50,7 @@ async def list_schedules(
     service = WorkflowSchedulesService(session, role=role)
     schedules = await service.list_schedules(workflow_id=workflow_id)
 
-    run_times = await asyncio.gather(
-        *(service.get_schedule_run_times(s.id) for s in schedules)
-    )
+    run_times = await _get_schedule_run_times_bounded(service, schedules)
 
     result = []
     for s, (last_run, next_run) in zip(schedules, run_times, strict=True):
@@ -155,9 +171,7 @@ async def search_schedules(
     schedules = results.scalars().all()
 
     service = WorkflowSchedulesService(session, role=role)
-    run_times = await asyncio.gather(
-        *(service.get_schedule_run_times(s.id) for s in schedules)
-    )
+    run_times = await _get_schedule_run_times_bounded(service, schedules)
 
     result = []
     for s, (last_run, next_run) in zip(schedules, run_times, strict=True):
