@@ -611,6 +611,75 @@ def test_child_failure_aggregate_selects_one_classification_per_child() -> None:
     }
 
 
+def test_child_failure_aggregate_includes_every_classified_child() -> None:
+    user_classification = RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The child action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    platform_classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the child action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+
+    error = _capture_child_failures_application_error(
+        task_ref="fanout",
+        failures=[
+            (3, _capture_application_error(user_classification)),
+            (4, _capture_application_error(platform_classification)),
+        ],
+    )
+
+    aggregate_transport = parse_classified_action_error_payload(error.details[0])
+    assert isinstance(aggregate_transport, ActionErrorTransportDetail)
+    aggregate = aggregate_transport.diagnostic
+    assert aggregate is not None
+    assert aggregate.children is not None
+    assert [child.ref for child in aggregate.children] == ["fanout[3]", "fanout[4]"]
+    classifications = extract_error_classifications(error)
+    assert len(classifications) == 3
+    assert classifications[0].owner is RuntimeErrorOwner.PLATFORM
+    assert classifications[0].retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert classifications[1:] == (
+        user_classification,
+        platform_classification,
+    )
+
+
+def test_mixed_child_failures_use_unclassified_aggregate_with_every_child() -> None:
+    user_classification = RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The child action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+    error = _capture_child_failures_application_error(
+        task_ref="fanout",
+        failures=[
+            (3, _capture_application_error(user_classification)),
+            (4, RuntimeError("Legacy platform failure")),
+        ],
+    )
+
+    assert error.message == "2 child workflow(s) failed"
+    assert error.type == ApplicationError.__name__
+    assert error.non_retryable is True
+    assert extract_error_classifications(error) == ()
+    assert len(error.details) == 1
+    assert isinstance(error.details[0], dict)
+    aggregate = ActionErrorInfo.model_validate(error.details[0]["fanout"])
+    assert aggregate.children is not None
+    assert [child.ref for child in aggregate.children] == ["fanout[3]", "fanout[4]"]
+    assert [child.message for child in aggregate.children] == [
+        user_classification.message,
+        "Legacy platform failure",
+    ]
+    with patch("tracecat.dsl.workflow.workflow.patched") as patched_mock:
+        DSLWorkflow._upsert_terminal_error_owner(error)
+    patched_mock.assert_not_called()
+
+
 def test_legacy_workflow_error_shape_is_unchanged() -> None:
     detail = ActionErrorInfo(ref="action", message="Failed", type="ValueError")
     error = _capture_workflow_application_error(

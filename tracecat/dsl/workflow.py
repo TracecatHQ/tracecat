@@ -229,31 +229,48 @@ def _without_terminal_error_owner(
 
 def _raise_child_failures_application_error(
     *, task_ref: str, failures: list[tuple[int, BaseException]]
-) -> None:
-    """Raise classified child failures, or return when none are classified."""
-    child_details: list[tuple[RuntimeErrorClassification, ActionErrorInfo]] = []
+) -> Never:
+    """Raise child failures, classifying the aggregate only when all qualify."""
+    child_details: list[ActionErrorInfo] = []
+    child_classifications: list[RuntimeErrorClassification | None] = []
     for child_index, failure in failures:
         classifications = extract_error_classifications(failure)
-        if not classifications:
-            continue
-        classification = select_error_classification(classifications)
+        if classifications:
+            classification = select_error_classification(classifications)
+            child_message = classification.message
+            child_type = classification.cause_type or type(failure).__name__
+        else:
+            classification = None
+            child_message = str(failure)
+            child_type = type(failure).__name__
+        child_classifications.append(classification)
         child_details.append(
-            (
-                classification,
-                ActionErrorInfo(
-                    ref=f"{task_ref}[{child_index}]",
-                    message=classification.message,
-                    type=classification.cause_type or type(failure).__name__,
-                ),
+            ActionErrorInfo(
+                ref=f"{task_ref}[{child_index}]",
+                message=child_message,
+                type=child_type,
             )
         )
 
-    if not child_details:
-        return None
-
     message = f"{len(failures)} child workflow(s) failed"
+    aggregate = ActionErrorInfo(
+        ref=task_ref,
+        message=message,
+        type="ChildWorkflowAggregateError",
+        children=child_details,
+    )
+    if not all(classification is not None for classification in child_classifications):
+        raise ApplicationError(
+            message,
+            {task_ref: aggregate},
+            non_retryable=True,
+            type=ApplicationError.__name__,
+        )
+
     primary_classification = select_error_classification(
-        classification for classification, _ in child_details
+        classification
+        for classification in child_classifications
+        if classification is not None
     )
     aggregate_classification = primary_classification.model_copy(
         update={
@@ -262,18 +279,15 @@ def _raise_child_failures_application_error(
             "cause_type": "ChildWorkflowAggregateError",
         }
     )
-    aggregate = ActionErrorInfo(
-        ref=task_ref,
-        message=message,
-        type="ChildWorkflowAggregateError",
-        children=[diagnostic for _, diagnostic in child_details],
-    )
     raise_application_error_from_classification(
         aggregate_classification,
         build_error_transport_detail(aggregate_classification, aggregate),
         *(
             build_error_transport_detail(classification, diagnostic)
-            for classification, diagnostic in child_details
+            for classification, diagnostic in zip(
+                child_classifications, child_details, strict=True
+            )
+            if classification is not None
         ),
     )
 
@@ -1573,7 +1587,6 @@ class DSLWorkflow:
                     task_ref=task.ref,
                     failures=failures,
                 )
-                raise RuntimeError("One or more child workflows failed")
 
         result: list[StoredObject] = []
         for val in gather_result:

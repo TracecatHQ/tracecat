@@ -22,7 +22,7 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
-from tracecat.sandbox.exceptions import SandboxExecutionError
+from tracecat.sandbox.exceptions import SandboxInfrastructureError
 from tracecat.temporal.errors import (
     extract_error_classification,
     extract_error_classifications,
@@ -302,14 +302,14 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         id="executor.sandbox.exhausted",
         topology=_Topology.SINGLE_ACTION,
         fault_point=_FaultPoint.EXECUTOR_DISPATCH,
-        fault="SandboxExecutionError",
+        fault="SandboxInfrastructureError",
         root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
         envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
         kind=RuntimeErrorKind.EXECUTOR_SANDBOX_INFRASTRUCTURE_FAILED,
         retry_disposition=RetryDisposition.RETRYABLE,
         attempts=2,
         runner=_executor_runner(
-            error_factory=lambda: SandboxExecutionError(
+            error_factory=lambda: SandboxInfrastructureError(
                 "sandbox supervisor diagnostic must not enter history"
             ),
             max_attempts=2,
