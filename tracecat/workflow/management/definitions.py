@@ -197,11 +197,14 @@ async def get_workflow_definition_activity(
             retry_disposition=RetryDisposition.NON_RETRYABLE,
         )
         raise_application_error_from_classification(classification)
-    dsl = DSLInput(**defn.content)
-    # Convert from DB dict type to RegistryLock (JSONB deserializes to dict)
-    registry_lock = (
-        RegistryLock.model_validate(defn.registry_lock) if defn.registry_lock else None
-    )
+    with activity_error_boundary(_workflow_definition_invalid_data_classification):
+        dsl = DSLInput.model_validate(defn.content)
+        # Convert from DB dict type to RegistryLock (JSONB deserializes to dict)
+        registry_lock = (
+            RegistryLock.model_validate(defn.registry_lock)
+            if defn.registry_lock is not None
+            else None
+        )
     return WorkflowDefinitionActivityResult(dsl=dsl, registry_lock=registry_lock)
 
 
@@ -213,6 +216,18 @@ def _workflow_definition_lookup_error_classification(
         kind=RuntimeErrorKind.WORKFLOW_DEFINITION_LOOKUP_UNAVAILABLE,
         message="Tracecat could not query the published workflow definition",
         retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
+def _workflow_definition_invalid_data_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify malformed data in a persisted workflow definition."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.WORKFLOW_DEFINITION_INVALID_DATA,
+        message="Tracecat could not load the published workflow definition",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,
     )
 

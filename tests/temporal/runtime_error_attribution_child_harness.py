@@ -124,6 +124,51 @@ async def run_definition_lookup_failure_sets_platform_owner(
     )
 
 
+async def run_invalid_published_definition_sets_platform_owner(
+    env: WorkflowEnvironment,
+    test_worker_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> ScenarioObservation:
+    """Malformed persisted definition data is platform-owned and not retried."""
+    diagnostic = "malformed definition diagnostic must not enter history"
+    get_definition = AsyncMock(
+        return_value=SimpleNamespace(
+            content={"title": diagnostic},
+            registry_lock=None,
+        )
+    )
+    monkeypatch.setattr(
+        WorkflowDefinitionsService,
+        "get_definition_by_workflow_id",
+        get_definition,
+    )
+    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
+    run_args = _inline_run_args(max_attempts=1).model_copy(
+        update={"dsl": None, "registry_lock": None}
+    )
+
+    async with test_worker_factory(
+        env.client,
+        activities=[get_workflow_definition_activity],
+        task_queue=dsl_queue,
+    ):
+        handle = await env.client.start_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=generate_exec_id(run_args.wf_id),
+            task_queue=dsl_queue,
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await handle.result()
+
+    assert diagnostic not in (await handle.fetch_history()).to_json()
+    return ScenarioObservation(
+        root=handle,
+        failure=exc_info.value,
+        attempts=get_definition.await_count,
+    )
+
+
 async def run_unhandled_subflow_preparation_failure_sets_platform_owner(
     env: WorkflowEnvironment,
     test_worker_factory,

@@ -54,6 +54,7 @@ class _FaultPoint(StrEnum):
     EXECUTOR_DISPATCH = "dispatch_action"
     RESULT_PERSISTENCE = "object_storage.store"
     DEFINITION_SERVICE = "get_definition_by_workflow_id"
+    DEFINITION_DESERIALIZATION = "definition_deserialization"
     CHILD_EXECUTION = "child_dispatch"
     SUBFLOW_PREPARATION = "prepare_subflow"
     TEMPORAL_CONTROL = "temporal_control"
@@ -366,6 +367,20 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         attempts=6,
         runner=_monkeypatch_runner(
             child_harness.run_definition_lookup_failure_sets_platform_owner
+        ),
+    ),
+    _AttributionScenario(
+        id="definition.invalid_persisted_data",
+        topology=_Topology.DEFINITION_LOOKUP,
+        fault_point=_FaultPoint.DEFINITION_DESERIALIZATION,
+        fault="ValidationError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        kind=RuntimeErrorKind.WORKFLOW_DEFINITION_INVALID_DATA,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        attempts=1,
+        runner=_monkeypatch_runner(
+            child_harness.run_invalid_published_definition_sets_platform_owner
         ),
     ),
     _AttributionScenario(

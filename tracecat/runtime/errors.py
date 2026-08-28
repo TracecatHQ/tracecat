@@ -65,6 +65,7 @@ class RuntimeErrorKind(StrEnum):
     EXECUTOR_SANDBOX_INFRASTRUCTURE_FAILED = "executor.sandbox.infrastructure_failed"
     WORKFLOW_DEFINITION_NOT_FOUND = "workflow.definition.not_found"
     WORKFLOW_DEFINITION_LOOKUP_UNAVAILABLE = "workflow.definition.lookup_unavailable"
+    WORKFLOW_DEFINITION_INVALID_DATA = "workflow.definition.invalid_data"
     WORKFLOW_SUBFLOW_INPUT_INVALID = "workflow.subflow.input_invalid"
     WORKFLOW_SUBFLOW_PREPARATION_FAILED = "workflow.subflow.preparation_failed"
 
