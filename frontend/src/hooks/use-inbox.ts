@@ -33,6 +33,7 @@ export type InboxOrderBy = "created_at" | "updated_at"
 export interface UseInboxOptions {
   enabled?: boolean
   autoRefresh?: boolean
+  caseId?: string | null
   orderBy?: InboxOrderBy
   sort?: "asc" | "desc"
 }
@@ -217,6 +218,7 @@ function getDateFromFilter(filter: DateFilterValue): string | null {
 interface InboxGroupQueryOptions {
   workspaceId: string
   group: InboxGroup
+  caseId: string | null
   limit: number
   search: string
   entityType: AgentSessionEntity | "all"
@@ -240,6 +242,7 @@ interface InboxGroupQueryOptions {
 function useInboxGroupQuery({
   workspaceId,
   group,
+  caseId,
   limit,
   search,
   entityType,
@@ -269,6 +272,7 @@ function useInboxGroupQuery({
       "inbox-items",
       workspaceId,
       group,
+      caseId,
       limit,
       search,
       entityTypeParam,
@@ -282,6 +286,7 @@ function useInboxGroupQuery({
         workspaceId,
         limit,
         cursor: pageParam,
+        caseId,
         search: search || null,
         group,
         entityType: entityTypeParam,
@@ -321,6 +326,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const {
     enabled = true,
     autoRefresh = true,
+    caseId = null,
     orderBy = "updated_at",
     sort = "desc",
   } = options
@@ -356,6 +362,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const reviewRequiredQuery = useInboxGroupQuery({
     workspaceId,
     group: "review_required",
+    caseId,
     limit,
     search: normalizedSearchQuery,
     entityType,
@@ -370,6 +377,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const runningQuery = useInboxGroupQuery({
     workspaceId,
     group: "running",
+    caseId,
     limit,
     search: normalizedSearchQuery,
     entityType,
@@ -384,6 +392,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const errorQuery = useInboxGroupQuery({
     workspaceId,
     group: "error",
+    caseId,
     limit,
     search: normalizedSearchQuery,
     entityType,
@@ -398,6 +407,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const completedQuery = useInboxGroupQuery({
     workspaceId,
     group: "completed",
+    caseId,
     limit,
     search: normalizedSearchQuery,
     entityType,
@@ -489,6 +499,12 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
       setSelectedId(null)
     }
   }, [enrichedSessions, selectedId])
+
+  // A selection from another case must not keep its chat open while the new
+  // cursor streams are loading.
+  useEffect(() => {
+    setSelectedId(null)
+  }, [caseId])
 
   return {
     sessions: enrichedSessions,
