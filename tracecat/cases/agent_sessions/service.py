@@ -76,6 +76,9 @@ class CaseAgentSessionInteractionService(BaseWorkspaceService):
                 AgentSession.workspace_id == self.workspace_id,
                 AgentSession.id == current_session_id,
             )
+            # Keep the verified lineage alive until the caller commits so a
+            # concurrent session deletion cannot invalidate the interaction FK.
+            statement = statement.with_for_update(read=True, key_share=True)
             result = (await self.session.execute(statement)).one_or_none()
             if result is None:
                 raise TracecatNotFoundError(
