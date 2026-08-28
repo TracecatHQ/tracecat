@@ -8,6 +8,11 @@ services:
   executor:
     environment:
       TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-false}
+    # Hard cap on total processes (incl. all jails and their children):
+    # in-jail RLIMIT_NPROC is bypassable via nested user namespaces (fresh
+    # per-userns fork counter), so the container cgroup pids limit is the
+    # reliable fork-bomb bound. Verify headroom when adding jail workloads.
+    pids_limit: 1024
     # Required for nsjail sandbox execution.
     cap_add:
       - SYS_ADMIN
@@ -21,6 +26,8 @@ services:
     privileged: true
 
   agent-executor:
+    # Same fork-bomb bound as executor (nested userns bypasses in-jail caps).
+    pids_limit: 1024
     # Required for nsjail sandbox execution.
     cap_add:
       - SYS_ADMIN

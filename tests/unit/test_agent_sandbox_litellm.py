@@ -120,6 +120,10 @@ _STDIO_MCP_BASH_FLOW_COUNT = 256
 _STDIO_MCP_COMBINED_FLOW_COUNT = (
     _STDIO_MCP_BURST_FLOW_COUNT + _STDIO_MCP_BASH_FLOW_COUNT
 )
+# The burst case spawns 12 cold uvx MCP process chains plus the Bash probe
+# under retained load, which exceeds the default 128-process agent jail cap.
+# The stress test opts into a raised cap; production keeps the default.
+_STDIO_MCP_BURST_AGENT_NPROC_LIMIT = 1024
 _STDIO_MCP_BURST_PARENT_NOFILE_LIMIT = 4096
 _STDIO_MCP_BASH_TOOL_USE_ID = "toolu_tracecat_bash_network_probe"
 _STDIO_MCP_BASH_RESULT_MARKER = "TRACE_CAT_BASH_NETWORK_PROBE_OK"
@@ -1179,6 +1183,34 @@ async def _run_stdio_mcp_startup_burst_case(
         raise AssertionError("MCP startup must exceed the old 1024-flow budget")
     if _STDIO_MCP_COMBINED_FLOW_COUNT >= 2048:
         raise AssertionError("combined MCP and Bash burst must fit the new budget")
+
+    # The jailed shim now enforces RLIMIT_NPROC (nsjail cannot enforce it
+    # under clone_newuser). The default agent cap (128 processes, threads
+    # included) is tighter than this stress case needs, so raise it for this
+    # test only. This runs in-process AND inside the Dockerized harness,
+    # which invokes the same helper.
+    import tracecat.agent.sandbox.config as sandbox_config_module
+    import tracecat.agent.sandbox.nsjail as sandbox_nsjail_module
+
+    real_agent_sandbox_config = sandbox_config_module.AgentSandboxConfig
+
+    def _burst_agent_sandbox_config(*args: Any, **kwargs: Any) -> Any:
+        import dataclasses
+
+        config = real_agent_sandbox_config(*args, **kwargs)
+        if config.resources.max_processes < _STDIO_MCP_BURST_AGENT_NPROC_LIMIT:
+            config.resources = dataclasses.replace(
+                config.resources,
+                max_processes=_STDIO_MCP_BURST_AGENT_NPROC_LIMIT,
+            )
+        return config
+
+    monkeypatch.setattr(
+        sandbox_config_module, "AgentSandboxConfig", _burst_agent_sandbox_config
+    )
+    monkeypatch.setattr(
+        sandbox_nsjail_module, "AgentSandboxConfig", _burst_agent_sandbox_config
+    )
 
     udp_sinks, parent_address = _open_private_parent_udp_sinks(
         _STDIO_MCP_COMBINED_FLOW_COUNT

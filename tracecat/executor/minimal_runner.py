@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import importlib
 import os
+import resource
 import sys
 import warnings
 from collections.abc import Mapping
@@ -542,10 +543,34 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+def _enforce_nproc_limit() -> None:
+    """Cap the sandbox's process count via RLIMIT_NPROC.
+
+    nsjail cannot enforce rlimit_nproc when it creates a user namespace
+    (clone_newuser), so the host injects the configured limit via
+    TRACECAT__SANDBOX_RLIMIT_NPROC and this trusted runner applies it before
+    any untrusted code runs. Lowering a hard rlimit is permitted for
+    unprivileged processes, and the limit is enforced per real UID, which
+    covers every process in the sandbox.
+    """
+    raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
+    if not raw:
+        return
+    try:
+        limit = int(raw)
+        if limit > 0:
+            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError):
+        # Values are host-injected; ignore malformed or unenforceable ones.
+        pass
+
+
 if __name__ == "__main__":
     """Standalone entry point for subprocess execution."""
     import sys
     from pathlib import Path
+
+    _enforce_nproc_limit()
 
     # Determine input source: file (sandbox) or stdin (direct)
     input_path = Path("/work/input.json")

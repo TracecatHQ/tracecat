@@ -141,6 +141,56 @@ async def test_forward_request_streams_litellm_response(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("method", ["DELETE", "PUT", "PATCH", "CONNECT"])
+async def test_forward_request_rejects_non_inference_methods(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    method: str,
+) -> None:
+    """The socket proxy must not forward destructive/admin methods to the gateway.
+
+    The socket is reachable by untrusted in-jail code; inference is POST and
+    catalog discovery is GET. Anything else gets a 405 without leaving the
+    proxy, so host-attached gateway credentials can never drive destructive
+    or administrative endpoints.
+    """
+    tracker = LLMGatewayLoadTracker()
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy._proxy_load_tracker", tracker)
+
+    forwarded: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        forwarded.append(request)
+        return httpx.Response(200)
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": method,
+                "path": "/v1/messages",
+                "headers": {},
+                "body": b"{}",
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert forwarded == [], "denied method must not reach the gateway"
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 405")
+    assert "HTTP method not allowed" in response_text
+
+
+@pytest.mark.anyio
 async def test_forward_request_returns_upstream_error_response(
     tmp_path: Path,
 ) -> None:

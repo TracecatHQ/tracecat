@@ -349,6 +349,12 @@ def build_agent_nsjail_config(
 
     lines.extend(network_plan.dns_mount_lines)
 
+    # NOTE: bind mounts expose their host-side source paths (rootfs, job
+    # directory, and socket paths) via /proc/self/mountinfo inside the jail.
+    # This is inherent to bind-mount sandboxes and is accepted: mount sources
+    # reveal filesystem layout but grant no access beyond the read-only
+    # rootfs and explicitly mounted directories.
+
     # Fresh procfs avoids leaking executor-container process metadata. Docker
     # runtimes must run these containers with systempaths=unconfined; otherwise
     # masked proc entries like /proc/kcore prevent nested procfs mounts.
@@ -506,6 +512,10 @@ def build_agent_env_map(config: AgentSandboxConfig) -> dict[str, str]:
         AgentSandboxValidationError: If any env var key or value is invalid.
     """
     env_map: dict[str, str] = {**AGENT_SANDBOX_BASE_ENV}
+    # Enforce the process cap inside the jail: nsjail cannot apply
+    # rlimit_nproc under clone_newuser, so the trusted shim applies this
+    # injected value before starting the Claude runtime.
+    env_map["TRACECAT__SANDBOX_RLIMIT_NPROC"] = str(config.resources.max_processes)
     if value := os.environ.get("TRACECAT__LITELLM_BASE_URL"):
         env_map["TRACECAT__LITELLM_BASE_URL"] = value
 

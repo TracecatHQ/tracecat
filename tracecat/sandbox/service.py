@@ -253,6 +253,14 @@ class SandboxService:
                 f"Failed to install packages: {result.error or 'Unknown error'}"
             )
 
+        # Promotion safety invariant: execute_install() has already awaited and
+        # reaped the install jail (exit_code is its final return code), so the
+        # sandbox-controlled tree cannot change between validation and copy.
+        if result.exit_code is None:
+            raise PackageInstallError(
+                "Package install jail did not report a completed execution"
+            )
+
         # Copy installed packages to shared cache using atomic rename.
         # This prevents race conditions when multiple concurrent requests
         # try to install the same dependencies.

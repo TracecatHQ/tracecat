@@ -215,9 +215,14 @@ class TestEnvMap:
 
         env_map = executor._build_env_map(config, "execute")
 
-        # Ensure NO TRACECAT__ vars are present
+        # Ensure only the host-injected process-cap var is present: no
+        # secrets leak. TRACECAT__SANDBOX_RLIMIT_NPROC is injected by the
+        # executor itself (not read from the host environment) so the jailed
+        # wrapper can enforce the process cap that nsjail cannot.
         tracecat_vars = [k for k in env_map.keys() if k.startswith("TRACECAT__")]
-        assert tracecat_vars == [], f"Found TRACECAT__ vars in env_map: {tracecat_vars}"
+        assert tracecat_vars == ["TRACECAT__SANDBOX_RLIMIT_NPROC"], (
+            f"Unexpected TRACECAT__ vars in env_map: {tracecat_vars}"
+        )
 
     def test_env_map_only_contains_expected_keys(self, monkeypatch: pytest.MonkeyPatch):
         """Verify env_map contains ONLY the expected keys, nothing more."""
@@ -233,7 +238,8 @@ class TestEnvMap:
 
         env_map = executor._build_env_map(config, "execute")
 
-        # Expected keys are ONLY base env + user-specified vars
+        # Expected keys are ONLY base env + user-specified vars + the
+        # host-injected process cap
         expected_keys = {
             "PATH",
             "HOME",
@@ -241,6 +247,7 @@ class TestEnvMap:
             "PYTHONUNBUFFERED",
             "LANG",
             "LC_ALL",
+            "TRACECAT__SANDBOX_RLIMIT_NPROC",
             "USER_VAR",
         }
         assert set(env_map.keys()) == expected_keys

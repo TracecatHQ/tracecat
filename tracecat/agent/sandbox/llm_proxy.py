@@ -54,11 +54,20 @@ _NON_CRITICAL_PATHS = frozenset(
 )
 
 # User-friendly error messages by status code
+_ALLOWED_HTTP_METHODS = frozenset({"GET", "POST"})
+"""Methods the jailed runtime may use through the LLM socket proxy.
+
+Inference is POST and provider/catalog discovery is GET. Rejecting
+DELETE/PUT/PATCH/CONNECT/etc. prevents in-jail code from exercising gateway
+administration or destructive endpoints with the host-attached credentials.
+"""
+
 _ERROR_MESSAGES = {
     400: "Invalid request to LLM provider",
     401: "Authentication failed - check your API credentials",
     403: "Access denied - check your API permissions",
     404: "Model not found - check your model configuration",
+    405: "HTTP method not allowed by the LLM socket proxy",
     429: "Rate limit exceeded - please try again later",
     500: "LLM provider internal error",
     502: "LLM provider unavailable",
@@ -771,6 +780,22 @@ class LLMSocketProxy:
         trace_request_id = _get_or_create_trace_request_id(headers)
 
         try:
+            # Method allowlist: the socket is reachable by untrusted in-jail
+            # code, so it must not be able to reach host gateway credentials
+            # for destructive or administrative operations. LLM inference is
+            # POST (streaming + completions) and provider/catalog discovery is
+            # GET; anything else (DELETE/PUT/PATCH/CONNECT/...) is rejected
+            # before it ever reaches the gateway.
+            if method not in _ALLOWED_HTTP_METHODS:
+                await self._write_error_response(
+                    writer,
+                    status_code=405,
+                    detail="HTTP method not allowed by the LLM socket proxy",
+                    request_counter=request_counter,
+                    trace_request_id=trace_request_id,
+                )
+                return
+
             path_without_query = request["path"].split("?", 1)[0]
             if path_without_query == "/api/event_logging/batch":
                 await self._write_response(

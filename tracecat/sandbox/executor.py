@@ -89,6 +89,9 @@ SANDBOX_BASE_ENV = {
     "LC_ALL": "C.UTF-8",
 }
 
+SANDBOX_PROTECTED_ENV_VARS = frozenset({"TRACECAT__SANDBOX_RLIMIT_NPROC"})
+"""Host-injected sandbox environment variables users cannot override."""
+
 _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(r"\bCLONE_NEWUSER\b|clone_newuser", re.IGNORECASE),
@@ -292,6 +295,11 @@ class NsjailExecutor:
 
         lines.extend(network_plan.dns_mount_lines)
 
+        # NOTE: bind mounts expose their host-side source paths (rootfs,
+        # cache, and job directories) via /proc/self/mountinfo inside the
+        # jail. This is inherent to bind-mount sandboxes and is accepted:
+        # mount sources reveal filesystem layout but grant no access beyond
+        # the read-only rootfs and explicitly mounted job directories.
         lines.extend(
             [
                 "",
@@ -410,6 +418,12 @@ class NsjailExecutor:
                     TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS
                 )
         else:
+            # Enforce the process cap inside the jail: nsjail cannot apply
+            # rlimit_nproc under clone_newuser, so the trusted wrapper applies
+            # it via this injected value before untrusted code runs.
+            env_map["TRACECAT__SANDBOX_RLIMIT_NPROC"] = str(
+                config.resources.max_processes
+            )
             pythonpath_parts = []
             if cache_key:
                 cache_path = self.package_cache / cache_key / "site-packages"
@@ -427,6 +441,10 @@ class NsjailExecutor:
             if key == "PYTHONPATH":
                 continue
             _validate_env_key(key)
+            if key in SANDBOX_PROTECTED_ENV_VARS:
+                raise SandboxValidationError(
+                    f"Cannot override protected sandbox env var: {key}"
+                )
             env_map[key] = value
 
         return env_map
@@ -750,6 +768,12 @@ class NsjailExecutor:
 
         lines.extend(network_plan.dns_mount_lines)
 
+        # NOTE: bind mounts expose their host-side source paths (rootfs,
+        # registry packages, and job directories) via /proc/self/mountinfo
+        # inside the jail. This is inherent to bind-mount sandboxes and is
+        # accepted: mount sources reveal filesystem layout but grant no
+        # access beyond the read-only rootfs and explicitly mounted
+        # directories.
         lines.extend(
             [
                 "",
@@ -835,7 +859,16 @@ class NsjailExecutor:
         # Add user-provided env vars (SDK context, NOT DB credentials)
         for key, value in config.env_vars.items():
             _validate_env_key(key)
+            if key in SANDBOX_PROTECTED_ENV_VARS:
+                raise SandboxValidationError(
+                    f"Cannot override protected sandbox env var: {key}"
+                )
             env_map[key] = value
+
+        # Enforce the process cap inside the jail: nsjail cannot apply
+        # rlimit_nproc under clone_newuser, so the trusted minimal runner
+        # applies this injected value before untrusted code runs.
+        env_map["TRACECAT__SANDBOX_RLIMIT_NPROC"] = str(config.resources.max_processes)
 
         return env_map
 

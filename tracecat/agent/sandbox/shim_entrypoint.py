@@ -462,8 +462,33 @@ async def _pump_stream(
         await loop.run_in_executor(None, dst.flush)
 
 
+def _enforce_nproc_limit() -> None:
+    """Cap the jail's process count via RLIMIT_NPROC.
+
+    nsjail cannot enforce rlimit_nproc when it creates a user namespace
+    (clone_newuser), so the host injects the configured limit via
+    TRACECAT__SANDBOX_RLIMIT_NPROC and this trusted shim applies it before
+    starting the Claude runtime. Lowering a hard rlimit is permitted for
+    unprivileged processes, and the limit is enforced per real UID, which
+    covers every process in the jail.
+    """
+    import resource
+
+    raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
+    if not raw:
+        return
+    try:
+        limit = int(raw)
+        if limit > 0:
+            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError):
+        # Values are host-injected; ignore malformed or unenforceable ones.
+        pass
+
+
 def main() -> None:
     """CLI entry point for the sandbox shim."""
+    _enforce_nproc_limit()
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
