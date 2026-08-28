@@ -1,7 +1,7 @@
 "use client"
 
 import type { KeyboardEvent, RefObject } from "react"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AgentPresetReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
@@ -363,6 +363,25 @@ export function useMentions({
     },
     [agents, workflows, sessionCaret, sessionStart, textareaRef]
   )
+
+  // Scopes and entitlements resolve after mount, so a trigger typed during the
+  // cold load is discarded as `unavailable` and nothing would look at it again
+  // until the next keystroke -- a user who types `@` and waits would see
+  // neither the list nor the Enterprise row. Rescan once access settles. The
+  // key guard keeps `syncSession` changing identity from re-entering this.
+  const lastAccessStateRef = useRef(`${agents}:${workflows}`)
+  useEffect(() => {
+    const accessState = `${agents}:${workflows}`
+    if (lastAccessStateRef.current === accessState) {
+      return
+    }
+    lastAccessStateRef.current = accessState
+    const node = textareaRef.current
+    if (!node || document.activeElement !== node) {
+      return
+    }
+    syncSession(node.value, node.selectionStart ?? node.value.length)
+  }, [agents, workflows, syncSession, textareaRef])
 
   const handleSelectionChange = useCallback(() => {
     const node = textareaRef.current
