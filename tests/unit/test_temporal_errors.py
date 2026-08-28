@@ -850,6 +850,31 @@ def test_activity_error_boundary_preserves_existing_classification() -> None:
     classify.assert_not_called()
 
 
+@pytest.mark.anyio
+async def test_activity_error_boundary_ignores_incidental_classified_context() -> None:
+    prior_classification = _user_classification()
+    fallback = _platform_classification()
+    prior = _capture_application_error(prior_classification)
+    diagnostic = "postgresql://user:synthetic-secret@example.invalid/database"
+
+    with pytest.raises(ApplicationError) as exc_info:
+        try:
+            raise prior
+        except ApplicationError:
+            with activity_error_boundary(lambda _error: fallback):
+                # Deliberately create incidental context to exercise the boundary.
+                raise RuntimeError(diagnostic)  # noqa: B904
+
+    error = exc_info.value
+    failure = Failure()
+    await DataConverter.default.encode_failure(error, failure)
+
+    assert extract_error_classification(error) == fallback
+    assert error.type == fallback.kind.value
+    assert diagnostic not in str(failure)
+    assert "synthetic-secret" not in str(failure)
+
+
 def test_activity_error_boundary_preserves_cancellation() -> None:
     cancellation = asyncio.CancelledError()
     classify = Mock()

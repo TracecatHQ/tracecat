@@ -83,7 +83,10 @@ def activity_error_boundary(
     except asyncio.CancelledError:
         raise
     except Exception as error:
-        if extract_error_classification(error) is not None:
+        if extract_error_classifications(
+            error,
+            include_implicit_context=False,
+        ):
             raise
         classification = classify(error)
         logger.warning(
@@ -95,6 +98,7 @@ def activity_error_boundary(
         raise_wrapped_application_error(
             error,
             fallback_classification=classification,
+            include_implicit_context=False,
         )
 
 
@@ -170,16 +174,31 @@ def raise_wrapped_application_error(
     *,
     fallback_classification: RuntimeErrorClassification,
     details: Sequence[Any] = (),
+    include_implicit_context: bool = True,
 ) -> Never:
-    """Raise a history-safe application error preserving classification."""
+    """Raise a history-safe application error preserving classification.
+
+    Args:
+        error: The error to wrap.
+        fallback_classification: Classification to use when the error has none.
+        details: Explicit history-safe transport details for the wrapped error.
+        include_implicit_context: Whether incidental ``__context__`` may supply
+            the preserved classification. Boundary callers should disable this
+            so an unrelated error raised while handling a classified failure
+            cannot inherit the older classification.
+    """
     details_classification = (
         _classification_from_details(error.details)
         if isinstance(error, ApplicationError)
         else None
     )
+    chain_classifications = extract_error_classifications(
+        error,
+        include_implicit_context=include_implicit_context,
+    )
     classification = (
         details_classification
-        or extract_error_classification(error)
+        or (chain_classifications[0] if chain_classifications else None)
         or fallback_classification
     )
     if isinstance(error, ApplicationError):
