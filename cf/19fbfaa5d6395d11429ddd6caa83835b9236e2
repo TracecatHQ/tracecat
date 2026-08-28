@@ -1,0 +1,37 @@
+frontend/src/components/icons.tsx
+  s_58501ff1e81729::t_38a0dffec175c9 684,998,1208
+packages/tracecat-registry/tracecat_registry/templates/tools/snowflake/get_statement.yml
+  s_58501ff1e81729::t_4f505a02d5a02c 5,7,27,29
+packages/tracecat-registry/tracecat_registry/templates/tools/snowflake/execute_statement.yml
+  s_58501ff1e81729::t_4f505a02d5a02c 5,7,39,41
+frontend/src/components/icons.test.tsx
+  s_58501ff1e81729::t_38a0dffec175c9 93-94,110
+tests/unit/test_databricks_snowflake_providers.py
+  s_58501ff1e81729::t_38a0dffec175c9 18,25,44-45,51
+docs/docs.json
+  s_58501ff1e81729::t_e27955cc2e31ea 269
+packages/tracecat-registry/tracecat_registry/integrations/snowflake.py
+  s_58501ff1e81729::t_4f505a02d5a02c 1,11,18,24-25,38,40,57-58,108-111,115,121,125,142-143,148,167
+packages/tracecat-registry/tracecat_registry/templates/tools/snowflake/cancel_statement.yml
+  s_58501ff1e81729::t_4f505a02d5a02c 5,7,23,25
+docs/tools/snowflake.mdx
+  s_58501ff1e81729::t_e27955cc2e31ea 1-187
+tracecat/integrations/providers/snowflake/oauth.py
+  s_58501ff1e81729::t_38a0dffec175c9 1,24,27-29,32-35,38-39,61,64-65,72-75,78-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "cf19fbfaa5d6395d11429ddd6caa83835b9236e2",
+  "prompts": {},
+  "sessions": {
+    "s_58501ff1e81729": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044d1-6b3f-7060-b268-82273c1aed51",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
