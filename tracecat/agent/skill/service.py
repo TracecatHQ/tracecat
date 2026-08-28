@@ -863,6 +863,7 @@ class SkillService(BaseWorkspaceService):
                 key=storage_key,
                 bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
                 content_type="application/octet-stream",
+                redact_log_identifiers=True,
             )
         except Exception:
             await self.session.delete(claim.blob)
@@ -984,7 +985,11 @@ class SkillService(BaseWorkspaceService):
                 "Skill upload session has expired",
                 detail={"code": "upload_expired", "upload_id": str(upload.id)},
             )
-        if not await blob.file_exists(key=upload.key, bucket=upload.bucket):
+        if not await blob.file_exists(
+            key=upload.key,
+            bucket=upload.bucket,
+            redact_log_identifiers=True,
+        ):
             raise TracecatValidationError(
                 "Uploaded blob was not found in object storage",
                 detail={"code": "upload_missing", "upload_id": str(upload.id)},
@@ -1001,6 +1006,7 @@ class SkillService(BaseWorkspaceService):
             expected_sha256=normalized_upload_sha256,
             expected_size_bytes=upload.size_bytes,
             error_detail=integrity_error_detail,
+            redact_log_identifiers=True,
         )
 
         blob_row = await self._get_blob_by_identity(sha256=normalized_upload_sha256)
@@ -1235,6 +1241,7 @@ class SkillService(BaseWorkspaceService):
             content = await blob.download_file(
                 key=skill_md_blob.key,
                 bucket=skill_md_blob.bucket,
+                redact_log_identifiers=True,
             )
             markdown = content.decode("utf-8")
         except UnicodeDecodeError:
@@ -2239,6 +2246,7 @@ class SkillService(BaseWorkspaceService):
                 content = await blob.download_file(
                     key=blob_row.key,
                     bucket=blob_row.bucket,
+                    redact_log_identifiers=True,
                 )
                 return SkillDraftFileRead(
                     kind="inline",
@@ -2300,6 +2308,7 @@ class SkillService(BaseWorkspaceService):
                 content = await blob.download_file(
                     key=blob_row.key,
                     bucket=blob_row.bucket,
+                    redact_log_identifiers=True,
                 )
                 return SkillDraftFileRead(
                     kind="inline",
@@ -2351,6 +2360,7 @@ class SkillService(BaseWorkspaceService):
             content = await blob.download_file(
                 key=blob_row.key,
                 bucket=blob_row.bucket,
+                redact_log_identifiers=True,
             )
             return content.decode("utf-8")
         except UnicodeDecodeError:
@@ -3076,7 +3086,11 @@ class SkillService(BaseWorkspaceService):
         rows = await self._list_version_rows(version.id)
         files: list[SkillVersionFileContent] = []
         for version_file, blob_row in rows:
-            content = await blob.download_file(key=blob_row.key, bucket=blob_row.bucket)
+            content = await blob.download_file(
+                key=blob_row.key,
+                bucket=blob_row.bucket,
+                redact_log_identifiers=True,
+            )
             files.append(
                 SkillVersionFileContent(
                     path=version_file.path,

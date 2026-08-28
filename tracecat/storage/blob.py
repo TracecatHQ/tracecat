@@ -47,6 +47,22 @@ class StorageDownloadError(RuntimeError):
         self.error_code = error_code
 
 
+class StorageUploadError(RuntimeError):
+    """A storage upload failed without exposing object identifiers."""
+
+    def __init__(self, *, error_code: str | None) -> None:
+        super().__init__("Storage upload failed")
+        self.error_code = error_code
+
+
+class StorageMetadataError(RuntimeError):
+    """A storage metadata request failed without exposing object identifiers."""
+
+    def __init__(self, *, error_code: str | None) -> None:
+        super().__init__("Storage metadata request failed")
+        self.error_code = error_code
+
+
 class StorageDeleteError(RuntimeError):
     """A storage deletion failed without exposing object identifiers."""
 
@@ -608,6 +624,8 @@ async def upload_file(
     key: str,
     bucket: str,
     content_type: str | None = None,
+    *,
+    redact_log_identifiers: bool = False,
 ) -> None:
     """Upload a file to S3.
 
@@ -616,10 +634,19 @@ async def upload_file(
         key: The S3 object key
         bucket: Bucket name (required)
         content_type: Optional MIME type of the file
+        redact_log_identifiers: Hide the key, bucket, and provider prose in logs
+            and raised errors.
 
     Raises:
-        ClientError: If the upload fails
+        ClientError: If an unredacted upload fails.
+        StorageUploadError: If a redacted upload fails.
     """
+
+    log_key, log_bucket = _storage_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
 
     try:
         async with get_storage_client() as s3_client:
@@ -634,11 +661,23 @@ async def upload_file(
             await s3_client.put_object(**kwargs)
             logger.info(
                 "File uploaded successfully",
-                key=key,
-                bucket=bucket,
+                key=log_key,
+                bucket=log_bucket,
                 size=len(content),
             )
     except ClientError as e:
+        if redact_log_identifiers:
+            error_code = _safe_storage_error_code(
+                e.response.get("Error", {}).get("Code")
+            )
+            logger.error(
+                "Failed to upload file",
+                key=log_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
+            )
+            raise StorageUploadError(error_code=error_code) from None
         logger.error(
             "Failed to upload file",
             key=key,
@@ -646,6 +685,17 @@ async def upload_file(
             error=str(e),
         )
         raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
+            raise
+        logger.error(
+            "Failed to upload file",
+            key=log_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StorageUploadError(error_code=None) from None
 
 
 async def upload_file_from_path(
@@ -793,28 +843,45 @@ async def copy_file(
         raise StorageCopyError(error_code=None) from None
 
 
-async def download_file(key: str, bucket: str) -> bytes:
+async def download_file(
+    key: str,
+    bucket: str,
+    *,
+    redact_log_identifiers: bool = False,
+) -> bytes:
     """Download a file from S3.
 
     Args:
         key: The S3 object key
         bucket: Bucket name (required)
+        redact_log_identifiers: Hide the key, bucket, and provider prose in logs
+            and raised errors.
 
     Returns:
         File content as bytes
 
     Raises:
-        ClientError: If the download fails
-        FileNotFoundError: If the file doesn't exist
+        ClientError: If an unredacted download fails.
+        StorageDownloadError: If a redacted download fails.
+        FileNotFoundError: If the file doesn't exist.
     """
 
-    async with open_download_stream(key=key, bucket=bucket) as (stream, _):
+    log_key, log_bucket = _storage_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
+    async with open_download_stream(
+        key=key,
+        bucket=bucket,
+        redact_log_identifiers=redact_log_identifiers,
+    ) as (stream, _):
         content = await stream.read()
 
     logger.debug(
         "File downloaded successfully",
-        key=key,
-        bucket=bucket,
+        key=log_key,
+        bucket=log_bucket,
         size=len(content),
     )
     return content
@@ -1172,24 +1239,61 @@ async def delete_file(
         raise StorageDeleteError(error_code=None) from None
 
 
-async def file_exists(key: str, bucket: str) -> bool:
+async def file_exists(
+    key: str,
+    bucket: str,
+    *,
+    redact_log_identifiers: bool = False,
+) -> bool:
     """Check if a file exists in S3.
 
     Args:
         key: The S3 object key
         bucket: Bucket name (required)
+        redact_log_identifiers: Hide the key, bucket, and provider prose in logs
+            and raised errors.
 
     Returns:
         True if the file exists, False otherwise
+
+    Raises:
+        ClientError: If an unredacted metadata request fails.
+        StorageMetadataError: If a redacted metadata request fails.
     """
+    log_key, log_bucket = _storage_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
     try:
         async with get_storage_client() as s3_client:
             await s3_client.head_object(Bucket=bucket, Key=key)
             return True
     except ClientError as e:
-        if e.response.get("Error", {}).get("Code") == "404":
+        error_code = _safe_storage_error_code(e.response.get("Error", {}).get("Code"))
+        if error_code == "404":
             return False
+        if redact_log_identifiers:
+            logger.error(
+                "Failed to check file existence",
+                key=log_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
+            )
+            raise StorageMetadataError(error_code=error_code) from None
         raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
+            raise
+        logger.error(
+            "Failed to check file existence",
+            key=log_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StorageMetadataError(error_code=None) from None
 
 
 async def select_object_content(

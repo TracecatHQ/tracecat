@@ -8346,7 +8346,7 @@ async def list_skills(
     except TracecatValidationError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
-        logger.error("Failed to list skills", error=str(e))
+        logger.error("Failed to list skills", error_type=type(e).__name__)
         raise ToolError(f"Failed to list skills: {e}") from None
 
 
@@ -8392,7 +8392,7 @@ async def get_skill(
         except TracecatNotFoundError as e:
             raise ToolError(str(e)) from e
         except Exception as e:
-            logger.error("Failed to get skill draft", error=str(e))
+            logger.error("Failed to get skill draft", error_type=type(e).__name__)
             raise ToolError(f"Failed to get skill draft: {e}") from None
 
     try:
@@ -8420,7 +8420,7 @@ async def get_skill(
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
-        logger.error("Failed to get skill draft file", error=str(e))
+        logger.error("Failed to get skill draft file", error_type=type(e).__name__)
         raise ToolError(f"Failed to get skill draft file: {e}") from None
 
 
@@ -8462,7 +8462,7 @@ async def prepare_skill_download(
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
-        logger.error("Failed to prepare skill download", error=str(e))
+        logger.error("Failed to prepare skill download", error_type=type(e).__name__)
         raise ToolError(f"Failed to prepare skill download: {e}") from None
 
 
@@ -8570,7 +8570,7 @@ async def prepare_skill_upload(
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
-        logger.error("Failed to prepare skill upload", error=str(e))
+        logger.error("Failed to prepare skill upload", error_type=type(e).__name__)
         raise ToolError(f"Failed to prepare skill upload: {e}") from None
 
 
@@ -8641,7 +8641,7 @@ async def complete_skill_upload(
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
-        logger.error("Failed to complete skill upload", error=str(e))
+        logger.error("Failed to complete skill upload", error_type=type(e).__name__)
         raise ToolError(f"Failed to complete skill upload: {e}") from None
 
 
@@ -8668,7 +8668,7 @@ async def publish_skill(
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
-        logger.error("Failed to publish skill", error=str(e), skill_id=str(skill_id))
+        logger.error("Failed to publish skill", error_type=type(e).__name__)
         raise ToolError(f"Failed to publish skill: {e}") from None
 
 

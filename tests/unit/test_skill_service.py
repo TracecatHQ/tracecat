@@ -747,8 +747,9 @@ class TestSkillService:
             key: str,
             bucket: str,
             content_type: str,
+            redact_log_identifiers: bool = False,
         ) -> None:
-            del content, key, bucket, content_type
+            del content, key, bucket, content_type, redact_log_identifiers
             nonlocal upload_called
             upload_called = True
 
@@ -856,8 +857,9 @@ class TestSkillService:
             key: str,
             bucket: str,
             content_type: str,
+            redact_log_identifiers: bool = False,
         ) -> None:
-            del content, key, bucket, content_type
+            del content, key, bucket, content_type, redact_log_identifiers
             nonlocal upload_called
             upload_called = True
 
@@ -1370,8 +1372,11 @@ class TestSkillService:
 
         uploaded: dict[str, str] = {}
 
-        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
             del key, bucket
+            assert redact_log_identifiers is True
             return True
 
         class FakeStream:
@@ -1387,7 +1392,7 @@ class TestSkillService:
             *, key: str, bucket: str, redact_log_identifiers: bool = False
         ):
             del bucket
-            assert redact_log_identifiers is (key == canonical_key)
+            assert redact_log_identifiers is True
             yield FakeStream(), len(content)
 
         async def fake_copy_file(
@@ -1606,8 +1611,11 @@ class TestSkillService:
         canonical_key = skill_service._storage_key_for(sha256)
         deleted: list[str] = []
 
-        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
             del key, bucket
+            assert redact_log_identifiers is True
             return True
 
         class FakeStream:
@@ -1626,7 +1634,7 @@ class TestSkillService:
             *, key: str, bucket: str, redact_log_identifiers: bool = False
         ):
             del bucket
-            assert redact_log_identifiers is (key == canonical_key)
+            assert redact_log_identifiers is True
             payload = poisoned if key == canonical_key else content
             yield FakeStream(payload), len(payload)
 
@@ -1715,8 +1723,10 @@ class TestSkillService:
             key: str,
             bucket: str,
             content_type: str | None = None,
+            redact_log_identifiers: bool = False,
         ) -> None:
             del content, bucket, content_type
+            assert redact_log_identifiers is True
             stored_keys.add(key)
             raise asyncio.CancelledError()
 
@@ -1786,8 +1796,11 @@ class TestSkillService:
         get_object_calls = 0
         deleted: list[str] = []
 
-        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
             del key, bucket
+            assert redact_log_identifiers is True
             return True
 
         class FakeStream:
@@ -1913,8 +1926,11 @@ class TestSkillService:
         stored_keys: set[str] = set()
         deleted: list[str] = []
 
-        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
             del key, bucket
+            assert redact_log_identifiers is True
             return True
 
         async def fake_stream_verify_object(**_kwargs: Any) -> None:
@@ -2670,8 +2686,11 @@ class TestSkillService:
         )
         iterated = False
 
-        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
             del key, bucket
+            assert redact_log_identifiers is True
             return True
 
         class FakeStream:
@@ -2690,7 +2709,7 @@ class TestSkillService:
         ):
             del bucket
             assert key == upload.key
-            assert redact_log_identifiers is False
+            assert redact_log_identifiers is True
             yield FakeStream(), len(content)
 
         monkeypatch.setattr(
@@ -2803,8 +2822,11 @@ class TestSkillService:
         )
         chunks_yielded = 0
 
-        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
             del key, bucket
+            assert redact_log_identifiers is True
             return True
 
         class FakeStream:
@@ -2821,7 +2843,7 @@ class TestSkillService:
         ):
             del bucket
             assert key == upload.key
-            assert redact_log_identifiers is False
+            assert redact_log_identifiers is True
             yield FakeStream(), None
 
         monkeypatch.setattr(
@@ -2868,12 +2890,13 @@ class TestSkillService:
                 content_type="text/plain; charset=utf-8",
             ),
         )
-        canonical_key = skill_service._storage_key_for(sha256)
-
         deleted: dict[str, str] = {}
 
-        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
             del key, bucket
+            assert redact_log_identifiers is True
             return True
 
         class FakeStream:
@@ -2889,7 +2912,7 @@ class TestSkillService:
             *, key: str, bucket: str, redact_log_identifiers: bool = False
         ):
             del bucket
-            assert redact_log_identifiers is (key == canonical_key)
+            assert redact_log_identifiers is True
             yield FakeStream(), len(content)
 
         async def fake_copy_file(
