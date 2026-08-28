@@ -1,0 +1,255 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/secure_score/get_secure_score.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-68
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/secure_score/list_secure_scores.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-86
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/incidents/update_incident.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-85
+tracecat/dsl/scheduler.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 5,46-49,70-76,85-89,114,116-117,121-150,152-159,163-173,253-255,533,539-543,1668-1706
+docs/docs.json
+  s_58501ff1e81729::t_a2ab101ebe5ee0 239-241
+tracecat/api/common.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 10,30-35,189,191-212,215,225-230,249,258,264
+tracecat/auth/credentials.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 49,826,878-882,1544
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/list_mail_folders.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-105
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/send/send_draft.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-75
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/rules/get_message_rule.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-78
+tests/unit/test_durable_agent_workflow_search_attributes.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 30,33,45,882,900,912-954,962,983,988
+tests/unit/test_temporal_errors.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 5,8,13,16-19,24,31-37,44,46-47,54-55,65,68-71,75-81,83-85,94,100-102,108-110,112-113,117-121,123-126,129-155,158,168-169,178-179,181-187,189-208,210-233,237-275,278,281-288,298,306-307,310-313,317,319,321-327,337,340,342,347,350-351,353,356,358-359,365,368,372-373,377-379,388,392-394,408,414,423-426,443-444,447,451,455,465,473,480,483,487,494-495,502-506,510,526-543,545-547,552-659,661-662,664,668-671,673,675-676,681-683,690-693,700-701,707,713-716,722,732,737,747-750,756-775,778-780,782,793,796-798,803
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/incidents/get_incident.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-65
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/send/reply_message.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-88
+tests/unit/test_agent_mcp_executor.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 42,62-65,73-77
+tracecat/dsl/error_transport.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-36
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/send/send_mail.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-98
+tracecat/integrations/providers/microsoft/graph/__init__.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 7-10,15-18,29-32
+tracecat/db/tenant_rls.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 75
+tests/shared.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 6-7,13,16-17,22,31,45-79
+  s_58501ff1e81729::t_29f1e330206cc6 80-81
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/alerts/create_alert_comment.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-71
+packages/tracecat-registry/tracecat_registry/integrations/_microsoft_graph_products.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-118
+docs/tools/microsoft_graph_sdk.mdx
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-228
+tracecat/dsl/schemas.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 578-579
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/rules/list_message_rules.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-91
+docs/tools/microsoft_outlook.mdx
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-2154
+packages/tracecat-registry/tracecat_registry/integrations/_microsoft_graph_transport.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-681
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/rules/update_message_rule.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-87
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/get_mail_folder.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-87
+tests/unit/test_runtime_errors.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 9,11,14-15,22,28,30,33,39-42,45-46,52,62-74,76,89,98-103,108,115,122-165,168,175-176
+tracecat/integrations/providers/__init__.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 45-48,111-114
+frontend/src/client/types.gen.ts
+  s_58501ff1e81729::t_a2ab101ebe5ee0 7014
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/update_message.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-95
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/create_child_folder.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-89
+tests/temporal/test_durable_agent_workflow.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 13-14,62,405-406,408-418,2583,2593-2594,2597-2604,2659-2660,2663
+tests/unit/test_auth_middleware.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 27,75-76,90,93-94,152-190
+  s_58501ff1e81729::t_539da85de76efe 191-192
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/attachments/add_file_attachment.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-105
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/copy_message.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-84
+tracecat/cases/agent_sessions/service.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-109
+tracecat/db/models.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 58,3168-3211
+  s_58501ff1e81729::t_f3a8fd60ae00d9 3212-3213
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/list_folder_messages.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-125
+tracecat/dsl/action.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 7,29,57-62,78-82,89-92,300-310,645,662,668-672,675-676,679,686,694-696,705,707-708,775-882,904,1144-1146,1159-1161,1195-1197
+tests/unit/test_case_agent_session_interactions.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-260
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/list_child_folders.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-110
+docs/tools/microsoft_graph_security.mdx
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-1098
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/mailbox_settings/update_mailbox_settings.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-85
+tracecat/workflow/executions/enums.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 168-170
+tracecat/cases/enums.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 67-74
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/mailbox_settings/get_mailbox_settings.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-79
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/secure_score/list_secure_score_control_profiles.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-85
+tests/registry/test_templates.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1,108-267
+tracecat/contexts.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 24,54-57
+  s_58501ff1e81729::t_a3d82bb565128c 58
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/advanced_hunting/run_hunting_query.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-88
+tracecat/integrations/providers/microsoft/graph/outlook.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-82
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/audit_log/list_audit_log_queries.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-67
+packages/tracecat-ee/tracecat_ee/agent/workflows/durable.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 185,196,262,275,1909
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/secure_score/get_secure_score_control_profile.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-67
+tests/unit/test_dsl_scheduler_concurrency.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 11,15,31,34-37,80-82,87,92-96,98,104-105,109-111,116-117,119,122-131,133-154,156-218,221-239,244-246,250-252,257,262,268-310
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/create_draft.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-140
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/attachments/list_message_attachments.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-95
+tests/unit/test_temporal_search_attribute_registration.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 3,5,9-11,14,22-25,35-146,163
+tests/temporal/test_workflows.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1437
+frontend/src/components/icons.test.tsx
+  s_58501ff1e81729::t_205fe68fe8a9f7 2,6-8,12,18-21,32-53,125-194
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/attachments/get_message_attachment.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-91
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/incidents/list_incidents.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-94
+tracecat/integrations/providers/microsoft/__init__.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 25-28,33-36,57-60
+tests/temporal/test_dsl_workflow_replay.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-172
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/alerts/list_alerts.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-87
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/audit_log/list_audit_log_records.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-70
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/incidents/merge_incidents.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-83
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/delete_message.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-75
+packages/tracecat-registry/pyproject.toml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 44-45
+tracecat/dsl/types.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 68
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/send/forward_message.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-100
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/alerts/update_alert.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-85
+tests/unit/test_executor.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 209,229,256-286
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/send/reply_all.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-88
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/move_message.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-85
+tracecat/integrations/providers/microsoft/graph/provider.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 16-28,37,43,58,64,83,97
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/audit_log/create_audit_log_query.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-149
+tracecat/dsl/workflow.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 6,8,81-84,102-105,123,135,179-188,436-444,643,785-805,808-815,1084,1921-1973
+  s_58501ff1e81729::t_0c8d8b21b49f77 1974
+packages/tracecat-registry/tracecat_registry/integrations/microsoft_graph_sdk.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-146
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/incidents/create_incident_comment.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-70
+tests/unit/test_build_agent_args.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 610,636,660
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/audit_log/get_audit_log_query.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-63
+tracecat/integrations/providers/microsoft/graph/security.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-55
+tracecat/temporal/errors.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-12,16,25,29,32-33,37-69,73-91,95,97-100,102-107,109,114,116,122-123,133-134,143,146-148,152-156,160,165,172-173,179-182,185-191,195-232,234-236,239-241,243-245,248-259,262-265,268-275,278-282,298-301
+tests/registry/test_microsoft_product_sdks.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-366
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/get_message.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-94
+tracecat/runtime/errors.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 10-13,23,25,29,68,72,84-87,102,104-105,109,120,122-123,127-150,167-188,191-192,194-197,202
+tracecat/dsl/error_policy.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-94
+alembic/versions/44d7e75b6f4c_add_case_agent_session_interactions.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-102
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/alerts/get_alert.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-65
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/list_messages.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-127
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/delete_mail_folder.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-74
+tracecat/auth/executor_tokens.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 4,8,12,40,44-54,63,69-75,94-95
+tracecat/cases/agent_sessions/__init__.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1
+tracecat/integrations/providers/microsoft/common.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 21-22,30-31
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/rules/create_message_rule.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-85
+tracecat/executor/service.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 101,106,108-110
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_graph_security/alerts/move_alerts.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-89
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/update_mail_folder.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-81
+frontend/src/client/schemas.gen.ts
+  s_58501ff1e81729::t_a2ab101ebe5ee0 22939-22950
+tests/registry/test_microsoft_graph_sdk.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-717
+tracecat/agent/mcp/executor.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 117-122,155,163,184
+frontend/src/components/icons.tsx
+  s_58501ff1e81729::t_a2ab101ebe5ee0 637-639,850-860,1890,2003-2169
+  s_58501ff1e81729::t_9a146efe08300d 2170
+tests/unit/test_microsoft_providers.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-186
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/rules/delete_message_rule.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-72
+tracecat/api/app.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 188-191
+tests/unit/test_runtime_error_steel_thread.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-869
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/messages/list_message_delta.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-127
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_outlook/folders/create_mail_folder.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 1-84
+.github/workflows/test-python.yml
+  s_58501ff1e81729::t_a2ab101ebe5ee0 180
+tests/registry/conftest.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 2-56
+tests/unit/test_executor_tokens.py
+  s_58501ff1e81729::t_a2ab101ebe5ee0 21-22,57,82-156,229,240-242,264,268-305
+uv.lock
+  s_58501ff1e81729::t_d9bd5687281e31 1864-1876,1984-1992,2033-2037,2079-2087,2682-2738,2811-2825,4789-4797,5213-5214,5257-5258
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "688fea84010d534c46fa6c3affad5a267e12e845",
+  "prompts": {},
+  "sessions": {
+    "s_58501ff1e81729": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044d1-6b3f-7060-b268-82273c1aed51",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
