@@ -233,6 +233,23 @@ async def test_non_agent_case_and_comment_mutations_do_not_record(
     assert await _list_interactions(session, svc_role.workspace_id) == []
 
 
+async def test_missing_agent_session_does_not_block_case_creation(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A stale provenance ID does not veto the requested case mutation."""
+    assert svc_role.workspace_id is not None
+    cases = CasesService(session=session, role=svc_role)
+
+    context_token = ctx_agent_session_id.set(uuid.uuid4())
+    try:
+        await cases.create_case(_case_create("Stale agent session"))
+    finally:
+        ctx_agent_session_id.reset(context_token)
+
+    assert await _list_interactions(session, svc_role.workspace_id) == []
+
+
 async def test_failed_case_and_comment_transactions_leave_no_interactions(
     session: AsyncSession,
     svc_role: Role,

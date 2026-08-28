@@ -37,11 +37,19 @@ class CaseAgentSessionInteractionService(BaseWorkspaceService):
         """
         if (agent_session_id := ctx_agent_session_id.get()) is None:
             return None
-        return await self.record(
-            case_id=case_id,
-            agent_session_id=agent_session_id,
-            operation=operation,
-        )
+        try:
+            return await self.record(
+                case_id=case_id,
+                agent_session_id=agent_session_id,
+                operation=operation,
+            )
+        except TracecatNotFoundError:
+            self.logger.warning(
+                "Skipping case interaction; agent session not found",
+                agent_session_id=agent_session_id,
+                case_id=case_id,
+            )
+            return None
 
     async def resolve_root_session_id(self, session_id: uuid.UUID) -> uuid.UUID:
         """Resolve a session or continuation to its Inbox-facing root session.
