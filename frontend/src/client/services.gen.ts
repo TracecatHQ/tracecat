@@ -64,6 +64,7 @@ import type {
   AdminListTiersData,
   AdminListTiersResponse,
   AdminListUsersResponse,
+  AdminMaintenanceBackfillCaseAgentSessionInteractionsResponse,
   AdminPromoteOrgRepositoryVersionData,
   AdminPromoteOrgRepositoryVersionResponse,
   AdminPromoteToSuperuserData,
@@ -8019,6 +8020,20 @@ export const adminAgentListPlatformCatalog = (
     },
   })
 }
+
+/**
+ * Backfill Case Agent Session Interactions
+ * Backfill successful historical agent-driven case mutations.
+ * @returns CaseAgentSessionInteractionBackfillResponse Successful Response
+ * @throws ApiError
+ */
+export const adminMaintenanceBackfillCaseAgentSessionInteractions =
+  (): CancelablePromise<AdminMaintenanceBackfillCaseAgentSessionInteractionsResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/admin/maintenance/case-agent-session-interactions/backfill",
+    })
+  }
 
 /**
  * List Platform Repositories

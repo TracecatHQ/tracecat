@@ -1697,6 +1697,21 @@ export type CachePoint = {
 export type ttl = "5m" | "1h"
 
 /**
+ * Aggregate result of the historical interaction backfill.
+ */
+export type CaseAgentSessionInteractionBackfillResponse = {
+  batches_processed: number
+  sessions_scanned: number
+  history_rows_scanned: number
+  mutation_candidates: number
+  inserted: number
+  existing: number
+  skipped: {
+    [key: string]: number
+  }
+}
+
+/**
  * Case artifact shown in artifact-capable chat surfaces.
  */
 export type CaseArtifact = {
@@ -12545,6 +12560,9 @@ export type AdminAgentListPlatformCatalogData = {
 
 export type AdminAgentListPlatformCatalogResponse = AgentCatalogListResponse
 
+export type AdminMaintenanceBackfillCaseAgentSessionInteractionsResponse =
+  CaseAgentSessionInteractionBackfillResponse
+
 export type AdminRegistryListPlatformRepositoriesResponse =
   Array<RegistryRepositoryReadMinimal>
 
@@ -18182,6 +18200,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/maintenance/case-agent-session-interactions/backfill": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseAgentSessionInteractionBackfillResponse
       }
     }
   }
