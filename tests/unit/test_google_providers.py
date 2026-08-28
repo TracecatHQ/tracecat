@@ -10,6 +10,7 @@ from tracecat.integrations.providers.google.admin import (
     GOOGLE_ADMIN_AC_SCOPES,
     GOOGLE_ADMIN_SCOPES,
 )
+from tracecat.integrations.providers.google.chronicle import CHRONICLE_SCOPES
 from tracecat.integrations.providers.google.service_account import (
     _is_unauthorized_client,
 )
@@ -21,6 +22,7 @@ CC = OAuthGrantType.CLIENT_CREDENTIALS
 EXPECTED_GRANT_TYPES: dict[str, set[OAuthGrantType]] = {
     "google": {CC},
     "google_admin": {AC, CC},
+    "google_chronicle": {AC, CC},
     "google_docs": {AC, CC},
     "google_drive": {AC, CC},
     "google_forms": {AC, CC},
@@ -87,6 +89,16 @@ def test_google_admin_default_scopes() -> None:
         scope.rsplit("/", 1)[1].startswith(("admin.", "apps.alerts"))
         for scope in GOOGLE_ADMIN_SCOPES
     )
+
+
+def test_google_chronicle_scopes() -> None:
+    """Both Chronicle grants default to the single Chronicle API scope."""
+    assert CHRONICLE_SCOPES == ["https://www.googleapis.com/auth/chronicle"]
+    for grant_type in (AC, CC):
+        cls = PROVIDER_REGISTRY[
+            ProviderKey(id="google_chronicle", grant_type=grant_type)
+        ]
+        assert cls.scopes.default == CHRONICLE_SCOPES
 
 
 def test_google_admin_ac_scopes_exclude_alert_center() -> None:

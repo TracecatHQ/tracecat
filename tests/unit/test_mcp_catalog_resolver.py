@@ -75,6 +75,13 @@ REAL_CATALOG_CONNECTIONS = [
         id="elastic-custom-space-path",
     ),
     pytest.param(
+        "google-cloud-secops-mcp",
+        None,
+        MCPAuthType.OAUTH2,
+        "https://chronicle.europe-west2.rep.googleapis.com/mcp",
+        id="google-secops-templated-region",
+    ),
+    pytest.param(
         "databricks-mcp",
         None,
         MCPAuthType.OAUTH2,

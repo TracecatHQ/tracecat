@@ -24,14 +24,14 @@ export const DefaultQueryClientProvider = ({
           ) {
             return
           }
+          // Queries whose callers render the failure inline opt out here.
+          if (query.meta?.suppressErrorToast === true) {
+            return
+          }
           if (handleGlobalError(error)) {
             return
           }
-          const errorMessage = query.meta?.errorMessage
-          showFallbackErrorToast(
-            error,
-            typeof errorMessage === "string" ? errorMessage : undefined
-          )
+          showFallbackErrorToast(error, query.meta?.errorMessage)
         },
       }),
       defaultOptions: {

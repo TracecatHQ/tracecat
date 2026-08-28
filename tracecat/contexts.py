@@ -21,6 +21,7 @@ __all__ = [
     "ctx_stream_id",
     "ctx_session",
     "ctx_request_audit",
+    "ctx_agent_session_id",
     "ctx_logical_time",
     "get_env",
     "RequestAuditContext",
@@ -49,6 +50,11 @@ ctx_env: ContextVar[dict[str, str] | None] = ContextVar("env", default=None)
 ctx_session: ContextVar[AsyncSession | None] = ContextVar("session", default=None)
 ctx_session_id: ContextVar[uuid.UUID | None] = ContextVar("session-id", default=None)
 """ID for a streamable session, if any."""
+
+ctx_agent_session_id: ContextVar[uuid.UUID | None] = ContextVar(
+    "agent-session-id", default=None
+)
+"""Verified agent session associated with the current request, if any."""
 
 ctx_logical_time: ContextVar[datetime | None] = ContextVar("logical-time", default=None)
 """Current logical time = time_anchor + elapsed workflow time. Used by FN.now()."""

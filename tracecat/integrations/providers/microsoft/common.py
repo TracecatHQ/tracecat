@@ -18,7 +18,8 @@ MICROSOFT_DEFAULT_TOKEN_ENDPOINT = (
 MICROSOFT_SOVEREIGN_AUTH_HELP: list[str] = [
     "Cloud-specific authorize endpoints:",
     "- Commercial (Public): https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
-    "- US Gov (GCC/GCC High/DoD): https://login.microsoftonline.us/{tenant}/oauth2/v2.0/authorize",
+    "- US Gov (GCC High/DoD): https://login.microsoftonline.us/{tenant}/oauth2/v2.0/authorize",
+    "- China (21Vianet): https://login.chinacloudapi.cn/{tenant}/oauth2/v2.0/authorize",
     "\n",
     "Replace {tenant} in the authorization and token endpoints with your directory (tenant) ID, 'common' for multi-tenant applications, or 'consumers' for personal accounts.",
 ]
@@ -26,7 +27,8 @@ MICROSOFT_SOVEREIGN_AUTH_HELP: list[str] = [
 MICROSOFT_SOVEREIGN_TOKEN_HELP: list[str] = [
     "Cloud-specific token endpoints:",
     "- Commercial (Public): https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
-    "- US Gov (GCC/GCC High/DoD): https://login.microsoftonline.us/{tenant}/oauth2/v2.0/token",
+    "- US Gov (GCC High/DoD): https://login.microsoftonline.us/{tenant}/oauth2/v2.0/token",
+    "- China (21Vianet): https://login.chinacloudapi.cn/{tenant}/oauth2/v2.0/token",
 ]
 
 

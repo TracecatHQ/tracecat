@@ -92,6 +92,8 @@
 | `TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW` | `tracecat-workflow` | S3 bucket for workflow artifacts. |
 | `TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS` | `tracecat-attachments` | S3 bucket for case attachments. |
 | `TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY` | `tracecat-registry` | S3 bucket for registry packages. |
+| `TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT` | | Public base URL substituted for `TRACECAT__BLOB_STORAGE_ENDPOINT` in presigned URLs. Leave unset for AWS S3. A proxy in front of the store must forward the `Host` of `TRACECAT__BLOB_STORAGE_ENDPOINT`, as the bundled Caddy does. |
+| `TRACECAT__CSP_CONNECT_SRC_ORIGINS` | | Space- or comma-separated origins added to the UI's CSP `connect-src`. Set on the `ui` service to the presigned S3 bucket origins when the browser uploads or fetches blobs cross-origin. Compose defaults it to the presigned endpoint. |
 
 ### MinIO
 

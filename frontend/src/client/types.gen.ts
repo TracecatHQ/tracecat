@@ -5219,6 +5219,9 @@ export type MCPHTTPOAuth2ConnectionSpec = {
   oauth_resource?: string | null
   oauth_authorization_endpoint?: string | null
   oauth_token_endpoint?: string | null
+  oauth_authorize_params?: {
+    [key: string]: string
+  }
   /**
    * Configure-dialog view of ``credentials``; same data, UI field shape.
    */
@@ -5259,9 +5262,13 @@ export type MCPHttpIntegrationCreate = {
    */
   oauth_integration_id?: string | null
   /**
-   * Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.
+   * HTTP headers as a JSON object. Required for custom auth type; optional additional headers for OAuth2 auth type.
    */
   custom_credentials?: string | null
+  /**
+   * OAuth client credentials as a JSON object (client_id / client_secret) for catalog OAuth2 rows that declare an 'oauth_client' credential. Kept separate from custom_credentials so one connect can carry both a user-created OAuth client and extra HTTP headers.
+   */
+  oauth_client_credentials?: string | null
 }
 
 /**
@@ -7004,6 +7011,7 @@ export type RunActionInput = {
   interaction_context?: InteractionContext | null
   stream_id?: string
   session_id?: string | null
+  agent_session_id?: string | null
   registry_lock: RegistryLock
 }
 

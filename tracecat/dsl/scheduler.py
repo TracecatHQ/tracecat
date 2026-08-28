@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -17,7 +17,6 @@ _SCHEDULER_TASK_SPAWN_YIELD_EVERY = 16
 """Yield while spawning ready task coroutines to avoid long workflow activations."""
 
 with workflow.unsafe.imports_passed_through():
-    from pydantic import ValidationError
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
 
@@ -44,6 +43,10 @@ with workflow.unsafe.imports_passed_through():
         SkipStrategy,
         StreamErrorHandlingStrategy,
     )
+    from tracecat.dsl.error_transport import (
+        ActionErrorTransportDetail,
+        parse_classified_action_error_payload,
+    )
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
         ActionStatement,
@@ -64,7 +67,13 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
-    from tracecat.runtime.errors import ErrorEnvelope
+    from tracecat.runtime.errors import (
+        RetryDisposition,
+        RuntimeErrorClassification,
+        RuntimeErrorKind,
+        RuntimeErrorOwner,
+        select_error_classification,
+    )
     from tracecat.storage.object import (
         CollectionObject,
         InlineObject,
@@ -73,7 +82,11 @@ with workflow.unsafe.imports_passed_through():
         action_collection_prefix,
         action_key,
     )
-    from tracecat.temporal.errors import extract_error_envelope
+    from tracecat.temporal.errors import (
+        application_error_from_classification,
+        build_error_transport_detail,
+        extract_error_classification,
+    )
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -98,57 +111,66 @@ def _classified_action_error_info(
     *,
     ref: str,
     stream_id: StreamID,
-) -> ActionErrorInfo | None:
+) -> tuple[ActionErrorInfo, RuntimeErrorClassification] | None:
     """Adapt a classified activity failure into the scheduler error shape."""
-    envelope = extract_error_envelope(error)
-    if envelope is None:
+    classification = extract_error_classification(error)
+    if classification is None:
         return None
 
     for detail in error.details:
-        for parsed in _validated_action_error_infos(detail):
-            if _action_error_contains_envelope(parsed, envelope):
-                return parsed
+        match parse_classified_action_error_payload(detail):
+            case ActionErrorTransportDetail(diagnostic=ActionErrorInfo() as info):
+                return (
+                    info.model_copy(update={"ref": ref, "stream_id": stream_id}),
+                    classification,
+                )
+            case dict() as transport_map if transport_map:
+                # A child workflow's terminal ``{ref: detail}`` map. Ownership
+                # aggregates platform-wins across entries so a platform-owned
+                # child failure is never hidden behind an earlier user entry.
+                map_classification = select_error_classification(
+                    transport_detail.classification
+                    for transport_detail in transport_map.values()
+                )
+                children = [
+                    _action_error_from_transport_detail(child_ref, transport_detail)
+                    for child_ref, transport_detail in transport_map.items()
+                ]
+                return (
+                    ActionErrorInfo(
+                        ref=ref,
+                        message=map_classification.message,
+                        type=error.type or error.__class__.__name__,
+                        stream_id=stream_id,
+                        children=children,
+                    ),
+                    map_classification,
+                )
+            case _:
+                continue
 
-    return ActionErrorInfo(
-        ref=ref,
-        message=envelope.message,
-        type=error.type or error.__class__.__name__,
-        stream_id=stream_id,
-        envelope=envelope,
+    return (
+        ActionErrorInfo(
+            ref=ref,
+            message=classification.message,
+            type=error.type or error.__class__.__name__,
+            stream_id=stream_id,
+        ),
+        classification,
     )
 
 
-def _validated_action_error_infos(detail: object) -> tuple[ActionErrorInfo, ...]:
-    """Validate a direct action error or the established child-error map shape."""
-    try:
-        return (ActionErrorInfo.model_validate(detail),)
-    except ValidationError:
-        pass
-
-    if not isinstance(detail, Mapping):
-        return ()
-
-    parsed: list[ActionErrorInfo] = []
-    for ref, value in detail.items():
-        if not isinstance(ref, str):
-            return ()
-        try:
-            parsed.append(ActionErrorInfo.model_validate(value))
-        except ValidationError:
-            return ()
-    return tuple(parsed)
-
-
-def _action_error_contains_envelope(
-    detail: ActionErrorInfo,
-    envelope: ErrorEnvelope,
-) -> bool:
-    """Return whether an action error directly or transitively carries an envelope."""
-    if detail.envelope == envelope:
-        return True
-    return any(
-        _action_error_contains_envelope(child, envelope)
-        for child in detail.children or ()
+def _action_error_from_transport_detail(
+    ref: str,
+    transport_detail: ActionErrorTransportDetail,
+) -> ActionErrorInfo:
+    """Unwrap action diagnostics, synthesizing them when absent."""
+    if transport_detail.diagnostic is not None:
+        return transport_detail.diagnostic
+    return ActionErrorInfo(
+        ref=ref,
+        message=transport_detail.classification.message,
+        type=transport_detail.classification.kind.value,
     )
 
 
@@ -228,6 +250,9 @@ class DSLScheduler:
         # Mut
         self.task_exceptions: dict[str, TaskExceptionInfo] = {}
         self.stream_exceptions: dict[StreamID, TaskExceptionInfo] = {}
+        self.stream_error_classifications: dict[
+            StreamID, RuntimeErrorClassification
+        ] = {}
 
         # Build adjacency list with sets for efficient construction
         adj_temp: dict[str, set[AdjDst]] = defaultdict(set)
@@ -505,13 +530,17 @@ class DSLScheduler:
             # XXX: This can sometimes return null because the exception isn't an ApplicationError
             # But rather a ChildWorkflowError or CancelledError
             if isinstance(exc, ApplicationError) and (
-                classified_details := _classified_action_error_info(
+                classified := _classified_action_error_info(
                     exc,
                     ref=ref,
                     stream_id=task.stream_id,
                 )
             ):
-                details = classified_details
+                details, classification = classified
+                # Recorded so a later gather failure can aggregate ownership
+                # across its classified children; never pruned (bounded by
+                # failed tasks) so it survives stream cleanup.
+                self.stream_error_classifications[task.stream_id] = classification
             elif isinstance(exc, ApplicationError) and exc.details:
                 self.logger.info(
                     "Task failed with application error",
@@ -1636,11 +1665,45 @@ class DSLScheduler:
                 children=finalized.errors,
                 stream_id=parent_stream_id,
             )
-            app_error = ApplicationError(
-                message,
-                {gather_ref: gather_error.model_dump()},
-                non_retryable=True,
-            )
+            child_classifications = [
+                self.stream_error_classifications.get(child.stream_id)
+                for child in finalized.errors
+            ]
+            if all(
+                classification is not None for classification in child_classifications
+            ):
+                # Every child failure was classified: attribute the gather using
+                # the canonical platform-wins selection policy.
+                selected_child_classification = select_error_classification(
+                    classification
+                    for classification in child_classifications
+                    if classification is not None
+                )
+                build = (
+                    RuntimeErrorClassification.platform
+                    if selected_child_classification.owner is RuntimeErrorOwner.PLATFORM
+                    else RuntimeErrorClassification.user
+                )
+                gather_classification = build(
+                    kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+                    message=message,
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                )
+                app_error = application_error_from_classification(
+                    gather_classification,
+                    {
+                        gather_ref: build_error_transport_detail(
+                            gather_classification,
+                            gather_error,
+                        ).model_dump(mode="json")
+                    },
+                )
+            else:
+                app_error = ApplicationError(
+                    message,
+                    {gather_ref: gather_error.model_dump()},
+                    non_retryable=True,
+                )
             self.logger.warning(
                 "Raising gather error", errors=finalized.errors, app_error=app_error
             )

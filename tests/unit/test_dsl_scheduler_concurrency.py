@@ -7,11 +7,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from temporalio.exceptions import ApplicationError
 
+from tests.shared import capture_application_error as _capture_application_error
 from tracecat.auth.types import Role
 from tracecat.dsl import scheduler as scheduler_module
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
+from tracecat.dsl.error_transport import parse_classified_action_error_payload
 from tracecat.dsl.scheduler import DSLScheduler
 from tracecat.dsl.schemas import (
     ROOT_STREAM,
@@ -24,23 +25,16 @@ from tracecat.dsl.types import (
     ActionErrorInfo,
     Task,
 )
-from tracecat.expressions.common import ExprContext
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.runtime.errors import (
-    ErrorEnvelope,
     RetryDisposition,
+    RuntimeErrorClassification,
     RuntimeErrorKind,
 )
-from tracecat.temporal.errors import raise_application_error_from_envelope
-
-
-def _capture_application_error(
-    envelope: ErrorEnvelope,
-    *details: object,
-) -> ApplicationError:
-    with pytest.raises(ApplicationError) as exc_info:
-        raise_application_error_from_envelope(envelope, *details)
-    return exc_info.value
+from tracecat.temporal.errors import (
+    build_error_transport_detail,
+    extract_error_classifications,
+)
 
 
 def _build_scheduler(
@@ -83,85 +77,237 @@ def _build_scheduler(
 
 
 @pytest.mark.anyio
-async def test_scheduler_preserves_classified_action_error() -> None:
+async def test_scheduler_unwraps_classified_action_error_payload() -> None:
+    """Transported diagnostics become task error info and retain classification."""
+
     async def executor(_: ActionStatement) -> None:
         return None
 
     scheduler = _build_scheduler(total_tasks=1, executor=executor)
-    envelope = ErrorEnvelope.user(
+    classification = RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    payload = ActionErrorInfo(
+        ref="task_0",
+        message="The action failed",
+        type="ValueError",
+    )
+    error = _capture_application_error(
+        classification, build_error_transport_detail(classification, payload)
+    )
+
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
+
+    details = scheduler.task_exceptions["task_0"].details
+    assert details == payload
+    assert scheduler.stream_error_classifications[ROOT_STREAM] == classification
+
+
+@pytest.mark.anyio
+async def test_scheduler_rebinds_classified_action_error_to_current_stream() -> None:
+    """An unwrapped payload is rebound to the failing task's ref and stream."""
+
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    stream_id = StreamID.new("task_0", 2)
+    classification = RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The action failed",
         retry_disposition=RetryDisposition.NON_RETRYABLE,
     )
     error = _capture_application_error(
-        envelope,
-        ActionErrorInfo(
-            ref="task_0",
-            message="The action failed",
-            type="ValueError",
+        classification,
+        build_error_transport_detail(
+            classification,
+            ActionErrorInfo(
+                ref="legacy_ref",
+                message=classification.message,
+                type="ValueError",
+            ),
         ),
     )
 
-    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=stream_id), error)
 
-    details = scheduler.task_exceptions["task_0"].details
-    assert details.envelope == envelope
+    details = scheduler.stream_exceptions[stream_id].details
+    assert details.ref == "task_0"
+    assert details.stream_id == stream_id
+    assert details.message == classification.message
+    assert scheduler.stream_error_classifications[stream_id] == classification
 
 
 @pytest.mark.anyio
-async def test_scheduler_preserves_classified_mapped_child_error() -> None:
+async def test_scheduler_unwraps_classified_child_workflow_error_map() -> None:
+    """A child's terminal transport map becomes children payloads; ownership
+    aggregates platform-wins across entries, so a platform-owned entry after a
+    user-owned one still attributes the stream to the platform."""
+
     async def executor(_: ActionStatement) -> None:
         return None
 
     scheduler = _build_scheduler(total_tasks=1, executor=executor)
-    envelope = ErrorEnvelope.user(
+    user_classification = RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message="The child action failed",
         retry_disposition=RetryDisposition.NON_RETRYABLE,
     )
-    nested = ActionErrorInfo(
-        ref="nested_action",
-        message="Nested context",
-        type="ValueError",
-    )
-    child = ActionErrorInfo(
-        ref="child_action",
-        message="The child action failed",
-        type="ValueError",
-        expr_context=ExprContext.TRIGGER,
-        attempt=3,
-        stream_id=StreamID.new("scatter", 2),
-        children=[nested],
-        envelope=envelope,
-    )
-    error = _capture_application_error(
-        envelope,
-        {child.ref: child.model_dump(mode="json")},
-    )
-
-    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
-
-    assert scheduler.task_exceptions["task_0"].details == child
-
-
-@pytest.mark.anyio
-async def test_scheduler_preserves_standalone_error_envelope() -> None:
-    async def executor(_: ActionStatement) -> None:
-        return None
-
-    scheduler = _build_scheduler(total_tasks=1, executor=executor)
-    envelope = ErrorEnvelope.platform(
+    platform_classification = RuntimeErrorClassification.platform(
         kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
-        message="Tracecat could not execute the action",
+        message="Tracecat could not execute the child action",
         retry_disposition=RetryDisposition.RETRYABLE,
     )
-    error = _capture_application_error(envelope)
+    user_detail = ActionErrorInfo(
+        ref="user_action",
+        message=user_classification.message,
+        type="UserError",
+    )
+    platform_detail = ActionErrorInfo(
+        ref="platform_action",
+        message=platform_classification.message,
+        type="RuntimeError",
+    )
+    error = _capture_application_error(
+        user_classification,
+        {
+            user_detail.ref: build_error_transport_detail(
+                user_classification, user_detail
+            ).model_dump(mode="json"),
+            platform_detail.ref: build_error_transport_detail(
+                platform_classification, platform_detail
+            ).model_dump(mode="json"),
+        },
+    )
 
     await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
 
     details = scheduler.task_exceptions["task_0"].details
     assert details.ref == "task_0"
-    assert details.envelope == envelope
+    assert details.message == platform_classification.message
+    assert details.children == [user_detail, platform_detail]
+    assert (
+        scheduler.stream_error_classifications[ROOT_STREAM] == platform_classification
+    )
+    assert extract_error_classifications(error) == (
+        user_classification,
+        platform_classification,
+    )
+
+
+@pytest.mark.anyio
+async def test_scheduler_child_workflow_error_map_all_user_keeps_first_classification() -> (
+    None
+):
+    """An all-user terminal map still attributes the stream to the first entry."""
+
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    first_classification = RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The first child action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    second_classification = RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The second child action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    error = _capture_application_error(
+        first_classification,
+        {
+            "first_action": build_error_transport_detail(
+                first_classification,
+                ActionErrorInfo(
+                    ref="first_action",
+                    message=first_classification.message,
+                    type="UserError",
+                ),
+            ).model_dump(mode="json"),
+            "second_action": build_error_transport_detail(
+                second_classification,
+                ActionErrorInfo(
+                    ref="second_action",
+                    message=second_classification.message,
+                    type="UserError",
+                ),
+            ).model_dump(mode="json"),
+        },
+    )
+
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
+
+    details = scheduler.task_exceptions["task_0"].details
+    assert details.message == first_classification.message
+    assert scheduler.stream_error_classifications[ROOT_STREAM] == first_classification
+
+
+@pytest.mark.anyio
+async def test_scheduler_synthesizes_info_from_bare_transport_detail() -> None:
+    """A detail without diagnostics still yields synthesized task error info."""
+
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    error = _capture_application_error(classification)
+
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
+
+    details = scheduler.task_exceptions["task_0"].details
+    assert details.ref == "task_0"
+    assert details.message == classification.message
+    assert details.children is None
+    assert scheduler.stream_error_classifications[ROOT_STREAM] == classification
+
+
+@pytest.mark.anyio
+async def test_scheduler_rejects_undiscriminated_classification() -> None:
+    """An undiscriminated classification never classifies the failure."""
+
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    invalid_classification = RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="Invalid unversioned classification",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    fallback_classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    invalid_detail = build_error_transport_detail(
+        invalid_classification,
+        ActionErrorInfo(
+            ref="forged_action",
+            message=invalid_classification.message,
+            type="UserError",
+        ),
+    ).model_dump(mode="json")
+    invalid_detail["classification"].pop("schema")
+    error = _capture_application_error(fallback_classification, invalid_detail)
+
+    await scheduler._handle_error_path(Task(ref="task_0", stream_id=ROOT_STREAM), error)
+
+    details = scheduler.task_exceptions["task_0"].details
+    assert parse_classified_action_error_payload(invalid_detail) is None
+    assert details.ref == "task_0"
+    assert details.message == fallback_classification.message
+    assert (
+        scheduler.stream_error_classifications[ROOT_STREAM] == fallback_classification
+    )
 
 
 @pytest.mark.anyio

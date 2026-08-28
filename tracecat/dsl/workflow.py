@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Coroutine
+from collections.abc import Awaitable, Coroutine, Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Never
 
 from temporalio import workflow
 from temporalio.common import (
@@ -56,7 +56,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.action import (
         BuildAgentArgsActivityInput,
-        BuildPresetAgentArgsActivityInput,
         DSLActivities,
         EvaluateTemplatedObjectActivityInput,
         NormalizeTriggerInputsActivityInputs,
@@ -79,6 +78,10 @@ with workflow.unsafe.imports_passed_through():
         PlatformAction,
         WaitStrategy,
     )
+    from tracecat.dsl.error_policy import (
+        adapt_error_handler_details,
+        build_terminal_application_error,
+    )
     from tracecat.dsl.init_activities import (
         ResolveTimeAnchorActivityInputs,
         resolve_time_anchor_activity,
@@ -96,7 +99,10 @@ with workflow.unsafe.imports_passed_through():
         StreamID,
         TaskResult,
     )
-    from tracecat.dsl.types import ActionErrorInfo
+    from tracecat.dsl.types import (
+        ActionErrorInfo,
+        TaskExceptionInfo,
+    )
     from tracecat.dsl.validation import format_input_schema_validation_error
     from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.ee.interactions.decorators import maybe_interactive
@@ -114,6 +120,7 @@ with workflow.unsafe.imports_passed_through():
         exec_id_to_parts,
     )
     from tracecat.registry.lock.types import RegistryLock
+    from tracecat.runtime.errors import RuntimeErrorOwner, select_error_classification
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -125,6 +132,7 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
+    from tracecat.temporal.errors import extract_error_classifications
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
@@ -168,6 +176,16 @@ with workflow.unsafe.imports_passed_through():
 
 _CHILD_RUN_ARG_PREP_YIELD_EVERY = 8
 ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH = "dsl-action-heartbeat-timeout-retry-v1"
+ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH = "dsl-error-owner-search-attribute-v1"
+ERROR_OWNER_CONTROL_FLOW_PATCH = "dsl-error-owner-control-flow-v1"
+ERROR_OWNER_AFTER_HANDLER_PATCH = "dsl-error-owner-after-handler-v1"
+
+
+def _raise_workflow_application_error(
+    task_exceptions: Mapping[str, TaskExceptionInfo],
+) -> Never:
+    """Raise the terminal workflow error without changing legacy payloads."""
+    raise build_terminal_application_error(task_exceptions) from None
 
 
 def _inherit_search_attributes_with_alias(
@@ -415,64 +433,16 @@ class DSLWorkflow:
         try:
             return await self._run_workflow(args)
         except ApplicationError as e:
-            # Application error
-            self.logger.warning(
-                "Error running workflow, running error handler",
-                type=e.__class__.__name__,
+            stamp_owner_after_handler = workflow.patched(
+                ERROR_OWNER_AFTER_HANDLER_PATCH
             )
-            # 1. Get the error handler workflow ID
-            handler_wf_id = await self._get_error_handler_workflow_id(args)
-            if handler_wf_id is None:
-                self.logger.warning("No error handler workflow ID found, raising error")
-                raise e
-
-            if e.details:
-                err_info_map = e.details[0]
-                self.logger.info("Raising error info", err_info_data=err_info_map)
-                if not isinstance(err_info_map, dict):
-                    self.logger.error(
-                        "Unexpected error info object",
-                        err_info_map=err_info_map,
-                        type=type(err_info_map).__name__,
-                    )
-                    # TODO: There's likely a nicer way to gracefully handle this
-                    # instead of a sentinel error value
-                    errors = [
-                        ActionErrorInfo(
-                            ref="N/A",
-                            message=f"Unexpected error info object of type {type(err_info_map).__name__}: {err_info_map}",
-                            type=type(err_info_map).__name__,
-                        )
-                    ]
-                else:
-                    errors = [
-                        ActionErrorInfo.model_validate(data)
-                        for data in err_info_map.values()
-                    ]
-            else:
-                errors = None
-
-            trigger_type = get_trigger_type(workflow.info())
-            try:
-                err_run_args = await self._prepare_error_handler_workflow(
-                    message=e.message,
-                    handler_wf_id=handler_wf_id,
-                    orig_wf_id=args.wf_id,
-                    orig_wf_exec_id=self.wf_exec_id,
-                    orig_dsl=self.dsl,
-                    trigger_type=TriggerType(trigger_type),
-                    errors=errors,
-                )
-                await self._run_error_handler_workflow(err_run_args)
-            except Exception as err_handler_exc:
-                self.logger.error(
-                    "Failed to run error handler workflow",
-                    error=err_handler_exc,
-                )
-                raise err_handler_exc from e
-
-            # Finally, raise the original error
-            raise e
+            if not stamp_owner_after_handler:
+                self._upsert_terminal_error_owner(e)
+            await self._handle_application_error(
+                args,
+                e,
+                stamp_terminal_owner=stamp_owner_after_handler,
+            )
         except Exception as e:
             # Platform error
             if is_cancelled_exception(e):
@@ -669,21 +639,8 @@ class DSLWorkflow:
             ) from e
 
         if task_exceptions:
-            n_exc = len(task_exceptions)
-            formatted_exc = "\n".join(
-                f"{'=' * 10} ({i + 1}/{n_exc}) {details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
-                for i, (ref, info) in enumerate(task_exceptions.items())
-                if (details := info.details)
-            )
             # NOTE: This error is shown in the final activity in the workflow history
-            raise ApplicationError(
-                f"Workflow failed with {n_exc} error(s)\n\n{formatted_exc}",
-                # We should add the details of the exceptions to the error message because this will get captured
-                # in the error handler workflow
-                {ref: info.details for ref, info in task_exceptions.items()},
-                non_retryable=True,
-                type=ApplicationError.__name__,
-            )
+            _raise_workflow_application_error(task_exceptions)
 
         try:
             self.logger.info("DSL workflow completed")
@@ -826,7 +783,36 @@ class DSLWorkflow:
         return current, current.__class__.__name__
 
     @staticmethod
+    def _upsert_terminal_error_owner(error: BaseException) -> None:
+        """Stamp attribution only when a classified error reaches this boundary."""
+        # The escaping error owns terminal attribution. An error handler runs
+        # while the original workflow error remains the active exception, so
+        # following implicit ``__context__`` here can misclassify an
+        # unclassified handler failure as the original error's owner.
+        classifications = extract_error_classifications(
+            error,
+            include_implicit_context=False,
+        )
+        if not classifications:
+            return
+        if not workflow.patched(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH):
+            return
+
+        owner = select_error_classification(classifications).owner
+        workflow.upsert_search_attributes(
+            [TemporalSearchAttr.ERROR_OWNER.key.value_set(owner.value)]
+        )
+
+    @staticmethod
     def _has_user_error_cause(error: BaseException) -> bool:
+        classifications = extract_error_classifications(error)
+        if (
+            classifications
+            and select_error_classification(classifications).owner
+            is RuntimeErrorOwner.USER
+        ):
+            return workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH)
+
         current = error
         seen: set[int] = set()
         while True:
@@ -1095,7 +1081,7 @@ class DSLWorkflow:
                     self._set_logical_time_context()
                     preset_action_args = await workflow.execute_activity(
                         DSLActivities.build_preset_agent_args_activity,
-                        arg=BuildPresetAgentArgsActivityInput(
+                        arg=BuildAgentArgsActivityInput(
                             args=dict(task.args),
                             operand=agent_operand,
                             role=self.role,
@@ -1931,6 +1917,60 @@ class DSLWorkflow:
                 else workflow.ParentClosePolicy.TERMINATE  # Default is TERMINATE
             ),
         )
+
+    async def _handle_application_error(
+        self,
+        args: DSLRunArgs,
+        error: ApplicationError,
+        *,
+        stamp_terminal_owner: bool,
+    ) -> Never:
+        """Run an error handler before stamping the error that remains terminal."""
+        self.logger.warning(
+            "Error running workflow, running error handler",
+            type=error.__class__.__name__,
+        )
+        try:
+            handler_wf_id = await self._get_error_handler_workflow_id(args)
+            if handler_wf_id is None:
+                self.logger.warning("No error handler workflow ID found, raising error")
+            else:
+                if error.details:
+                    err_info_map = error.details[0]
+                    self.logger.info("Raising error info", err_info_data=err_info_map)
+                    if not isinstance(err_info_map, dict):
+                        self.logger.error(
+                            "Unexpected error info object",
+                            err_info_map=err_info_map,
+                            type=type(err_info_map).__name__,
+                        )
+                    errors = adapt_error_handler_details(error.details)
+                else:
+                    errors = None
+
+                trigger_type = get_trigger_type(workflow.info())
+                err_run_args = await self._prepare_error_handler_workflow(
+                    message=error.message,
+                    handler_wf_id=handler_wf_id,
+                    orig_wf_id=args.wf_id,
+                    orig_wf_exec_id=self.wf_exec_id,
+                    orig_dsl=self.dsl,
+                    trigger_type=TriggerType(trigger_type),
+                    errors=errors,
+                )
+                await self._run_error_handler_workflow(err_run_args)
+        except Exception as handler_error:
+            if stamp_terminal_owner:
+                self._upsert_terminal_error_owner(handler_error)
+            self.logger.error(
+                "Failed to run error handler workflow",
+                error_type=type(handler_error).__name__,
+            )
+            raise handler_error from error
+
+        if stamp_terminal_owner:
+            self._upsert_terminal_error_owner(error)
+        raise error
 
     async def _get_error_handler_workflow_id(
         self, args: DSLRunArgs

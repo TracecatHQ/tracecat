@@ -4,7 +4,7 @@ import asyncio
 import threading
 import weakref
 from collections.abc import Callable, Coroutine, Mapping
-from typing import Any, cast
+from typing import Any, Never, cast
 
 import dateparser
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -26,6 +26,7 @@ from tracecat.dsl.common import (
     ResolvedSubflowConfig,
 )
 from tracecat.dsl.enums import StreamErrorHandlingStrategy
+from tracecat.dsl.error_transport import is_classified_action_error_payload
 from tracecat.dsl.schemas import (
     ActionStatement,
     DSLConfig,
@@ -53,6 +54,12 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.mcp_validation import MCPValidationError
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.storage.collection import (
     materialize_collection_values,
     store_collection,
@@ -68,10 +75,19 @@ from tracecat.storage.object import (
     retrieve_stored_object,
 )
 from tracecat.storage.utils import is_retryable_storage_transport_error
+from tracecat.temporal.errors import (
+    build_error_transport_detail,
+    extract_error_classification,
+    raise_wrapped_application_error,
+)
 from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
 
 _thread_local = threading.local()
+
+
+class SubflowDefinitionNotFoundError(UserError):
+    """A requested child workflow definition could not be resolved."""
 
 
 def _close_asyncio_runner(runner: asyncio.Runner) -> None:
@@ -204,14 +220,6 @@ class BuildAgentArgsActivityInput(BaseModel):
     default_environment: str
 
 
-class BuildPresetAgentArgsActivityInput(BaseModel):
-    args: dict[str, Any]
-    operand: ExecutionContext
-    role: Role
-    task_environment: str | None
-    default_environment: str
-
-
 class EvaluateTemplatedObjectActivityInput(BaseModel):
     obj: Any
     operand: ExecutionContext
@@ -287,6 +295,17 @@ async def _store_collection_as_refs(prefix: str, items: list[Any]) -> Collection
         stored = await storage.store(collection_item_key(prefix, i), item)
         refs.append(stored.model_dump())
     return await store_collection(prefix, refs, element_kind="stored_object")
+
+
+async def _store_list_result(key: str, items: list[Any]) -> StoredObject:
+    """Store a list as a CollectionObject when result externalization is enabled.
+
+    Falls back to an inline list for non-externalized deployments, which cannot
+    use chunked storage.
+    """
+    if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+        return await _store_collection_as_refs(key, items)
+    return InlineObject(data=items, typename="list")
 
 
 async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskResult:
@@ -623,10 +642,7 @@ class DSLActivities:
                 element_kind="stored_object",
             )
         else:
-            values: list[Any] = []
-            for obj in input.collection:
-                value = await storage.retrieve(obj)
-                values.append(value)
+            values = [await storage.retrieve(obj) for obj in input.collection]
             return InlineObject(data=values, typename="list")
 
     @staticmethod
@@ -643,38 +659,31 @@ class DSLActivities:
         Returns the CollectionObject handle and any partitioned errors.
         """
         storage = get_object_storage()
-        values: list[Any] = []
-        for obj in input.collection:
-            value = await storage.retrieve(obj)
-            values.append(value)
+        values = [await storage.retrieve(obj) for obj in input.collection]
 
         if input.drop_nulls:
             values = [v for v in values if v is not None]
 
-        results: list[Any] = []
-        errors: list[ActionErrorInfo] = []
         match input.error_strategy:
-            case StreamErrorHandlingStrategy.PARTITION:
-                results, errors = _partition_errors(values)
-            case StreamErrorHandlingStrategy.DROP:
-                results = [v for v in values if not _is_error_info(v)]
-            case StreamErrorHandlingStrategy.INCLUDE:
-                results = list(values)
-            case StreamErrorHandlingStrategy.RAISE:
+            case (
+                StreamErrorHandlingStrategy.PARTITION
+                | StreamErrorHandlingStrategy.RAISE
+            ):
                 # Caller is responsible for raising if errors are present.
                 results, errors = _partition_errors(values)
+            case StreamErrorHandlingStrategy.DROP:
+                results, _ = _partition_errors(values)
+                errors = []
+            case StreamErrorHandlingStrategy.INCLUDE:
+                results = list(values)
+                errors = []
             case _:
                 raise ApplicationError(
                     f"Invalid error handling strategy: {input.error_strategy}",
                     non_retryable=True,
                 )
 
-        # Guard CollectionObject: only use chunked storage when externalization
-        # is enabled. Fall back to inline list for non-externalized deployments.
-        if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-            stored = await _store_collection_as_refs(input.key, results)
-        else:
-            stored = InlineObject(data=results, typename="list")
+        stored = await _store_list_result(input.key, results)
         return FinalizeGatherActivityResult(result=stored, errors=errors)
 
     @staticmethod
@@ -682,37 +691,9 @@ class DSLActivities:
     async def build_agent_args_activity(
         input: BuildAgentArgsActivityInput,
     ) -> AgentActionArgs:
-        """Build an AgentActionArgs from a dictionary of arguments.
-
-        Resolves the effective environment, fetches workspace VARS,
-        materializes any StoredObjects in operand, then evaluates templated
-        args. CPU-bound work is offloaded via asyncio.to_thread to avoid
-        blocking the Temporal event loop.
-        """
-        operand = input.operand
-        materialized = await materialize_context(operand)
-        environment = await asyncio.to_thread(
-            _resolve_environment,
-            input.task_environment,
-            input.default_environment,
-            materialized,
-        )
-        collected = await asyncio.to_thread(collect_expressions, input.args)
-        if collected.variables:
-            workspace_variables = await get_workspace_variables(
-                variable_exprs=collected.variables,
-                environment=environment,
-                role=input.role,
-            )
-            if workspace_variables:
-                operand["VARS"] = workspace_variables
-                materialized = await materialize_context(operand)
-        args = _strip_string_values(input.args)
-        evaled_args = await asyncio.to_thread(
-            eval_templated_object, args, operand=materialized
-        )
-        mcp_integration_ids = evaled_args.pop("mcp_integrations", None)
-        if mcp_integration_ids:
+        """Build AgentActionArgs via the shared _evaluate_agent_args helper."""
+        evaled_args = await _evaluate_agent_args(input)
+        if mcp_integration_ids := evaled_args.pop("mcp_integrations", None):
             evaled_args["mcp_servers"] = await _resolve_mcp_integrations(
                 mcp_integration_ids, role=input.role
             )
@@ -721,37 +702,10 @@ class DSLActivities:
     @staticmethod
     @activity.defn
     async def build_preset_agent_args_activity(
-        input: BuildPresetAgentArgsActivityInput,
+        input: BuildAgentArgsActivityInput,
     ) -> PresetAgentActionArgs:
-        """Build a PresetAgentActionArgs from a dictionary of arguments.
-
-        Resolves the effective environment, fetches workspace VARS,
-        materializes any StoredObjects in operand, then evaluates templated
-        args. CPU-bound work is offloaded via asyncio.to_thread to avoid
-        blocking the Temporal event loop.
-        """
-        operand = input.operand
-        materialized = await materialize_context(operand)
-        environment = await asyncio.to_thread(
-            _resolve_environment,
-            input.task_environment,
-            input.default_environment,
-            materialized,
-        )
-        collected = await asyncio.to_thread(collect_expressions, input.args)
-        if collected.variables:
-            workspace_variables = await get_workspace_variables(
-                variable_exprs=collected.variables,
-                environment=environment,
-                role=input.role,
-            )
-            if workspace_variables:
-                operand["VARS"] = workspace_variables
-                materialized = await materialize_context(operand)
-        args = _strip_string_values(input.args)
-        evaled_args = await asyncio.to_thread(
-            eval_templated_object, args, operand=materialized
-        )
+        """Build PresetAgentActionArgs via the shared _evaluate_agent_args helper."""
+        evaled_args = await _evaluate_agent_args(input)
         return PresetAgentActionArgs(**evaled_args)
 
     @staticmethod
@@ -818,7 +772,114 @@ class DSLActivities:
 
         Returns PreparedSubflowResult containing all shared data needed to spawn child workflows.
         """
-        return await _prepare_subflow(input)
+        try:
+            return await _prepare_subflow(input)
+        except Exception as error:
+            classification = _subflow_error_classification(error)
+            if classification.owner is RuntimeErrorOwner.PLATFORM:
+                logger.error(
+                    "Platform error preparing child workflow",
+                    error_type=type(error).__name__,
+                    error_kind=classification.kind.value,
+                    retry_disposition=classification.retry_disposition.value,
+                    ref=input.task.ref,
+                )
+            _raise_classified_subflow_application_error(
+                input=input,
+                error=error,
+                classification=classification,
+            )
+
+
+async def _evaluate_agent_args(input: BuildAgentArgsActivityInput) -> dict[str, Any]:
+    """Resolve environment and VARS, materialize the operand, and evaluate templated args."""
+    operand = input.operand
+    materialized = await materialize_context(operand)
+    environment = await asyncio.to_thread(
+        _resolve_environment,
+        input.task_environment,
+        input.default_environment,
+        materialized,
+    )
+    collected = await asyncio.to_thread(collect_expressions, input.args)
+    if collected.variables:
+        workspace_variables = await get_workspace_variables(
+            variable_exprs=collected.variables,
+            environment=environment,
+            role=input.role,
+        )
+        if workspace_variables:
+            operand["VARS"] = workspace_variables
+            materialized = await materialize_context(operand)
+    args = _strip_string_values(input.args)
+    return await asyncio.to_thread(eval_templated_object, args, operand=materialized)
+
+
+def _subflow_error_classification(error: Exception) -> RuntimeErrorClassification:
+    """Classify a subflow error without overriding established semantics."""
+    if classification := extract_error_classification(error):
+        return classification
+
+    retry_disposition = (
+        RetryDisposition.NON_RETRYABLE
+        if isinstance(error, ApplicationError) and error.non_retryable
+        else RetryDisposition.RETRYABLE
+    )
+    match error:
+        case SubflowDefinitionNotFoundError():
+            return RuntimeErrorClassification.user(
+                kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
+                message=error.message or "The child workflow could not be prepared",
+                retry_disposition=retry_disposition,
+                cause=error,
+            )
+        case ApplicationError() if UserError.matches(error):
+            return RuntimeErrorClassification.user(
+                kind=RuntimeErrorKind.WORKFLOW_SUBFLOW_INPUT_INVALID,
+                message=error.message or "The child workflow inputs are invalid",
+                retry_disposition=retry_disposition,
+                cause=error,
+            )
+        case _:
+            return RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_SUBFLOW_PREPARATION_FAILED,
+                message="Tracecat could not prepare the child workflow",
+                retry_disposition=retry_disposition,
+                cause=error,
+            )
+
+
+def _raise_classified_subflow_application_error(
+    *,
+    input: PrepareSubflowActivityInput,
+    error: BaseException,
+    classification: RuntimeErrorClassification,
+) -> Never:
+    """Raise a history-safe classified failure for subflow preparation."""
+    if isinstance(error, ApplicationError):
+        error_type = error.type or type(error).__name__
+        legacy_details = tuple(
+            detail
+            for detail in error.details
+            if is_classified_action_error_payload(detail)
+        )
+    else:
+        error_type = type(error).__name__
+        legacy_details = ()
+
+    detail = build_error_transport_detail(
+        classification,
+        ActionErrorInfo(
+            ref=input.task.ref,
+            message=classification.message,
+            type=error_type,
+        ),
+    )
+    raise_wrapped_application_error(
+        error,
+        fallback_classification=classification,
+        details=(detail, *legacy_details),
+    )
 
 
 def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
@@ -840,12 +901,7 @@ def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
         )
 
     items = list(result)
-    # Guard CollectionObject: only use chunked storage when externalization
-    # is enabled. Fall back to inline list for non-externalized deployments.
-    if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-        return run_sync(_store_collection_as_refs(input.key, items))
-    else:
-        return InlineObject(data=items, typename="list")
+    return run_sync(_store_list_result(input.key, items))
 
 
 def _patch_object(
@@ -870,18 +926,6 @@ def _partition_errors(
         else:
             results.append(item)
     return results, errors
-
-
-def _is_error_info(detail: Any) -> bool:
-    if isinstance(detail, ActionErrorInfo):
-        return True
-    if not isinstance(detail, Mapping):
-        return False
-    try:
-        ActionErrorInfo.model_validate(detail)
-        return True
-    except Exception:
-        return False
 
 
 def _as_error_info(detail: Any) -> ActionErrorInfo | None:
@@ -1097,7 +1141,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
                 use_committed=input.use_committed,
             )
             if resolved_id is None:
-                raise UserError(f"Workflow alias '{workflow_alias}' not found")
+                raise SubflowDefinitionNotFoundError(
+                    f"Workflow alias '{workflow_alias}' not found"
+                )
             wf_id = WorkflowUUID.new(resolved_id)
     elif workflow_id := val_args.workflow_id:
         wf_id = WorkflowUUID.new(workflow_id)
@@ -1110,7 +1156,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
             wf_id, version=evaluated_args.get("version")
         )
         if not defn:
-            raise UserError(f"Workflow definition not found for {wf_id.short()}")
+            raise SubflowDefinitionNotFoundError(
+                f"Workflow definition not found for {wf_id.short()}"
+            )
     dsl = DSLInput(**defn.content)
     registry_lock = (
         RegistryLock.model_validate(defn.registry_lock) if defn.registry_lock else None
@@ -1144,15 +1192,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
         dsl_config=dsl.config,
     )
 
-    # Guard CollectionObject: only use chunked storage when externalization
-    # is enabled. Fall back to inline list for non-externalized deployments.
-    trigger_inputs_stored: StoredObject
-    if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-        trigger_inputs_stored = await _store_collection_as_refs(
-            f"{input.key}/trigger_inputs", trigger_inputs_list
-        )
-    else:
-        trigger_inputs_stored = InlineObject(data=trigger_inputs_list, typename="list")
+    trigger_inputs_stored = await _store_list_result(
+        f"{input.key}/trigger_inputs", trigger_inputs_list
+    )
 
     return PreparedSubflowResult(
         wf_id=wf_id,

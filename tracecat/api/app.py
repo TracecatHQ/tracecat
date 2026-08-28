@@ -185,9 +185,10 @@ async def lifespan(app: FastAPI):
     assert_soft_delete_listener_registered()
 
     # Temporal
-    # Run in background to avoid blocking startup
-    asyncio.create_task(add_temporal_search_attributes())
-    logger.debug("Spawned lifespan task to add temporal search attributes")
+    # Workflows may upsert these attributes as soon as the API accepts requests.
+    # Gate startup so a failed registration is retried and remains visible.
+    await add_temporal_search_attributes()
+    logger.debug("Temporal search attributes are ready")
 
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)

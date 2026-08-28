@@ -91,6 +91,25 @@ describe("DefaultQueryClientProvider error handling", () => {
     })
   })
 
+  it("skips the fallback for queries that opt out through meta", async () => {
+    const { result } = renderHook(() => useQueryClient(), { wrapper })
+
+    await act(async () => {
+      await expect(
+        result.current.fetchQuery({
+          queryKey: ["suppressed-failure"],
+          queryFn: async () => {
+            throw new Error("Could not list commits")
+          },
+          retry: false,
+          meta: { suppressErrorToast: true },
+        })
+      ).rejects.toThrow("Could not list commits")
+    })
+
+    expect(mockToast).not.toHaveBeenCalled()
+  })
+
   it("runs facade mutations without local handlers through the fallback", async () => {
     const error = new Error("Could not delete workflow")
     const { result } = renderHook(

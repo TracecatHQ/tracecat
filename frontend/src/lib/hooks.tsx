@@ -2066,12 +2066,20 @@ export function useRegistryRepositories() {
     mutationFn: async (
       params: RegistryRepositoriesSyncRegistryRepositoryData
     ) => await registryRepositoriesSyncRegistryRepository(params),
-    onSuccess: () => {
+    onSuccess: (_, { repositoryId }) => {
       queryClient.invalidateQueries({
         queryKey: ["registry_repositories"],
       })
       queryClient.invalidateQueries({
         queryKey: ["registry_actions"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["registry_versions", repositoryId],
+      })
+      // Scoped to this repository so workspace-sync commit queries, which
+      // share the prefix, are left alone.
+      queryClient.invalidateQueries({
+        queryKey: ["repository_commits", repositoryId],
       })
     },
     onError: (error: TracecatApiError) => {
@@ -2194,6 +2202,9 @@ export function useRepositoryCommits(
       })
     },
     enabled: options?.enabled !== false && !!repositoryId,
+    // Listing commits shells out to git; callers render the failure inline.
+    retry: false,
+    meta: { suppressErrorToast: true },
   })
 
   return {
@@ -2683,6 +2694,7 @@ export function useOrgGitSettings() {
       await settingsUpdateGitSettings(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-git-settings"] })
+      queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
       toast({
         title: "Updated Git settings",
         description: "Git settings updated successfully.",

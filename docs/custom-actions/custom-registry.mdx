@@ -26,10 +26,23 @@ You must have the "Organization Admin" role to add and manage the custom registr
       ![Clone GitHub template](/img/custom-actions/clone-github-template.png)
     </Frame>
   </Step>
-  <Step title="Add registry to Tracecat">
-    Go to "/actions" page in the workspace -> "Add registry" button -> "Custom registry" in organization settings.
+  <Step title="Add an SSH key">
+    Tracecat clones the repository over SSH.
+    Generate an SSH key pair and add the public key to the repository as a read-only deploy key (GitHub: repository Settings -> Deploy keys).
 
-    Configure the remote repository URL, package name, and allowed Git domains.
+    Go to Organization settings -> Custom registry -> Repository, click "Add SSH key" in the SSH key section, and paste the private key.
+    The name is fixed to `github-ssh-key` and the environment to `default`. Tracecat looks the registry key up by this exact name, whichever Git host you use.
+    To rotate the key, click "Replace SSH key" in the same section.
+
+    <Frame>
+      ![SSH key dialog](/img/custom-actions/github-ssh-key.png)
+    </Frame>
+  </Step>
+  <Step title="Add registry to Tracecat">
+    Go to Organization settings -> Custom registry -> Repository.
+
+    Set the remote repository URL, repository package name, and allowed Git domains, then click "Save repository settings".
+    The remote repository URL is a pip URL of the form `git+ssh://git@github.com/your-org/your-repo.git`.
     The package name is the name of the Python package (e.g. the parent folder named `custom_actions` in the starter kit) in the repo.
 
     <Frame>
@@ -37,7 +50,11 @@ You must have the "Organization Admin" role to add and manage the custom registr
     </Frame>
   </Step>
   <Step title="Sync the registry">
-    Click "Sync from remote" button to sync the registry.
+    Go to Organization settings -> Custom registry -> Versions.
+    The table lists the commits on the branch named by the repository URL's `@ref` suffix (`main` when absent), newest first, with a `HEAD` badge on the latest.
+
+    Click "Sync from remote" in the page header and confirm to sync `HEAD`.
+    If the page shows an SSH error, check that the SSH key section on the Repository page lists `github-ssh-key` and that its public key is installed on the repository.
 
     <Frame>
       ![Sync from remote](/img/custom-actions/sync-from-remote.png)
@@ -45,12 +62,23 @@ You must have the "Organization Admin" role to add and manage the custom registr
   </Step>
 </Steps>
 
-## Revert changes
+## Manage versions
 
-Syncing defaults to the latest commit in the remote repository.
-You can change the commit to sync to using the "Change commit" button.
+Each sync creates a version pinned to its source commit.
+On the Versions page, every row shows the commit, its message and author, its status (`Current`, `Synced`, or `Not synced`), and when you last synced it.
 
-![Change commit](/img/custom-actions/change-commit.png)
+Open the row menu to act on a version.
+
+<Frame>
+  ![Version actions](/img/custom-actions/change-commit.png)
+</Frame>
+
+- "Sync this commit" syncs a commit you have not synced yet.
+- "Promote" makes an already-synced version the current one. Promote an earlier version to roll back.
+- "Compare..." shows the actions added, removed, and modified between two versions.
+- "Delete" removes a synced version. Tracecat blocks deletion of the current version and of any version that published workflows use.
+
+Synced versions whose commit no longer appears in the commit list are grouped under "Other synced versions" below the table, with the same row menu.
 
 ## How custom registry works
 

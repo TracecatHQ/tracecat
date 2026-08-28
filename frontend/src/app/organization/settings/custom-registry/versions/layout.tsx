@@ -1,10 +1,10 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "SSH keys | Organization",
+  title: "Versions | Custom registry",
 }
 
-export default function SSHKeysLayout({
+export default function CustomRegistryVersionsLayout({
   children,
 }: {
   children: React.ReactNode

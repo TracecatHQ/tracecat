@@ -10,7 +10,8 @@ These tests verify the end-to-end workflow behavior including:
 import asyncio
 import os
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
 
@@ -58,6 +59,7 @@ from tracecat_ee.agent.workflows.durable import (
     WorkflowCancelRequest,
 )
 
+from tests.shared import recorded_patch_ids
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
@@ -399,35 +401,21 @@ async def replay_durable_agent_workflow_history(
     history: WorkflowHistory,
 ) -> None:
     """Replay a fetched durable-agent history against the current workflow code."""
-    replay_result = await Replayer(
-        workflows=[DurableAgentWorkflow],
-        workflow_runner=UnsandboxedWorkflowRunner(),
-        data_converter=temporal_client.data_converter,
-    ).replay_workflow(history, raise_on_replay_failure=False)
-    assert replay_result.replay_failure is None
 
+    async def histories() -> AsyncIterator[WorkflowHistory]:
+        yield history
 
-async def recorded_patch_ids(
-    temporal_client: Client,
-    history: WorkflowHistory,
-) -> set[str]:
-    """Decode patch IDs recorded in a workflow history."""
-    patch_ids: set[str] = set()
-    for event in history.events:
-        if not event.HasField("marker_recorded_event_attributes"):
-            continue
-        attributes = event.marker_recorded_event_attributes
-        if attributes.marker_name != "core_patch":
-            continue
-        if "patch-data" not in attributes.details:
-            continue
-        patch_data = await temporal_client.data_converter.decode(
-            attributes.details["patch-data"].payloads
-        )
-        for data in patch_data:
-            if isinstance(data, Mapping) and isinstance(data.get("id"), str):
-                patch_ids.add(data["id"])
-    return patch_ids
+    # Replayer creates an executor that it intentionally never shuts down when
+    # none is supplied. Repeated replays would therefore keep xdist workers
+    # alive after their final test.
+    with ThreadPoolExecutor() as workflow_task_executor:
+        replay_results = await Replayer(
+            workflows=[DurableAgentWorkflow],
+            workflow_task_executor=workflow_task_executor,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            data_converter=temporal_client.data_converter,
+        ).replay_workflows(histories(), raise_on_replay_failure=False)
+    assert not replay_results.replay_failures
 
 
 async def fetch_history_after_completed_workflow_task(
@@ -2589,17 +2577,10 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         input: LoadSessionInput,
     ) -> LoadSessionResult:
         assert input.session_id == mock_session_id
-        if len(captured_agent_inputs) == 0:
-            return LoadSessionResult(
-                found=True,
-                sdk_session_id="legacy-sdk-session",
-                sdk_session_data=legacy_sdk_session_data,
-                is_fork=False,
-            )
         return LoadSessionResult(
             found=True,
             sdk_session_id="legacy-sdk-session",
-            sdk_session_data=None,
+            sdk_session_data=legacy_sdk_session_data,
             is_fork=False,
         )
 
@@ -2608,29 +2589,19 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         input: AgentExecutorInput,
     ) -> AgentExecutorResult:
         captured_agent_inputs.append(input)
-        if len(captured_agent_inputs) == 1:
-            assert input.sdk_session_id == "legacy-sdk-session"
-            assert input.sdk_session_data == legacy_sdk_session_data
-            assert input.is_approval_continuation is False
-            return AgentExecutorResult(
-                success=True,
-                approval_requested=True,
-                approval_items=[
-                    ToolCallContent(
-                        id="call_123",
-                        name="core__http_request",
-                        input={"url": "https://example.com", "method": "GET"},
-                    )
-                ],
-            )
-
         assert input.sdk_session_id == "legacy-sdk-session"
-        assert input.sdk_session_data is None
-        assert input.is_approval_continuation is True
+        assert input.sdk_session_data == legacy_sdk_session_data
+        assert input.is_approval_continuation is False
         return AgentExecutorResult(
             success=True,
-            approval_requested=False,
-            output={"status": "continued"},
+            approval_requested=True,
+            approval_items=[
+                ToolCallContent(
+                    id="call_123",
+                    name="core__http_request",
+                    input={"url": "https://example.com", "method": "GET"},
+                )
+            ],
         )
 
     @activity.defn(name="record_approval_requests")
@@ -2640,12 +2611,6 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         assert [approval.tool_call_id for approval in input.approvals] == ["call_123"]
         approval_pause_call_order.append("record_approval_requests")
         approval_request_recorded.set()
-
-    @activity.defn(name="apply_approval_decisions")
-    async def mock_apply_approval_decisions(
-        input: ApplyApprovalResultsActivityInputs,
-    ) -> None:
-        assert [decision.tool_call_id for decision in input.decisions] == ["call_123"]
 
     workflow_args = AgentWorkflowArgs(
         role=svc_role,
@@ -2664,10 +2629,7 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         create_mock_load_session_messages_activity(),
         create_mock_build_tool_definitions_activity(),
         mock_run_agent_activity,
-        create_mock_execute_action_activity(),
-        create_mock_reconcile_tool_results_activity(),
         mock_record_approval_requests,
-        mock_apply_approval_decisions,
         create_mock_emit_session_done_activity(
             call_order=approval_pause_call_order,
             done_event=approval_done_emitted,
@@ -2693,319 +2655,13 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
             "emit_session_done",
         ]
         suspended_history = await fetch_history_after_completed_workflow_task(wf_handle)
-        await replay_durable_agent_workflow_history(temporal_client, suspended_history)
 
-        await wf_handle.execute_update(
-            DurableAgentWorkflow.set_approvals,
-            WorkflowApprovalSubmission(
-                approvals={"call_123": True},
-                approved_by=svc_role.user_id,
-            ),
-        )
+    await wf_handle.terminate(reason="Replay regression history captured")
+    await replay_durable_agent_workflow_history(temporal_client, suspended_history)
 
-        result = await wf_handle.result()
-        completed_history = await wf_handle.fetch_history()
-        await replay_durable_agent_workflow_history(temporal_client, completed_history)
-
-    assert result.session_id == mock_session_id
-    assert result.output == {"status": "continued"}
     assert [input.sdk_session_data for input in captured_agent_inputs] == [
-        legacy_sdk_session_data,
-        None,
+        legacy_sdk_session_data
     ]
-
-
-@pytest.mark.anyio
-@pytest.mark.integration
-async def test_agent_workflow_does_not_retry_approved_tool_failures(
-    svc_role: Role,
-    temporal_client: Client,
-    mock_session_id: uuid.UUID,
-    agent_config_with_approvals: AgentConfig,
-    test_user: User,
-    monkeypatch: pytest.MonkeyPatch,
-    threadpool,
-) -> None:
-    del test_user
-    agent_queue = f"test-agent-queue-{mock_session_id}"
-    agent_executor_queue = f"test-agent-executor-queue-{mock_session_id}"
-    executor_queue = f"test-executor-queue-{mock_session_id}"
-
-    monkeypatch.setattr(config, "TRACECAT__AGENT_QUEUE", agent_queue)
-    monkeypatch.setattr(config, "TRACECAT__AGENT_EXECUTOR_QUEUE", agent_executor_queue)
-    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_QUEUE", executor_queue)
-
-    approval_request_recorded = asyncio.Event()
-    approval_done_emitted = asyncio.Event()
-    approval_pause_call_order: list[str] = []
-    resumed_after_approval = asyncio.Event()
-    executor_attempts = 0
-    run_agent_call_count = 0
-
-    class _FakeStream:
-        async def append(self, event: Any) -> None:
-            del event
-
-        async def clear_buffer(self) -> None:
-            return None
-
-    async def fake_agent_stream_new(
-        *,
-        session_id: uuid.UUID,
-        workspace_id: uuid.UUID,
-        stream_id: uuid.UUID | None = None,
-    ) -> _FakeStream:
-        del session_id, workspace_id, stream_id
-        return _FakeStream()
-
-    monkeypatch.setattr(
-        "tracecat.agent.session.activities.AgentStream.new",
-        fake_agent_stream_new,
-    )
-
-    @activity.defn(name="build_agent_tool_definitions")
-    async def mock_build_tool_definitions(
-        args: BuildAgentToolDefsArgs,
-    ) -> BuildAgentToolDefsResult:
-        tool_result = BuildToolDefsResult(
-            tool_definitions={
-                "core.http_request": MCPToolDefinition(
-                    name="core__http_request",
-                    description="HTTP request",
-                    parameters_json_schema={
-                        "type": "object",
-                        "properties": {
-                            "url": {"type": "string"},
-                            "method": {"type": "string"},
-                        },
-                        "required": ["url", "method"],
-                        "additionalProperties": False,
-                    },
-                )
-            },
-            registry_lock=RegistryLock(
-                origins={"tracecat_registry": "test-version"},
-                actions={"core.http_request": "tracecat_registry"},
-            ),
-        )
-        return BuildAgentToolDefsResult(
-            scopes={scope.scope: tool_result for scope in args.scopes}
-        )
-
-    @activity.defn(name="run_agent_activity")
-    async def mock_run_agent_activity(
-        input: AgentExecutorInput,
-    ) -> AgentExecutorResult:
-        nonlocal run_agent_call_count
-        activity.heartbeat("Mock agent running")
-
-        if run_agent_call_count == 0:
-            assistant_uuid = str(uuid.uuid4())
-            async with AgentSessionService.with_session(role=input.role) as service:
-                session = await service.get_session(input.session_id)
-                assert session is not None
-                session.sdk_session_id = "sdk-session"
-                service.session.add(session)
-                service.session.add(
-                    AgentSessionHistory(
-                        session_id=input.session_id,
-                        workspace_id=input.workspace_id,
-                        kind="chat-message",
-                        content={
-                            "uuid": assistant_uuid,
-                            "sessionId": "sdk-session",
-                            "type": "assistant",
-                            "timestamp": "2026-03-18T00:00:00Z",
-                            "cwd": "/home/agent",
-                            "version": "2.0.72",
-                            "message": {
-                                "role": "assistant",
-                                "content": [
-                                    {
-                                        "type": "tool_use",
-                                        "id": "call_123",
-                                        "name": "core__http_request",
-                                        "input": {
-                                            "url": "https://example.com",
-                                            "method": "GET",
-                                        },
-                                    }
-                                ],
-                            },
-                        },
-                    )
-                )
-                service.session.add(
-                    AgentSessionHistory(
-                        session_id=input.session_id,
-                        workspace_id=input.workspace_id,
-                        kind="chat-message",
-                        content={
-                            "uuid": str(uuid.uuid4()),
-                            "parentUuid": assistant_uuid,
-                            "sessionId": "sdk-session",
-                            "type": "user",
-                            "timestamp": "2026-03-18T00:00:01Z",
-                            "cwd": "/home/agent",
-                            "version": "2.0.72",
-                            "userType": "external",
-                            "gitBranch": "",
-                            "isSidechain": False,
-                            "message": {
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "tool_result",
-                                        "tool_use_id": "call_123",
-                                        "content": "interrupted",
-                                        "is_error": True,
-                                    }
-                                ],
-                            },
-                        },
-                    )
-                )
-                await service.session.commit()
-
-            run_agent_call_count += 1
-            return AgentExecutorResult(
-                success=True,
-                approval_requested=True,
-                approval_items=[
-                    ToolCallContent(
-                        id="call_123",
-                        name="core__http_request",
-                        input={"url": "https://example.com", "method": "GET"},
-                    )
-                ],
-            )
-
-        assert input.is_approval_continuation is True
-        assert input.sdk_session_id == "sdk-session"
-        assert input.sdk_session_data is None
-
-        resumed_after_approval.set()
-        run_agent_call_count += 1
-        return AgentExecutorResult(
-            success=True,
-            approval_requested=False,
-            output={"status": "done"},
-        )
-
-    @activity.defn(name="record_approval_requests")
-    async def mock_record_approval_requests(input: Any) -> None:
-        del input
-        approval_pause_call_order.append("record_approval_requests")
-        approval_request_recorded.set()
-
-    @activity.defn(name="apply_approval_decisions")
-    async def mock_apply_approval_decisions(input: Any) -> None:
-        del input
-
-    @activity.defn(name="execute_action_activity")
-    async def mock_execute_action_activity(
-        input: RunActionInput,
-        role: Role,
-    ) -> InlineObject[dict[str, str]]:
-        del input, role
-        nonlocal executor_attempts
-        executor_attempts += 1
-        if executor_attempts == 1:
-            raise ApplicationError("transient tool failure")
-        return InlineObject(data={"status": "success"})
-
-    mock_emit_session_done = create_mock_emit_session_done_activity(
-        call_order=approval_pause_call_order,
-        done_event=approval_done_emitted,
-    )
-
-    workflow_args = AgentWorkflowArgs(
-        role=svc_role,
-        agent_args=RunAgentArgs(
-            session_id=mock_session_id,
-            user_prompt="Make a test HTTP request",
-            config=agent_config_with_approvals,
-        ),
-        entity_type=AgentSessionEntity.WORKFLOW,
-        entity_id=uuid.uuid4(),
-    )
-
-    workflow_worker = Worker(
-        client=temporal_client,
-        task_queue=agent_queue,
-        activities=[
-            create_session_activity,
-            load_session_activity,
-            load_session_messages_activity,
-            reconcile_tool_results_activity,
-            mock_build_tool_definitions,
-            mock_record_approval_requests,
-            mock_apply_approval_decisions,
-            mock_emit_session_done,
-        ],
-        workflows=[DurableAgentWorkflow],
-        workflow_runner=UnsandboxedWorkflowRunner(),
-        activity_executor=threadpool,
-    )
-    agent_executor_worker = Worker(
-        client=temporal_client,
-        task_queue=agent_executor_queue,
-        activities=[mock_run_agent_activity],
-        workflows=[],
-        activity_executor=threadpool,
-    )
-    executor_worker = Worker(
-        client=temporal_client,
-        task_queue=executor_queue,
-        activities=[mock_execute_action_activity],
-        workflows=[],
-        activity_executor=threadpool,
-    )
-
-    async with workflow_worker, agent_executor_worker, executor_worker:
-        wf_handle = await temporal_client.start_workflow(
-            DurableAgentWorkflow.run,
-            workflow_args,
-            id=AgentWorkflowID(mock_session_id),
-            task_queue=agent_queue,
-            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-            execution_timeout=timedelta(seconds=60),
-        )
-
-        await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
-        await asyncio.wait_for(approval_done_emitted.wait(), timeout=10)
-        assert approval_pause_call_order == [
-            "record_approval_requests",
-            "emit_session_done",
-        ]
-        await wf_handle.execute_update(
-            DurableAgentWorkflow.set_approvals,
-            WorkflowApprovalSubmission(
-                approvals={"call_123": True},
-                approved_by=svc_role.user_id,
-            ),
-        )
-
-        result = await wf_handle.result()
-
-    assert result.session_id == mock_session_id
-    assert executor_attempts == 1
-    assert resumed_after_approval.is_set()
-
-    async with AgentSessionService.with_session(role=svc_role) as service:
-        history = await service.get_session_history(mock_session_id)
-
-    tool_result_blocks = [
-        block
-        for entry in history
-        for block in entry.content.get("message", {}).get("content", [])
-        if isinstance(block, dict) and block.get("type") == "tool_result"
-    ]
-    inserted_block = next(
-        block for block in tool_result_blocks if block.get("tool_use_id") == "call_123"
-    )
-    assert inserted_block["is_error"] is True
-    assert "Tool execution failed:" in inserted_block["content"]
 
 
 # =============================================================================

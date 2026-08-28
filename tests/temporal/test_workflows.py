@@ -1397,7 +1397,6 @@ async def test_child_workflow_alias_not_found_surfaces_detail(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: WorkerFactory,
-    test_executor_worker_factory: WorkerFactory,
 ):
     test_name = test_child_workflow_alias_not_found_surfaces_detail.__name__
     wf_exec_id = generate_test_exec_id(test_name)
@@ -1434,9 +1433,8 @@ async def test_child_workflow_alias_not_found_surfaces_detail(
     )
 
     worker = test_worker_factory(temporal_client)
-    executor_worker = test_executor_worker_factory(temporal_client)
     with pytest.raises(WorkflowFailureError) as exc_info:
-        _ = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
+        _ = await _run_workflow(wf_exec_id, run_args, worker)
 
     assert str(exc_info.value) == "Workflow execution failed"
     cause = exc_info.value.cause

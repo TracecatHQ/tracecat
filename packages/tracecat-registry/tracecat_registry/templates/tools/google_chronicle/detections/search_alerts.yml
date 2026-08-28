@@ -1,0 +1,219 @@
+type: action
+definition:
+  title: Search alerts
+  description: >-
+    Legacy endpoint for getting alerts (and in some cases, non-alerting detections)
+    along with aggregated fields that match the query.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1alpha/projects.locations.instances.legacy/legacyFetchAlertsView
+  namespace: tools.google_chronicle
+  name: search_alerts
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The name of the parent resource, which is the SecOps instance. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    snapshotQuery:
+      type: str
+      description: >-
+        This uses a syntax similar to UDM search, with support for all fields within 7
+        levels of nesting within the collection proto. For composite detections, the
+        filters prefixed with "collectionElements.references.event" or
+        "collectionElements.references.entity" are also checked against one-level of
+        producer detections.
+    startTime:
+      type: str
+      description: >-
+        Inclusive start of the time range to search, in RFC 3339 format, e.g.
+        "2014-10-02T15:01:23Z".
+    endTime:
+      type: str
+      description: Exclusive end of the time range to search, in RFC 3339 format.
+    baselineQuery:
+      type: str | None
+      description: >-
+        The baseline query is used for this request and its results are cached for
+        subsequent requests, so that supplying additional filters in the snapshotQuery
+        will not require re-running the baseline query. This uses a syntax similar to
+        UDM search, and all fields are supported except for the path prefix
+        `feedbackSummary.*`.
+      default: null
+    max_returned_alerts:
+      type: int | None
+      description: >-
+        Parameter for the Alerts that will be streamed back; caps the number of matched
+        alerts returned in `alerts`.
+      default: null
+    entity_indicator_namespace:
+      type: str | None
+      description: Namespace for an asset entity indicator.
+      default: null
+    entity_indicator_hostname:
+      type: str | None
+      description: Hostname entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_asset_ip_address:
+      type: str | None
+      description: Asset IP address entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_mac:
+      type: str | None
+      description: MAC address entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_product_id:
+      type: str | None
+      description: Product-specific asset ID indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_user_name:
+      type: str | None
+      description: User name entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_email:
+      type: str | None
+      description: Email entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_employee_id:
+      type: str | None
+      description: Employee ID entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_windows_sid:
+      type: str | None
+      description: Windows SID entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_product_object_id:
+      type: str | None
+      description: Product object ID entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_raw_pid:
+      type: str | None
+      description: Raw process ID entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_process_id:
+      type: str | None
+      description: Process ID entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_full_command_line:
+      type: str | None
+      description: Full command line entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_parent_process_id:
+      type: str | None
+      description: Parent process ID entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_hash_md5:
+      type: str | None
+      description: MD5 hash entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_hash_sha1:
+      type: str | None
+      description: SHA-1 hash entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_hash_sha256:
+      type: str | None
+      description: SHA-256 hash entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_file_path:
+      type: str | None
+      description: File path entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_destination_ip_address:
+      type: str | None
+      description: Destination IP entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_domain_name:
+      type: str | None
+      description: Domain name entity indicator. Set at most one indicator value.
+      default: null
+    entity_indicator_resource_name:
+      type: str | None
+      description: Resource name entity indicator. Set at most one indicator value.
+      default: null
+    max_values_per_field:
+      type: int | None
+      description: >-
+        Parameter for the Aggregated Alert fields that will be streamed back; caps the
+        number of values returned per aggregated field.
+      default: null
+    enableCache:
+      type: str | None
+      description: >-
+        If enabled, subsequent requests for the same time range and baseline query will
+        try to leverage our cache to serve the response with filters applied in the
+        snapshot query. One of ALERTS_FEATURE_PREFERENCE_UNSPECIFIED,
+        ALERTS_FEATURE_PREFERENCE_ENABLED, ALERTS_FEATURE_PREFERENCE_DISABLED.
+      default: null
+    includeNonAlertingDetections:
+      type: str | None
+      description: >-
+        Whether to include non-alerting detections in the response. One of
+        ALERTS_FEATURE_PREFERENCE_UNSPECIFIED, ALERTS_FEATURE_PREFERENCE_ENABLED,
+        ALERTS_FEATURE_PREFERENCE_DISABLED.
+      default: null
+    maxResponseAlertsBytes:
+      type: str | None
+      description: >-
+        The maximum size, in bytes, of the alerts data returned in the response, as an
+        int64 string. If the total size of alerts exceeds this limit, the list of alerts
+        is truncated and `memoryLimitExceeded` is set in the response. If unspecified or
+        set to 0, no size limit is applied.
+      default: null
+    simulatedDataVisibility:
+      type: str | None
+      description: >-
+        Specifies visibility of simulated data to include in search results.
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacy:legacyFetchAlertsView
+        method: GET
+        params:
+          baselineQuery: ${{ inputs.baselineQuery }}
+          snapshotQuery: ${{ inputs.snapshotQuery }}
+          timeRange.startTime: ${{ inputs.startTime }}
+          timeRange.endTime: ${{ inputs.endTime }}
+          alertListOptions.maxReturnedAlerts: ${{ inputs.max_returned_alerts }}
+          alertListOptions.entityIndicator.indicatorNamespace: ${{ inputs.entity_indicator_namespace }}
+          alertListOptions.entityIndicator.hostname: ${{ inputs.entity_indicator_hostname }}
+          alertListOptions.entityIndicator.assetIpAddress: ${{ inputs.entity_indicator_asset_ip_address }}
+          alertListOptions.entityIndicator.mac: ${{ inputs.entity_indicator_mac }}
+          alertListOptions.entityIndicator.productId: ${{ inputs.entity_indicator_product_id }}
+          alertListOptions.entityIndicator.userName: ${{ inputs.entity_indicator_user_name }}
+          alertListOptions.entityIndicator.email: ${{ inputs.entity_indicator_email }}
+          alertListOptions.entityIndicator.employeeId: ${{ inputs.entity_indicator_employee_id }}
+          alertListOptions.entityIndicator.windowsSid: ${{ inputs.entity_indicator_windows_sid }}
+          alertListOptions.entityIndicator.productObjectId: ${{ inputs.entity_indicator_product_object_id }}
+          alertListOptions.entityIndicator.rawPid: ${{ inputs.entity_indicator_raw_pid }}
+          alertListOptions.entityIndicator.processId: ${{ inputs.entity_indicator_process_id }}
+          alertListOptions.entityIndicator.fullCommandLine: ${{ inputs.entity_indicator_full_command_line }}
+          alertListOptions.entityIndicator.parentProcessId: ${{ inputs.entity_indicator_parent_process_id }}
+          alertListOptions.entityIndicator.hashMd5: ${{ inputs.entity_indicator_hash_md5 }}
+          alertListOptions.entityIndicator.hashSha1: ${{ inputs.entity_indicator_hash_sha1 }}
+          alertListOptions.entityIndicator.hashSha256: ${{ inputs.entity_indicator_hash_sha256 }}
+          alertListOptions.entityIndicator.filePath: ${{ inputs.entity_indicator_file_path }}
+          alertListOptions.entityIndicator.destinationIpAddress: ${{ inputs.entity_indicator_destination_ip_address }}
+          alertListOptions.entityIndicator.domainName: ${{ inputs.entity_indicator_domain_name }}
+          alertListOptions.entityIndicator.resourceName: ${{ inputs.entity_indicator_resource_name }}
+          fieldAggregationOptions.maxValuesPerField: ${{ inputs.max_values_per_field }}
+          enableCache: ${{ inputs.enableCache }}
+          includeNonAlertingDetections: ${{ inputs.includeNonAlertingDetections }}
+          maxResponseAlertsBytes: ${{ inputs.maxResponseAlertsBytes }}
+          simulatedDataVisibility: ${{ inputs.simulatedDataVisibility }}
+  returns: ${{ steps.call_api.result }}
