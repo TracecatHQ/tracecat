@@ -35,7 +35,7 @@ from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox import utils as sandbox_utils
-from tracecat.sandbox.exceptions import SandboxExecutionError, SandboxWorkloadError
+from tracecat.sandbox.exceptions import SandboxError, SandboxWorkloadError
 from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 
 
@@ -594,7 +594,7 @@ class TestActionRunner:
             execute_action,
         )
 
-        with pytest.raises(SandboxExecutionError, match="infrastructure failed"):
+        with pytest.raises(SandboxError, match="infrastructure failed"):
             await runner._execute_sandboxed(
                 input=mock_run_action_input,
                 role=mock_role,

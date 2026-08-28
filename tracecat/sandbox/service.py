@@ -24,13 +24,12 @@ from tracecat.sandbox.exceptions import (
     PackageInstallError,
     SandboxExecutionError,
     SandboxInfrastructureError,
-    SandboxWorkloadError,
+    raise_for_sandbox_error_code,
 )
 from tracecat.sandbox.executor import RUN_PYTHON_ACTION_GATEWAY_SOCKET, NsjailExecutor
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
-    SandboxErrorCode,
     SandboxNetworkPurpose,
     SandboxNetworkRequest,
 )
@@ -524,13 +523,7 @@ class SandboxService:
                     stdout=result.stdout[:500] if result.stdout else None,
                     stderr=result.stderr[:500] if result.stderr else None,
                 )
-                if result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
-                    raise SandboxInfrastructureError(error_msg)
-                if result.error_code is not None:
-                    raise SandboxWorkloadError(
-                        error_msg,
-                        error_code=result.error_code,
-                    )
+                raise_for_sandbox_error_code(result.error_code, error_msg)
                 raise SandboxExecutionError(error_msg)
 
             return result.output

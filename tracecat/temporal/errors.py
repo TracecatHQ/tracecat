@@ -22,6 +22,7 @@ from typing import Any, Literal, Never
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from temporalio.exceptions import ApplicationError, FailureError
 
+from tracecat.logger import logger
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
@@ -84,9 +85,16 @@ def activity_error_boundary(
     except Exception as error:
         if extract_error_classification(error) is not None:
             raise
+        classification = classify(error)
+        logger.warning(
+            "Activity error boundary classified failure",
+            error=error,
+            kind=classification.kind,
+            retry_disposition=classification.retry_disposition,
+        )
         raise_wrapped_application_error(
             error,
-            fallback_classification=classify(error),
+            fallback_classification=classification,
         )
 
 
@@ -200,7 +208,7 @@ def extract_error_classification(
     error: BaseException,
 ) -> RuntimeErrorClassification | None:
     """Extract the first valid classification from an exception chain."""
-    for current in _error_chain(error):
+    for current in iter_error_chain(error):
         if isinstance(current, TracecatRuntimeError):
             return current.classification
         if (
@@ -226,7 +234,7 @@ def extract_error_classifications(
     """
     classifications: list[RuntimeErrorClassification] = []
     seen: set[RuntimeErrorClassification] = set()
-    for current in _error_chain(
+    for current in iter_error_chain(
         error,
         include_implicit_context=include_implicit_context,
     ):
@@ -295,11 +303,18 @@ def _append_unique_classification(
         classifications.append(classification)
 
 
-def _error_chain(
+def iter_error_chain(
     error: BaseException,
     *,
     include_implicit_context: bool = True,
 ) -> Iterator[BaseException]:
+    """Walk an exception chain once, following Temporal and Python causes.
+
+    Args:
+        error: The exception to start from.
+        include_implicit_context: Whether to traverse Python's incidental
+            ``__context__`` chain in addition to Temporal and explicit causes.
+    """
     current: BaseException | None = error
     seen: set[int] = set()
     while current is not None:

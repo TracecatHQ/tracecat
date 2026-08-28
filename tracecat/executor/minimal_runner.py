@@ -22,6 +22,13 @@ from collections.abc import Mapping
 from types import ModuleType
 from typing import Any
 
+# Separate a nsjail launch failure from a workload that exited 255, before any
+# import or work that can fail. Outside a sandbox there is no /work to write into.
+try:
+    open("/work/.tracecat-workload-started", "w").close()
+except OSError:
+    pass
+
 # Only import what we absolutely need - no tracecat imports!
 # Prefer orjson for performance (4-12x faster), fall back to stdlib json
 try:

@@ -4,7 +4,6 @@ import asyncio
 import re
 import uuid
 from collections.abc import Awaitable, Callable, Coroutine, Mapping
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Never
 
@@ -184,15 +183,6 @@ ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH = "dsl-action-heartbeat-timeout-retry-v1"
 ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH = "dsl-error-owner-search-attribute-v1"
 ERROR_OWNER_CONTROL_FLOW_PATCH = "dsl-error-owner-control-flow-v1"
 ERROR_OWNER_AFTER_HANDLER_PATCH = "dsl-error-owner-after-handler-v1"
-
-
-@dataclass(frozen=True, slots=True)
-class _LegacyChildPreparationFailure:
-    """Pre-patch child preparation failure and its context diagnostic."""
-
-    message: str
-    error: Exception
-    cause: Exception
 
 
 def _raise_workflow_application_error(
@@ -848,43 +838,6 @@ class DSLWorkflow:
                 return False
             current = nested
 
-    async def _prepare_child_workflow(
-        self,
-        task: ActionStatement,
-        stream_id: StreamID,
-    ) -> PreparedSubflowResult | _LegacyChildPreparationFailure:
-        """Prepare child inputs while preserving replay-gated error semantics."""
-        try:
-            return await workflow.execute_activity(
-                DSLActivities.prepare_subflow_activity,
-                arg=PrepareSubflowActivityInput(
-                    role=self.role,
-                    task=task,
-                    operand=self._build_action_context(task, stream_id),
-                    key=action_collection_prefix(
-                        str(self.workspace_id),
-                        self.wf_exec_id,
-                        stream_id,
-                        task.ref,
-                    ),
-                    use_committed=self.execution_type != ExecutionType.DRAFT,
-                ),
-                start_to_close_timeout=timedelta(seconds=120),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-        except Exception as error:
-            if self._has_user_error_cause(error):
-                raise
-            if workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH):
-                raise
-            root_error, root_message = self._unwrap_temporal_failure_cause(error)
-            platform_error = root_error if isinstance(root_error, Exception) else error
-            return _LegacyChildPreparationFailure(
-                message=root_message,
-                error=platform_error,
-                cause=error,
-            )
-
     @maybe_interactive
     async def _execute_task(self, task: ActionStatement) -> TaskResult:
         """Purely execute a task and manage the results.
@@ -940,16 +893,41 @@ class DSLWorkflow:
                     # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
                     # Single activity prepares everything: alias resolution, definition fetch, loop iteration data
                     self.logger.trace("Preparing child workflow")
-                    preparation = await self._prepare_child_workflow(task, stream_id)
-                    if isinstance(preparation, _LegacyChildPreparationFailure):
-                        task_result = task_result.with_error(
-                            preparation.message,
-                            preparation.error.__class__.__name__,
+                    try:
+                        prepared = await workflow.execute_activity(
+                            DSLActivities.prepare_subflow_activity,
+                            arg=PrepareSubflowActivityInput(
+                                role=self.role,
+                                task=task,
+                                operand=self._build_action_context(task, stream_id),
+                                key=action_collection_prefix(
+                                    str(self.workspace_id),
+                                    self.wf_exec_id,
+                                    stream_id,
+                                    task.ref,
+                                ),
+                                use_committed=(
+                                    self.execution_type != ExecutionType.DRAFT
+                                ),
+                            ),
+                            start_to_close_timeout=timedelta(seconds=120),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
                         )
-                        raise PlatformExecutionError(
-                            preparation.error
-                        ) from preparation.cause
-                    prepared = preparation
+                    except Exception as e:
+                        if self._has_user_error_cause(e):
+                            raise
+                        if workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH):
+                            raise
+                        root_error, root_message = self._unwrap_temporal_failure_cause(
+                            e
+                        )
+                        platform_error = (
+                            root_error if isinstance(root_error, Exception) else e
+                        )
+                        task_result = task_result.with_error(
+                            root_message, platform_error.__class__.__name__
+                        )
+                        raise PlatformExecutionError(platform_error) from e
                     self.logger.trace("Child workflow prepared", prepared=prepared)
                     # Execute child workflow (handles both single and looped)
                     stored_result = await self._execute_child_workflow_prepared(

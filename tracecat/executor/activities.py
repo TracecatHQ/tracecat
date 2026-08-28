@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from datetime import timedelta
-from typing import Any, Never
+from typing import Any
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
@@ -24,7 +24,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import backfill_legacy_role_scopes
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.dsl.action import materialize_context
-from tracecat.dsl.schemas import RunActionInput, StreamID
+from tracecat.dsl.schemas import RunActionInput
 from tracecat.dsl.types import ActionErrorInfo
 from tracecat.exceptions import RateLimitExceeded
 from tracecat.executor.backends import get_executor_backend
@@ -35,47 +35,14 @@ from tracecat.executor.error_policy import (
 )
 from tracecat.executor.service import dispatch_action
 from tracecat.logger import logger
-from tracecat.runtime.errors import (
-    RetryDisposition,
-    RuntimeErrorClassification,
-    RuntimeErrorOwner,
-)
+from tracecat.runtime.errors import RetryDisposition, RuntimeErrorOwner
 from tracecat.storage.object import StoredObject, action_key, get_object_storage
 from tracecat.temporal.errors import (
     activity_error_boundary,
     build_error_transport_detail,
+    extract_error_classification,
     raise_application_error_from_classification,
 )
-
-
-def _raise_classified_executor_application_error(
-    *,
-    classification: RuntimeErrorClassification,
-    detail_type: str,
-    ref: str,
-    attempt: int,
-    stream_id: StreamID,
-    details: tuple[Any, ...] = (),
-    next_retry_delay: timedelta | None = None,
-) -> Never:
-    """Raise the scheduler-compatible classified activity failure."""
-    err_info = ActionErrorInfo(
-        ref=ref,
-        message=classification.message,
-        type=detail_type,
-        attempt=attempt,
-        stream_id=stream_id,
-    )
-    raise_application_error_from_classification(
-        classification,
-        build_error_transport_detail(classification, err_info),
-        *details,
-        next_retry_delay=(
-            next_retry_delay
-            if classification.retry_disposition is RetryDisposition.RETRYABLE
-            else None
-        ),
-    )
 
 
 async def _heartbeat_loop(interval: int, task_ref: str, action_name: str) -> None:
@@ -211,29 +178,44 @@ class ExecutorActivities:
                         stored = await get_object_storage().store(key, result)
                     return stored
         except Exception as e:
-            error_classification = classify_execute_action_error(
-                e,
-                action_name=action_name,
-            )
+            classification = classify_execute_action_error(e, action_name=action_name)
             log.bind(
-                error_owner=error_classification.classification.owner,
-                error_kind=error_classification.classification.kind,
-                cause_type=error_classification.classification.cause_type,
+                error_owner=classification.owner,
+                error_kind=classification.kind,
+                cause_type=classification.cause_type,
             ).log(
                 "ERROR"
-                if error_classification.classification.owner
-                is RuntimeErrorOwner.PLATFORM
+                if classification.owner is RuntimeErrorOwner.PLATFORM
                 else "INFO",
                 "Action execution failed",
             )
-            _raise_classified_executor_application_error(
-                classification=error_classification.classification,
-                detail_type=error_classification.detail_type,
+            # Preserve the Temporal metadata an already-classified failure carried:
+            # its own details survive only when it was explicitly classified, and a
+            # requested retry delay applies only to a retryable disposition.
+            if isinstance(e, ApplicationError):
+                detail_type = e.type or e.__class__.__name__
+                details = tuple(e.details) if extract_error_classification(e) else ()
+                next_retry_delay = e.next_retry_delay
+            else:
+                detail_type = e.__class__.__name__
+                details = ()
+                next_retry_delay = None
+            err_info = ActionErrorInfo(
                 ref=task.ref,
+                message=classification.message,
+                type=detail_type,
                 attempt=act_attempt,
                 stream_id=input.stream_id,
-                details=error_classification.details,
-                next_retry_delay=error_classification.next_retry_delay,
+            )
+            raise_application_error_from_classification(
+                classification,
+                build_error_transport_detail(classification, err_info),
+                *details,
+                next_retry_delay=(
+                    next_retry_delay
+                    if classification.retry_disposition is RetryDisposition.RETRYABLE
+                    else None
+                ),
             )
         finally:
             if heartbeat_task is not None:

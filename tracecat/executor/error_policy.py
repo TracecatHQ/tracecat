@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import timedelta
-from typing import Any
-
 from temporalio.exceptions import ApplicationError
 
 from tracecat.exceptions import (
@@ -31,37 +27,22 @@ from tracecat.sandbox.exceptions import (
 )
 from tracecat.sandbox.types import SandboxErrorCode
 from tracecat.storage.utils import is_retryable_storage_transport_error
-from tracecat.temporal.errors import extract_error_classification
+from tracecat.temporal.errors import (
+    extract_error_classification,
+    iter_error_chain,
+)
 from tracecat.temporal.exceptions import UserError
 
 
-@dataclass(frozen=True, slots=True)
-class ExecuteActionErrorClassification:
-    """Scheduler-facing classification and preserved Temporal metadata."""
-
-    classification: RuntimeErrorClassification
-    detail_type: str
-    details: tuple[Any, ...] = ()
-    next_retry_delay: timedelta | None = None
-
-
-def _exception_chain(error: BaseException) -> tuple[BaseException, ...]:
-    """Return an explicit exception chain without following cycles."""
-    chain: list[BaseException] = []
-    current: BaseException | None = error
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        chain.append(current)
-        current = current.__cause__ or current.__context__
-    return tuple(chain)
-
-
-def _platform_executor_error_classification(
+def _chained_error_classification(
     error: BaseException,
 ) -> RuntimeErrorClassification | None:
-    """Classify known executor-owned failures from their concrete types."""
-    for cause in _exception_chain(error):
+    """Classify the first known executor or sandbox failure in the chain.
+
+    ``RegistryArtifactCacheLeaseContentionError`` subclasses
+    ``RegistryArtifactCacheCapacityError``, so it must be matched first.
+    """
+    for cause in iter_error_chain(error):
         if isinstance(cause, RegistryArtifactCacheLeaseContentionError):
             return RuntimeErrorClassification.platform(
                 kind=RuntimeErrorKind.EXECUTOR_REGISTRY_LEASE_CONTENTION,
@@ -90,14 +71,6 @@ def _platform_executor_error_classification(
                 retry_disposition=RetryDisposition.RETRYABLE,
                 cause=cause,
             )
-    return None
-
-
-def _sandbox_workload_error_classification(
-    error: BaseException,
-) -> RuntimeErrorClassification | None:
-    """Classify deterministic sandbox workload exits from their typed code."""
-    for cause in _exception_chain(error):
         if isinstance(cause, SandboxWorkloadError):
             return RuntimeErrorClassification.user(
                 kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
@@ -116,11 +89,7 @@ def _execution_error_classification(
     error: ExecutionError,
 ) -> RuntimeErrorClassification:
     """Classify one executor invocation failure."""
-    if classification := _platform_executor_error_classification(error):
-        return classification
-    if classification := _sandbox_workload_error_classification(error):
-        return classification
-    return RuntimeErrorClassification.user(
+    return _chained_error_classification(error) or RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message=str(error),
         retry_disposition=RetryDisposition.RETRYABLE,
@@ -162,16 +131,10 @@ def _loop_error_classification(
 
 def _application_error_classification(
     error: ApplicationError,
-) -> ExecuteActionErrorClassification:
+) -> RuntimeErrorClassification:
     """Preserve explicit Temporal classification or adapt its stable flags."""
-    detail_type = error.type or error.__class__.__name__
     if classification := extract_error_classification(error):
-        return ExecuteActionErrorClassification(
-            classification=classification,
-            detail_type=detail_type,
-            details=tuple(error.details),
-            next_retry_delay=error.next_retry_delay,
-        )
+        return classification
 
     retry_disposition = (
         RetryDisposition.NON_RETRYABLE
@@ -179,23 +142,17 @@ def _application_error_classification(
         else RetryDisposition.RETRYABLE
     )
     if UserError.matches(error):
-        classification = RuntimeErrorClassification.user(
+        return RuntimeErrorClassification.user(
             kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
             message=error.message or "The action failed",
             retry_disposition=retry_disposition,
             cause=error,
         )
-    else:
-        classification = RuntimeErrorClassification.platform(
-            kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
-            message="Tracecat could not execute the action",
-            retry_disposition=retry_disposition,
-            cause=error,
-        )
-    return ExecuteActionErrorClassification(
-        classification=classification,
-        detail_type=detail_type,
-        next_retry_delay=error.next_retry_delay,
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the action",
+        retry_disposition=retry_disposition,
+        cause=error,
     )
 
 
@@ -203,46 +160,36 @@ def classify_execute_action_error(
     error: Exception,
     *,
     action_name: str,
-) -> ExecuteActionErrorClassification:
+) -> RuntimeErrorClassification:
     """Classify an action error without logging or other side effects."""
-    detail_type = error.__class__.__name__
-
     if isinstance(error, ScopeDeniedError):
-        message = f"Permission denied: missing scope(s) {error.missing_scopes} to execute action '{action_name}'"
-        classification = RuntimeErrorClassification.user(
+        return RuntimeErrorClassification.user(
             kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-            message=message,
+            message=(
+                f"Permission denied: missing scope(s) {error.missing_scopes} "
+                f"to execute action '{action_name}'"
+            ),
             retry_disposition=RetryDisposition.NON_RETRYABLE,
             cause=error,
         )
-    elif isinstance(error, EntitlementRequired):
-        classification = RuntimeErrorClassification.user(
+    if isinstance(error, EntitlementRequired):
+        return RuntimeErrorClassification.user(
             kind=RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
             message=str(error),
             retry_disposition=RetryDisposition.NON_RETRYABLE,
             cause=error,
         )
-    elif isinstance(error, ExecutionError):
-        classification = _execution_error_classification(error)
-    elif isinstance(error, LoopExecutionError):
-        classification = _loop_error_classification(error)
-    elif isinstance(error, ApplicationError):
+    if isinstance(error, ExecutionError):
+        return _execution_error_classification(error)
+    if isinstance(error, LoopExecutionError):
+        return _loop_error_classification(error)
+    if isinstance(error, ApplicationError):
         return _application_error_classification(error)
-    elif classification := _platform_executor_error_classification(error):
-        pass
-    elif classification := _sandbox_workload_error_classification(error):
-        pass
-    else:
-        classification = RuntimeErrorClassification.platform(
-            kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
-            message="Tracecat could not execute the action",
-            retry_disposition=RetryDisposition.NON_RETRYABLE,
-            cause=error,
-        )
-
-    return ExecuteActionErrorClassification(
-        classification=classification,
-        detail_type=detail_type,
+    return _chained_error_classification(error) or RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the action",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
     )
 
 

@@ -362,11 +362,6 @@ def _materialization_error_classification(
 ) -> RuntimeErrorClassification:
     """Classify one StoredObject materialization failure."""
     retryable = is_retryable_storage_transport_error(error)
-    logger.warning(
-        "Error materializing context",
-        error=error,
-        retryable=retryable,
-    )
     return RuntimeErrorClassification.platform(
         kind=(
             RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE

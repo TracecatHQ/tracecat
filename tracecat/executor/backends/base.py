@@ -29,7 +29,6 @@ from tracecat.executor.schemas import (
 from tracecat.sandbox import (
     PackageInstallError,
     SandboxExecutionError,
-    SandboxInfrastructureError,
     SandboxService,
     SandboxTimeoutError,
     SandboxValidationError,
@@ -201,8 +200,6 @@ class ExecutorBackend(ABC):
                 action_gateway_socket=action_gateway_socket_path(),
             )
             return ExecutorResultSuccess(result=result)
-        except SandboxInfrastructureError:
-            raise
         except (
             SandboxTimeoutError,
             SandboxValidationError,

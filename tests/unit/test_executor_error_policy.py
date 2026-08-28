@@ -64,7 +64,7 @@ def test_mixed_loop_failure_is_platform_owned_but_non_retryable(
     result = classify_execute_action_error(
         LoopExecutionError(loop_errors),
         action_name="test_action",
-    ).classification
+    )
 
     assert result.owner is RuntimeErrorOwner.PLATFORM
     assert result.kind is RuntimeErrorKind.EXECUTOR_REGISTRY_LEASE_CONTENTION
@@ -88,7 +88,7 @@ def test_loop_retry_requires_every_failed_iteration_to_be_retryable() -> None:
     result = classify_execute_action_error(
         loop_error,
         action_name="test_action",
-    ).classification
+    )
 
     assert result.owner is RuntimeErrorOwner.PLATFORM
     assert result.retry_disposition is RetryDisposition.RETRYABLE

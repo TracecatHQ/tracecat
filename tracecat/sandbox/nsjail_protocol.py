@@ -17,7 +17,7 @@ from tracecat.sandbox.utils import communicate_process_group
 class NsjailCompletedProcess:
     """Captured output and status from one nsjail invocation."""
 
-    process: asyncio.subprocess.Process
+    returncode: int | None
     stdout: bytes
     stderr: bytes
 
@@ -38,8 +38,6 @@ async def invoke_nsjail(
     env: dict[str, str],
     timeout_seconds: float,
     timeout_message: str,
-    workload_launcher_name: str | None = None,
-    workload_launcher_script: str | None = None,
 ) -> NsjailCompletedProcess:
     """Prepare, launch, await, and clean up one nsjail process.
 
@@ -48,13 +46,6 @@ async def invoke_nsjail(
     """
     config_path = job_dir / "nsjail.cfg"
     try:
-        if workload_launcher_name is not None:
-            if workload_launcher_script is None:
-                raise ValueError("A workload launcher name requires its script")
-            launcher_path = job_dir / workload_launcher_name
-            launcher_path.write_text(workload_launcher_script)
-            launcher_path.chmod(0o600)
-
         config_path.write_text(config_text)
         config_path.chmod(0o600)
         env_args = [arg for key in env for arg in ("--env", key)]
@@ -77,7 +68,7 @@ async def invoke_nsjail(
         except TimeoutError as error:
             raise SandboxTimeoutError(timeout_message) from error
         return NsjailCompletedProcess(
-            process=process,
+            returncode=process.returncode,
             stdout=stdout,
             stderr=stderr,
         )
