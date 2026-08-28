@@ -124,6 +124,12 @@ _STDIO_MCP_COMBINED_FLOW_COUNT = (
 # under retained load, which exceeds the default 128-process agent jail cap.
 # The stress test opts into a raised cap; production keeps the default.
 _STDIO_MCP_BURST_AGENT_NPROC_LIMIT = 1024
+# The jailed Claude CLI runs under Bun (JavaScriptCore), which sizes its heap
+# reservations by host RAM. On large CI runners the reservation exceeds the
+# default 4 GiB rlimit_as (enforced in MiB since the rlimit units fix), so
+# JSC aborts with "MemoryExhaustion ... Crash intentionally" (SIGABRT). The
+# burst case opts into 8 GiB address-space headroom; production keeps 4 GiB.
+_STDIO_MCP_BURST_AGENT_MEMORY_MB = 8192
 _STDIO_MCP_BURST_PARENT_NOFILE_LIMIT = 4096
 _STDIO_MCP_BASH_TOOL_USE_ID = "toolu_tracecat_bash_network_probe"
 _STDIO_MCP_BASH_RESULT_MARKER = "TRACE_CAT_BASH_NETWORK_PROBE_OK"
@@ -1198,11 +1204,13 @@ async def _run_stdio_mcp_startup_burst_case(
         import dataclasses
 
         config = real_agent_sandbox_config(*args, **kwargs)
+        updates: dict[str, int] = {}
         if config.resources.max_processes < _STDIO_MCP_BURST_AGENT_NPROC_LIMIT:
-            config.resources = dataclasses.replace(
-                config.resources,
-                max_processes=_STDIO_MCP_BURST_AGENT_NPROC_LIMIT,
-            )
+            updates["max_processes"] = _STDIO_MCP_BURST_AGENT_NPROC_LIMIT
+        if config.resources.memory_mb < _STDIO_MCP_BURST_AGENT_MEMORY_MB:
+            updates["memory_mb"] = _STDIO_MCP_BURST_AGENT_MEMORY_MB
+        if updates:
+            config.resources = dataclasses.replace(config.resources, **updates)
         return config
 
     monkeypatch.setattr(
