@@ -1852,6 +1852,54 @@ describe("ChatSessionPane", () => {
       expect(textarea).toHaveValue("next question")
     })
 
+    it("keeps the newer draft when a duplicate Enter lands mid-write", async () => {
+      // The duplicate submit must not resolve: `submitPrompt` would run its
+      // success cleanup and blank the textarea, and the first submit reads that
+      // live value to work out what is still a draft.
+      let resolvePreset: (applied: boolean) => void = () => {}
+      const onSelect = jest.fn().mockReturnValue(
+        new Promise<boolean>((resolve) => {
+          resolvePreset = resolve
+        })
+      )
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect,
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@tri", selectionStart: 4 },
+      })
+      await screen.findByText("Triage agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(textarea).toHaveValue("@Triage agent "))
+
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1))
+
+      fireEvent.change(textarea, {
+        target: { value: "@Triage agent next question", selectionStart: 27 },
+      })
+      // Second Enter while the write is still pending.
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0))
+      })
+
+      resolvePreset(true)
+
+      await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1))
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "@Triage agent " })
+      )
+      expect(textarea).toHaveValue("next question")
+    })
+
     it("replaces the first agent when a second one is picked", async () => {
       // A chat session owns one preset, so a stale name left in the text would
       // quietly win at submit.

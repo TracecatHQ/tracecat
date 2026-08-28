@@ -131,16 +131,17 @@ function messageHasVisibleParts(message: UIMessage): boolean {
 }
 
 /**
- * Raised when an `@Agent` mention cannot be persisted, to abandon the submit.
+ * Raised to abandon a submit that sent no message.
  *
- * `submitPrompt` clears attachments after any submit that resolves, so a turn
- * that never sent has to reject to keep them. The user has already been told
- * what happened by the toast the preset write raises.
+ * `submitPrompt` runs its cleanup after any submit that resolves, clearing
+ * attachments and blanking the textarea, so a turn that produced nothing has to
+ * reject to leave the composer alone. It swallows the rejection. Anything worth
+ * telling the user is reported before this is thrown.
  */
-class PresetWriteFailedError extends Error {
-  constructor() {
-    super("Failed to persist the mentioned agent preset")
-    this.name = "PresetWriteFailedError"
+class SubmitAbandonedError extends Error {
+  constructor(reason: string) {
+    super(reason)
+    this.name = "SubmitAbandonedError"
   }
 }
 
@@ -990,7 +991,10 @@ export function ChatSessionPane({
     // again. A ref rather than state because two keystrokes in the same tick
     // would both read a stale `false`.
     if (submitInFlightRef.current) {
-      return
+      // Reject rather than return: a resolved duplicate makes `submitPrompt`
+      // clear attachments and blank the textarea, and the submit still running
+      // reads that live value to tell the sent message from a newer draft.
+      throw new SubmitAbandonedError("A submit is already in flight")
     }
     submitInFlightRef.current = true
     try {
@@ -1021,7 +1025,9 @@ export function ChatSessionPane({
         // Reject rather than return: `submitPrompt` treats a resolved submit as
         // sent and runs its cleanup, which drops any attached files even though
         // nothing left the composer. It swallows a rejection instead.
-        throw new PresetWriteFailedError()
+        throw new SubmitAbandonedError(
+          "Failed to persist the mentioned agent preset"
+        )
       }
     }
 
