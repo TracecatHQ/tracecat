@@ -1,0 +1,25 @@
+frontend/src/hooks/use-mentions.ts
+  s_0afebddc7f7329::t_a82390a3a71d39 453-456,458-460
+  s_0afebddc7f7329::t_1d85ac0f268317 281-284
+  s_0afebddc7f7329::t_a80e33a7552bf4 457
+frontend/tests/case-comments-section.test.tsx
+  s_0afebddc7f7329::t_12fca6d1ff8732 1675,1686,1712,1731
+  s_0afebddc7f7329::t_3d88281a08de4e 1601
+  s_0afebddc7f7329::t_ca9fbb722a4a98 1645-1669
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b0634b9e57dbb3cbf455ed99db618f1c9a2e7671",
+  "prompts": {},
+  "sessions": {
+    "s_0afebddc7f7329": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c8cd4429-2157-49fb-9414-9789d80c8518",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
