@@ -124,24 +124,58 @@ _NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
     128 + signal.SIGXCPU,
     128 + signal.SIGXFSZ,
 }
+_WORKLOAD_LAUNCHER_NAME = ".tracecat-workload-launcher.py"
+_WORKLOAD_STARTED_MARKER = b"\x00tracecat-workload-started\x00"
+_WORKLOAD_LAUNCHER_SCRIPT = f"""\
+import os
+import sys
+
+os.write(2, {_WORKLOAD_STARTED_MARKER!r})
+os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
+"""
+
+
+def _write_workload_launcher(job_dir: Path) -> None:
+    """Write the executor-owned launcher that emits the workload-start marker."""
+    launcher_path = job_dir / _WORKLOAD_LAUNCHER_NAME
+    launcher_path.write_text(_WORKLOAD_LAUNCHER_SCRIPT)
+    launcher_path.chmod(0o600)
+
+
+def _consume_workload_started_marker(stderr: bytes) -> tuple[bool, bytes]:
+    """Remove and report the executor-owned workload-start marker."""
+    if _WORKLOAD_STARTED_MARKER not in stderr:
+        return False, stderr
+    return True, stderr.replace(_WORKLOAD_STARTED_MARKER, b"", 1)
 
 
 def _classify_missing_nsjail_result(
     returncode: int | None,
     *,
     result_file_exists: bool,
+    workload_started: bool,
 ) -> SandboxErrorCode:
     """Classify an NsJail exit that did not produce a usable result.
 
-    NsJail forwards normal child exit codes, maps child signals to
-    ``128 + signal``, and reserves ``255`` for failures to launch the child.
-    A present (but malformed) result file proves the workload path ran, so the
-    launch sentinel is infrastructure-owned only when no result file exists.
-    A negative return code means the NsJail parent itself was signal-killed.
+    NsJail uses ``255`` when it cannot launch its child, but also forwards a
+    child's normal ``255`` exit. Before execing the workload, the
+    executor-owned launcher writes a binary marker to the captured stderr pipe.
+    That marker cannot be erased by the workload after it starts.
+
+    Decision matrix:
+    - ``None`` or a negative parent return code: infrastructure failure.
+    - ``255`` without a start marker or result file: infrastructure failure.
+    - ``255`` with a start marker or result file: workload failure.
+    - Child policy/resource signals: policy or resource failure, respectively.
+    - Every other missing-result exit: workload failure.
     """
     if returncode is None or returncode < 0:
         return SandboxErrorCode.INFRASTRUCTURE_FAILURE
-    if returncode == _NSJAIL_LAUNCH_FAILURE_EXIT_CODE and not result_file_exists:
+    if (
+        returncode == _NSJAIL_LAUNCH_FAILURE_EXIT_CODE
+        and not workload_started
+        and not result_file_exists
+    ):
         return SandboxErrorCode.INFRASTRUCTURE_FAILURE
     if returncode in _NSJAIL_POLICY_VIOLATION_EXIT_CODES:
         return SandboxErrorCode.POLICY_VIOLATION
@@ -429,12 +463,22 @@ class NsjailExecutor:
 
         # Execution settings - script path must be in exec_bin for config file mode
         script_path = f"/work/{script_name}"
+        if phase == "execute":
+            launcher_path = f"/work/{_WORKLOAD_LAUNCHER_NAME}"
+            exec_bin = (
+                f'exec_bin {{ path: "/usr/local/bin/python3" '
+                f'arg: "{launcher_path}" arg: "{script_path}" }}'
+            )
+        else:
+            exec_bin = (
+                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{script_path}" }}'
+            )
         lines.extend(
             [
                 "",
                 "# Execution",
                 'cwd: "/work"',
-                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{script_path}" }}',
+                exec_bin,
             ]
         )
 
@@ -499,6 +543,7 @@ class NsjailExecutor:
             SandboxResult with execution outcome.
         """
         start_time = time.time()
+        _write_workload_launcher(job_dir)
 
         # Generate nsjail config with script name embedded
         nsjail_config = self._build_config(
@@ -560,6 +605,7 @@ class NsjailExecutor:
                 pass  # Best effort cleanup
 
         execution_time_ms = (time.time() - start_time) * 1000
+        workload_started, stderr_bytes = _consume_workload_started_marker(stderr_bytes)
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
 
@@ -586,9 +632,23 @@ class NsjailExecutor:
             except json.JSONDecodeError:
                 logger.warning("Failed to parse result.json", path=str(result_path))
 
+        # Script workloads have no result-file contract: a clean zero exit from
+        # a started workload is a success even without result.json. Only the
+        # action path (execute_action) requires a result file.
+        if process.returncode == 0 and workload_started:
+            return SandboxResult(
+                success=True,
+                output=None,
+                stdout=stdout,
+                stderr=stderr,
+                exit_code=process.returncode,
+                execution_time_ms=execution_time_ms,
+            )
+
         error_code = _classify_missing_nsjail_result(
             process.returncode,
             result_file_exists=result_file_exists,
+            workload_started=workload_started,
         )
         error_msg = _missing_nsjail_result_message(error_code, stderr=stderr)
         logger.error(
@@ -849,12 +909,13 @@ class NsjailExecutor:
 
         # Execution settings - always use minimal_runner.py (untrusted mode)
         # minimal_runner.py is copied to /work and doesn't need tracecat imports
+        launcher_path = f"/work/{_WORKLOAD_LAUNCHER_NAME}"
         lines.extend(
             [
                 "",
                 "# Execution",
                 'cwd: "/work"',
-                'exec_bin { path: "/usr/local/bin/python3" arg: "/work/minimal_runner.py" }',
+                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{launcher_path}" arg: "/work/minimal_runner.py" }}',
             ]
         )
 
@@ -900,6 +961,7 @@ class NsjailExecutor:
             The result.json file in job_dir contains the action result.
         """
         start_time = time.time()
+        _write_workload_launcher(job_dir)
 
         # Generate nsjail config for action execution
         nsjail_config = self._build_action_config(job_dir, config)
@@ -959,6 +1021,7 @@ class NsjailExecutor:
                 pass
 
         execution_time_ms = (time.time() - start_time) * 1000
+        workload_started, stderr_bytes = _consume_workload_started_marker(stderr_bytes)
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
 
@@ -1001,6 +1064,7 @@ class NsjailExecutor:
         error_code = _classify_missing_nsjail_result(
             process.returncode,
             result_file_exists=result_file_exists,
+            workload_started=workload_started,
         )
         error_msg = _missing_nsjail_result_message(error_code, stderr=stderr)
         logger.error(
