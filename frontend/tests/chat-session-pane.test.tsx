@@ -1846,7 +1846,9 @@ describe("ChatSessionPane", () => {
       expect(sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({ text: "@Triage agent " })
       )
-      expect(textarea).toHaveValue("@Triage agent next question")
+      // Only the tail survives. Leaving the sent prefix behind would send it
+      // a second time on the next submit.
+      expect(textarea).toHaveValue("next question")
     })
 
     it("replaces the first agent when a second one is picked", async () => {

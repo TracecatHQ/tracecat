@@ -19,7 +19,8 @@ Your workspace role also needs:
 - `agent:execute` to invoke the selected agent.
 - `case:update` to create the comment.
 
-Without these requirements, `@` behaves as regular comment text and never starts an agent run.
+Without `agent:read` and `agent:execute`, `@` behaves as regular comment text and never starts an agent run.
+Without either entitlement, `@` still opens the list, showing an Enterprise notice in place of agent names.
 
 ## Mention an agent
 

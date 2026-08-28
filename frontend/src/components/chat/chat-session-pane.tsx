@@ -1008,21 +1008,22 @@ export function ChatSessionPane({
       }
     }
 
-    // The composer stays editable across the awaits here, so anything typed
-    // after Enter is a new draft rather than part of the message being sent.
-    // The ref holds the live value; `input` is the snapshot this closure was
-    // built with, so only the ref can tell whether the draft has moved on.
+    // Enter does not empty the box until the awaits here resolve, so the user
+    // carries on typing onto the end of the message being sent. Only what
+    // follows it is a new draft: keeping the whole value would strand the sent
+    // text in the composer for the next submit to send again. `input` is this
+    // closure's snapshot, so only the ref knows the live value.
     const remainingDraft = () => {
       const live = promptTextareaRef.current?.value ?? ""
-      return live === messageText ? "" : live
+      return live.startsWith(messageText)
+        ? live.slice(messageText.length)
+        : live
     }
-    // Mentions index into the text, so a draft that survived keeps its own.
+    // The submitted text held the mention ranges and leaves the box either way,
+    // so whatever remains starts unbound.
     const clearSubmittedDraft = () => {
-      const remaining = remainingDraft()
-      setInput(remaining)
-      if (!remaining) {
-        resetMentions()
-      }
+      setInput(remainingDraft())
+      resetMentions()
     }
 
     if (onBeforeSend) {
