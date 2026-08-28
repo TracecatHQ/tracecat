@@ -45,8 +45,10 @@ export default function AdminMaintenancePage() {
         operationId: operationId as string,
       }),
     enabled: operationId !== undefined,
-    refetchInterval: (query) =>
-      query.state.data?.status === "running" ? 2000 : false,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status === "completed" || status === "failed" ? false : 2000
+    },
   })
 
   useEffect(() => {

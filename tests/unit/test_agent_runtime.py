@@ -33,6 +33,7 @@ from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.common.types import (
+    MCPServerConfig,
     MCPToolDefinition,
     SandboxAgentConfig,
     SandboxSubagentConfig,
@@ -253,6 +254,28 @@ def test_get_litellm_route_model_prefixes_provider_route(
 
 class TestClaudeAgentRuntimeRun:
     """Tests for ClaudeAgentRuntime.run()."""
+
+    def test_stdio_servers_cannot_claim_registry_names(self) -> None:
+        """Reserve trusted registry identities even without registry actions."""
+        configs: list[MCPServerConfig] = [
+            {
+                "type": "stdio",
+                "name": "tracecat-registry",
+                "command": "canonical-server",
+            },
+            {
+                "type": "stdio",
+                "name": "tracecat_registry",
+                "command": "legacy-server",
+            },
+        ]
+
+        spec = ClaudeAgentRuntime._stdio_mcp_server_spec(source_configs=configs)
+
+        assert set(spec.servers) == {
+            "tracecat-registry-2",
+            "tracecat_registry-2",
+        }
 
     def test_trusted_mcp_bridge_disables_response_compression(self) -> None:
         """The MCP SDK parses bridge responses itself, so request plain JSON."""
