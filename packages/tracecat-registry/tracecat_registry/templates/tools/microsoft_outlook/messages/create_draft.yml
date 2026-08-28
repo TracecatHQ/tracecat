@@ -1,0 +1,140 @@
+type: action
+definition:
+  title: Create draft
+  description: >-
+    Create a draft of a new message in the specified user's mailbox. The draft can
+    later be sent with `send_draft`. Returns `201 Created` and the message object.
+    Least privileged permission: Mail.ReadWrite for delegated (work or school
+    account), delegated (personal Microsoft account) and application. Drafting in
+    another user's mailbox needs application permissions, or delegated permissions
+    plus that user sharing the mail folder with, or granting delegate access to,
+    the signed-in user. This action exposes common API-native message properties.
+    For other Graph JSON message properties or extension properties, call
+    `tools.microsoft_graph_sdk.call_method` with `oauth_provider` set to
+    `microsoft_outlook`; the dispatcher does not support MIME requests. Available
+    in the global service, US Government L4, US Government L5 (DOD) and China
+    operated by 21Vianet. Microsoft's endpoint reference does not state a separate
+    licensing requirement; the mailbox still needs Exchange Online or Outlook.com.
+  display_group: Microsoft Outlook Mail
+  doc_url: https://learn.microsoft.com/en-us/graph/api/user-post-messages?view=graph-rest-1.0
+  namespace: tools.microsoft_outlook
+  name: create_draft
+  secrets:
+    - type: oauth
+      provider_id: microsoft_outlook
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_outlook
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: authorization_code
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
+        `microsoft_outlook.base_url`, then
+        `microsoft_graph.base_url`, then https://graph.microsoft.com/v1.0.
+        National clouds: https://graph.microsoft.us/v1.0 (US Government L4),
+        https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD) and
+        https://microsoftgraph.chinacloudapi.cn/v1.0 (China operated by 21Vianet).
+      default: null
+    auth_mode:
+      type: enum["application", "delegated", "auto"]
+      description: >-
+        Credential to use. `application` requires MICROSOFT_OUTLOOK_SERVICE_TOKEN,
+        then MICROSOFT_GRAPH_SERVICE_TOKEN; `delegated` requires
+        MICROSOFT_OUTLOOK_USER_TOKEN, then MICROSOFT_GRAPH_USER_TOKEN; `auto` tries
+        all four in that order.
+      default: application
+    mailbox_user_id:
+      type: str
+      description: >-
+        Target mailbox, given as a user ID or userPrincipalName and used in the
+        `/users/{id | userPrincipalName}` path. Delegated callers may pass their own
+        userPrincipalName; application callers must always name the mailbox to act
+        on, because an application token has no signed-in user.
+    subject:
+      type: str | None
+      description: The subject of the message.
+      default: null
+    body:
+      type: dict[str, Any] | None
+      description: >-
+        The body of the message, as an API-native itemBody object with `contentType`
+        (`Text` or `HTML`) and `content` properties.
+      default: null
+    toRecipients:
+      type: list[dict[str, Any]] | None
+      description: The To recipients for the message, as Graph recipient objects.
+      default: null
+    ccRecipients:
+      type: list[dict[str, Any]] | None
+      description: The Cc recipients for the message, as Graph recipient objects.
+      default: null
+    bccRecipients:
+      type: list[dict[str, Any]] | None
+      description: The Bcc recipients for the message, as Graph recipient objects.
+      default: null
+    replyTo:
+      type: list[dict[str, Any]] | None
+      description: The email addresses to use when replying, as Graph recipient objects.
+      default: null
+    from:
+      type: dict[str, Any] | None
+      description: >-
+        The mailbox owner and sender of the message, as a Graph recipient object.
+        It must correspond to the actual mailbox used.
+      default: null
+    sender:
+      type: dict[str, Any] | None
+      description: >-
+        The account actually used to generate the message, as a Graph recipient
+        object. Set it when drafting from a shared mailbox or as a delegate; the
+        value must correspond to the actual mailbox used.
+      default: null
+    importance:
+      type: str | None
+      description: >-
+        The importance of the message. The possible values are `Low`, `Normal` and
+        `High`.
+      default: null
+    isReadReceiptRequested:
+      type: bool | None
+      description: Indicates whether a read receipt is requested for the message.
+      default: null
+    isDeliveryReceiptRequested:
+      type: bool | None
+      description: Indicates whether a delivery receipt is requested for the message.
+      default: null
+  steps:
+    - ref: call_graph
+      action: tools.microsoft_graph_sdk.call_method
+      args:
+        oauth_provider: microsoft_outlook
+        path: /users/${{ FN.url_encode(inputs.mailbox_user_id) }}/messages
+        method: POST
+        base_url: ${{ inputs.base_url || VARS.microsoft_outlook.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
+        auth_mode: ${{ inputs.auth_mode }}
+        payload:
+          subject: ${{ inputs.subject }}
+          body: ${{ inputs.body }}
+          toRecipients: ${{ inputs.toRecipients }}
+          ccRecipients: ${{ inputs.ccRecipients }}
+          bccRecipients: ${{ inputs.bccRecipients }}
+          replyTo: ${{ inputs.replyTo }}
+          from: ${{ inputs.from }}
+          sender: ${{ inputs.sender }}
+          importance: ${{ inputs.importance }}
+          isReadReceiptRequested: ${{ inputs.isReadReceiptRequested }}
+          isDeliveryReceiptRequested: ${{ inputs.isDeliveryReceiptRequested }}
+        omit_none_payload_fields: true
+  returns: ${{ steps.call_graph.result }}
