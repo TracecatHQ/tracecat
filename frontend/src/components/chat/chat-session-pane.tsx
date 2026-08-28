@@ -1008,12 +1008,29 @@ export function ChatSessionPane({
       }
     }
 
+    // The composer stays editable across the awaits here, so anything typed
+    // after Enter is a new draft rather than part of the message being sent.
+    // The ref holds the live value; `input` is the snapshot this closure was
+    // built with, so only the ref can tell whether the draft has moved on.
+    const remainingDraft = () => {
+      const live = promptTextareaRef.current?.value ?? ""
+      return live === messageText ? "" : live
+    }
+    // Mentions index into the text, so a draft that survived keeps its own.
+    const clearSubmittedDraft = () => {
+      const remaining = remainingDraft()
+      setInput(remaining)
+      if (!remaining) {
+        resetMentions()
+      }
+    }
+
     if (onBeforeSend) {
       if (optimisticBeforeSend) {
         optimisticMessageKnownTextPartKeysRef.current =
           matchingUserTextPartKeys(messages, messageText)
         setOptimisticMessageText(messageText)
-        setInput("")
+        setInput(remainingDraft())
       }
 
       const result = await onBeforeSend(
@@ -1024,12 +1041,14 @@ export function ChatSessionPane({
       // Only clear input if onBeforeSend succeeded (non-null)
       // If null, the action was cancelled and user keeps their draft
       if (result !== null) {
-        setInput("")
-        resetMentions()
+        clearSubmittedDraft()
       } else if (optimisticBeforeSend) {
         optimisticMessageKnownTextPartKeysRef.current = new Set()
         setOptimisticMessageText(null)
-        setInput(messageText)
+        // Restoring the cancelled message would clobber a newer draft.
+        if (!remainingDraft()) {
+          setInput(messageText)
+        }
       }
       // Parent will handle switching sessions and sending via pendingMessage
       return
@@ -1040,8 +1059,7 @@ export function ChatSessionPane({
     }
 
     // Clear input for normal message sending
-    setInput("")
-    resetMentions()
+    clearSubmittedDraft()
 
     try {
       await persistToolsChainRef.current.catch(() => undefined)

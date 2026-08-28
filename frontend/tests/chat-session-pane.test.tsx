@@ -1805,6 +1805,50 @@ describe("ChatSessionPane", () => {
       expect(onSelect).toHaveBeenCalledTimes(1)
     })
 
+    it("keeps a draft typed while the preset write is in flight", async () => {
+      // The composer stays editable across the write, so the send that follows
+      // must not clear text the user has since started on.
+      let resolvePreset: (applied: boolean) => void = () => {}
+      const onSelect = jest.fn().mockReturnValue(
+        new Promise<boolean>((resolve) => {
+          resolvePreset = resolve
+        })
+      )
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect,
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@tri", selectionStart: 4 },
+      })
+      await screen.findByText("Triage agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(textarea).toHaveValue("@Triage agent "))
+
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1))
+
+      // Typed after Enter, while the write is still pending.
+      fireEvent.change(textarea, {
+        target: { value: "@Triage agent next question", selectionStart: 27 },
+      })
+
+      resolvePreset(true)
+
+      await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1))
+      // The turn still sends what Enter submitted, not the newer draft.
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "@Triage agent " })
+      )
+      expect(textarea).toHaveValue("@Triage agent next question")
+    })
+
     it("replaces the first agent when a second one is picked", async () => {
       // A chat session owns one preset, so a stale name left in the text would
       // quietly win at submit.
