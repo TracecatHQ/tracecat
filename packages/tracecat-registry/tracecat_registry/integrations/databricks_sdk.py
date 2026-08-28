@@ -5,7 +5,6 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Annotated, Any, Protocol, runtime_checkable
-from urllib.parse import urlsplit
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.config import Config
@@ -23,24 +22,6 @@ from tracecat_registry import (
     secrets,
 )
 from tracecat_registry.config import TRACECAT__MAX_FILE_SIZE_BYTES
-
-_DATABRICKS_HOST_SUFFIXES = ("databricks.com", "azuredatabricks.net")
-_UNSAFE_WORKSPACE_CLIENT_PROPERTIES = frozenset(
-    {
-        "api_client",
-        "config",
-        # These SDK mixins accept local paths and can read, overwrite, or delete
-        # files on the executor rather than only calling workspace APIs.
-        "dbfs",
-        "files",
-    }
-)
-_WORKSPACE_SERVICE_NAMES = frozenset(
-    name
-    for name, attribute in vars(WorkspaceClient).items()
-    if isinstance(attribute, property)
-    and name not in _UNSAFE_WORKSPACE_CLIENT_PROPERTIES
-)
 
 databricks_user_oauth_secret = RegistryOAuthSecret(
     provider_id="databricks",
@@ -97,7 +78,6 @@ class _BinaryStream(Protocol):
 
 
 def _get_client(base_url: str) -> WorkspaceClient:
-    _validate_databricks_host(base_url)
     if token := (
         secrets.get_or_default(databricks_user_oauth_secret.token_name)
         or secrets.get_or_default(databricks_service_oauth_secret.token_name)
@@ -114,24 +94,12 @@ def _get_client(base_url: str) -> WorkspaceClient:
     )
 
 
-def _validate_databricks_host(host: str) -> None:
-    """Keep Databricks credentials bound to an official workspace domain."""
-    parsed = urlsplit(host)
-    hostname = parsed.hostname or ""
-    if parsed.scheme != "https" or not any(
-        hostname == suffix or hostname.endswith(f".{suffix}")
-        for suffix in _DATABRICKS_HOST_SUFFIXES
-    ):
-        raise ValueError("base_url must be an HTTPS Databricks workspace URL")
-
-
 def _get_sdk_method(client: WorkspaceClient, service: str, method_name: str) -> Any:
-    """Resolve a public method from a generated Workspace API service."""
-    if service not in _WORKSPACE_SERVICE_NAMES or method_name.startswith("_"):
-        raise AttributeError(
-            f"Unknown public Databricks SDK method: {service}.{method_name}"
-        )
-    return getattr(getattr(client, service), method_name)
+    """Resolve a method from a generated Workspace API service."""
+    if sdk_service := getattr(client, service, None):
+        if method := getattr(sdk_service, method_name, None):
+            return method
+    raise AttributeError(f"Unknown Databricks SDK method: {service}.{method_name}")
 
 
 def _serialize(value: Any) -> Any:

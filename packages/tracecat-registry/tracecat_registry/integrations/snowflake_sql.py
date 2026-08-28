@@ -1,17 +1,11 @@
 """Generic Snowflake SQL REST API client."""
 
 from typing import Annotated, Any, TypedDict, cast
-from urllib.parse import urlsplit
 
 import httpx
 from pydantic import Field
 
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret, registry, secrets
-
-_SNOWFLAKE_HOST_SUFFIXES = (
-    "snowflakecomputing.com",
-    "snowflakecomputing.cn",
-)
 
 snowflake_user_oauth_secret = RegistryOAuthSecret(
     provider_id="snowflake_sql",
@@ -109,17 +103,6 @@ async def _get_oauth_token() -> str:
     return await _mint_stored_service_token()
 
 
-def _validate_snowflake_url(url: str) -> None:
-    """Keep Snowflake credentials bound to an official account domain."""
-    parsed = urlsplit(url)
-    hostname = parsed.hostname or ""
-    if parsed.scheme != "https" or not any(
-        hostname == suffix or hostname.endswith(f".{suffix}")
-        for suffix in _SNOWFLAKE_HOST_SUFFIXES
-    ):
-        raise ValueError("URL must be an HTTPS Snowflake account endpoint")
-
-
 @registry.register(
     default_title="Call API",
     description="Call a Snowflake SQL REST API endpoint.",
@@ -158,7 +141,6 @@ async def call_api(
     ] = 60.0,
 ) -> SnowflakeSQLResponse:
     """Call a Snowflake SQL API endpoint and return its HTTP response."""
-    _validate_snowflake_url(url)
     token = await _get_oauth_token()
     headers = {
         "Accept": "application/json",

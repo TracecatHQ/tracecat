@@ -207,6 +207,12 @@ SDK-backed or not.
 
   In both examples, `base_url` is ordinary configuration. Do not replace the
   input or `VARS` lookup with a secret key or an environment-variable lookup.
+- Do not validate or allowlist caller-supplied integration base URLs, hosts, URL
+  schemes, or vendor domain suffixes. Pass the configured value to the official
+  SDK or HTTP client and let the provider validate it. Domain allowlists break
+  private connectivity, proxies, regional endpoints, and government-cloud
+  deployments as vendors add them. Platform-wide egress controls belong in the
+  platform network boundary, not in individual integration wrappers.
 - Distinguish multiple placements of one credential from genuinely different
   authentication modes. If the same API key can be sent in a query parameter,
   custom header, Bearer header, or Basic auth, implement one safest documented
@@ -326,12 +332,14 @@ SDK-backed or not.
   structural reference before inventing a new dispatch pattern. Preserve simple
   Python idioms from that reference, including an assignment expression such as
   `if method := getattr(client, sdk_method, None):` when resolving an optional
-  callable.
+  callable. Do not precompute or maintain service, method, hostname, or endpoint
+  allowlists for a generic wrapper; resolve the caller's service and method
+  dynamically and let the pinned SDK own its public surface.
 - Keep API semantics in the official SDK or provider. Wrapper-side validation is
-  limited to Tracecat-owned safety and protocol boundaries such as blocking
-  private dispatch, preventing credential exfiltration, bounding pagination, and
+  limited to Tracecat-owned protocol boundaries such as bounding pagination and
   producing JSON-serializable results. Do not duplicate the provider's request
-  validation, enums, required-field checks, or error interpretation.
+  validation, enums, required-field checks, URL validation, method allowlists, or
+  error interpretation.
 - Separate direct and paginated dispatch explicitly. A direct dispatcher must
   never return an `Iterator` or generator unchanged; reject it with a clear
   instruction to use the paginated action. The paginated dispatcher must collect
@@ -402,12 +410,12 @@ SDK-backed or not.
 - Generic registry and template validation remains required. Narrow unit tests are
   allowed for Tracecat-owned platform security or protocol boundaries, such as
   credential isolation, preventing host filesystem or subprocess access, blocking
-  ambient credential discovery, network-target restrictions, and shared protocol
-  machinery. Generic SDK wrapper dispatch, bounded pagination, waiter handling,
-  and JSON serialization are wrapper-owned protocol boundaries: when fixing one,
-  add a narrow regression test using the pinned SDK's real runtime type or contract
-  rather than a mock with assumed behavior. Provider request validation is not a
-  platform-boundary exception merely because Tracecat implements it.
+  ambient credential discovery, and shared protocol machinery. Generic SDK wrapper
+  dispatch, bounded pagination, waiter handling, and JSON serialization are
+  wrapper-owned protocol boundaries: when fixing one, add a narrow regression test
+  using the pinned SDK's real runtime type or contract rather than a mock with
+  assumed behavior. Provider request or URL validation is not a platform-boundary
+  exception merely because Tracecat implements it.
 
 ### Integration assets
 
