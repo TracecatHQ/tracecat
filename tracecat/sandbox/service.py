@@ -41,6 +41,23 @@ from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
 
 
+async def _await_task_rejoined(task: asyncio.Task[Any]) -> Any:
+    """Await a worker task, rejoining its thread even under cancellation.
+
+    Cancelling an ``asyncio.to_thread`` await does not stop the worker thread;
+    a caller that proceeds to more filesystem work (cleanup removals,
+    caller-side job-dir removal) would otherwise race the still-running
+    thread. Returns the task result when it completes; on cancellation, waits
+    for the thread to finish, then re-raises the cancellation.
+    """
+    while not task.done():
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            continue
+    return task.result()
+
+
 def validate_run_python_script(script: str) -> tuple[bool, str | None]:
     """Validate that a Python script has the required structure for run_python.
 
@@ -271,17 +288,37 @@ class SandboxService:
         # The installer has stopped, so validate the tree and preserve symlinks
         # rather than dereferencing sandbox-selected targets in the host process.
         temp_dest = dest.parent / f"site-packages.{uuid.uuid4().hex}.tmp"
+        copy_task = asyncio.create_task(
+            asyncio.to_thread(
+                copy_tree_without_following_symlinks,
+                site_packages,
+                temp_dest,
+                trusted_root=job_dir,
+                max_bytes=TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES,
+                max_entries=TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES,
+            )
+        )
         try:
             try:
                 # The walk and copy can span gigabytes; keep them off the loop.
-                copied = await asyncio.to_thread(
-                    copy_tree_without_following_symlinks,
-                    site_packages,
-                    temp_dest,
-                    trusted_root=job_dir,
-                    max_bytes=TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES,
-                    max_entries=TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES,
-                )
+                # Shielded so activity cancellation cannot abandon the copy
+                # thread mid-flight: cancelling the await does not stop the
+                # thread, and a still-running copy would race the finally-block
+                # removal of temp_dest and the caller's job-dir cleanup.
+                copied = await asyncio.shield(copy_task)
+            except asyncio.CancelledError:
+                # Rejoin the copy thread (shielded even under repeated
+                # cancellation) before any cleanup runs. Prefer the pending
+                # cancellation if the copy also failed; the temp tree is
+                # removed in the finally block.
+                try:
+                    await _await_task_rejoined(copy_task)
+                except SandboxFileSafetyError as exc:
+                    logger.warning(
+                        "Discarded cancelled package promotion",
+                        error=str(exc),
+                    )
+                raise
             except SandboxFileSafetyError as exc:
                 raise PackageInstallError(
                     "Installed packages contained unsafe filesystem entries"
@@ -309,8 +346,18 @@ class SandboxService:
                     cache_key=cache_key,
                 )
         finally:
+            # The copy thread is always joined before this point, but the
+            # removal itself must also survive cancellation: a stranded
+            # partial .tmp tree in the shared package cache persists forever.
             if temp_dest.exists():
-                await asyncio.to_thread(shutil.rmtree, temp_dest, ignore_errors=True)
+                rmtree_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        shutil.rmtree,
+                        temp_dest,
+                        ignore_errors=True,
+                    )
+                )
+                await _await_task_rejoined(rmtree_task)
 
     async def _prepare_execution(
         self,
