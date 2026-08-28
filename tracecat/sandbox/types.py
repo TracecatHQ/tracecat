@@ -11,6 +11,9 @@ class SandboxErrorCode(StrEnum):
     """Machine-readable reasons for sandbox execution failures."""
 
     TIMEOUT = "timeout"
+    POLICY_VIOLATION = "policy_violation"
+    RESOURCE_LIMIT_EXCEEDED = "resource_limit_exceeded"
+    WORKLOAD_FAILURE = "workload_failure"
     INFRASTRUCTURE_FAILURE = "infrastructure_failure"
 
 

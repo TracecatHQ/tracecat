@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import signal
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -114,6 +115,59 @@ def _nsjail_failure_hint(stderr: str) -> str | None:
         if pattern.search(stderr):
             return hint
     return None
+
+
+_NSJAIL_LAUNCH_FAILURE_EXIT_CODE = 0xFF
+_NSJAIL_POLICY_VIOLATION_EXIT_CODES = {128 + signal.SIGSYS}
+_NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
+    128 + signal.SIGKILL,
+    128 + signal.SIGXCPU,
+    128 + signal.SIGXFSZ,
+}
+
+
+def _classify_missing_nsjail_result(
+    returncode: int | None,
+    *,
+    result_file_exists: bool,
+) -> SandboxErrorCode:
+    """Classify an NsJail exit that did not produce a usable result.
+
+    NsJail forwards normal child exit codes, maps child signals to
+    ``128 + signal``, and reserves ``255`` for failures to launch the child.
+    A present (but malformed) result file proves the workload path ran, so the
+    launch sentinel is infrastructure-owned only when no result file exists.
+    A negative return code means the NsJail parent itself was signal-killed.
+    """
+    if returncode is None or returncode < 0:
+        return SandboxErrorCode.INFRASTRUCTURE_FAILURE
+    if returncode == _NSJAIL_LAUNCH_FAILURE_EXIT_CODE and not result_file_exists:
+        return SandboxErrorCode.INFRASTRUCTURE_FAILURE
+    if returncode in _NSJAIL_POLICY_VIOLATION_EXIT_CODES:
+        return SandboxErrorCode.POLICY_VIOLATION
+    if returncode in _NSJAIL_RESOURCE_LIMIT_EXIT_CODES:
+        return SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED
+    return SandboxErrorCode.WORKLOAD_FAILURE
+
+
+def _missing_nsjail_result_message(
+    error_code: SandboxErrorCode,
+    *,
+    stderr: str,
+) -> str:
+    """Return a safe message for an NsJail run without a usable result."""
+    match error_code:
+        case SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+            message = "Sandbox infrastructure failed before producing a result"
+            if hint := _nsjail_failure_hint(stderr):
+                return f"{message}. {hint}"
+            return message
+        case SandboxErrorCode.POLICY_VIOLATION:
+            return "Sandbox policy blocked the workload"
+        case SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED:
+            return "Sandbox workload exceeded a resource limit"
+        case SandboxErrorCode.WORKLOAD_FAILURE | SandboxErrorCode.TIMEOUT:
+            return "Sandbox workload exited without producing a result"
 
 
 def _validate_env_key(key: str) -> None:
@@ -511,7 +565,8 @@ class NsjailExecutor:
 
         # Try to parse result.json for structured output
         result_path = job_dir / "result.json"
-        if result_path.exists():
+        result_file_exists = result_path.exists()
+        if result_file_exists:
             try:
                 result_data = json.loads(result_path.read_text())
                 return SandboxResult(
@@ -531,34 +586,23 @@ class NsjailExecutor:
             except json.JSONDecodeError:
                 logger.warning("Failed to parse result.json", path=str(result_path))
 
-        # No result.json - this is an infrastructure error
-        if process.returncode != 0:
-            # Don't expose nsjail internals to users
-            hint = _nsjail_failure_hint(stderr)
-            error_msg = "Sandbox execution failed"
-            if hint:
-                error_msg = f"{error_msg}. {hint}"
-            logger.error(
-                "Sandbox execution failed",
-                returncode=process.returncode,
-                stderr=stderr[:500],
-            )
-            return SandboxResult(
-                success=False,
-                error=error_msg,
-                error_code=SandboxErrorCode.INFRASTRUCTURE_FAILURE,
-                stdout=stdout,
-                stderr=stderr[:500],  # Truncate for debugging
-                exit_code=process.returncode,
-                execution_time_ms=execution_time_ms,
-            )
-
-        # Process succeeded but no result.json (shouldn't happen with wrapper)
+        error_code = _classify_missing_nsjail_result(
+            process.returncode,
+            result_file_exists=result_file_exists,
+        )
+        error_msg = _missing_nsjail_result_message(error_code, stderr=stderr)
+        logger.error(
+            "Sandbox execution did not produce a usable result",
+            error_code=error_code,
+            returncode=process.returncode,
+            stderr=stderr[:500],
+        )
         return SandboxResult(
-            success=True,
-            output=None,
+            success=False,
+            error=error_msg,
+            error_code=error_code,
             stdout=stdout,
-            stderr=stderr,
+            stderr=stderr[:500],
             exit_code=process.returncode,
             execution_time_ms=execution_time_ms,
         )
@@ -920,7 +964,8 @@ class NsjailExecutor:
 
         # Try to parse result.json for structured output
         result_path = job_dir / "result.json"
-        if result_path.exists():
+        result_file_exists = result_path.exists()
+        if result_file_exists:
             try:
                 result_data = json.loads(result_path.read_text())
                 # Log subprocess stderr for debugging (contains timing info)
@@ -940,6 +985,11 @@ class NsjailExecutor:
                     stdout=stdout,
                     stderr=stderr,
                     error=result_data.get("error"),
+                    error_code=(
+                        SandboxErrorCode(error_code)
+                        if (error_code := result_data.get("error_code"))
+                        else None
+                    ),
                     exit_code=process.returncode,
                     execution_time_ms=execution_time_ms,
                 )
@@ -948,33 +998,23 @@ class NsjailExecutor:
                     "Failed to parse action result.json", path=str(result_path)
                 )
 
-        # No result.json - infrastructure error
-        if process.returncode != 0:
-            hint = _nsjail_failure_hint(stderr)
-            error_msg = "Action sandbox execution failed"
-            if hint:
-                error_msg = f"{error_msg}. {hint}"
-            logger.error(
-                "Action sandbox execution failed",
-                returncode=process.returncode,
-                stderr=stderr[-2000:],
-            )
-            return SandboxResult(
-                success=False,
-                error=error_msg,
-                error_code=SandboxErrorCode.INFRASTRUCTURE_FAILURE,
-                stdout=stdout,
-                stderr=stderr[:2000],
-                exit_code=process.returncode,
-                execution_time_ms=execution_time_ms,
-            )
-
-        # Process succeeded but no result.json
+        error_code = _classify_missing_nsjail_result(
+            process.returncode,
+            result_file_exists=result_file_exists,
+        )
+        error_msg = _missing_nsjail_result_message(error_code, stderr=stderr)
+        logger.error(
+            "Action sandbox execution did not produce a usable result",
+            error_code=error_code,
+            returncode=process.returncode,
+            stderr=stderr[-2000:],
+        )
         return SandboxResult(
-            success=True,
-            output=None,
+            success=False,
+            error=error_msg,
+            error_code=error_code,
             stdout=stdout,
-            stderr=stderr,
+            stderr=stderr[:2000],
             exit_code=process.returncode,
             execution_time_ms=execution_time_ms,
         )

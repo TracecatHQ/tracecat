@@ -56,7 +56,11 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
-from tracecat.sandbox.exceptions import SandboxExecutionError
+from tracecat.sandbox.exceptions import (
+    SandboxInfrastructureError,
+    SandboxWorkloadError,
+)
+from tracecat.sandbox.types import SandboxErrorCode
 from tracecat.temporal.errors import (
     build_error_transport_detail,
     extract_error_classification,
@@ -247,7 +251,7 @@ class TestExecuteActionActivity:
                 RetryDisposition.NON_RETRYABLE,
             ),
             (
-                SandboxExecutionError("synthetic sandbox diagnostic"),
+                SandboxInfrastructureError("synthetic sandbox diagnostic"),
                 RuntimeErrorKind.EXECUTOR_SANDBOX_INFRASTRUCTURE_FAILED,
                 RetryDisposition.RETRYABLE,
             ),
@@ -300,6 +304,62 @@ class TestExecuteActionActivity:
             retry_disposition is RetryDisposition.NON_RETRYABLE
         )
         assert str(cause) not in str(exc_info.value)
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "error_code",
+        [
+            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            SandboxErrorCode.POLICY_VIOLATION,
+            SandboxErrorCode.WORKLOAD_FAILURE,
+        ],
+    )
+    async def test_sandbox_workload_failure_is_user_owned_and_non_retryable(
+        self,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        error_code: SandboxErrorCode,
+    ) -> None:
+        workload_error = SandboxWorkloadError(
+            "synthetic sandbox workload diagnostic",
+            error_code=error_code,
+        )
+        error_info = ExecutorActionErrorInfo(
+            type=type(workload_error).__name__,
+            message="masked executor error",
+            action_name="test_action",
+            filename="<test>",
+            function="test_function",
+        )
+        exec_error = ExecutionError(info=error_info)
+        exec_error.__cause__ = workload_error
+
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.side_effect = exec_error
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input,
+                    mock_role,
+                )
+
+        app_error = exc_info.value
+        classification = extract_error_classification(app_error)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.ACTION_EXECUTION_FAILED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert classification.cause_type == "SandboxWorkloadError"
+        assert app_error.non_retryable is True
 
     @pytest.mark.anyio
     async def test_executor_backend_initialization_failure_is_classified(

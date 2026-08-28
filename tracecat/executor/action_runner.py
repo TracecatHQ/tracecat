@@ -43,7 +43,10 @@ from tracecat.executor.secret_preprocessors import (
     project_secret_env,
 )
 from tracecat.logger import logger
-from tracecat.sandbox.exceptions import SandboxExecutionError
+from tracecat.sandbox.exceptions import (
+    SandboxInfrastructureError,
+    SandboxWorkloadError,
+)
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits, SandboxErrorCode
 from tracecat.sandbox.utils import (
@@ -343,8 +346,13 @@ class ActionRunner:
                 return result.output
 
             if result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
-                raise SandboxExecutionError(
+                raise SandboxInfrastructureError(
                     "Action sandbox infrastructure failed before producing a result"
+                )
+            if result.error_code is not None:
+                raise SandboxWorkloadError(
+                    "Action sandbox workload stopped before producing a result",
+                    error_code=result.error_code,
                 )
 
             # Handle error from sandbox

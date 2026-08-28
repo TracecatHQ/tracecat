@@ -24,8 +24,10 @@ from tracecat.sandbox.exceptions import (
     PackageInstallError,
     SandboxError,
     SandboxExecutionError,
+    SandboxInfrastructureError,
     SandboxTimeoutError,
     SandboxValidationError,
+    SandboxWorkloadError,
 )
 from tracecat.sandbox.safe_lambda import SafeLambdaValidator, build_safe_lambda
 from tracecat.sandbox.service import SandboxService, validate_run_python_script
@@ -46,6 +48,8 @@ __all__ = [
     "SandboxError",
     "SandboxTimeoutError",
     "SandboxExecutionError",
+    "SandboxInfrastructureError",
+    "SandboxWorkloadError",
     "SandboxValidationError",
     "PackageInstallError",
     # Validation

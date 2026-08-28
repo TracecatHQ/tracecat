@@ -49,7 +49,11 @@ from tracecat.runtime.errors import (
     RuntimeErrorClassification,
     RuntimeErrorKind,
 )
-from tracecat.sandbox.exceptions import SandboxExecutionError
+from tracecat.sandbox.exceptions import (
+    SandboxInfrastructureError,
+    SandboxWorkloadError,
+)
+from tracecat.sandbox.types import SandboxErrorCode
 from tracecat.storage.object import StoredObject, action_key, get_object_storage
 from tracecat.storage.utils import is_retryable_storage_transport_error
 from tracecat.temporal.errors import (
@@ -99,13 +103,33 @@ def _platform_executor_error_classification(
                 retry_disposition=RetryDisposition.NON_RETRYABLE,
                 cause=cause,
             )
-        if isinstance(cause, SandboxExecutionError):
+        if isinstance(cause, SandboxInfrastructureError):
             return RuntimeErrorClassification.platform(
                 kind=RuntimeErrorKind.EXECUTOR_SANDBOX_INFRASTRUCTURE_FAILED,
                 message="Tracecat could not run the action sandbox",
                 retry_disposition=RetryDisposition.RETRYABLE,
                 cause=cause,
             )
+    return None
+
+
+def _sandbox_workload_error_classification(
+    error: BaseException,
+) -> RuntimeErrorClassification | None:
+    """Classify deterministic sandbox workload exits from their typed code."""
+    for cause in _exception_chain(error):
+        if not isinstance(cause, SandboxWorkloadError):
+            continue
+        return RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+            message="The action sandbox workload stopped before producing a result",
+            retry_disposition=(
+                RetryDisposition.RETRYABLE
+                if cause.error_code is SandboxErrorCode.TIMEOUT
+                else RetryDisposition.NON_RETRYABLE
+            ),
+            cause=cause,
+        )
     return None
 
 
@@ -226,6 +250,16 @@ def _classify_execute_action_error(
                 classification=classification,
                 detail_type=error.__class__.__name__,
             )
+        if classification := _sandbox_workload_error_classification(error):
+            log.info(
+                "Sandbox workload failed",
+                error=error,
+                cause_type=classification.cause_type,
+            )
+            return _ExecuteActionErrorClassification(
+                classification=classification,
+                detail_type=error.__class__.__name__,
+            )
         message = str(error)
         log.info("Execution error", error=message, info=error.info)
         return _ExecuteActionErrorClassification(
@@ -255,6 +289,22 @@ def _classify_execute_action_error(
         if platform_classification is not None:
             return _ExecuteActionErrorClassification(
                 classification=platform_classification,
+                detail_type=error.__class__.__name__,
+            )
+        workload_classification = next(
+            (
+                classification
+                for loop_error in error.loop_errors
+                if (
+                    classification := _sandbox_workload_error_classification(loop_error)
+                )
+                is not None
+            ),
+            None,
+        )
+        if workload_classification is not None:
+            return _ExecuteActionErrorClassification(
+                classification=workload_classification,
                 detail_type=error.__class__.__name__,
             )
         message = str(error)
@@ -306,6 +356,16 @@ def _classify_execute_action_error(
     if classification := _platform_executor_error_classification(error):
         log.error(
             "Platform error executing action",
+            error=error,
+            cause_type=classification.cause_type,
+        )
+        return _ExecuteActionErrorClassification(
+            classification=classification,
+            detail_type=error.__class__.__name__,
+        )
+    if classification := _sandbox_workload_error_classification(error):
+        log.info(
+            "Sandbox workload failed",
             error=error,
             cause_type=classification.cause_type,
         )

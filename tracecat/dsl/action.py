@@ -405,29 +405,32 @@ async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionCon
     """
     result: MaterializedExecutionContext = {}
 
-    # Track action refs to map results back after parallel materialization
     action_refs: list[str] = []
     trigger_task_idx: int | None = None
-
-    logger.debug("Materializing context", ctx=ctx, typ=type(ctx))
-
-    # Parallelize all StoredObject materializations using GatheringTaskGroup
-    coros = []
-    # Materialize ACTIONS - each value is a TaskResult with StoredObject result
-    if actions := ctx.get("ACTIONS"):
-        for ref, task_result in actions.items():
-            action_refs.append(ref)
-            validated = TaskResult.model_validate(task_result)
-            coros.append(_materialize_task_result(validated))
-
-    # Materialize TRIGGER - always a StoredObject with uniform envelope
-    if trigger := ctx.get("TRIGGER"):
-        trigger_task_idx = len(action_refs)  # Index after all action tasks
-        validated = StoredObjectValidator.validate_python(trigger)
-        coros.append(retrieve_stored_object(validated))
-
-    # Collect results and map back to their refs
     with activity_error_boundary(_materialization_error_classification):
+        logger.debug("Materializing context", ctx=ctx, typ=type(ctx))
+
+        # Validate every serialized value before constructing coroutine objects.
+        # If a later payload is stale or malformed, this avoids leaking earlier
+        # coroutine objects that were never awaited.
+        validated_actions: list[tuple[str, TaskResult]] = []
+        if actions := ctx.get("ACTIONS"):
+            for ref, task_result in actions.items():
+                validated_actions.append((ref, TaskResult.model_validate(task_result)))
+
+        validated_trigger: StoredObject | None = None
+        if trigger := ctx.get("TRIGGER"):
+            validated_trigger = StoredObjectValidator.validate_python(trigger)
+
+        action_refs.extend(ref for ref, _ in validated_actions)
+        coros = [
+            _materialize_task_result(task_result)
+            for _, task_result in validated_actions
+        ]
+        if validated_trigger is not None:
+            trigger_task_idx = len(action_refs)
+            coros.append(retrieve_stored_object(validated_trigger))
+
         materialized_results = await asyncio.gather(*coros)
 
     # Reconstruct ACTIONS dict with materialized results
