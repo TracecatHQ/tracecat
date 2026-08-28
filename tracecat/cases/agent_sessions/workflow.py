@@ -37,4 +37,4 @@ async def case_agent_session_backfill_activity() -> CaseAgentSessionBackfillRepo
         activity.heartbeat()
 
     async with get_async_session_bypass_rls_context_manager() as session:
-        return await CaseAgentSessionBackfill(session).run(on_batch_complete=heartbeat)
+        return await CaseAgentSessionBackfill(session).run(on_progress=heartbeat)

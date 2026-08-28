@@ -120,8 +120,13 @@ async def _interactions(
 async def test_backfill_reconstructs_mutations_safely_and_idempotently(
     session: AsyncSession,
     svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Exercise the backfill as one bounded, database-backed workflow."""
+    monkeypatch.setattr(
+        "tracecat.cases.agent_sessions.backfill._HISTORY_FETCH_SIZE",
+        1,
+    )
     assert svc_role.workspace_id is not None
     workspace_id = svc_role.workspace_id
     created, updated, commented, edited, associated = [
@@ -285,12 +290,19 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
     assert await _interactions(session, workspace_id) == {
         (updated.id, CaseAgentSessionInteractionOperation.UPDATE, root.id)
     }
-    applied = await backfill.run(batch_size=1)
+    progress_calls = 0
+
+    def on_progress() -> None:
+        nonlocal progress_calls
+        progress_calls += 1
+
+    applied = await backfill.run(batch_size=1, on_progress=on_progress)
     rerun = await backfill.run(batch_size=1)
 
     assert applied.batches_processed == 3
     assert applied.sessions_scanned == 3
     assert applied.history_rows_scanned == 5
+    assert progress_calls == applied.history_rows_scanned + applied.batches_processed
     assert applied.mutation_candidates == 7
     assert (applied.inserted, applied.existing) == (4, 2)
     assert (rerun.inserted, rerun.existing) == (0, 6)
