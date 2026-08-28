@@ -73,6 +73,7 @@ class CaseEventsService(BaseWorkspaceService):
         publish_case_trigger: bool = True,
         sync_durations: bool = True,
         system_generated: bool = False,
+        record_agent_interaction: bool = True,
     ) -> CaseEvent:
         """Create a non-committing activity record for a case."""
         db_event = CaseEvent(
@@ -85,7 +86,11 @@ class CaseEventsService(BaseWorkspaceService):
         self.session.add(db_event)
         await self.session.flush()
 
-        if not system_generated and event.type in _CHILD_MUTATION_EVENTS:
+        if (
+            record_agent_interaction
+            and not system_generated
+            and event.type in _CHILD_MUTATION_EVENTS
+        ):
             await self.agent_session_interactions.record_from_context(
                 case_id=case.id,
                 operation=CaseAgentSessionInteractionOperation.UPDATE,

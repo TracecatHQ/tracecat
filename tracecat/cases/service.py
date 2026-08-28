@@ -827,6 +827,7 @@ class CasesService(BaseWorkspaceService):
                     case.id,
                     params.dropdown_values,
                     commit=False,
+                    record_agent_interaction=False,
                 )
 
             # Flush all related writes before entering the gapless counter's short

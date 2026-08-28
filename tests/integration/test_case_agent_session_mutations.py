@@ -11,6 +11,7 @@ from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.cases.dropdowns.schemas import CaseDropdownValueInput
 from tracecat.cases.enums import (
     CaseAgentSessionInteractionOperation,
     CasePriority,
@@ -31,6 +32,8 @@ from tracecat.db.models import (
     Case,
     CaseAgentSessionInteraction,
     CaseComment,
+    CaseDropdownDefinition,
+    CaseDropdownOption,
     Workspace,
 )
 
@@ -66,13 +69,18 @@ def isolate_case_side_effects() -> Iterator[None]:
         yield
 
 
-def _case_create(summary: str) -> CaseCreate:
+def _case_create(
+    summary: str,
+    *,
+    dropdown_values: list[CaseDropdownValueInput] | None = None,
+) -> CaseCreate:
     return CaseCreate(
         summary=summary,
         description=f"Description for {summary}",
         status=CaseStatus.NEW,
         priority=CasePriority.MEDIUM,
         severity=CaseSeverity.LOW,
+        dropdown_values=dropdown_values,
     )
 
 
@@ -126,6 +134,20 @@ async def test_agent_case_and_comment_mutations_record_root_interactions(
     tags = CaseTagsService(session=session, role=svc_role)
     read_then_no_op_case = await cases.create_case(_case_create("Read then no-op case"))
     child_resource_case = await cases.create_case(_case_create("Child resource case"))
+    dropdown_definition = CaseDropdownDefinition(
+        workspace_id=svc_role.workspace_id,
+        name="Source",
+        ref="source",
+    )
+    session.add(dropdown_definition)
+    await session.flush()
+    dropdown_option = CaseDropdownOption(
+        definition_id=dropdown_definition.id,
+        label="Agent",
+        ref="agent",
+    )
+    session.add(dropdown_option)
+    await session.commit()
 
     context_token = ctx_agent_session_id.set(child.id)
     try:
@@ -134,6 +156,17 @@ async def test_agent_case_and_comment_mutations_record_root_interactions(
         await cases.update_case(read_then_no_op_case, CaseUpdate())
 
         first_case = await cases.create_case(_case_create("First case"))
+        dropdown_case = await cases.create_case(
+            _case_create(
+                "Dropdown case",
+                dropdown_values=[
+                    CaseDropdownValueInput(
+                        definition_id=dropdown_definition.id,
+                        option_id=dropdown_option.id,
+                    )
+                ],
+            )
+        )
         await cases.update_case(
             first_case,
             CaseUpdate(summary="Updated first case"),
@@ -189,6 +222,11 @@ async def test_agent_case_and_comment_mutations_record_root_interactions(
         (
             first_case.id,
             CaseAgentSessionInteractionOperation.UPDATE,
+            root.id,
+        ),
+        (
+            dropdown_case.id,
+            CaseAgentSessionInteractionOperation.CREATE,
             root.id,
         ),
         (
