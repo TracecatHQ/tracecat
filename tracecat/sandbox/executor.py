@@ -123,8 +123,15 @@ _NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
     128 + signal.SIGXCPU,
     128 + signal.SIGXFSZ,
 }
-_WORKLOAD_STARTED_SENTINEL = ".tracecat-workload-started"
-"""Job-dir file a result-producing runner creates before any fallible work."""
+_WORKLOAD_LAUNCHER_NAME = ".tracecat-workload-launcher.py"
+_WORKLOAD_STARTED_MARKER = b"\x00tracecat-workload-started\x00"
+_WORKLOAD_LAUNCHER_SCRIPT = f"""\
+import os
+import sys
+
+os.write(2, {_WORKLOAD_STARTED_MARKER!r})
+os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
+"""
 
 
 def _classify_missing_nsjail_result(
@@ -136,14 +143,14 @@ def _classify_missing_nsjail_result(
     """Classify an NsJail exit that did not produce a usable result.
 
     NsJail uses ``255`` when it cannot launch its child, but also forwards a
-    child's normal ``255`` exit. Result-producing runners create a sentinel file
-    in the shared work directory as their first statement, so its presence
-    separates those two cases.
+    child's normal ``255`` exit. Before execing the workload, an executor-owned
+    launcher writes a binary marker to the captured stderr pipe. The workload
+    cannot erase that invocation-scoped evidence after it starts.
 
     Decision matrix:
     - ``None`` or a negative parent return code: infrastructure failure.
-    - ``255`` without a start sentinel or result file: infrastructure failure.
-    - ``255`` with a start sentinel or result file: workload failure.
+    - ``255`` without a start marker or result file: infrastructure failure.
+    - ``255`` with a start marker or result file: workload failure.
     - Child policy/resource signals: policy or resource failure, respectively.
     - Every other missing-result exit: workload failure.
     """
@@ -439,14 +446,16 @@ class NsjailExecutor:
             ]
         )
 
-        # Execution settings - script path must be in exec_bin for config file mode
+        # Launch through an executor-owned shim that proves workload start on the
+        # invocation's captured stderr pipe before execing the requested script.
+        launcher_path = f"/work/{_WORKLOAD_LAUNCHER_NAME}"
         script_path = f"/work/{script_name}"
         lines.extend(
             [
                 "",
                 "# Execution",
                 'cwd: "/work"',
-                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{script_path}" }}',
+                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{launcher_path}" arg: "{script_path}" }}',
             ]
         )
 
@@ -532,6 +541,9 @@ class NsjailExecutor:
             timeout_message=(
                 f"Execution timed out after {config.resources.timeout_seconds}s"
             ),
+            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+            workload_started_marker=_WORKLOAD_STARTED_MARKER,
         )
         returncode = completed.returncode
 
@@ -542,7 +554,7 @@ class NsjailExecutor:
         # Try to parse result.json for structured output
         result_path = job_dir / "result.json"
         result_file_exists = result_path.exists()
-        workload_started = (job_dir / _WORKLOAD_STARTED_SENTINEL).exists()
+        workload_started = completed.workload_started
         if result_file_exists:
             try:
                 result_data = json.loads(result_path.read_text())
@@ -646,6 +658,9 @@ class NsjailExecutor:
             timeout_message=(
                 f"Package installation timed out after {timeout_seconds}s"
             ),
+            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+            workload_started_marker=_WORKLOAD_STARTED_MARKER,
         )
         returncode = completed.returncode
 
@@ -660,7 +675,7 @@ class NsjailExecutor:
             error_code = _classify_missing_nsjail_result(
                 returncode,
                 result_file_exists=False,
-                workload_started=(job_dir / _WORKLOAD_STARTED_SENTINEL).exists(),
+                workload_started=completed.workload_started,
             )
             hint = _nsjail_failure_hint(stderr)
             if hint:
@@ -812,14 +827,15 @@ class NsjailExecutor:
             ]
         )
 
-        # Execution settings - always use minimal_runner.py (untrusted mode)
-        # minimal_runner.py is copied to /work and doesn't need tracecat imports
+        # Launch through the same executor-owned proof shim used by script and
+        # install phases. minimal_runner.py remains the actual workload.
+        launcher_path = f"/work/{_WORKLOAD_LAUNCHER_NAME}"
         lines.extend(
             [
                 "",
                 "# Execution",
                 'cwd: "/work"',
-                'exec_bin { path: "/usr/local/bin/python3" arg: "/work/minimal_runner.py" }',
+                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{launcher_path}" arg: "/work/minimal_runner.py" }}',
             ]
         )
 
@@ -885,6 +901,9 @@ class NsjailExecutor:
             timeout_message=(
                 f"Action execution timed out after {config.timeout_seconds}s"
             ),
+            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+            workload_started_marker=_WORKLOAD_STARTED_MARKER,
         )
         returncode = completed.returncode
 
@@ -895,7 +914,7 @@ class NsjailExecutor:
         # Try to parse result.json for structured output
         result_path = job_dir / "result.json"
         result_file_exists = result_path.exists()
-        workload_started = (job_dir / _WORKLOAD_STARTED_SENTINEL).exists()
+        workload_started = completed.workload_started
         if result_file_exists:
             try:
                 result_data = json.loads(result_path.read_text())

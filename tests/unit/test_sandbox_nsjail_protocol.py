@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -15,14 +16,15 @@ from tracecat.sandbox.exceptions import (
     SandboxTimeoutError,
 )
 from tracecat.sandbox.executor import (
-    _WORKLOAD_STARTED_SENTINEL,
+    _WORKLOAD_LAUNCHER_NAME,
+    _WORKLOAD_LAUNCHER_SCRIPT,
+    _WORKLOAD_STARTED_MARKER,
     ActionSandboxConfig,
     NsjailExecutor,
 )
 from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess, invoke_nsjail
 from tracecat.sandbox.service import SandboxService
-from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
-from tracecat.sandbox.wrapper import INSTALL_SCRIPT
+from tracecat.sandbox.types import SandboxConfig, SandboxErrorCode, SandboxResult
 
 
 @pytest.mark.anyio
@@ -117,7 +119,15 @@ async def test_timeout_is_reported_and_config_cleaned_up(
 
 
 @pytest.mark.parametrize(
-    ("write_sentinel", "expected_code"),
+    ("phase", "expected_script"),
+    [
+        pytest.param("install", "/work/install.py", id="install"),
+        pytest.param("execute", "/work/wrapper.py", id="script"),
+        pytest.param("action", "/work/minimal_runner.py", id="action"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("workload_started", "expected_code"),
     [
         pytest.param(
             False,
@@ -132,20 +142,30 @@ async def test_timeout_is_reported_and_config_cleaned_up(
     ],
 )
 @pytest.mark.anyio
-async def test_workload_start_sentinel_attributes_exit_255(
+async def test_invocation_marker_attributes_exit_255_for_every_phase(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    write_sentinel: bool,
+    phase: str,
+    expected_script: str,
+    workload_started: bool,
     expected_code: SandboxErrorCode,
 ) -> None:
-    """The in-jail sentinel file, not the exit code, proves the workload ran."""
     job_dir = tmp_path / "job"
     job_dir.mkdir()
 
     async def fake_invoke_nsjail(**kwargs: object) -> NsjailCompletedProcess:
-        if write_sentinel:
-            (job_dir / _WORKLOAD_STARTED_SENTINEL).touch()
-        return NsjailCompletedProcess(returncode=0xFF, stdout=b"", stderr=b"")
+        config_text = cast(str, kwargs["config_text"])
+        assert f"/work/{_WORKLOAD_LAUNCHER_NAME}" in config_text
+        assert expected_script in config_text
+        assert kwargs["workload_launcher_name"] == _WORKLOAD_LAUNCHER_NAME
+        assert kwargs["workload_launcher_script"] == _WORKLOAD_LAUNCHER_SCRIPT
+        assert kwargs["workload_started_marker"] == _WORKLOAD_STARTED_MARKER
+        return NsjailCompletedProcess(
+            returncode=0xFF,
+            stdout=b"",
+            stderr=b"",
+            workload_started=workload_started,
+        )
 
     monkeypatch.setattr(executor_module, "invoke_nsjail", fake_invoke_nsjail)
 
@@ -154,66 +174,88 @@ async def test_workload_start_sentinel_attributes_exit_255(
         rootfs_path=str(tmp_path / "rootfs"),
         cache_dir=str(tmp_path / "cache"),
     )
-    result = await executor.execute_action(
-        job_dir,
-        ActionSandboxConfig(
-            registry_paths=[],
-            tracecat_app_dir=tmp_path,
-            network=None,
-        ),
-    )
+    if phase == "install":
+        result = await executor.execute_install(job_dir, "deadbeef")
+    elif phase == "execute":
+        result = await executor.execute(job_dir, SandboxConfig())
+    else:
+        result = await executor.execute_action(
+            job_dir,
+            ActionSandboxConfig(
+                registry_paths=[],
+                tracecat_app_dir=tmp_path,
+                network=None,
+            ),
+        )
 
     assert result.success is False
     assert result.error_code is expected_code
 
 
-def test_install_script_marks_workload_started_before_imports() -> None:
-    assert INSTALL_SCRIPT.index(_WORKLOAD_STARTED_SENTINEL) < INSTALL_SCRIPT.index(
-        "import json"
-    )
-
-
-@pytest.mark.parametrize(
-    ("write_sentinel", "expected_code"),
-    [
-        pytest.param(
-            False,
-            SandboxErrorCode.INFRASTRUCTURE_FAILURE,
-            id="install-launch-failure-before-workload-start",
-        ),
-        pytest.param(
-            True,
-            SandboxErrorCode.WORKLOAD_FAILURE,
-            id="installer-exit-255-after-start",
-        ),
-    ],
-)
 @pytest.mark.anyio
-async def test_install_workload_start_sentinel_attributes_exit_255(
+async def test_workload_start_proof_is_scoped_to_each_nsjail_invocation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    write_sentinel: bool,
-    expected_code: SandboxErrorCode,
 ) -> None:
-    job_dir = tmp_path / "job"
-    job_dir.mkdir()
+    invocation = 0
 
-    async def fake_invoke_nsjail(**kwargs: object) -> NsjailCompletedProcess:
-        if write_sentinel:
-            (job_dir / _WORKLOAD_STARTED_SENTINEL).touch()
-        return NsjailCompletedProcess(returncode=0xFF, stdout=b"", stderr=b"")
+    class FakeProcess:
+        returncode = 0xFF
 
-    monkeypatch.setattr(executor_module, "invoke_nsjail", fake_invoke_nsjail)
-    executor = NsjailExecutor(
-        nsjail_path=str(tmp_path / "nsjail"),
-        rootfs_path=str(tmp_path / "rootfs"),
-        cache_dir=str(tmp_path / "cache"),
+    async def fake_create_subprocess_exec(
+        *args: object, **kwargs: object
+    ) -> FakeProcess:
+        launcher_path = tmp_path / _WORKLOAD_LAUNCHER_NAME
+        assert launcher_path.read_text() == _WORKLOAD_LAUNCHER_SCRIPT
+        return FakeProcess()
+
+    async def fake_communicate_process_group(
+        process: object,
+        *,
+        timeout: float,
+    ) -> tuple[bytes, bytes]:
+        nonlocal invocation
+        invocation += 1
+        if invocation == 1:
+            return b"first stdout", _WORKLOAD_STARTED_MARKER + b"first stderr"
+        return b"second stdout", b"second stderr"
+
+    monkeypatch.setattr(
+        nsjail_protocol.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(
+        nsjail_protocol,
+        "communicate_process_group",
+        fake_communicate_process_group,
     )
 
-    result = await executor.execute_install(job_dir, "deadbeef")
+    async def run_once() -> NsjailCompletedProcess:
+        return await invoke_nsjail(
+            nsjail_path=tmp_path / "nsjail",
+            job_dir=tmp_path,
+            config_text="mode: ONCE",
+            env={},
+            timeout_seconds=1,
+            timeout_message="synthetic timeout",
+            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+            workload_started_marker=_WORKLOAD_STARTED_MARKER,
+        )
 
-    assert result.success is False
-    assert result.error_code is expected_code
+    first = await run_once()
+    # A workload-controlled file from an earlier phase must not affect the
+    # next invocation's attribution.
+    (tmp_path / ".tracecat-workload-started").touch()
+    second = await run_once()
+
+    assert first.workload_started is True
+    assert first.stderr == b"first stderr"
+    assert second.workload_started is False
+    assert second.stderr == b"second stderr"
+    assert not (tmp_path / "nsjail.cfg").exists()
+    assert not (tmp_path / _WORKLOAD_LAUNCHER_NAME).exists()
 
 
 @pytest.mark.parametrize(

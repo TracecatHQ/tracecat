@@ -10,14 +10,6 @@ The wrapper script is executed inside the nsjail sandbox and handles:
 # The wrapper script content is embedded as a string constant
 # to be written to the job directory before execution
 WRAPPER_SCRIPT = '''
-# Separate a nsjail launch failure from a workload that exited 255, before any
-# import or work that can fail. Mirrors _WORKLOAD_STARTED_SENTINEL in
-# sandbox/executor.py.
-try:
-    open("/work/.tracecat-workload-started", "w").close()
-except OSError:
-    pass
-
 import asyncio
 import dataclasses
 import datetime
@@ -228,13 +220,6 @@ if __name__ == "__main__":
 # SECURITY: Dependencies are read from a JSON file to prevent code injection
 # via malicious package names. Never interpolate user input into this script.
 INSTALL_SCRIPT = """
-# Separate an nsjail launch failure from an installer workload that exits 255.
-# This must run before imports or any other fallible workload-owned operation.
-try:
-    open("/work/.tracecat-workload-started", "w").close()
-except OSError:
-    pass
-
 import json
 import os
 import subprocess
