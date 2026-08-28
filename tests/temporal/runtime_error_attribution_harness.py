@@ -546,7 +546,17 @@ async def run_executor_boundary_failure_sets_owner(
             raise LoopExecutionError([iteration_error])
         if fault_point == "entitlement":
             attempts += 1
-            raise EntitlementRequired("synthetic_feature")
+            cause = EntitlementRequired("synthetic_feature")
+            error = ExecutionError(
+                info=ExecutorActionErrorInfo(
+                    type=type(cause).__name__,
+                    message="masked executor failure",
+                    action_name="core.noop",
+                    filename="<executor>",
+                    function="dispatch",
+                )
+            )
+            raise error from cause
         return {"ok": True}
 
     class _Storage:
