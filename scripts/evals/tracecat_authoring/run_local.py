@@ -864,6 +864,7 @@ def normalize_tool_name(name: str) -> str:
 TRACECAT_MCP_TOOL_NAMES = {
     "add_case_tag",
     "add_workflow_tag",
+    "complete_skill_upload",
     "create_agent_preset",
     "create_case",
     "create_case_comment",
@@ -888,6 +889,7 @@ TRACECAT_MCP_TOOL_NAMES = {
     "get_case_task",
     "get_case_trigger",
     "get_secret_metadata",
+    "get_skill",
     "get_table",
     "get_variable",
     "get_webhook",
@@ -916,6 +918,8 @@ TRACECAT_MCP_TOOL_NAMES = {
     "list_workflows",
     "list_workspaces",
     "move_workflows",
+    "prepare_skill_download",
+    "prepare_skill_upload",
     "prepare_template_file_upload",
     "publish_workflow",
     "remove_case_tag",
@@ -939,7 +943,6 @@ TRACECAT_MCP_TOOL_NAMES = {
     "update_webhook",
     "update_workflow",
     "update_workflow_tag",
-    "upload_skill",
     "validate_template_action",
     "validate_workflow",
 }

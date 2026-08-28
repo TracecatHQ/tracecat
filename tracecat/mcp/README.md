@@ -136,6 +136,12 @@ Notes:
 - `prepare_template_file_upload` is required for remote template validation.
 - `export_csv` no longer returns inline CSV text. It returns a short-lived `download_url` for remote `/mcp` clients.
 
+### Skill file transfer notes
+
+- The staged flow is the only skill upload path: call `prepare_skill_upload`, send raw HTTP PUTs to the returned short-lived URLs, then call `complete_skill_upload`. Inline base64 skill uploads are not supported.
+- Skill reads are draft-only. `get_skill` returns the draft manifest, and with a `path` it returns small UTF-8 text inline and otherwise a short-lived presigned download URL.
+- For whole-directory hydration, call `prepare_skill_download` and pass its presigned GET plan to the local helper, which streams files to disk and verifies SHA-256 without putting file contents in model context.
+
 ## Variable and secret metadata tools
 
 - `list_variables(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT, limit=20, cursor=None)`
@@ -148,8 +154,10 @@ Notes:
 - `list_integrations(workspace_id)`
 - `get_agent_preset_authoring_context(workspace_id)`
 - `list_skills(workspace_id, limit=20, cursor=None)`
-- `upload_skill(workspace_id, name, files, description=None)`
-- `update_skill(workspace_id, skill_id, name, files, description=None)`
+- `get_skill(workspace_id, skill_id, path=None)`
+- `prepare_skill_download(workspace_id, skill_id)`
+- `prepare_skill_upload(workspace_id, files, skill_id=None, name=None, description=None)`
+- `complete_skill_upload(workspace_id, skill_id, base_revision, files)`
 - `publish_skill(workspace_id, skill_id)`
 - `create_agent_preset(workspace_id, name, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None)`
 - `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None)`
