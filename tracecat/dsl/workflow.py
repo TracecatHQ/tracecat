@@ -4,6 +4,7 @@ import asyncio
 import re
 import uuid
 from collections.abc import Awaitable, Callable, Coroutine, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Never
 
@@ -81,6 +82,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.error_policy import (
         adapt_error_handler_details,
         build_terminal_application_error,
+        raise_child_failures_application_error,
     )
     from tracecat.dsl.init_activities import (
         ResolveTimeAnchorActivityInputs,
@@ -120,12 +122,7 @@ with workflow.unsafe.imports_passed_through():
         exec_id_to_parts,
     )
     from tracecat.registry.lock.types import RegistryLock
-    from tracecat.runtime.errors import (
-        RetryDisposition,
-        RuntimeErrorClassification,
-        RuntimeErrorOwner,
-        select_error_classification,
-    )
+    from tracecat.runtime.errors import RuntimeErrorOwner, select_error_classification
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -138,10 +135,8 @@ with workflow.unsafe.imports_passed_through():
         trigger_key,
     )
     from tracecat.temporal.errors import (
-        build_error_transport_detail,
         extract_error_classification,
         extract_error_classifications,
-        raise_application_error_from_classification,
     )
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
@@ -191,6 +186,15 @@ ERROR_OWNER_CONTROL_FLOW_PATCH = "dsl-error-owner-control-flow-v1"
 ERROR_OWNER_AFTER_HANDLER_PATCH = "dsl-error-owner-after-handler-v1"
 
 
+@dataclass(frozen=True, slots=True)
+class _LegacyChildPreparationFailure:
+    """Pre-patch child preparation failure and its context diagnostic."""
+
+    message: str
+    error: Exception
+    cause: Exception
+
+
 def _raise_workflow_application_error(
     task_exceptions: Mapping[str, TaskExceptionInfo],
 ) -> Never:
@@ -224,71 +228,6 @@ def _without_terminal_error_owner(
             for pair in attrs.search_attributes
             if pair.key != TemporalSearchAttr.ERROR_OWNER.key
         ]
-    )
-
-
-def _raise_child_failures_application_error(
-    *, task_ref: str, failures: list[tuple[int, BaseException]]
-) -> Never:
-    """Raise child failures, classifying the aggregate only when all qualify."""
-    child_details: list[ActionErrorInfo] = []
-    child_classifications: list[RuntimeErrorClassification | None] = []
-    for child_index, failure in failures:
-        classifications = extract_error_classifications(failure)
-        if classifications:
-            classification = select_error_classification(classifications)
-            child_message = classification.message
-            child_type = classification.cause_type or type(failure).__name__
-        else:
-            classification = None
-            child_message = str(failure)
-            child_type = type(failure).__name__
-        child_classifications.append(classification)
-        child_details.append(
-            ActionErrorInfo(
-                ref=f"{task_ref}[{child_index}]",
-                message=child_message,
-                type=child_type,
-            )
-        )
-
-    message = f"{len(failures)} child workflow(s) failed"
-    aggregate = ActionErrorInfo(
-        ref=task_ref,
-        message=message,
-        type="ChildWorkflowAggregateError",
-        children=child_details,
-    )
-    if not all(classification is not None for classification in child_classifications):
-        raise ApplicationError(
-            message,
-            {task_ref: aggregate},
-            non_retryable=True,
-            type=ApplicationError.__name__,
-        )
-
-    primary_classification = select_error_classification(
-        classification
-        for classification in child_classifications
-        if classification is not None
-    )
-    aggregate_classification = primary_classification.model_copy(
-        update={
-            "message": message,
-            "retry_disposition": RetryDisposition.NON_RETRYABLE,
-            "cause_type": "ChildWorkflowAggregateError",
-        }
-    )
-    raise_application_error_from_classification(
-        aggregate_classification,
-        build_error_transport_detail(aggregate_classification, aggregate),
-        *(
-            build_error_transport_detail(classification, diagnostic)
-            for classification, diagnostic in zip(
-                child_classifications, child_details, strict=True
-            )
-            if classification is not None
-        ),
     )
 
 
@@ -435,24 +374,9 @@ class DSLWorkflow:
         else:
             # Otherwise, fetch the latest workflow definition
             self.logger.debug("Fetching latest workflow definition")
-            try:
-                result = await self._get_workflow_definition(args.wf_id)
-                self.dsl = result.dsl
-                registry_lock = result.registry_lock
-            except ActivityError as e:
-                if isinstance(
-                    e.cause, ApplicationError
-                ) and extract_error_classification(e.cause):
-                    self._upsert_terminal_error_owner(e.cause)
-                    raise e.cause from e
-                raise
-            except TracecatException as e:
-                self.logger.error("Failed to fetch workflow definition")
-                raise ApplicationError(
-                    "Failed to fetch workflow definition",
-                    non_retryable=True,
-                    type=e.__class__.__name__,
-                ) from e
+            result = await self._load_published_workflow_definition(args.wf_id)
+            self.dsl = result.dsl
+            registry_lock = result.registry_lock
             self.dispatch_type = "pull"
 
         # Resolve registry lock if not provided or empty
@@ -924,6 +848,43 @@ class DSLWorkflow:
                 return False
             current = nested
 
+    async def _prepare_child_workflow(
+        self,
+        task: ActionStatement,
+        stream_id: StreamID,
+    ) -> PreparedSubflowResult | _LegacyChildPreparationFailure:
+        """Prepare child inputs while preserving replay-gated error semantics."""
+        try:
+            return await workflow.execute_activity(
+                DSLActivities.prepare_subflow_activity,
+                arg=PrepareSubflowActivityInput(
+                    role=self.role,
+                    task=task,
+                    operand=self._build_action_context(task, stream_id),
+                    key=action_collection_prefix(
+                        str(self.workspace_id),
+                        self.wf_exec_id,
+                        stream_id,
+                        task.ref,
+                    ),
+                    use_committed=self.execution_type != ExecutionType.DRAFT,
+                ),
+                start_to_close_timeout=timedelta(seconds=120),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except Exception as error:
+            if self._has_user_error_cause(error):
+                raise
+            if workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH):
+                raise
+            root_error, root_message = self._unwrap_temporal_failure_cause(error)
+            platform_error = root_error if isinstance(root_error, Exception) else error
+            return _LegacyChildPreparationFailure(
+                message=root_message,
+                error=platform_error,
+                cause=error,
+            )
+
     @maybe_interactive
     async def _execute_task(self, task: ActionStatement) -> TaskResult:
         """Purely execute a task and manage the results.
@@ -979,40 +940,16 @@ class DSLWorkflow:
                     # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
                     # Single activity prepares everything: alias resolution, definition fetch, loop iteration data
                     self.logger.trace("Preparing child workflow")
-                    use_committed = self.execution_type != ExecutionType.DRAFT
-                    try:
-                        prepared = await workflow.execute_activity(
-                            DSLActivities.prepare_subflow_activity,
-                            arg=PrepareSubflowActivityInput(
-                                role=self.role,
-                                task=task,
-                                operand=self._build_action_context(task, stream_id),
-                                key=action_collection_prefix(
-                                    str(self.workspace_id),
-                                    self.wf_exec_id,
-                                    stream_id,
-                                    task.ref,
-                                ),
-                                use_committed=use_committed,
-                            ),
-                            start_to_close_timeout=timedelta(seconds=120),
-                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                        )
-                    except Exception as e:
-                        if self._has_user_error_cause(e):
-                            raise
-                        if workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH):
-                            raise
-                        root_error, root_message = self._unwrap_temporal_failure_cause(
-                            e
-                        )
-                        platform_error = (
-                            root_error if isinstance(root_error, Exception) else e
-                        )
+                    preparation = await self._prepare_child_workflow(task, stream_id)
+                    if isinstance(preparation, _LegacyChildPreparationFailure):
                         task_result = task_result.with_error(
-                            root_message, platform_error.__class__.__name__
+                            preparation.message,
+                            preparation.error.__class__.__name__,
                         )
-                        raise PlatformExecutionError(platform_error) from e
+                        raise PlatformExecutionError(
+                            preparation.error
+                        ) from preparation.cause
+                    prepared = preparation
                     self.logger.trace("Child workflow prepared", prepared=prepared)
                     # Execute child workflow (handles both single and looped)
                     stored_result = await self._execute_child_workflow_prepared(
@@ -1583,7 +1520,7 @@ class DSLWorkflow:
                 if isinstance(val, BaseException)
             ]
             if failures:
-                _raise_child_failures_application_error(
+                raise_child_failures_application_error(
                     task_ref=task.ref,
                     failures=failures,
                 )
@@ -1711,6 +1648,28 @@ class DSLWorkflow:
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
+
+    async def _load_published_workflow_definition(
+        self,
+        workflow_id: identifiers.WorkflowID,
+    ) -> WorkflowDefinitionActivityResult:
+        """Load a published definition and preserve classified activity failures."""
+        try:
+            return await self._get_workflow_definition(workflow_id)
+        except ActivityError as error:
+            if isinstance(
+                error.cause, ApplicationError
+            ) and extract_error_classification(error.cause):
+                self._upsert_terminal_error_owner(error.cause)
+                raise error.cause from error
+            raise
+        except TracecatException as error:
+            self.logger.error("Failed to fetch workflow definition")
+            raise ApplicationError(
+                "Failed to fetch workflow definition",
+                non_retryable=True,
+                type=error.__class__.__name__,
+            ) from error
 
     async def _get_workflow_definition(
         self, workflow_id: identifiers.WorkflowID, version: int | None = None

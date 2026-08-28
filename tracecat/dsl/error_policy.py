@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Never
 
 from temporalio.exceptions import ApplicationError
 
 from tracecat.dsl.error_transport import parse_classified_action_error_payload
 from tracecat.dsl.types import ActionErrorInfo, TaskExceptionInfo
 from tracecat.runtime.errors import (
+    RetryDisposition,
     RuntimeErrorClassification,
     select_error_classification,
 )
@@ -17,7 +18,73 @@ from tracecat.temporal.errors import (
     application_error_from_classification,
     build_error_transport_detail,
     extract_error_classifications,
+    raise_application_error_from_classification,
 )
+
+
+def raise_child_failures_application_error(
+    *, task_ref: str, failures: list[tuple[int, BaseException]]
+) -> Never:
+    """Raise child failures, classifying the aggregate only when all qualify."""
+    child_details: list[ActionErrorInfo] = []
+    child_classifications: list[RuntimeErrorClassification | None] = []
+    for child_index, failure in failures:
+        classifications = extract_error_classifications(failure)
+        if classifications:
+            classification = select_error_classification(classifications)
+            child_message = classification.message
+            child_type = classification.cause_type or type(failure).__name__
+        else:
+            classification = None
+            child_message = str(failure)
+            child_type = type(failure).__name__
+        child_classifications.append(classification)
+        child_details.append(
+            ActionErrorInfo(
+                ref=f"{task_ref}[{child_index}]",
+                message=child_message,
+                type=child_type,
+            )
+        )
+
+    message = f"{len(failures)} child workflow(s) failed"
+    aggregate = ActionErrorInfo(
+        ref=task_ref,
+        message=message,
+        type="ChildWorkflowAggregateError",
+        children=child_details,
+    )
+    if not all(classification is not None for classification in child_classifications):
+        raise ApplicationError(
+            message,
+            {task_ref: aggregate},
+            non_retryable=True,
+            type=ApplicationError.__name__,
+        )
+
+    primary_classification = select_error_classification(
+        classification
+        for classification in child_classifications
+        if classification is not None
+    )
+    aggregate_classification = primary_classification.model_copy(
+        update={
+            "message": message,
+            "retry_disposition": RetryDisposition.NON_RETRYABLE,
+            "cause_type": "ChildWorkflowAggregateError",
+        }
+    )
+    raise_application_error_from_classification(
+        aggregate_classification,
+        build_error_transport_detail(aggregate_classification, aggregate),
+        *(
+            build_error_transport_detail(classification, diagnostic)
+            for classification, diagnostic in zip(
+                child_classifications, child_details, strict=True
+            )
+            if classification is not None
+        ),
+    )
 
 
 def build_terminal_application_error(

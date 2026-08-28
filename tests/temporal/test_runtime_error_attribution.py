@@ -12,6 +12,8 @@ import pytest
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.testing import WorkflowEnvironment
 
+from tests.temporal import runtime_error_attribution_child_harness as child_harness
+from tests.temporal import runtime_error_attribution_engine_harness as engine_harness
 from tests.temporal import runtime_error_attribution_harness as harness
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactCacheCapacityError,
@@ -156,7 +158,7 @@ def _engine_runner(
     operation: _TerminalOperation,
 ) -> Callable[[_ScenarioContext], Awaitable[harness.ScenarioObservation]]:
     async def wrapped(context: _ScenarioContext) -> harness.ScenarioObservation:
-        return await harness.run_engine_terminal_status_does_not_set_error_owner(
+        return await engine_harness.run_engine_terminal_status_does_not_set_error_owner(
             context.env,
             context.test_worker_factory,
             operation,
@@ -349,7 +351,7 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         attempts=1,
         runner=_monkeypatch_runner(
-            harness.run_missing_published_definition_sets_platform_owner
+            child_harness.run_missing_published_definition_sets_platform_owner
         ),
     ),
     _AttributionScenario(
@@ -363,7 +365,7 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         retry_disposition=RetryDisposition.RETRYABLE,
         attempts=6,
         runner=_monkeypatch_runner(
-            harness.run_definition_lookup_failure_sets_platform_owner
+            child_harness.run_definition_lookup_failure_sets_platform_owner
         ),
     ),
     _AttributionScenario(
@@ -377,7 +379,7 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
             _ExecutionExpectation(_COMPLETED, None),
         ),
         runner=_basic_runner(
-            harness.run_isolated_platform_child_failure_does_not_attribute_parent
+            child_harness.run_isolated_platform_child_failure_does_not_attribute_parent
         ),
     ),
     _AttributionScenario(
@@ -392,7 +394,9 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
             _ExecutionExpectation(_COMPLETED, None),
         ),
         envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
-        runner=_basic_runner(harness.run_fail_all_preserves_mixed_child_attribution),
+        runner=_basic_runner(
+            child_harness.run_fail_all_preserves_mixed_child_attribution
+        ),
     ),
     _AttributionScenario(
         id="error_handler.successful_child",
@@ -405,7 +409,7 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         retry_disposition=RetryDisposition.RETRYABLE,
         runner=_monkeypatch_runner(
-            harness.run_successful_error_handler_does_not_inherit_terminal_owner
+            child_harness.run_successful_error_handler_does_not_inherit_terminal_owner
         ),
     ),
     _AttributionScenario(
@@ -419,7 +423,7 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         retry_disposition=RetryDisposition.RETRYABLE,
         attempts=1,
         runner=_basic_runner(
-            harness.run_unhandled_subflow_preparation_failure_sets_platform_owner
+            child_harness.run_unhandled_subflow_preparation_failure_sets_platform_owner
         ),
     ),
     _AttributionScenario(
@@ -433,7 +437,7 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         attempts=1,
         runner=_basic_runner(
-            harness.run_gather_raise_preserves_platform_child_attribution
+            child_harness.run_gather_raise_preserves_platform_child_attribution
         ),
     ),
     _AttributionScenario(
@@ -443,7 +447,7 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         fault="platform preparation failure",
         root=_ExecutionExpectation(_COMPLETED, None),
         runner=_basic_runner(
-            harness.run_handled_platform_activity_failure_uses_authored_error_edge
+            engine_harness.run_handled_platform_activity_failure_uses_authored_error_edge
         ),
     ),
     _AttributionScenario(

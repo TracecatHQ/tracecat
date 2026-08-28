@@ -1,6 +1,5 @@
 """nsjail executor for sandboxed Python execution."""
 
-import asyncio
 import json
 import os
 import re
@@ -18,8 +17,9 @@ from tracecat.config import (
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
-from tracecat.sandbox.exceptions import SandboxTimeoutError, SandboxValidationError
+from tracecat.sandbox.exceptions import SandboxValidationError
 from tracecat.sandbox.networking import resolve_sandbox_network_plan
+from tracecat.sandbox.nsjail_protocol import invoke_nsjail
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import (
     ResourceLimits,
@@ -29,7 +29,6 @@ from tracecat.sandbox.types import (
     SandboxNetworkRequest,
     SandboxResult,
 )
-from tracecat.sandbox.utils import communicate_process_group
 
 RUN_PYTHON_ACTION_GATEWAY_SOCKET = Path("/var/run/tracecat/action-gateway.sock")
 """Path visible inside run_python nsjail for executor-owned SDK calls."""
@@ -133,13 +132,6 @@ import sys
 os.write(2, {_WORKLOAD_STARTED_MARKER!r})
 os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
 """
-
-
-def _write_workload_launcher(job_dir: Path) -> None:
-    """Write the executor-owned launcher that emits the workload-start marker."""
-    launcher_path = job_dir / _WORKLOAD_LAUNCHER_NAME
-    launcher_path.write_text(_WORKLOAD_LAUNCHER_SCRIPT)
-    launcher_path.chmod(0o600)
 
 
 def _consume_workload_started_marker(stderr: bytes) -> tuple[bool, bytes]:
@@ -543,66 +535,33 @@ class NsjailExecutor:
             SandboxResult with execution outcome.
         """
         start_time = time.time()
-        _write_workload_launcher(job_dir)
 
         # Generate nsjail config with script name embedded
         nsjail_config = self._build_config(
             job_dir, "execute", config, cache_key, script_name
         )
-
-        # Write config to job directory
-        config_path = job_dir / "nsjail.cfg"
-        config_path.write_text(nsjail_config)
-        config_path.chmod(0o600)
-
         env_map = self._build_env_map(config, "execute", cache_key)
-        env_args: list[str] = []
-        for key in env_map:
-            env_args.extend(["--env", key])
-
-        # Build nsjail command - script is in config, no args after --
-        cmd = [
-            str(self.nsjail_path),
-            "--config",
-            str(config_path),
-            *env_args,
-        ]
 
         logger.debug(
             "Executing nsjail command",
-            cmd=cmd,
             job_dir=str(job_dir),
             cache_key=cache_key,
         )
-
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(job_dir),
+        completed = await invoke_nsjail(
+            nsjail_path=self.nsjail_path,
+            job_dir=job_dir,
+            config_text=nsjail_config,
             env=env_map,
-            start_new_session=True,
-        )
-
-        try:
-            # Wait with timeout (add buffer for nsjail overhead)
-            timeout = config.resources.timeout_seconds + 10
-            stdout_bytes, stderr_bytes = await communicate_process_group(
-                process,
-                timeout=timeout,
-            )
-        except TimeoutError as e:
-            raise SandboxTimeoutError(
+            timeout_seconds=config.resources.timeout_seconds + 10,
+            timeout_message=(
                 f"Execution timed out after {config.resources.timeout_seconds}s"
-            ) from e
-
-        finally:
-            # Defense-in-depth: Clean up config file to avoid leaving artifacts
-            # Job dir cleanup will also handle this, but early removal is safer
-            try:
-                config_path.unlink(missing_ok=True)
-            except OSError:
-                pass  # Best effort cleanup
+            ),
+            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+        )
+        process = completed.process
+        stdout_bytes = completed.stdout
+        stderr_bytes = completed.stderr
 
         execution_time_ms = (time.time() - start_time) * 1000
         workload_started, stderr_bytes = _consume_workload_started_marker(stderr_bytes)
@@ -697,59 +656,27 @@ class NsjailExecutor:
             job_dir, "install", config, cache_key, script_name="install.py"
         )
 
-        # Write config to job directory
-        config_path = job_dir / "nsjail.cfg"
-        config_path.write_text(nsjail_config)
-        config_path.chmod(0o600)
-
         env_map = self._build_env_map(config, "install", cache_key)
-        env_args: list[str] = []
-        for key in env_map:
-            env_args.extend(["--env", key])
-
-        # Build nsjail command - script is in config
-        cmd = [
-            str(self.nsjail_path),
-            "--config",
-            str(config_path),
-            *env_args,
-        ]
-
         start_time = time.time()
 
         logger.debug(
             "Executing package installation",
-            cmd=cmd,
             job_dir=str(job_dir),
             cache_key=cache_key,
         )
-
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(job_dir),
+        completed = await invoke_nsjail(
+            nsjail_path=self.nsjail_path,
+            job_dir=job_dir,
+            config_text=nsjail_config,
             env=env_map,
-            start_new_session=True,
-        )
-
-        try:
-            timeout = timeout_seconds + 30  # Extra buffer for package downloads
-            stdout_bytes, stderr_bytes = await communicate_process_group(
-                process,
-                timeout=timeout,
-            )
-        except TimeoutError as e:
-            raise SandboxTimeoutError(
+            timeout_seconds=timeout_seconds + 30,
+            timeout_message=(
                 f"Package installation timed out after {timeout_seconds}s"
-            ) from e
-
-        finally:
-            # Defense-in-depth: Clean up config file to avoid leaving artifacts
-            try:
-                config_path.unlink(missing_ok=True)
-            except OSError:
-                pass  # Best effort cleanup
+            ),
+        )
+        process = completed.process
+        stdout_bytes = completed.stdout
+        stderr_bytes = completed.stderr
 
         execution_time_ms = (time.time() - start_time) * 1000
         stdout = stdout_bytes.decode("utf-8", errors="replace")
@@ -961,64 +888,32 @@ class NsjailExecutor:
             The result.json file in job_dir contains the action result.
         """
         start_time = time.time()
-        _write_workload_launcher(job_dir)
 
         # Generate nsjail config for action execution
         nsjail_config = self._build_action_config(job_dir, config)
-
-        # Write config to job directory
-        config_path = job_dir / "nsjail.cfg"
-        config_path.write_text(nsjail_config)
-        config_path.chmod(0o600)
-
         env_map = self._build_action_env_map(config)
-        env_args: list[str] = []
-        for key in env_map:
-            env_args.extend(["--env", key])
-
-        # Build nsjail command
-        cmd = [
-            str(self.nsjail_path),
-            "--config",
-            str(config_path),
-            *env_args,
-        ]
 
         logger.debug(
             "Executing action in nsjail sandbox",
-            cmd=cmd,
             job_dir=str(job_dir),
             registry_paths=config.registry_paths,
             tracecat_app=str(config.tracecat_app_dir),
         )
-
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(job_dir),
+        completed = await invoke_nsjail(
+            nsjail_path=self.nsjail_path,
+            job_dir=job_dir,
+            config_text=nsjail_config,
             env=env_map,
-            start_new_session=True,
-        )
-
-        try:
-            # Wait with timeout (add buffer for nsjail overhead)
-            timeout = config.timeout_seconds + 10
-            stdout_bytes, stderr_bytes = await communicate_process_group(
-                process,
-                timeout=timeout,
-            )
-        except TimeoutError as e:
-            raise SandboxTimeoutError(
+            timeout_seconds=config.timeout_seconds + 10,
+            timeout_message=(
                 f"Action execution timed out after {config.timeout_seconds}s"
-            ) from e
-
-        finally:
-            # Clean up config file
-            try:
-                config_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            ),
+            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+        )
+        process = completed.process
+        stdout_bytes = completed.stdout
+        stderr_bytes = completed.stderr
 
         execution_time_ms = (time.time() - start_time) * 1000
         workload_started, stderr_bytes = _consume_workload_started_marker(stderr_bytes)
