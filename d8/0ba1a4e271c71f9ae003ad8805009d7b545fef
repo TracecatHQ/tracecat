@@ -1,0 +1,65 @@
+docs/overview/introduction.mdx
+  s_0afebddc7f7329::t_cdea4618792b4f 36-41
+docs/automations/cases.mdx
+  s_eeabfa000a48a7::t_3e9ca9c06ec187 63,65,68-69,71,73,75,77,79,81,151
+  s_eeabfa000a48a7::t_4437ade1420c41 67
+  s_0afebddc7f7329::t_c45df2aff05ca1 93
+  s_b1b6caa4d2eddc::t_af6c816988bdd5 85
+  s_6775931ea542ac::t_309ce27bd9e128 89
+  s_0afebddc7f7329::t_6daa307cf3e5eb 100-122
+docs/agents/workspace-chat.mdx
+  s_0afebddc7f7329::t_0c83dd98687a5e 14
+  s_0afebddc7f7329::t_17985a2ae17993 1-13,15-17,19-20,22-29,31,35-41
+  s_0afebddc7f7329::t_24d637a7b199de 18,21
+  s_0afebddc7f7329::t_8502e086b0cee1 30,32-34
+docs/automations/cases/agent-mentions.mdx
+  s_eeabfa000a48a7::t_3e9ca9c06ec187 70-73
+docs/docs.json
+  s_0afebddc7f7329::t_2bcacd9d3b6f63 85
+  s_eeabfa000a48a7::t_3e9ca9c06ec187 77-78
+docs/automations/cases/tasks.mdx
+  s_eeabfa000a48a7::t_3e9ca9c06ec187 1-6,8,11,13,17-20,22-27
+  s_0afebddc7f7329::t_5be8a09c8768f6 21
+  s_0afebddc7f7329::t_53e491450776f2 12,15
+  s_6775931ea542ac::t_309ce27bd9e128 7,9-10,14,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d80ba1a4e271c71f9ae003ad8805009d7b545fef",
+  "prompts": {},
+  "sessions": {
+    "s_0afebddc7f7329": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c8cd4429-2157-49fb-9414-9789d80c8518",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_6775931ea542ac": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04881-0fe1-7fc2-b6f7-cced0d57065a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_b1b6caa4d2eddc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04888-a73a-7030-b347-fa105bd460ae",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_eeabfa000a48a7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0487b-5139-7ea3-9de1-e39940a5b68b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
