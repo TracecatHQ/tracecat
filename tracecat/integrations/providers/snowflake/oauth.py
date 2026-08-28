@@ -8,12 +8,8 @@ from tracecat.integrations.providers.base import (
 )
 from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
-SNOWFLAKE_AUTHORIZATION_ENDPOINT = (
-    "https://{snowflake-account}.snowflakecomputing.com/oauth/authorize"
-)
-SNOWFLAKE_TOKEN_ENDPOINT = (
-    "https://{snowflake-account}.snowflakecomputing.com/oauth/token-request"
-)
+SNOWFLAKE_AUTHORIZATION_ENDPOINT = "https://{snowflake-account-host}/oauth/authorize"
+SNOWFLAKE_TOKEN_ENDPOINT = "https://{snowflake-account-host}/oauth/token-request"
 SNOWFLAKE_OAUTH_DOCS_URL = "https://docs.snowflake.com/en/user-guide/oauth-custom"
 SNOWFLAKE_EXTERNAL_OAUTH_TOKEN_ENDPOINT = "https://{identity-provider}/oauth/token"
 
@@ -44,11 +40,13 @@ class SnowflakeACProvider(AuthorizationCodeOAuthProvider):
     )
     default_token_endpoint: ClassVar[str | None] = SNOWFLAKE_TOKEN_ENDPOINT
     authorization_endpoint_help: ClassVar[str | list[str] | None] = [
-        "Replace {snowflake-account} with your organization-account hostname.",
+        "Replace {snowflake-account-host} with your Snowflake account hostname, for example:",
+        "https://myorg-myaccount.snowflakecomputing.com/oauth/authorize",
         "The security integration must allow Tracecat's OAuth callback URL.",
     ]
     token_endpoint_help: ClassVar[str | list[str] | None] = [
-        "Replace {snowflake-account} with your organization-account hostname.",
+        "Replace {snowflake-account-host} with your Snowflake account hostname, for example:",
+        "https://myorg-myaccount.snowflakecomputing.com/oauth/token-request",
     ]
 
     def _use_pkce(self) -> bool:
