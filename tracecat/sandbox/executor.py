@@ -407,6 +407,14 @@ class NsjailExecutor:
         env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
         user_pythonpath = config.env_vars.get("PYTHONPATH")
 
+        # Enforce the process cap inside the jail: nsjail cannot apply
+        # rlimit_nproc under clone_newuser, so the trusted phase entrypoint
+        # (wrapper for execute, install script for install) applies it via
+        # this injected value before untrusted code runs. The install phase
+        # needs this too: uv executes the arbitrary build backends of
+        # user-selected source dependencies.
+        env_map["TRACECAT__SANDBOX_RLIMIT_NPROC"] = str(config.resources.max_processes)
+
         if phase == "install":
             # Keep uv's mutable cache inside this job's private bind mount. A
             # global writable cache would let one sandbox tamper with another.
@@ -418,12 +426,6 @@ class NsjailExecutor:
                     TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS
                 )
         else:
-            # Enforce the process cap inside the jail: nsjail cannot apply
-            # rlimit_nproc under clone_newuser, so the trusted wrapper applies
-            # it via this injected value before untrusted code runs.
-            env_map["TRACECAT__SANDBOX_RLIMIT_NPROC"] = str(
-                config.resources.max_processes
-            )
             pythonpath_parts = []
             if cache_key:
                 cache_path = self.package_cache / cache_key / "site-packages"

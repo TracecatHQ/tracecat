@@ -11,7 +11,12 @@ from tracecat.sandbox.executor import (
     _validate_env_key,
     _validate_path,
 )
-from tracecat.sandbox.types import SandboxBindMount, SandboxConfig
+from tracecat.sandbox.types import (
+    ResourceLimits,
+    SandboxBindMount,
+    SandboxConfig,
+)
+from tracecat.sandbox.wrapper import INSTALL_SCRIPT
 
 
 class TestValidateEnvKey:
@@ -278,6 +283,36 @@ class TestEnvMap:
 
         assert "UV_CACHE_DIR" in env_map
         assert env_map["UV_CACHE_DIR"] == "/cache/uv-cache"
+
+    def test_env_map_install_phase_injects_nproc_limit(self):
+        """Install must inject the process cap: uv runs untrusted build backends."""
+        executor = NsjailExecutor()
+        config = SandboxConfig(resources=ResourceLimits(max_processes=32))
+
+        env_map = executor._build_env_map(config, "install")
+
+        assert env_map["TRACECAT__SANDBOX_RLIMIT_NPROC"] == "32"
+
+
+class TestInstallScript:
+    """Tests for the static INSTALL_SCRIPT entrypoint."""
+
+    def test_install_script_is_valid_python(self):
+        compile(INSTALL_SCRIPT, "<INSTALL_SCRIPT>", "exec")
+
+    def test_install_script_enforces_nproc_before_uv(self):
+        """The install entrypoint must apply the process cap before uv runs.
+
+        uv executes arbitrary build backends from user-selected source
+        dependencies; without the cap, a fork bomb in a build backend can
+        exhaust the shared container PID limit and disrupt other jails.
+        """
+        assert "_enforce_nproc_limit()" in INSTALL_SCRIPT
+        enforcement_pos = INSTALL_SCRIPT.index("_enforce_nproc_limit()")
+        uv_pos = INSTALL_SCRIPT.index("subprocess.run")
+        assert enforcement_pos < uv_pos, (
+            "Process cap must be applied before launching uv"
+        )
 
     def test_no_sensitive_host_vars_leak(self, monkeypatch: pytest.MonkeyPatch):
         """Comprehensive test that common sensitive env vars don't leak.

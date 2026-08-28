@@ -13,7 +13,7 @@ from tracecat.agent.sandbox.config import (
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig
-from tracecat.sandbox.wrapper import WRAPPER_SCRIPT
+from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
 
 NPROC_ENV_VAR = "TRACECAT__SANDBOX_RLIMIT_NPROC"
 
@@ -156,10 +156,12 @@ def test_nsjail_configs_use_resource_limit_megabyte_units(tmp_path: Path) -> Non
 
 
 def test_python_execute_env_injects_nproc_limit(tmp_path: Path) -> None:
-    """The execute phase must inject the process cap for the trusted wrapper.
+    """Both phases must inject the process cap for their trusted entrypoints.
 
     nsjail cannot enforce rlimit_nproc under clone_newuser, so the wrapper
-    applies it from this injected value. The install phase must not inject it.
+    (execute) and install script (install) apply it from this injected value
+    before untrusted code runs. Install needs it too: uv executes arbitrary
+    build backends of user-selected source dependencies.
     """
     executor = NsjailExecutor(rootfs_path=str(tmp_path / "rootfs"))
     config = SandboxConfig(resources=ResourceLimits(max_processes=64))
@@ -168,7 +170,7 @@ def test_python_execute_env_injects_nproc_limit(tmp_path: Path) -> None:
     install_env = executor._build_env_map(config, "install", cache_key=None)
 
     assert execute_env[NPROC_ENV_VAR] == "64"
-    assert NPROC_ENV_VAR not in install_env
+    assert install_env[NPROC_ENV_VAR] == "64"
 
 
 def test_action_env_injects_nproc_limit(tmp_path: Path) -> None:
@@ -201,6 +203,8 @@ def test_trusted_entrypoints_enforce_nproc_limit() -> None:
 
     assert "setrlimit" in WRAPPER_SCRIPT
     assert NPROC_ENV_VAR in WRAPPER_SCRIPT
+    assert "setrlimit" in INSTALL_SCRIPT
+    assert NPROC_ENV_VAR in INSTALL_SCRIPT
 
     runner_source = Path(minimal_runner.__file__).read_text()
     assert "setrlimit" in runner_source

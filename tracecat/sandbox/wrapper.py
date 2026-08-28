@@ -247,9 +247,34 @@ if __name__ == "__main__":
 INSTALL_SCRIPT = """
 import json
 import os
+import resource
 import subprocess
 import sys
 from pathlib import Path
+
+
+def _enforce_nproc_limit() -> None:
+    # Cap the jail's process count via RLIMIT_NPROC before uv runs.
+    #
+    # nsjail cannot enforce rlimit_nproc when it creates a user namespace
+    # (clone_newuser), so the host injects the configured limit via
+    # TRACECAT__SANDBOX_RLIMIT_NPROC and this trusted entrypoint applies it
+    # before any untrusted build backend runs. uv inherits the rlimit and
+    # passes it to build-backend child processes, containing fork bombs from
+    # malicious or broken source packages to this install's process cap.
+    raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
+    if not raw:
+        return
+    try:
+        limit = int(raw)
+        if limit > 0:
+            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError):
+        # Values are host-injected; ignore malformed or unenforceable ones.
+        pass
+
+
+_enforce_nproc_limit()
 
 # Read dependencies from secure JSON file (written with 0o600 permissions)
 deps_path = Path("/work/dependencies.json")
