@@ -1369,6 +1369,39 @@ async def test_consumer_finishes_batch_on_stop_event(
 
 
 @pytest.mark.anyio
+async def test_consumer_does_not_read_after_stop_during_initialization(
+    monkeypatch: pytest.MonkeyPatch,
+    rollout_backfill_mock: AsyncMock,
+) -> None:
+    """Shutdown during pre-read initialization must not claim a fresh batch."""
+    stop_event = asyncio.Event()
+    initialization_started = asyncio.Event()
+    finish_initialization = asyncio.Event()
+
+    async def initialize_rollout() -> bool:
+        initialization_started.set()
+        await finish_initialization.wait()
+        return True
+
+    rollout_backfill_mock.side_effect = initialize_rollout
+    client = FakeRedisClient()
+    consumer = CaseDurationSyncConsumer(
+        cast(RedisClient, client), stop_event=stop_event
+    )
+    ensure_group_mock = AsyncMock()
+    monkeypatch.setattr(consumer, "_ensure_group", ensure_group_mock)
+
+    run_task = asyncio.create_task(consumer.run())
+    await asyncio.wait_for(initialization_started.wait(), timeout=5.0)
+    stop_event.set()
+    finish_initialization.set()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    ensure_group_mock.assert_awaited_once()
+    client.xreadgroup.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_claim_idle_messages_stops_claiming_after_stop_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

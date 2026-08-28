@@ -135,6 +135,10 @@ class CaseDurationSyncConsumer:
                         consumer=self.consumer_name,
                     )
                     started = True
+                # Initialization awaits can yield after the loop condition has
+                # passed. Do not claim a new batch if shutdown began meanwhile.
+                if self._stop_signalled():
+                    break
                 try:
                     messages = await self.client.xreadgroup(
                         group_name=self.group,
@@ -178,10 +182,9 @@ class CaseDurationSyncConsumer:
                 )
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, RETRY_BACKOFF_MAX_SECONDS)
-        else:
-            # Loop condition satisfied: the stop event was set and the last
-            # iteration (including the current batch) completed.
-            logger.info("Case duration sync consumer stopped gracefully")
+        # The stop event was set either between iterations or during pre-read
+        # initialization, and any batch already read completed.
+        logger.info("Case duration sync consumer stopped gracefully")
 
     async def _ensure_group(self) -> None:
         # Read from the start of the stream ("0") rather than only new
