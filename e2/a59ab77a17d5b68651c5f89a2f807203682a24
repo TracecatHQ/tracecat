@@ -1,0 +1,24 @@
+frontend/tests/chat-session-pane.test.tsx
+  s_0afebddc7f7329::t_60bbc2fb7907be 1855-1890,1892-1902
+  s_0afebddc7f7329::t_1b77530f88ae5d 1891
+frontend/src/components/chat/chat-session-pane.tsx
+  s_0afebddc7f7329::t_a77b6de7c485a0 1028-1030
+  s_0afebddc7f7329::t_e5326af84d5caa 134,136-139,141-144
+  s_0afebddc7f7329::t_80b20a1aa30108 994-997
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e2a59ab77a17d5b68651c5f89a2f807203682a24",
+  "prompts": {},
+  "sessions": {
+    "s_0afebddc7f7329": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c8cd4429-2157-49fb-9414-9789d80c8518",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
