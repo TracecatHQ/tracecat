@@ -24,6 +24,11 @@ do not break their public inputs or outputs without an explicitly planned migrat
   APIs. If research finds a maintained official Python SDK, ask the user during
   planning whether to use it. If approved, add generic direct and paginated SDK UDFs
   plus YAML endpoint templates over those wrappers.
+- Do not create a generic authenticated REST UDF that accepts a caller-provided URL,
+  method, or path. It duplicates `core.http_request` and can attach provider
+  credentials to an arbitrary destination. Generic dispatch UDFs are for actual
+  SDK clients whose public service and method surface is owned by the pinned SDK;
+  REST integrations use endpoint-specific YAML templates over `core.http_request`.
 
 ### Documentation links
 
@@ -152,11 +157,108 @@ SDK-backed or not.
 
 #### Credentials
 
-- Put credentials where the vendor documents them. **When a vendor offers several mechanisms,
-  implement exactly one: the header token.** Do not also wire up the query parameter or Basic.
-  Hunter documents an `api_key` query parameter, an `X-API-KEY` header and a Bearer header —
-  the template sends `X-API-KEY` only. Socket documents Bearer and Basic — the template sends
-  Bearer only.
+- Treat connection configuration separately from authentication material. Base
+  URLs, workspace hosts, account URLs, regions, and similar routing values are
+  not secrets. Expose them as a `base_url`/host action input and resolve them
+  through `inputs.<name> || VARS.<tool_name>.<name> || <official default>` where
+  a default exists. Never put a non-sensitive base URL or host in
+  `RegistrySecret`; this applies to SDK wrappers as well as HTTP templates. A
+  template over an SDK wrapper declares the optional input and passes the
+  resolved value into a required wrapper argument; the wrapper must not recover
+  routing configuration from a secret or ambient environment variable.
+
+  Customer-specific SDK endpoint with no universal default — copy this shape:
+
+  ```yaml
+  type: action
+  definition:
+    namespace: tools.databricks
+    name: get_cluster
+    expects:
+      base_url:
+        type: str | None
+        description: Databricks workspace URL.
+        default: null
+      cluster_id:
+        type: str
+        description: Cluster about which to retrieve information.
+    steps:
+      - ref: get_cluster
+        action: tools.databricks_sdk.call_method
+        args:
+          base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
+          service: clusters
+          method_name: get
+          params:
+            cluster_id: ${{ inputs.cluster_id }}
+    returns: ${{ steps.get_cluster.result }}
+  ```
+
+  Public REST endpoint with an official default — copy this fallback order:
+
+  ```yaml
+  expects:
+    base_url:
+      type: str | None
+      description: GreyNoise API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.greynoise.base_url || "https://api.greynoise.io" }}/v3/gnql
+        method: GET
+  ```
+
+  In both examples, `base_url` is ordinary configuration. Do not replace the
+  input or `VARS` lookup with a secret key or an environment-variable lookup.
+- Do not validate or allowlist caller-supplied integration base URLs, hosts, URL
+  schemes, or vendor domain suffixes. Pass the configured value to the official
+  SDK or HTTP client and let the provider validate it. Domain allowlists break
+  private connectivity, proxies, regional endpoints, and government-cloud
+  deployments as vendors add them. Platform-wide egress controls belong in the
+  platform network boundary, not in individual integration wrappers.
+
+  Wrong — a vendor suffix list will always omit a valid deployment eventually:
+
+  ```python
+  _VENDOR_HOST_SUFFIXES = ("vendor.com", "vendor.cn")
+
+  def _validate_vendor_url(url: str) -> None:
+      hostname = urlsplit(url).hostname or ""
+      if not any(hostname.endswith(suffix) for suffix in _VENDOR_HOST_SUFFIXES):
+          raise ValueError("Unsupported vendor URL")
+
+  def _get_client(base_url: str) -> VendorClient:
+      _validate_vendor_url(base_url)
+      return VendorClient(host=base_url, credentials=_oauth_credentials())
+  ```
+
+  Correct — use the action input/`VARS` value directly in an endpoint-specific
+  REST template:
+
+  ```yaml
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.vendor.base_url }}/v1/resources
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.vendor_oauth.VENDOR_USER_TOKEN || SECRETS.vendor_oauth.VENDOR_SERVICE_TOKEN }}
+  ```
+
+  Do not replace the wrong example with a longer suffix list or a generic Python
+  URL wrapper. Remove the validator and keep the request endpoint-specific in
+  the template.
+- Distinguish multiple placements of one credential from genuinely different
+  authentication modes. If the same API key can be sent in a query parameter,
+  custom header, Bearer header, or Basic auth, implement one safest documented
+  header placement rather than duplicating it. Hunter documents an `api_key`
+  query parameter, an `X-API-KEY` header, and a Bearer header; the template sends
+  `X-API-KEY` only. Socket documents Bearer and Basic; the template sends Bearer
+  only. This rule does not decide whether a provider should expose API-key auth,
+  OAuth, or both.
 - Put an API key in the query string only when that is the sole documented mechanism, and then
   place it directly in the literal `params:` map — not in the URL, because httpx replaces an
   existing query string when `params` is also passed. Example: `tools/shodan/hosts/lookup_host.yml`.
@@ -167,10 +269,63 @@ SDK-backed or not.
   do, the vendors still accept it, and a workspace's stored secret is a published contract. Add a
   header-token path alongside if one exists, but never replace. Existing templates only — this does
   not license Basic in new work.
-- Where a vendor supports both OAuth and an API key, support both. `jamf/computers/*` and
-  `google_scc/*` declare an `oauth` secret and a key secret together.
+- Choose supported authentication modes case by case from the provider's current
+  production guidance, security posture, and the mechanisms users ordinarily
+  deploy. Do not add every mechanism merely because the API documents it, and do
+  not remove a commonly used API-key path merely because OAuth also exists.
+  Jamf and similar integrations should retain API-key support when that remains
+  the normal user path. Databricks and Snowflake should use OAuth-only flows when
+  OAuth is the production norm. When both modes are materially used, support both;
+  `jamf/computers/*` and `google_scc/*` show the combined-secret pattern. Record
+  the choice and evidence in the implementation plan or PR.
 - Declare credentials through `RegistrySecret` or OAuth rather than ordinary action
   inputs. Document required scopes, API versions, and product-tier constraints.
+- When an integration is intentionally OAuth-only, do not add PAT, API-token,
+  raw bearer-token, ambient credential-discovery, or undocumented compatibility
+  paths. Implement only the approved OAuth grants.
+- For integrations that support user OAuth, service OAuth, and an
+  environment-scoped stored credential fallback, use this precedence:
+  authorization-code token, client-credentials token, then stored credentials.
+  Keep each OAuth secret optional so either grant can be configured independently.
+  Every OAuth path must validate and run without requiring the stored credential.
+  The stored secret may also be optional: `optional=True` controls whether the
+  secret group must exist, not whether fields inside a configured group are
+  required. Put its minimum usable fields in `keys` and only genuine modifiers in
+  `optional_keys`; never model an optional secret group by moving its required
+  fields into `optional_keys`. Follow `google_api_optional_secret` as the schema
+  pattern.
+
+  Secret declarations are Python rather than template YAML. The matching
+  optional-group pattern is:
+
+  ```python
+  user_oauth = RegistryOAuthSecret(
+      provider_id="vendor",
+      grant_type="authorization_code",
+      optional=True,
+  )
+  service_oauth = RegistryOAuthSecret(
+      provider_id="vendor",
+      grant_type="client_credentials",
+      optional=True,
+  )
+  stored_fallback = RegistrySecret(
+      name="vendor",
+      keys=["VENDOR_CLIENT_ID", "VENDOR_CLIENT_SECRET", "VENDOR_TOKEN_URL"],
+      optional_keys=["VENDOR_SCOPE", "VENDOR_AUDIENCE"],
+      optional=True,
+  )
+  ```
+
+  Here the whole `stored_fallback` may be absent. If it exists, every entry in
+  `keys` is required. Never move the client ID, client secret, or token URL into
+  `optional_keys` merely because `optional=True` is set on the group.
+- Do not duplicate OAuth exchange logic unless the standard provider cannot
+  represent a required vendor flow. Verify the grant, endpoint authentication
+  method, scopes, PKCE requirements, refresh behavior, and any audience/resource
+  parameters against current official documentation. If a generic service
+  provider cannot express provider-specific token parameters, state that limit
+  and keep those parameters in the environment-scoped credential fallback.
 - `core.http_request` types `headers` as `dict[str, str | None]`. String-valued expressions and
   nulls are allowed; a `bool` or `int` input fails validation before the request is made. Serialize
   booleans to the vendor's documented string values.
@@ -208,6 +363,68 @@ SDK-backed or not.
   add broad recursive parsing or magic conversions across generic payload maps.
 - For field-map inputs, support rich objects by allowing them as values inside the existing field
   maps rather than changing the outer input shape.
+
+#### SDK wrapper mechanics
+
+- Use an established generic SDK wrapper, especially `slack_sdk.py`, as the
+  structural reference before inventing a new dispatch pattern. Preserve simple
+  Python idioms from that reference, including an assignment expression such as
+  `if method := getattr(client, sdk_method, None):` when resolving an optional
+  callable. Do not precompute or maintain service, method, hostname, or endpoint
+  allowlists for a generic wrapper; resolve the caller's service and method
+  dynamically and let the pinned SDK own its public surface. Reject only Python
+  attributes beginning with `_`, which are private implementation details rather
+  than part of that public SDK surface.
+
+  Wrong — this duplicates the SDK surface and drifts as the SDK changes:
+
+  ```python
+  _ALLOWED_SERVICES = frozenset({"clusters", "jobs", "warehouses"})
+
+  def _get_sdk_method(client: Any, service: str, method_name: str) -> Any:
+      if service not in _ALLOWED_SERVICES:
+          raise AttributeError(service)
+      return getattr(getattr(client, service), method_name)
+  ```
+
+  Correct — block only private Python attributes and dispatch public SDK members
+  dynamically, using the same walrus style as `slack_sdk.py`:
+
+  ```python
+  def _get_sdk_method(client: Any, service: str, method_name: str) -> Any:
+      if service.startswith("_") or method_name.startswith("_"):
+          raise AttributeError(f"Unknown SDK method: {service}.{method_name}")
+      if sdk_service := getattr(client, service, None):
+          if method := getattr(sdk_service, method_name, None):
+              return method
+      raise AttributeError(f"Unknown SDK method: {service}.{method_name}")
+  ```
+- Keep API semantics in the official SDK or provider. Wrapper-side validation is
+  limited to Tracecat-owned protocol boundaries such as bounding pagination and
+  producing JSON-serializable results. Do not duplicate the provider's request
+  validation, enums, required-field checks, URL validation, method allowlists, or
+  error interpretation.
+- Separate direct and paginated dispatch explicitly. A direct dispatcher must
+  never return an `Iterator` or generator unchanged; reject it with a clear
+  instruction to use the paginated action. The paginated dispatcher must collect
+  only the caller-requested bounded number of items.
+- Inspect the exact pinned SDK implementation and runtime type before adapting
+  special values such as waiters, pagers, futures, and response wrappers. Do not
+  infer what `bind()`, `result()`, or a similarly named method returns. Serialize
+  the real public response and binding data without recursively serializing the
+  wrapper object itself.
+- Inventory non-JSON SDK return types as well as method signatures. In particular,
+  download methods may return a binary stream directly or place one inside a
+  generated response model. Read the pinned SDK's real stream shape and encode
+  bytes using the registry's explicit `{"content_base64": "..."}` convention;
+  never let bytes, file-like objects, or SDK streams escape the wrapper unchanged.
+  Enforce `TRACECAT__MAX_FILE_SIZE_BYTES` before base64 encoding: read streams
+  with `limit + 1`, reject an over-limit result, and never call an unbounded
+  `read()`. Cover both a direct stream and a generated response containing a
+  stream when the SDK supports both shapes.
+- Before declaring an SDK template complete, confirm against the pinned SDK that
+  every referenced `service.method` exists and every forwarded keyword is
+  accepted by that method's signature.
 
 #### Pagination and polling
 
@@ -257,9 +474,39 @@ SDK-backed or not.
 - Generic registry and template validation remains required. Narrow unit tests are
   allowed for Tracecat-owned platform security or protocol boundaries, such as
   credential isolation, preventing host filesystem or subprocess access, blocking
-  ambient credential discovery, network-target restrictions, and shared protocol
-  machinery. Provider-local dispatch, validation, pagination, or serialization is
-  not a platform-boundary exception merely because Tracecat implements it.
+  ambient credential discovery, and shared protocol machinery. Generic SDK wrapper
+  dispatch, bounded pagination, waiter handling, and JSON serialization are
+  wrapper-owned protocol boundaries: when fixing one, add a narrow regression test
+  using the pinned SDK's real runtime type or contract rather than a mock with
+  assumed behavior. Provider request or URL validation is not a platform-boundary
+  exception merely because Tracecat implements it.
+
+### Integration assets
+
+- Add the provider's official vector logo when introducing an integration or
+  OAuth provider. Prefer the vendor's current SVG asset over a raster image,
+  unofficial redraw, wordmark screenshot, or generated approximation.
+- Verify the committed SVG at rendered integration-icon size on both light and
+  dark backgrounds. Preserve official brand colors, transparency, and aspect
+  ratio; add a deliberate light/dark variant only when the official mark is not
+  legible in both modes.
+
+### Integration review checklist
+
+Before handing off an integration PR, explicitly re-audit:
+
+- the full action/template inventory and each exact endpoint or SDK method;
+- action inputs and `VARS`, especially that no base URL or host leaked into a secret;
+- credential schemas, OAuth grant registrations, scopes, endpoints, and runtime
+  precedence, including the environment-scoped fallback;
+- each authentication path independently, confirming an OAuth-only configuration
+  has no hidden dependency on a stored basic secret and an optional stored secret
+  still requires all fields needed to authenticate when it is configured;
+- absence of unapproved PAT, API-token, raw-token, and ambient-auth paths;
+- JSON serialization for ordinary responses, waiters, paginated iterators, raw
+  bytes, direct binary streams, and generated responses containing streams;
+- official SVG mappings for action namespaces, credentials, and OAuth providers;
+- focused registry/provider tests and all current unresolved PR review threads.
 
 ## Jira ADF pattern
 

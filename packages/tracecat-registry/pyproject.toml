@@ -27,6 +27,7 @@ dependencies = [
     "boto3==1.40.61",
     "cloudflare==5.2.0",
     "crowdstrike-falconpy==1.6.2",
+    "databricks-sdk==0.133.0",
     "dnspython==2.6.1",
     "docker==7.1.0",
     "duckdb==1.4.3",
