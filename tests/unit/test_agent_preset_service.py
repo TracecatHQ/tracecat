@@ -1011,40 +1011,86 @@ class TestAgentPresetService:
         assert version.subagent_eligibility.reasons == ["agents_enabled"]
         assert version.subagent_eligibility.message is not None
 
-    async def test_version_reads_use_normalized_subagent_enabled_bit(
+    async def test_version_reads_use_normalized_subagent_binding(
         self,
         session: AsyncSession,
+        svc_admin_role: Role,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Detail and list projections fail closed when legacy JSON drifts."""
+        """Detail reads use normalized membership and matching legacy pins."""
 
-        grandchild = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={"name": "Projection grandchild", "slug": "projection-child"}
+        await SettingsService(session=session, role=svc_admin_role).update_app_settings(
+            AppSettingsUpdate(
+                app_versioned_resource_resolution_strategy=(
+                    VersionedResourceResolutionStrategy.PINNED
+                )
             )
+        )
+        normalized_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Normalized child",
+                    "slug": "normalized-child",
+                    "instructions": "Child v1",
+                }
+            )
+        )
+        normalized_child_version_one = (
+            await agent_preset_service.get_current_version_for_preset(normalized_child)
+        )
+        legacy_only_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Legacy-only child", "slug": "legacy-only-child"}
+            )
+        )
+        legacy_only_child_version = (
+            await agent_preset_service.get_current_version_for_preset(legacy_only_child)
         )
         parent = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
-                update={"name": "Projection parent", "slug": "projection-parent"}
+                update={
+                    "name": "Projection parent",
+                    "slug": "projection-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [
+                                {
+                                    "preset": normalized_child.slug,
+                                    "name": "normalized-child",
+                                }
+                            ],
+                        }
+                    ),
+                }
             )
         )
         parent_version = await agent_preset_service.get_current_version_for_preset(
             parent
         )
-        assert (
-            AgentSubagentsConfig.model_validate(parent_version.agents).enabled is False
+        await agent_preset_service.update_preset(
+            normalized_child,
+            AgentPresetUpdate(instructions="Child v2"),
         )
-        parent_version.subagents_enabled = True
+        normalized_child_version_two = (
+            await agent_preset_service.get_current_version_for_preset(normalized_child)
+        )
+        legacy_binding = ResolvedAgentsConfig.model_validate(parent_version.agents)
+        parent_version.agents = ResolvedAgentsConfig(
+            enabled=True,
+            subagents=[
+                *legacy_binding.subagents,
+                ResolvedAttachedSubagentRef(
+                    preset=legacy_only_child.slug,
+                    preset_id=legacy_only_child.id,
+                    preset_version_id=legacy_only_child_version.id,
+                    preset_version=legacy_only_child_version.version,
+                    name="legacy-only-child",
+                ),
+            ],
+        ).model_dump(mode="json")
         session.add(parent_version)
-        session.add(
-            AgentPresetVersionSubagent(
-                workspace_id=agent_preset_service.workspace_id,
-                parent_preset_version_id=parent_version.id,
-                child_preset_id=grandchild.id,
-                alias="projection-child",
-            )
-        )
         await session.flush()
         await session.refresh(parent_version)
 
@@ -1054,7 +1100,14 @@ class TestAgentPresetService:
             CursorPaginationParams(limit=10),
         )
 
-        assert detail.agents.enabled is False
+        assert normalized_child_version_two.id != normalized_child_version_one.id
+        assert detail.agents.enabled is True
+        assert len(detail.agents.subagents) == 1
+        detail_ref = detail.agents.subagents[0]
+        assert isinstance(detail_ref, ResolvedAttachedSubagentRef)
+        assert detail_ref.preset_id == normalized_child.id
+        assert detail_ref.preset_version_id == normalized_child_version_one.id
+        assert detail_ref.preset_version == normalized_child_version_one.version
         assert detail.capabilities == ["subagents"]
         assert detail.subagent_eligibility.eligible is False
         assert versions.items[0].capabilities == ["subagents"]

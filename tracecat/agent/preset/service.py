@@ -474,12 +474,13 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentPresetVersionRead:
         """Build the response model for an immutable preset version."""
 
-        agents = AgentSubagentsConfig.model_validate(version.agents)
-        effective_agents = AgentSubagentsConfig(
-            enabled=effective_subagents_enabled(
-                version.subagents_enabled,
-                version.agents,
-            )
+        binding = await self.get_version_subagent_binding(
+            version,
+            reconcile_legacy=False,
+        )
+        agents = AgentSubagentsConfig(
+            enabled=binding.enabled,
+            subagents=list(binding.subagents),
         )
         return AgentPresetVersionRead(
             id=version.id,
@@ -501,12 +502,12 @@ class AgentPresetService(BaseWorkspaceService):
             enable_thinking=version.enable_thinking,
             enable_internet_access=version.enable_internet_access,
             capabilities=_agent_preset_capabilities(
-                agents_config=effective_agents,
+                agents_config=agents,
                 tool_approvals=version.tool_approvals,
                 enable_internet_access=version.enable_internet_access,
             ),
             subagent_eligibility=build_subagent_eligibility(
-                agents_config=effective_agents,
+                agents_config=agents,
                 tool_approvals=version.tool_approvals,
             ),
             created_at=version.created_at,
