@@ -237,11 +237,13 @@ export interface MentionToken {
 }
 
 /**
- * Longest query a trigger will carry. Comfortably past any agent or workflow
- * name, short enough that a stray `@` releases instead of following the caret
- * through a paragraph.
+ * Longest query a trigger will carry. Sized past the longest name the backend
+ * accepts -- a preset name is capped at 120 characters -- so a target never
+ * becomes unreachable by having its distinguishing suffix cut off. It is only
+ * a backstop: a query that stops matching releases the trigger well before
+ * this.
  */
-const MAX_MENTION_QUERY_LENGTH = 64
+const MAX_MENTION_QUERY_LENGTH = 160
 
 function getTokenForKind(
   beforeCaret: string,
@@ -314,20 +316,23 @@ export interface MentionEdit {
  * Replace the trigger token with a mention's display text plus a trailing
  * space, registering the new mention range.
  *
- * A comment carries at most one workflow, so inserting a workflow first
- * removes any workflow already in the text.
+ * Pass `replaceExisting` on a surface that holds at most one mention of this
+ * kind -- a comment runs one workflow, a chat session owns one preset -- so
+ * picking a second target removes the first instead of leaving a stale name in
+ * the text that quietly loses at submit.
  */
 export function applyMentionInsertion(
   text: string,
   mentions: MentionRange[],
   token: MentionToken,
-  mention: { kind: MentionKind; label: string; targetId: string }
+  mention: { kind: MentionKind; label: string; targetId: string },
+  replaceExisting = false
 ): MentionEdit {
   let baseText = text
   let baseMentions = mentions
   let baseToken = token
-  if (mention.kind === "workflow") {
-    const existing = findWorkflowMention(mentions)
+  if (replaceExisting) {
+    const existing = mentions.find((range) => range.kind === mention.kind)
     if (existing) {
       const removal = applyMentionRemoval(text, mentions, existing)
       baseText = removal.text

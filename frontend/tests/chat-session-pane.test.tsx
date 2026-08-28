@@ -138,6 +138,15 @@ const TRIAGE_PRESET: AgentPresetReadMinimal = {
   updated_at: "2024-01-01T00:00:00.000Z",
 } as AgentPresetReadMinimal
 
+const MALWARE_PRESET: AgentPresetReadMinimal = {
+  id: "preset-2",
+  name: "Malware agent",
+  description: "Analyses malware",
+  current_version_id: "version-2",
+  created_at: "2024-01-01T00:00:00.000Z",
+  updated_at: "2024-01-01T00:00:00.000Z",
+} as AgentPresetReadMinimal
+
 /** Grant or withhold every entitlement the mention layer looks at. */
 function mockEntitled(entitled: boolean) {
   mockUseEntitlements.mockReturnValue({
@@ -1753,6 +1762,41 @@ describe("ChatSessionPane", () => {
         // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
       } as any)
       mockPresets([TRIAGE_PRESET])
+    })
+
+    it("replaces the first agent when a second one is picked", async () => {
+      // A chat session owns one preset, so a stale name left in the text would
+      // quietly win at submit.
+      mockPresets([TRIAGE_PRESET, MALWARE_PRESET])
+      const onSelect = jest.fn().mockResolvedValue(true)
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect,
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@tri", selectionStart: 4 },
+      })
+      await screen.findByText("Triage agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(textarea).toHaveValue("@Triage agent "))
+
+      fireEvent.change(textarea, {
+        target: { value: "@Triage agent @mal", selectionStart: 18 },
+      })
+      await screen.findByText("Malware agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+
+      await waitFor(() => expect(textarea).toHaveValue(" @Malware agent "))
+
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(onSelect).toHaveBeenCalledWith("preset-2"))
+      expect(onSelect).not.toHaveBeenCalledWith("preset-1")
     })
 
     it("keeps the list open while a multi-word name is typed out", async () => {

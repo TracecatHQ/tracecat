@@ -295,11 +295,11 @@ describe("getMentionToken", () => {
   it("ends the query at a leading space, a newline, or the length cap", () => {
     expect(getMentionToken("@ triage", 8)).toBeUndefined()
     expect(getMentionToken("@tri\nagent", 10)).toBeUndefined()
-    expect(getMentionToken(`@${"a".repeat(65)}`, 66)).toBeUndefined()
-    expect(getMentionToken(`@${"a".repeat(64)}`, 65)).toEqual({
+    expect(getMentionToken(`@${"a".repeat(161)}`, 162)).toBeUndefined()
+    expect(getMentionToken(`@${"a".repeat(160)}`, 161)).toEqual({
       start: 0,
-      end: 65,
-      query: "a".repeat(64),
+      end: 161,
+      query: "a".repeat(160),
       kind: "agent",
     })
   })
@@ -398,7 +398,8 @@ describe("applyMentionInsertion", () => {
       "/Escalate case hello /clo",
       [existing],
       { start: 21, end: 25, query: "clo", kind: "workflow" },
-      { kind: "workflow", label: "Close case", targetId: "workflow-2" }
+      { kind: "workflow", label: "Close case", targetId: "workflow-2" },
+      true
     )
     expect(edit.text).toBe(" hello /Close case ")
     expect(edit.mentions).toEqual([workflow(7, "Close case", "workflow-2")])
@@ -411,7 +412,8 @@ describe("applyMentionInsertion", () => {
       "/clo hello /Escalate case",
       [existing],
       { start: 0, end: 4, query: "clo", kind: "workflow" },
-      { kind: "workflow", label: "Close case", targetId: "workflow-2" }
+      { kind: "workflow", label: "Close case", targetId: "workflow-2" },
+      true
     )
     expect(edit.text).toBe("/Close case  hello ")
     expect(edit.mentions).toEqual([workflow(0, "Close case", "workflow-2")])
@@ -423,7 +425,8 @@ describe("applyMentionInsertion", () => {
       "/Escalate case @Triage agent /clo",
       [workflow(0, "Escalate case"), agent],
       { start: 29, end: 33, query: "clo", kind: "workflow" },
-      { kind: "workflow", label: "Close case", targetId: "workflow-2" }
+      { kind: "workflow", label: "Close case", targetId: "workflow-2" },
+      true
     )
     expect(edit.text).toBe(" @Triage agent /Close case ")
     expect(edit.mentions).toEqual([

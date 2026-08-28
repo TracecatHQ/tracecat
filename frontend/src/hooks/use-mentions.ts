@@ -52,6 +52,12 @@ export type MentionSourceState = "unavailable" | "locked" | "enabled"
 /** Entitlements an org needs for a source; missing any renders the lock row. */
 export interface MentionSourceConfig {
   entitlements: EntitlementKey[]
+  /**
+   * The composer holds at most one mention of this kind, so picking a second
+   * target replaces the first. True for workflows in a comment, which runs
+   * one, and for agents in chat, whose session owns one preset.
+   */
+  single?: boolean
 }
 
 /** One selectable row in the mention popover. */
@@ -400,15 +406,23 @@ export function useMentions({
         return
       }
       setSession(undefined)
+      const config =
+        suggestion.kind === "agent" ? agentsConfig : workflowsConfig
       commitEdit(
-        applyMentionInsertion(getText(), ranges, session, {
-          kind: suggestion.kind,
-          label: suggestion.label,
-          targetId: suggestion.id,
-        })
+        applyMentionInsertion(
+          getText(),
+          ranges,
+          session,
+          {
+            kind: suggestion.kind,
+            label: suggestion.label,
+            targetId: suggestion.id,
+          },
+          config?.single ?? false
+        )
       )
     },
-    [commitEdit, getText, ranges, session]
+    [agentsConfig, commitEdit, getText, ranges, session, workflowsConfig]
   )
 
   const handleKeyDown = useCallback(

@@ -700,8 +700,9 @@ function CommentComposer({
     textareaRef,
     getText: getContent,
     setText: setContent,
+    // A comment may invoke several agents, but runs at most one workflow.
     agents: { entitlements: ["agent_addons", "case_addons"] },
-    workflows: { entitlements: ["case_addons"] },
+    workflows: { entitlements: ["case_addons"], single: true },
   })
 
   const { handlePaste, isUploading: imageUploading } = useCommentImagePaste({

@@ -326,7 +326,7 @@ export function ChatSessionPane({
     // Presets are an agent add-on, so an un-entitled org gets the lock row
     // rather than a dead `@`. Chat offers no `/` workflow commands.
     agents: agentMentionsSupported
-      ? { entitlements: ["agent_addons"] }
+      ? { entitlements: ["agent_addons"], single: true }
       : undefined,
   })
   const {
