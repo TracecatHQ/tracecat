@@ -1,0 +1,27 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/snowflake/execute_statement.yml
+  s_a8bea3fef8fada::t_7757a7f8091488 76,87,89
+packages/tracecat-registry/tracecat_registry/templates/tools/snowflake/cancel_statement.yml
+  s_a8bea3fef8fada::t_7757a7f8091488 60,71,73
+packages/tracecat-registry/tracecat_registry/templates/tools/snowflake/get_statement.yml
+  s_a8bea3fef8fada::t_7757a7f8091488 64,75,77
+tracecat/integrations/providers/snowflake/oauth.py
+  s_a8bea3fef8fada::t_58b148a02b637c 11-12
+  s_a8bea3fef8fada::t_70a66549290f46 44,49
+  s_a8bea3fef8fada::t_785fd25818ffd3 43,48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "44d2e1eb58d20a8ae3d788938ab429953709b564",
+  "prompts": {},
+  "sessions": {
+    "s_a8bea3fef8fada": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f347677b-2c12-4daf-94e5-42fc73e744ba",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
