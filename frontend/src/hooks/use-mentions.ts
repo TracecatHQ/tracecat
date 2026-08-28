@@ -278,6 +278,10 @@ export function useMentions({
         (preset: AgentPresetReadMinimal): MentionSuggestion => ({
           id: preset.id,
           kind: "agent",
+          // Names are not unique -- only the slug is -- so show it the way the
+          // workflow rows show an alias. Two presets sharing a name would
+          // otherwise render as identical rows bound to different agents.
+          hint: preset.slug,
           label: preset.name,
         })
       )
@@ -446,6 +450,14 @@ export function useMentions({
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      // While an IME is composing, Enter, Tab and the arrows drive the
+      // candidate window, so nothing here may claim them. `PromptInputTextarea`
+      // guards its own submit the same way, but it runs this handler first and
+      // then defers to whatever it prevented, so the check has to happen here.
+      if (event.nativeEvent.isComposing) {
+        return false
+      }
+
       if (isOpen) {
         if (event.key === "Escape") {
           event.preventDefault()

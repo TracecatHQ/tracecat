@@ -1598,7 +1598,7 @@ describe("CommentSection", () => {
       await waitFor(() => expect(composer).toHaveValue("Ping @Malware agent "))
       expect(createComment).not.toHaveBeenCalled()
       expect(
-        screen.queryByRole("button", { name: "Malware agent" })
+        screen.queryByRole("button", { name: /Malware agent/ })
       ).not.toBeInTheDocument()
       await waitFor(() =>
         expect((composer as HTMLTextAreaElement).selectionStart).toBe(
@@ -1642,12 +1642,37 @@ describe("CommentSection", () => {
       await waitFor(() => expect(composer).toHaveValue("@Malware agent "))
     })
 
+    it("leaves Enter to the IME while a composition is open", async () => {
+      renderCommentSection()
+      const composer = getRootComposer()
+
+      typeInto(composer, "@")
+      expect(screen.getByRole("button", { name: /Triage agent/ })).toBeVisible()
+
+      // The Enter that commits an IME candidate must not pick a suggestion.
+      fireEvent.keyDown(composer, { key: "Enter", isComposing: true })
+      expect(composer).toHaveValue("@")
+
+      // The guard is specific to composing: a plain Enter still selects.
+      fireEvent.keyDown(composer, { key: "Enter" })
+      await waitFor(() => expect(composer).toHaveValue("@Triage agent "))
+    })
+
+    it("shows each preset slug so duplicate names stay distinguishable", () => {
+      renderCommentSection()
+
+      typeInto(getRootComposer(), "@")
+
+      expect(screen.getByText("triage-agent")).toBeInTheDocument()
+      expect(screen.getByText("malware-agent")).toBeInTheDocument()
+    })
+
     it("selects with the mouse from the inline reply composer", async () => {
       renderCommentSection()
       const reply = screen.getByPlaceholderText("Leave a reply...")
 
       typeInto(reply, "@tri")
-      fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
+      fireEvent.click(screen.getByRole("button", { name: /Triage agent/ }))
 
       await waitFor(() => expect(reply).toHaveValue("@Triage agent "))
       expect(getRootComposer()).toHaveValue("")
@@ -1658,7 +1683,7 @@ describe("CommentSection", () => {
       const composer = getRootComposer()
 
       typeInto(composer, "@tri")
-      fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
+      fireEvent.click(screen.getByRole("button", { name: /Triage agent/ }))
 
       await waitFor(() => expect(composer).toHaveValue("@Triage agent "))
       const overlay = composer.parentElement?.querySelector(
@@ -1684,7 +1709,7 @@ describe("CommentSection", () => {
       const composer = getRootComposer()
 
       typeInto(composer, "Ping @tri")
-      fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
+      fireEvent.click(screen.getByRole("button", { name: /Triage agent/ }))
       await waitFor(() => expect(composer).toHaveValue("Ping @Triage agent "))
 
       fireEvent.keyDown(composer, { key: "Enter", metaKey: true })
@@ -1703,7 +1728,7 @@ describe("CommentSection", () => {
       const composer = getRootComposer()
 
       typeInto(composer, "Ping @tri")
-      fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
+      fireEvent.click(screen.getByRole("button", { name: /Triage agent/ }))
       await waitFor(() => expect(composer).toHaveValue("Ping @Triage agent "))
 
       // Caret immediately after the mention, before the trailing space.
