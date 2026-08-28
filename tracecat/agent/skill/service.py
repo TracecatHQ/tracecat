@@ -2186,6 +2186,7 @@ class SkillService(BaseWorkspaceService):
                     bucket=blob_row.bucket,
                     override_content_type=draft_file.content_type,
                     expiry=url_expiry_seconds,
+                    redact_log_identifiers=True,
                 ),
                 expires_at=expires_at,
             )
@@ -2261,6 +2262,7 @@ class SkillService(BaseWorkspaceService):
                 bucket=blob_row.bucket,
                 override_content_type=draft_file.content_type,
                 expiry=url_expiry_seconds,
+                redact_log_identifiers=True,
             ),
         )
 
@@ -2321,6 +2323,7 @@ class SkillService(BaseWorkspaceService):
                 bucket=blob_row.bucket,
                 override_content_type=version_file.content_type,
                 expiry=DEFAULT_DOWNLOAD_TTL_SECONDS,
+                redact_log_identifiers=True,
             ),
         )
 

@@ -432,6 +432,7 @@ async def generate_presigned_download_url(
     expiry: int | None = None,
     force_download: bool = True,
     override_content_type: str | None = None,
+    redact_log_identifiers: bool = False,
 ) -> str:
     """Generate a presigned URL for downloading a file with enhanced security.
 
@@ -441,14 +442,22 @@ async def generate_presigned_download_url(
         expiry: URL expiry time in seconds (defaults to config)
         force_download: If True, forces Content-Disposition: attachment
         override_content_type: Override the Content-Type header (e.g., 'application/octet-stream')
+        redact_log_identifiers: Hide the key, bucket, and provider prose in logs
+            and raised errors.
 
     Returns:
         Presigned URL for downloading the file
 
     Raises:
-        ClientError: If URL generation fails
+        ClientError: If an unredacted URL generation fails.
+        StoragePresignError: If a redacted URL generation fails.
     """
     expiry = expiry or config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+    log_key, log_bucket = _storage_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
 
     # Build request parameters with security headers
     params = {"Bucket": bucket, "Key": key}
@@ -463,8 +472,8 @@ async def generate_presigned_download_url(
     if override_content_type:
         params["ResponseContentType"] = override_content_type
 
-    async with get_storage_client() as s3_client:
-        try:
+    try:
+        async with get_storage_client() as s3_client:
             url = await s3_client.generate_presigned_url(
                 "get_object",
                 Params=params,
@@ -472,14 +481,37 @@ async def generate_presigned_download_url(
             )
             url = _rewrite_presigned_endpoint(url)
             return url
-        except ClientError as e:
+    except ClientError as e:
+        if redact_log_identifiers:
+            error_code = _safe_storage_error_code(
+                e.response.get("Error", {}).get("Code")
+            )
             logger.error(
                 "Failed to generate presigned download URL",
-                key=key,
-                bucket=bucket,
-                error=str(e),
+                key=log_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
             )
+            raise StoragePresignError(error_code=error_code) from None
+        logger.error(
+            "Failed to generate presigned download URL",
+            key=key,
+            bucket=bucket,
+            error=str(e),
+        )
+        raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
             raise
+        logger.error(
+            "Failed to generate presigned download URL",
+            key=log_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StoragePresignError(error_code=None) from None
 
 
 async def generate_presigned_upload_url(
