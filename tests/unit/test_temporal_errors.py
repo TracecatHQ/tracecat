@@ -4,7 +4,7 @@ import asyncio
 from datetime import timedelta
 from inspect import signature
 from typing import Literal
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -819,8 +819,12 @@ def test_wrapping_clears_retry_delay_for_non_retryable_cause() -> None:
 
 def test_activity_error_boundary_classifies_unowned_failure() -> None:
     classification = _platform_classification()
+    logger_warning = Mock()
 
-    with pytest.raises(ApplicationError) as exc_info:
+    with (
+        patch("tracecat.temporal.errors.logger.warning", logger_warning),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
         with activity_error_boundary(lambda _error: classification):
             raise RuntimeError("raw platform diagnostic")
 
@@ -828,6 +832,10 @@ def test_activity_error_boundary_classifies_unowned_failure() -> None:
     assert extract_error_classification(error) == classification
     assert error.type == classification.kind.value
     assert "raw platform diagnostic" not in error.message
+    logger_warning.assert_called_once()
+    assert logger_warning.call_args.kwargs["error_type"] == "RuntimeError"
+    assert "error" not in logger_warning.call_args.kwargs
+    assert "raw platform diagnostic" not in str(logger_warning.call_args)
 
 
 def test_activity_error_boundary_preserves_existing_classification() -> None:

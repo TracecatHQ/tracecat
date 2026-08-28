@@ -88,7 +88,7 @@ def activity_error_boundary(
         classification = classify(error)
         logger.warning(
             "Activity error boundary classified failure",
-            error=error,
+            error_type=type(error).__name__,
             kind=classification.kind,
             retry_disposition=classification.retry_disposition,
         )
