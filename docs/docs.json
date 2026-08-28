@@ -74,13 +74,15 @@
             "icon": "ticket-check",
             "pages": [
               "automations/cases",
-              "automations/cases/agent-mentions"
+              "automations/cases/agent-mentions",
+              "automations/cases/tasks"
             ]
           },
           {
             "group": "Building agents",
             "icon": "sparkles",
             "pages": [
+              "agents/workspace-chat",
               "agents/ai-action",
               "agents/ai-agent",
               "agents/custom-llm-providers",
