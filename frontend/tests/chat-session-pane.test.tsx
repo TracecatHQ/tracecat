@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -2024,6 +2025,22 @@ describe("ChatSessionPane", () => {
       await waitFor(() => expect(onSelect).toHaveBeenCalledWith("preset-1"))
       expect(sendMessage).not.toHaveBeenCalled()
       expect(textarea).toHaveValue("@Triage agent hello")
+      // The submit rejects, so `submitPrompt` skips the cleanup that would
+      // clear attachments for a message it never sent.
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(textarea).toHaveValue("@Triage agent hello")
+
+      // Rejecting must still release the in-flight guard, or the composer
+      // would be wedged and no later submit could get through.
+      onSelect.mockResolvedValue(true)
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          text: "@Triage agent hello",
+        })
+      )
     })
 
     it("no longer offers tools on @", async () => {

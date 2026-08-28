@@ -131,6 +131,20 @@ function messageHasVisibleParts(message: UIMessage): boolean {
 }
 
 /**
+ * Raised when an `@Agent` mention cannot be persisted, to abandon the submit.
+ *
+ * `submitPrompt` clears attachments after any submit that resolves, so a turn
+ * that never sent has to reject to keep them. The user has already been told
+ * what happened by the toast the preset write raises.
+ */
+class PresetWriteFailedError extends Error {
+  constructor() {
+    super("Failed to persist the mentioned agent preset")
+    this.name = "PresetWriteFailedError"
+  }
+}
+
+/**
  * Whether a part counts as assistant content when attributing a cancelled
  * marker to the message the user stopped. Structural parts (step-start) and
  * data-* markers can share a message with the live-streamed cancelled marker,
@@ -1004,7 +1018,10 @@ export function ChatSessionPane({
       // so the user can retry.
       const applied = await presetSelector.onSelect(agentMention.targetId)
       if (!applied) {
-        return
+        // Reject rather than return: `submitPrompt` treats a resolved submit as
+        // sent and runs its cleanup, which drops any attached files even though
+        // nothing left the composer. It swallows a rejection instead.
+        throw new PresetWriteFailedError()
       }
     }
 
