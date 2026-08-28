@@ -214,6 +214,12 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
             case_id=str(updated.id),
         ),
         _use(
+            "child-mutation",
+            "core.cases.add_case_tag",
+            case_id=str(associated.id),
+            tag="agent-mutated",
+        ),
+        _use(
             "incomplete",
             "core.cases.create_comment",
             case_id=str(commented.id),
@@ -235,6 +241,7 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
         _result("comment"),
         _result("legacy-update"),
         _result("external-update"),
+        _result("child-mutation"),
         _result(
             "create",
             [{"type": "text", "text": f'{{"id":"{created.id}"}}'}],
@@ -262,9 +269,9 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
     assert applied.batches_processed == 3
     assert applied.sessions_scanned == 3
     assert applied.history_rows_scanned == 5
-    assert applied.mutation_candidates == 5
-    assert (applied.inserted, applied.existing) == (3, 2)
-    assert (rerun.inserted, rerun.existing) == (0, 5)
+    assert applied.mutation_candidates == 6
+    assert (applied.inserted, applied.existing) == (4, 2)
+    assert (rerun.inserted, rerun.existing) == (0, 6)
     expected_skips = {
         CaseAgentSessionBackfillSkipReason.FAILED_TOOL_CALL: 1,
         CaseAgentSessionBackfillSkipReason.INCOMPLETE_TOOL_CALL: 1,
@@ -276,4 +283,5 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
         (updated.id, CaseAgentSessionInteractionOperation.UPDATE, root.id),
         (commented.id, CaseAgentSessionInteractionOperation.UPDATE, root.id),
         (edited.id, CaseAgentSessionInteractionOperation.UPDATE, root.id),
+        (associated.id, CaseAgentSessionInteractionOperation.UPDATE, root.id),
     }

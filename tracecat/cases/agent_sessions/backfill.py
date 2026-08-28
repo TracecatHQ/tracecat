@@ -35,11 +35,22 @@ from tracecat.logger import logger
 
 _CREATE_CASE = "core.cases.create_case"
 _UPDATE_COMMENT = "core.cases.update_comment"
+# Successful case deletions leave no case row for the interaction foreign key.
 _CASE_ID_ACTIONS = frozenset(
     {
-        "core.cases.update_case",
+        "core.cases.add_case_tag",
+        "core.cases.assign_user",
+        "core.cases.assign_user_by_email",
         "core.cases.create_comment",
+        "core.cases.delete_attachment",
+        "core.cases.insert_row",
+        "core.cases.link_row",
+        "core.cases.remove_case_tag",
         "core.cases.reply_to_comment",
+        "core.cases.unlink_row",
+        "core.cases.update_case",
+        "core.cases.upload_attachment",
+        "core.cases.upload_attachment_from_url",
     }
 )
 _SUPPORTED_ACTIONS = _CASE_ID_ACTIONS | {_CREATE_CASE, _UPDATE_COMMENT}
