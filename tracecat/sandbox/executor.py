@@ -654,8 +654,14 @@ class NsjailExecutor:
         stderr = completed.stderr.decode("utf-8", errors="replace")
 
         success = returncode == 0
+        error_code: SandboxErrorCode | None = None
 
         if not success:
+            error_code = _classify_missing_nsjail_result(
+                returncode,
+                result_file_exists=False,
+                workload_started=(job_dir / _WORKLOAD_STARTED_SENTINEL).exists(),
+            )
             hint = _nsjail_failure_hint(stderr)
             if hint:
                 stderr = f"{stderr.rstrip()}\n\nnsjail hint: {hint}\n"
@@ -670,6 +676,7 @@ class NsjailExecutor:
             stdout=stdout,
             stderr=stderr,
             error=stderr if not success else None,
+            error_code=error_code,
             exit_code=returncode,
             execution_time_ms=execution_time_ms,
         )

@@ -30,6 +30,7 @@ from tracecat.sandbox.executor import RUN_PYTHON_ACTION_GATEWAY_SOCKET, NsjailEx
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
+    SandboxErrorCode,
     SandboxNetworkPurpose,
     SandboxNetworkRequest,
 )
@@ -247,6 +248,11 @@ class SandboxService:
                 error=result.error,
                 stderr=result.stderr[:500],
             )
+            if result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+                raise_for_sandbox_error_code(
+                    result.error_code,
+                    "Package installation sandbox failed before starting",
+                )
             raise PackageInstallError(
                 f"Failed to install packages: {result.error or 'Unknown error'}"
             )
