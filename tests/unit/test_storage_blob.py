@@ -655,6 +655,96 @@ class TestS3Operations:
         )
 
     @pytest.mark.anyio
+    @patch("tracecat.storage.blob.logger")
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_presigned_upload_can_redact_success_logs(
+        self, mock_get_client, mock_logger
+    ) -> None:
+        """Redacted presigning keeps identifiers out of success logs."""
+
+        sensitive_key = "skill-uploads/tenant-id/private-object"
+        sensitive_bucket = "affected-customer-bucket"
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+        mock_client.generate_presigned_url.return_value = "https://example.com/upload"
+
+        result = await generate_presigned_upload_url(
+            key=sensitive_key,
+            bucket=sensitive_bucket,
+            expiry=60,
+            content_type="application/octet-stream",
+            checksum_sha256="base64-checksum",
+            redact_log_identifiers=True,
+        )
+
+        assert result == "https://example.com/upload"
+        mock_client.generate_presigned_url.assert_awaited_once_with(
+            "put_object",
+            Params={
+                "Bucket": sensitive_bucket,
+                "Key": sensitive_key,
+                "ContentType": "application/octet-stream",
+                "ChecksumSHA256": "base64-checksum",
+            },
+            ExpiresIn=60,
+        )
+        mock_logger.debug.assert_called_once_with(
+            "Generated presigned upload URL",
+            key="<redacted>",
+            bucket="<redacted>",
+            expiry=60,
+            content_type="application/octet-stream",
+            checksum_sha256="base64-checksum",
+        )
+        assert sensitive_key not in str(mock_logger.mock_calls)
+        assert sensitive_bucket not in str(mock_logger.mock_calls)
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.logger")
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_presigned_upload_can_redact_provider_failure(
+        self, mock_get_client, mock_logger
+    ) -> None:
+        """Redacted presigning suppresses identifiers and provider prose."""
+
+        sensitive_key = "skill-uploads/tenant-id/private-object"
+        sensitive_bucket = "affected-customer-bucket"
+        provider_message = f"denied {sensitive_bucket}/{sensitive_key}"
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+        mock_client.generate_presigned_url.side_effect = ClientError(
+            error_response={
+                "Error": {
+                    "Code": "AccessDenied",
+                    "Message": provider_message,
+                }
+            },
+            operation_name="GeneratePresignedUrl",
+        )
+
+        with pytest.raises(blob_module.StoragePresignError) as raised:
+            await generate_presigned_upload_url(
+                key=sensitive_key,
+                bucket=sensitive_bucket,
+                redact_log_identifiers=True,
+            )
+
+        assert raised.value.error_code == "AccessDenied"
+        assert sensitive_key not in str(raised.value)
+        assert sensitive_bucket not in str(raised.value)
+        assert provider_message not in str(raised.value)
+        mock_logger.error.assert_called_once_with(
+            "Failed to generate presigned upload URL",
+            key="<redacted>",
+            bucket="<redacted>",
+            error_code="AccessDenied",
+            error_type="ClientError",
+        )
+        assert sensitive_key not in str(mock_logger.mock_calls)
+        assert sensitive_bucket not in str(mock_logger.mock_calls)
+        assert provider_message not in str(mock_logger.mock_calls)
+
+    @pytest.mark.anyio
     async def test_presigned_aws_url_uses_regional_sigv4_host(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

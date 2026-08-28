@@ -63,6 +63,14 @@ class StorageCopyError(RuntimeError):
         self.error_code = error_code
 
 
+class StoragePresignError(RuntimeError):
+    """Storage URL generation failed without exposing object identifiers."""
+
+    def __init__(self, *, error_code: str | None) -> None:
+        super().__init__("Storage URL generation failed")
+        self.error_code = error_code
+
+
 def _storage_log_identifiers(
     key: str,
     bucket: str,
@@ -480,6 +488,7 @@ async def generate_presigned_upload_url(
     expiry: int | None = None,
     content_type: str | None = None,
     checksum_sha256: str | None = None,
+    redact_log_identifiers: bool = False,
 ) -> str:
     """Generate a presigned URL for uploading a file.
 
@@ -489,14 +498,22 @@ async def generate_presigned_upload_url(
         expiry: URL expiry time in seconds (defaults to config)
         content_type: Optional content type constraint
         checksum_sha256: Optional base64-encoded SHA-256 checksum constraint
+        redact_log_identifiers: Hide the key, bucket, and provider prose in logs
+            and raised errors.
 
     Returns:
         Presigned URL for uploading the file
 
     Raises:
-        ClientError: If URL generation fails
+        ClientError: If an unredacted URL generation fails.
+        StoragePresignError: If a redacted URL generation fails.
     """
     expiry = expiry or config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+    log_key, log_bucket = _storage_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
 
     params = {"Bucket": bucket, "Key": key}
     if content_type:
@@ -504,8 +521,8 @@ async def generate_presigned_upload_url(
     if checksum_sha256 is not None:
         params["ChecksumSHA256"] = checksum_sha256
 
-    async with get_storage_client() as s3_client:
-        try:
+    try:
+        async with get_storage_client() as s3_client:
             url = await s3_client.generate_presigned_url(
                 "put_object",
                 Params=params,
@@ -514,21 +531,44 @@ async def generate_presigned_upload_url(
             url = _rewrite_presigned_endpoint(url)
             logger.debug(
                 "Generated presigned upload URL",
-                key=key,
-                bucket=bucket,
+                key=log_key,
+                bucket=log_bucket,
                 expiry=expiry,
                 content_type=content_type,
                 checksum_sha256=checksum_sha256,
             )
             return url
-        except ClientError as e:
+    except ClientError as e:
+        if redact_log_identifiers:
+            error_code = _safe_storage_error_code(
+                e.response.get("Error", {}).get("Code")
+            )
             logger.error(
                 "Failed to generate presigned upload URL",
-                key=key,
-                bucket=bucket,
-                error=str(e),
+                key=log_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
             )
+            raise StoragePresignError(error_code=error_code) from None
+        logger.error(
+            "Failed to generate presigned upload URL",
+            key=key,
+            bucket=bucket,
+            error=str(e),
+        )
+        raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
             raise
+        logger.error(
+            "Failed to generate presigned upload URL",
+            key=log_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StoragePresignError(error_code=None) from None
 
 
 async def upload_file(

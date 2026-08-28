@@ -2722,6 +2722,7 @@ class SkillService(BaseWorkspaceService):
                         content_type=content_type,
                         checksum_sha256=checksum_sha256,
                         expiry=url_expiry_seconds,
+                        redact_log_identifiers=True,
                     ),
                     headers={
                         "Content-Type": content_type,

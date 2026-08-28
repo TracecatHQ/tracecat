@@ -2207,7 +2207,9 @@ class TestSkillService:
             content_type: str,
             checksum_sha256: str,
             expiry: int,
+            redact_log_identifiers: bool = False,
         ) -> str:
+            assert redact_log_identifiers is True
             captured.append(
                 (
                     key,
