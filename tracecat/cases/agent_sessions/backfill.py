@@ -373,7 +373,6 @@ class CaseAgentSessionBackfill:
     async def _resolve_interactions(
         self,
         source_mutations: Sequence[_SourceMutation],
-        seen: set[_InteractionKey],
     ) -> tuple[set[_InteractionKey], Counter[CaseAgentSessionBackfillSkipReason]]:
         """Resolve comment targets, cases, and root sessions for one batch."""
         comment_keys = {
@@ -451,9 +450,7 @@ class CaseAgentSessionBackfill:
                 case_id,
                 mutation.operation,
             )
-            if interaction not in seen:
-                seen.add(interaction)
-                interactions.add(interaction)
+            interactions.add(interaction)
 
         return interactions, skipped
 
@@ -506,7 +503,6 @@ class CaseAgentSessionBackfill:
         inserted = 0
         existing = 0
         skipped: Counter[CaseAgentSessionBackfillSkipReason] = Counter()
-        seen: set[_InteractionKey] = set()
 
         while sessions := await self._next_batch(
             after_surrogate_id=after_surrogate_id,
@@ -521,8 +517,7 @@ class CaseAgentSessionBackfill:
                 batch_skips.update(parse_skips)
 
             interactions, resolution_skips = await self._resolve_interactions(
-                source_mutations,
-                seen,
+                source_mutations
             )
             batch_inserted, batch_existing = await self._insert_interactions(
                 interactions

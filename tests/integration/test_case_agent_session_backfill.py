@@ -250,15 +250,15 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
     assert await _interactions(session, workspace_id) == {
         (updated.id, CaseAgentSessionInteractionOperation.UPDATE, root.id)
     }
-    applied = await backfill.run()
-    rerun = await backfill.run()
+    applied = await backfill.run(batch_size=1)
+    rerun = await backfill.run(batch_size=1)
 
-    assert applied.batches_processed == 1
+    assert applied.batches_processed == 3
     assert applied.sessions_scanned == 3
     assert applied.history_rows_scanned == 5
     assert applied.mutation_candidates == 5
-    assert (applied.inserted, applied.existing) == (3, 1)
-    assert (rerun.inserted, rerun.existing) == (0, 4)
+    assert (applied.inserted, applied.existing) == (3, 2)
+    assert (rerun.inserted, rerun.existing) == (0, 5)
     expected_skips = {
         CaseAgentSessionBackfillSkipReason.FAILED_TOOL_CALL: 1,
         CaseAgentSessionBackfillSkipReason.INCOMPLETE_TOOL_CALL: 1,
