@@ -1686,9 +1686,17 @@ class ClaudeAgentRuntime:
             )
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
+            reserved_subagent_server_names = {
+                server_name
+                for subagent in payload.subagents
+                for server_name in (
+                    self._subagent_registry_server_name(subagent.alias),
+                    f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-{subagent.alias}",
+                )
+            }
             stdio_mcp_spec = self._stdio_mcp_server_spec(
                 source_configs=payload.config.mcp_servers,
-                existing_names=set(mcp_servers),
+                existing_names=set(mcp_servers) | reserved_subagent_server_names,
             )
             self._stdio_approval_blocked_tools = stdio_mcp_spec.blocked_approval_tools
             stdio_mcp_servers = stdio_mcp_spec.servers

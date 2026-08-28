@@ -1460,7 +1460,19 @@ class TestClaudeAgentRuntimeRun:
                             "enabled": True,
                             "subagents": [{"preset": "analyst"}],
                         }
-                    )
+                    ),
+                    "mcp_servers": [
+                        {
+                            "type": "stdio",
+                            "name": "tracecat-registry-analyst",
+                            "command": "canonical-collision",
+                        },
+                        {
+                            "type": "stdio",
+                            "name": "tracecat_registry-analyst",
+                            "command": "legacy-collision",
+                        },
+                    ],
                 }
             ),
             subagents=[child],
@@ -1488,7 +1500,15 @@ class TestClaudeAgentRuntimeRun:
                     "Authorization": "Bearer test-jwt-token",
                     "Accept-Encoding": "identity",
                 },
-            }
+            },
+            "tracecat-registry-analyst-2": {
+                "type": "stdio",
+                "command": "canonical-collision",
+            },
+            "tracecat_registry-analyst-2": {
+                "type": "stdio",
+                "command": "legacy-collision",
+            },
         }
         agent_def = options.agents["analyst"]
         assert agent_def.model == "openai/gpt-5-mini"

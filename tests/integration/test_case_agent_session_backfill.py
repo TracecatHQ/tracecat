@@ -127,6 +127,10 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
         "tracecat.cases.agent_sessions.backfill._HISTORY_FETCH_SIZE",
         1,
     )
+    monkeypatch.setattr(
+        "tracecat.cases.agent_sessions.backfill._INTERACTION_INSERT_BATCH_SIZE",
+        1,
+    )
     assert svc_role.workspace_id is not None
     workspace_id = svc_role.workspace_id
     created, updated, commented, edited, associated = [

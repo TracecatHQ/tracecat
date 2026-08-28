@@ -6,6 +6,7 @@ import uuid
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import batched
 from typing import Any, Literal
 
 import orjson
@@ -38,6 +39,7 @@ from tracecat.logger import logger
 _CREATE_CASE = "core.cases.create_case"
 _UPDATE_COMMENT = "core.cases.update_comment"
 _HISTORY_FETCH_SIZE = 100
+_INTERACTION_INSERT_BATCH_SIZE = 1000
 # Successful case deletions leave no case row for the interaction foreign key.
 _CASE_ID_ACTIONS = frozenset(
     {
@@ -240,14 +242,21 @@ def _history_content(
 
 
 class _MutationParser:
-    """Incrementally match mutation tool calls with their results."""
+    """Match tool calls incrementally and retain only unique mutations."""
 
-    __slots__ = ("mutations", "pending", "skipped", "trusted_mcp_server_names")
+    __slots__ = (
+        "mutation_candidates",
+        "mutations",
+        "pending",
+        "skipped",
+        "trusted_mcp_server_names",
+    )
 
     def __init__(self, trusted_mcp_server_names: frozenset[str]) -> None:
         self.trusted_mcp_server_names = trusted_mcp_server_names
         self.pending: dict[str, _PendingMutation] = {}
-        self.mutations: list[_Mutation] = []
+        self.mutations: set[_Mutation] = set()
+        self.mutation_candidates = 0
         self.skipped: Counter[CaseAgentSessionBackfillSkipReason] = Counter()
 
     def add(
@@ -310,7 +319,8 @@ class _MutationParser:
                     CaseAgentSessionBackfillSkipReason.UNPARSEABLE_TOOL_CALL
                 ] += 1
                 continue
-            self.mutations.append(
+            self.mutation_candidates += 1
+            self.mutations.add(
                 _Mutation(
                     target=target,
                     target_id=target_id,
@@ -320,13 +330,17 @@ class _MutationParser:
 
     def finish(
         self,
-    ) -> tuple[list[_Mutation], Counter[CaseAgentSessionBackfillSkipReason]]:
+    ) -> tuple[
+        set[_Mutation],
+        int,
+        Counter[CaseAgentSessionBackfillSkipReason],
+    ]:
         if self.pending:
             self.skipped[CaseAgentSessionBackfillSkipReason.INCOMPLETE_TOOL_CALL] += (
                 len(self.pending)
             )
             self.pending.clear()
-        return self.mutations, self.skipped
+        return self.mutations, self.mutation_candidates, self.skipped
 
 
 class CaseAgentSessionBackfill:
@@ -380,6 +394,7 @@ class CaseAgentSessionBackfill:
     ) -> tuple[
         list[_SourceMutation],
         int,
+        int,
         Counter[CaseAgentSessionBackfillSkipReason],
     ]:
         """Stream history rows and parse mutations without retaining payloads."""
@@ -411,12 +426,14 @@ class CaseAgentSessionBackfill:
                 on_progress()
 
         source_mutations: list[_SourceMutation] = []
+        mutation_candidates = 0
         skipped: Counter[CaseAgentSessionBackfillSkipReason] = Counter()
         for source in sessions:
-            mutations, parse_skips = parsers[source.id].finish()
+            mutations, source_candidates, parse_skips = parsers[source.id].finish()
             source_mutations.extend((source, mutation) for mutation in mutations)
+            mutation_candidates += source_candidates
             skipped.update(parse_skips)
-        return source_mutations, history_rows_scanned, skipped
+        return source_mutations, mutation_candidates, history_rows_scanned, skipped
 
     async def _resolve_root_session_ids(
         self,
@@ -564,33 +581,32 @@ class CaseAgentSessionBackfill:
         if not interactions:
             return 0, 0
 
-        values = [
-            {
-                "id": uuid.uuid4(),
-                "workspace_id": workspace_id,
-                "agent_session_id": root_id,
-                "case_id": case_id,
-                "operation": operation,
-            }
-            for workspace_id, root_id, case_id, operation in sorted(
-                interactions,
-                key=lambda item: tuple(str(value) for value in item),
+        inserted = 0
+        for chunk in batched(interactions, _INTERACTION_INSERT_BATCH_SIZE):
+            values = [
+                {
+                    "id": uuid.uuid4(),
+                    "workspace_id": workspace_id,
+                    "agent_session_id": root_id,
+                    "case_id": case_id,
+                    "operation": operation,
+                }
+                for workspace_id, root_id, case_id, operation in chunk
+            ]
+            inserted_ids = await self.session.scalars(
+                pg_insert(CaseAgentSessionInteraction)
+                .values(values)
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        "workspace_id",
+                        "case_id",
+                        "agent_session_id",
+                        "operation",
+                    ]
+                )
+                .returning(CaseAgentSessionInteraction.id)
             )
-        ]
-        inserted_ids = await self.session.scalars(
-            pg_insert(CaseAgentSessionInteraction)
-            .values(values)
-            .on_conflict_do_nothing(
-                index_elements=[
-                    "workspace_id",
-                    "case_id",
-                    "agent_session_id",
-                    "operation",
-                ]
-            )
-            .returning(CaseAgentSessionInteraction.id)
-        )
-        inserted = len(inserted_ids.all())
+            inserted += len(inserted_ids.all())
         return inserted, len(interactions) - inserted
 
     async def run(
@@ -618,6 +634,7 @@ class CaseAgentSessionBackfill:
         ):
             (
                 source_mutations,
+                batch_mutation_candidates,
                 batch_history_rows,
                 batch_skips,
             ) = await self._load_mutations(sessions, on_progress=on_progress)
@@ -633,7 +650,7 @@ class CaseAgentSessionBackfill:
             batches_processed += 1
             sessions_scanned += len(sessions)
             history_rows_scanned += batch_history_rows
-            mutation_candidates += len(source_mutations)
+            mutation_candidates += batch_mutation_candidates
             inserted += batch_inserted
             existing += batch_existing
             skipped.update(batch_skips)
@@ -647,7 +664,7 @@ class CaseAgentSessionBackfill:
                 batch_number=batches_processed,
                 sessions=len(sessions),
                 history_rows=batch_history_rows,
-                mutation_candidates=len(source_mutations),
+                mutation_candidates=batch_mutation_candidates,
                 inserted=batch_inserted,
                 existing=batch_existing,
                 skipped=sum(batch_skips.values()),
