@@ -8,6 +8,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from asyncpg import UniqueViolationError
@@ -2516,6 +2517,7 @@ class TestSkillService:
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Legacy archived-only skills remain unbindable and resolve as archived."""
 
@@ -2554,6 +2556,8 @@ class TestSkillService:
         assert bind_detail is not None
         assert bind_detail["code"] == "skill_not_found"
 
+        captured_logger = MagicMock()
+        monkeypatch.setattr(skill_service, "logger", captured_logger)
         result = await skill_service.get_resolved_skill_refs_for_preset_version(
             preset.current_version_id
         )
@@ -2561,6 +2565,15 @@ class TestSkillService:
         assert len(result.skipped) == 1
         assert result.skipped[0].skill_id == created.id
         assert result.skipped[0].reason == "deleted"
+        captured_logger.warning.assert_called_once_with(
+            "Skipping preset skill ref during current-head resolution",
+            reason="deleted",
+        )
+        logged_call = repr(captured_logger.warning.call_args)
+        assert created.slug not in logged_call
+        assert created.name not in logged_call
+        assert str(created.id) not in logged_call
+        assert str(preset.current_version_id) not in logged_call
 
     async def test_legacy_archived_skill_api_projection_reports_deleted_at(
         self,

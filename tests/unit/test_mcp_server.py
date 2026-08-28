@@ -8333,7 +8333,7 @@ async def test_get_agent_preset_returns_full_configuration(
         (None, "0-0"),
     ],
 )
-async def test_run_agent_preset_uses_session_stream_cursor(
+async def test_run_agent_preset_accepts_ignored_version_and_uses_stream_cursor(
     monkeypatch: pytest.MonkeyPatch,
     last_stream_id: str | None,
     expected_start_id: str,
@@ -8408,6 +8408,7 @@ async def test_run_agent_preset_uses_session_stream_cursor(
         workspace_id=str(workspace_id),
         preset_slug="triage",
         prompt="check alerts",
+        preset_version=7,
     )
 
     assert result == "agent response"

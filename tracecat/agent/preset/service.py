@@ -1031,8 +1031,6 @@ class AgentPresetService(BaseWorkspaceService):
 
         self.logger.warning(
             "Skipping subagent preset ref during current-head resolution",
-            preset_id=str(skipped_ref.preset_id) if skipped_ref.preset_id else None,
-            preset_slug=skipped_ref.preset_slug,
             reason=skipped_ref.reason,
         )
 

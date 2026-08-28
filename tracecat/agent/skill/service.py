@@ -2508,7 +2508,7 @@ class SkillService(BaseWorkspaceService):
                     reason="deleted",
                 )
                 skipped.append(skipped_ref)
-                self._log_skipped_skill_ref(skipped_ref, preset_version_id)
+                self._log_skipped_skill_ref(skipped_ref)
                 continue
             if skill_version_id is None or skill_name is None:
                 skipped_ref = SkippedSkillRef(
@@ -2518,7 +2518,7 @@ class SkillService(BaseWorkspaceService):
                     reason="unpublished",
                 )
                 skipped.append(skipped_ref)
-                self._log_skipped_skill_ref(skipped_ref, preset_version_id)
+                self._log_skipped_skill_ref(skipped_ref)
                 continue
             resolved.append(
                 ResolvedSkillRef(
@@ -2530,18 +2530,12 @@ class SkillService(BaseWorkspaceService):
             )
         return ResolvedSkillRefsResult(refs=resolved, skipped=skipped)
 
-    def _log_skipped_skill_ref(
-        self, skipped_ref: SkippedSkillRef, preset_version_id: uuid.UUID
-    ) -> None:
+    def _log_skipped_skill_ref(self, skipped_ref: SkippedSkillRef) -> None:
         """Record a non-fatal skill resolution skip."""
 
         self.logger.warning(
             "Skipping preset skill ref during current-head resolution",
-            skill_id=str(skipped_ref.skill_id),
-            skill_slug=skipped_ref.skill_slug,
-            skill_name=skipped_ref.skill_name,
             reason=skipped_ref.reason,
-            preset_version_id=str(preset_version_id),
         )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
