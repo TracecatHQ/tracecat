@@ -5735,7 +5735,7 @@ export const agentPresetsCompareAgentPresetVersions = (
 
 /**
  * Restore Agent Preset Version
- * Restore a historical preset version as current.
+ * Restore historical preset content as a new current version.
  * @param data The data for the request.
  * @param data.presetId
  * @param data.versionId
@@ -6567,7 +6567,7 @@ export const agentSkillsGetSkillVersionFile = (
 
 /**
  * Restore Skill Version
- * Restore a historical version as the current selected skill version.
+ * Restore historical skill content as a new current version.
  * @param data The data for the request.
  * @param data.skillId
  * @param data.versionId

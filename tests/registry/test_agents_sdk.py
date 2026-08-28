@@ -80,6 +80,28 @@ async def test_run_omits_null_config_fields(
     assert "catalog_id" not in config
 
 
+@pytest.mark.anyio
+async def test_run_accepts_deprecated_preset_version(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    await agents_client.run(
+        user_prompt="Summarize this",
+        preset_slug="case-triage",
+        preset_version=3,
+    )
+
+    mock_tracecat_client.post.assert_awaited_once_with(
+        "/agent/run",
+        json={
+            "user_prompt": "Summarize this",
+            "max_requests": 120,
+            "preset_slug": "case-triage",
+            "preset_version": 3,
+        },
+    )
+
+
 def test_agent_config_rejects_agents_option() -> None:
     config_kwargs = cast(
         Any,

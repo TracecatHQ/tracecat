@@ -2352,7 +2352,7 @@ export const $AgentPresetCreate = {
       title: "Mcp Integrations",
     },
     agents: {
-      $ref: "#/components/schemas/AgentSubagentsConfig-Input",
+      $ref: "#/components/schemas/AuthoredAgentsConfig",
     },
     retries: {
       type: "integer",
@@ -2642,7 +2642,7 @@ export const $AgentPresetRead = {
       title: "Mcp Integrations",
     },
     agents: {
-      $ref: "#/components/schemas/AgentSubagentsConfig-Output",
+      $ref: "#/components/schemas/AgentSubagentsConfig",
     },
     retries: {
       type: "integer",
@@ -3180,7 +3180,7 @@ export const $AgentPresetUpdate = {
     agents: {
       anyOf: [
         {
-          $ref: "#/components/schemas/AgentSubagentsConfig-Input",
+          $ref: "#/components/schemas/AuthoredAgentsConfig",
         },
         {
           type: "null",
@@ -3447,7 +3447,7 @@ export const $AgentPresetVersionRead = {
       title: "Mcp Integrations",
     },
     agents: {
-      $ref: "#/components/schemas/AgentSubagentsConfig-Output",
+      $ref: "#/components/schemas/AgentSubagentsConfig",
     },
     retries: {
       type: "integer",
@@ -4595,7 +4595,7 @@ export const $AgentSettingsUpdate = {
   title: "AgentSettingsUpdate",
 } as const
 
-export const $AgentSubagentsConfig_Input = {
+export const $AgentSubagentsConfig = {
   properties: {
     enabled: {
       type: "boolean",
@@ -4604,7 +4604,7 @@ export const $AgentSubagentsConfig_Input = {
     },
     subagents: {
       items: {
-        $ref: "#/components/schemas/AnyAttachedSubagentRef",
+        $ref: "#/components/schemas/CompatibleAttachedSubagentRef",
       },
       type: "array",
       title: "Subagents",
@@ -4613,30 +4613,10 @@ export const $AgentSubagentsConfig_Input = {
   additionalProperties: false,
   type: "object",
   title: "AgentSubagentsConfig",
-  description:
-    "User-facing agents toggle and optional preset-backed subagents.",
-} as const
+  description: `Mixed-version compatibility parser for authored and persisted refs.
 
-export const $AgentSubagentsConfig_Output = {
-  properties: {
-    enabled: {
-      type: "boolean",
-      title: "Enabled",
-      default: false,
-    },
-    subagents: {
-      items: {
-        $ref: "#/components/schemas/AnyAttachedSubagentRef",
-      },
-      type: "array",
-      title: "Subagents",
-    },
-  },
-  additionalProperties: false,
-  type: "object",
-  title: "AgentSubagentsConfig",
-  description:
-    "User-facing agents toggle and optional preset-backed subagents.",
+New state-specific boundaries should use :class:\`AuthoredAgentsConfig\`,
+:class:\`HeadAgentsConfig\`, or :class:\`ResolvedAgentsConfig\` instead.`,
 } as const
 
 export const $AgentTagRead = {
@@ -4706,17 +4686,6 @@ export const $AlertArtifact = {
   description: "Alert artifact stub. Extend when alert surfaces are wired.",
 } as const
 
-export const $AnyAttachedSubagentRef = {
-  anyOf: [
-    {
-      $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
-    },
-    {
-      $ref: "#/components/schemas/AttachedSubagentRef",
-    },
-  ],
-} as const
-
 export const $AppSettingsRead = {
   properties: {
     app_registry_validation_enabled: {
@@ -4742,10 +4711,6 @@ export const $AppSettingsRead = {
     app_action_form_mode_enabled: {
       type: "boolean",
       title: "App Action Form Mode Enabled",
-    },
-    app_versioned_resource_resolution_strategy: {
-      $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
-      default: "latest",
     },
   },
   type: "object",
@@ -4801,12 +4766,6 @@ export const $AppSettingsUpdate = {
       description:
         "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
       default: true,
-    },
-    app_versioned_resource_resolution_strategy: {
-      $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
-      description:
-        "How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.",
-      default: "latest",
     },
   },
   type: "object",
@@ -5350,18 +5309,6 @@ export const $AttachedSubagentRef = {
       minLength: 1,
       title: "Preset",
     },
-    preset_version: {
-      anyOf: [
-        {
-          type: "integer",
-          minimum: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Preset Version",
-    },
     name: {
       anyOf: [
         {
@@ -5841,6 +5788,28 @@ export const $AuthDiscoveryMethod = {
   enum: ["basic", "oidc", "saml"],
   title: "AuthDiscoveryMethod",
   description: "Authentication method hint for client-side routing.",
+} as const
+
+export const $AuthoredAgentsConfig = {
+  properties: {
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: false,
+    },
+    subagents: {
+      items: {
+        $ref: "#/components/schemas/AttachedSubagentRef",
+      },
+      type: "array",
+      title: "Subagents",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "AuthoredAgentsConfig",
+  description:
+    "User-authored subagent refs that have not resolved to ResourceHeads.",
 } as const
 
 export const $AwsAssumeRoleAccessRead = {
@@ -11346,6 +11315,20 @@ export const $CommitInfo = {
   title: "CommitInfo",
 } as const
 
+export const $CompatibleAttachedSubagentRef = {
+  anyOf: [
+    {
+      $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
+    },
+    {
+      $ref: "#/components/schemas/HeadAttachedSubagentRef",
+    },
+    {
+      $ref: "#/components/schemas/AttachedSubagentRef",
+    },
+  ],
+} as const
+
 export const $ContinueRunRequest = {
   properties: {
     kind: {
@@ -15446,6 +15429,65 @@ export const $HarnessType = {
   enum: ["pydantic-ai", "claude_code"],
   title: "HarnessType",
   description: "Supported agent harnesses.",
+} as const
+
+export const $HeadAttachedSubagentRef = {
+  properties: {
+    preset: {
+      type: "string",
+      maxLength: 160,
+      minLength: 1,
+      title: "Preset",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 80,
+          minLength: 1,
+          pattern: "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    max_turns: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Turns",
+    },
+    preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Id",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["preset", "preset_id"],
+  title: "HeadAttachedSubagentRef",
+  description: "Stable internal reference to a child preset ResourceHead.",
 } as const
 
 export const $HealthResponse = {
@@ -22240,18 +22282,6 @@ export const $ResolvedAttachedSubagentRef = {
       minLength: 1,
       title: "Preset",
     },
-    preset_version: {
-      anyOf: [
-        {
-          type: "integer",
-          minimum: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Preset Version",
-    },
     name: {
       anyOf: [
         {
@@ -22299,6 +22329,18 @@ export const $ResolvedAttachedSubagentRef = {
       type: "string",
       format: "uuid",
       title: "Preset Version Id",
+    },
+    preset_version: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preset Version",
     },
   },
   additionalProperties: false,
@@ -29803,12 +29845,6 @@ export const $VersionDiff = {
   ],
   title: "VersionDiff",
   description: "Result of comparing two registry versions.",
-} as const
-
-export const $VersionedResourceResolutionStrategy = {
-  type: "string",
-  enum: ["pinned", "latest"],
-  title: "VersionedResourceResolutionStrategy",
 } as const
 
 export const $VertexAICatalogCreate = {

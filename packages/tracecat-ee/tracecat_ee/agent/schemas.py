@@ -80,10 +80,19 @@ class PresetAgentActionArgs(BaseModel):
     model_config = _BASE_CONFIG
 
     preset: str
-    preset_version: int | None = None
     user_prompt: str
     actions: list[str] | None = None
     instructions: str | None = None
+    preset_version: int | None = Field(
+        default=None,
+        deprecated=True,
+        description=(
+            "Deprecated and ignored: preset resources resolve through their "
+            "heads, and the exact versions used by a run are recorded in its "
+            "execution manifest. Accepted only so existing workflow "
+            "definitions keep validating."
+        ),
+    )
     session_id: uuid.UUID | None = None
     max_tool_calls: int = Field(
         default=15,

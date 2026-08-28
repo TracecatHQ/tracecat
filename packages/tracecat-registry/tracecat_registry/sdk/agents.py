@@ -340,7 +340,7 @@ class AgentsClient:
             user_prompt: The prompt for the agent.
             config: Inline agent configuration.
             preset_slug: Slug of a preset to use (resolves on server).
-            preset_version: Optional preset version number to pin.
+            preset_version: Deprecated and ignored preset version selector.
             max_requests: Maximum LLM requests.
             max_tool_calls: Maximum tool calls.
 

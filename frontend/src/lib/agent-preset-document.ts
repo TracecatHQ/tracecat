@@ -3,7 +3,7 @@ import type {
   AgentPresetCreate,
   AgentPresetSkillBindingRead,
   AgentPresetVersionRead,
-  AnyAttachedSubagentRef,
+  CompatibleAttachedSubagentRef,
   OutputType,
 } from "@/client"
 
@@ -197,7 +197,7 @@ function normalizeToolApprovals(
  * sorting by the label the user actually sees.
  */
 function normalizeSubagents(
-  subagents: readonly AnyAttachedSubagentRef[] | null | undefined
+  subagents: readonly CompatibleAttachedSubagentRef[] | null | undefined
 ): AgentPresetSubagentEntry[] {
   if (!subagents) {
     return []
@@ -206,7 +206,9 @@ function normalizeSubagents(
     .map((subagent) => ({
       name: subagent.name ?? null,
       preset: subagent.preset,
-      presetVersion: subagent.preset_version ?? null,
+      // Head refs carry no version pin - they always track the latest.
+      presetVersion:
+        "preset_version" in subagent ? (subagent.preset_version ?? null) : null,
       maxTurns: subagent.max_turns ?? null,
       description: subagent.description ?? null,
     }))
@@ -268,8 +270,8 @@ function agentPresetExecutionFieldsToDocumentInput(
   skillNamesById: ReadonlyMap<string, string>
 ): AgentPresetDocumentInput {
   const subagentsEnabled = fields.agents?.enabled ?? false
-  // Mirrors `formValuesToAgentsPayload` in the builder: a disabled toggle drops
-  // the attachments entirely, so a stale list must not show up in the diff.
+  // Mirrors `buildAuthoredAgentsConfig`: a disabled toggle drops the attachments
+  // entirely, so a stale list must not show up in the diff.
   const subagents = subagentsEnabled
     ? normalizeSubagents(fields.agents?.subagents)
     : []

@@ -18,7 +18,7 @@ from tracecat.agent.preset.schemas import (
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.agent.subagents import AuthoredAgentsConfig
 from tracecat.agent.types import OutputType
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
@@ -76,7 +76,7 @@ class PresetCreateRequest(BaseModel):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
-    agents: AgentSubagentsConfig | None = Field(default=None)
+    agents: AuthoredAgentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
@@ -114,7 +114,7 @@ class PresetUpdateRequest(BaseModel):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
-    agents: AgentSubagentsConfig | None = Field(default=None)
+    agents: AuthoredAgentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
     enable_thinking: bool | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
@@ -173,6 +173,9 @@ async def list_presets(
     """List all agent presets for the workspace."""
     service = AgentPresetService(session, role=role)
     presets = await service.list_presets()
+    # Shared minimal builder: applies the expand-window effective-enabled
+    # fallback; a hand-rolled column-only projection here is what let the
+    # legacy-JSON gap drift in.
     return [build_agent_preset_read_minimal(preset) for preset in presets]
 
 

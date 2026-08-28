@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
+from tracecat.agent.subagents import (
+    AgentSubagentsConfig,
+    AuthoredAgentsConfig,
+    has_manual_tool_approvals,
+)
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
@@ -107,7 +111,7 @@ class AgentPresetExecutionConfigWrite(Schema):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
-    agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
+    agents: AuthoredAgentsConfig = Field(default_factory=AuthoredAgentsConfig)
     retries: int = Field(default=3, ge=0)
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
@@ -149,7 +153,7 @@ class AgentPresetUpdate(BaseModel):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
-    agents: AgentSubagentsConfig | None = Field(default=None)
+    agents: AuthoredAgentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
     enable_thinking: bool | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
@@ -178,7 +182,16 @@ class AgentPresetReadMinimal(Schema):
 
 
 def effective_subagents_enabled(subagents_enabled: bool, agents: object) -> bool:
-    """Return the fail-closed enabled bit during the dual-write window."""
+    """Effective subagents-enabled bit for expand-window rows.
+
+    Old pods write only the legacy ``agents`` JSON, leaving the normalized
+    ``subagents_enabled`` column false until a reconciling detail read repairs
+    it; list projections must not mark such presets non-attachable (or
+    attachable presets nested) in the meantime. Reads the ``enabled`` key
+    directly instead of validating the full model so migrated slug-only
+    shapes can never raise here. The reverse divergence (column true, JSON
+    false) keeps the column value; the save-time validator fails closed.
+    """
 
     if subagents_enabled:
         return True
@@ -191,10 +204,7 @@ def build_agent_preset_read_minimal(
     """Build a minimal preset response without exposing approval rule details."""
     read = AgentPresetReadMinimal.model_validate(preset)
     agents_config = AgentSubagentsConfig(
-        enabled=effective_subagents_enabled(
-            preset.subagents_enabled,
-            preset.agents,
-        )
+        enabled=effective_subagents_enabled(preset.subagents_enabled, preset.agents)
     )
     tool_approvals = cast(Mapping[str, bool] | None, preset.tool_approvals)
     return read.model_copy(

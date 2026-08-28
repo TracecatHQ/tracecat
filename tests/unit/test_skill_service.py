@@ -3465,11 +3465,11 @@ class TestSkillService:
         finally:
             await concurrent_engine.dispose()
 
-    async def test_restore_version_updates_current_version_without_replacing_draft(
+    async def test_restore_version_rolls_content_forward_without_replacing_draft(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Restoring a version should move the head pointer without rewriting draft files."""
+        """Restoring mints N+1 from historical content without rewriting the draft."""
 
         created = await skill_service.create_skill(SkillCreate(name="snapshot-skill"))
         draft = await skill_service.get_draft(created.id)
@@ -3533,16 +3533,28 @@ class TestSkillService:
             skill_id=created.id,
             version_id=version_one.id,
         )
+        assert restored.current_version_id is not None
         restored_draft = await skill_service.get_draft(created.id)
         restored_file = await skill_service.get_draft_file(
             skill_id=created.id,
             path="references/guide.md",
         )
+        restored_version = await skill_service.get_version_read(
+            skill_id=created.id,
+            version_id=restored.current_version_id,
+        )
+        versions = await skill_service.list_versions(
+            skill_id=created.id,
+            params=CursorPaginationParams(limit=10),
+        )
 
         assert isinstance(restored, SkillReadMinimal)
-        assert restored.current_version_id == version_one.id
+        assert restored.current_version_id not in {version_one.id, version_two.id}
         assert restored.name == version_one.name
         assert restored.description == version_one.description
+        assert restored_version.version == 3
+        assert restored_version.name == version_one.name
+        assert len(versions.items) == 3
         assert restored_draft is not None
         assert restored_draft.draft_revision == current_draft.draft_revision
         assert restored_draft.name == "version-two"
@@ -4028,6 +4040,7 @@ class TestSkillService:
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Legacy archived-only skills remain unbindable and resolve as archived."""
 
@@ -4066,16 +4079,24 @@ class TestSkillService:
         assert bind_detail is not None
         assert bind_detail["code"] == "skill_not_found"
 
-        for use_latest_versions in (False, True):
-            with pytest.raises(TracecatValidationError) as resolve_exc_info:
-                await skill_service.get_resolved_skill_refs_for_preset_version(
-                    preset.current_version_id,
-                    use_latest_versions=use_latest_versions,
-                )
-            resolve_detail = resolve_exc_info.value.detail
-            assert resolve_detail is not None
-            assert resolve_detail["code"] == "skill_archived"
-            assert str(created.id) in str(resolve_detail["skills"])
+        captured_logger = MagicMock()
+        monkeypatch.setattr(skill_service, "logger", captured_logger)
+        result = await skill_service.get_resolved_skill_refs_for_preset_version(
+            preset.current_version_id
+        )
+        assert result.refs == []
+        assert len(result.skipped) == 1
+        assert result.skipped[0].skill_id == created.id
+        assert result.skipped[0].reason == "deleted"
+        captured_logger.warning.assert_called_once_with(
+            "Skipping preset skill ref during current-head resolution",
+            reason="deleted",
+        )
+        logged_call = repr(captured_logger.warning.call_args)
+        assert created.slug not in logged_call
+        assert created.name not in logged_call
+        assert str(created.id) not in logged_call
+        assert str(preset.current_version_id) not in logged_call
 
     async def test_legacy_archived_skill_api_projection_reports_deleted_at(
         self,

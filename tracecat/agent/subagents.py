@@ -48,10 +48,24 @@ class AttachedSubagentRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     preset: PresetRef
-    preset_version: int | None = Field(default=None, ge=1)
     name: AgentAlias | None = Field(default=None)
     description: str | None = Field(default=None, max_length=1000)
     max_turns: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def ignore_legacy_version_selector(cls, data: object) -> object:
+        """Ignore the retired authored selector without weakening extra checks."""
+
+        if (
+            isinstance(data, Mapping)
+            and "preset_version" in data
+            and "preset_version_id" not in data
+        ):
+            normalized = dict(data)
+            normalized.pop("preset_version", None)
+            return normalized
+        return data
 
     @property
     def alias(self) -> str:
@@ -59,24 +73,39 @@ class AttachedSubagentRef(BaseModel):
         return self.name or self.preset
 
 
-class ResolvedAttachedSubagentRef(AttachedSubagentRef):
-    """Persisted subagent ref with immutable preset/version identifiers."""
+class HeadAttachedSubagentRef(AttachedSubagentRef):
+    """Stable internal reference to a child preset ResourceHead."""
 
     preset_id: uuid.UUID
+
+
+class ResolvedAttachedSubagentRef(HeadAttachedSubagentRef):
+    """Persisted subagent ref with immutable preset/version identifiers."""
+
     preset_version_id: uuid.UUID
     preset_version: int | None = Field(default=None, ge=1)
 
 
-type AnyAttachedSubagentRef = ResolvedAttachedSubagentRef | AttachedSubagentRef
+type CompatibleAttachedSubagentRef = (
+    ResolvedAttachedSubagentRef | HeadAttachedSubagentRef | AttachedSubagentRef
+)
 
 
-class AgentSubagentsConfig(BaseModel):
-    """User-facing agents toggle and optional preset-backed subagents."""
+class _AgentsConfig[SubagentRefT: AttachedSubagentRef](BaseModel):
+    """Common enabled-state validation for a single subagent ref state."""
 
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
-    subagents: list[AnyAttachedSubagentRef] = Field(default_factory=list)
+    subagents: list[SubagentRefT] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_other_config_state(cls, data: object) -> object:
+        """Revalidate another state model through this model's strict fields."""
+        if isinstance(data, _AgentsConfig) and not isinstance(data, cls):
+            return data.model_dump(mode="json")
+        return data
 
     @model_validator(mode="after")
     def validate_subagents_enabled(self) -> Self:
@@ -85,19 +114,40 @@ class AgentSubagentsConfig(BaseModel):
         return self
 
 
-class ResolvedAgentsConfig(BaseModel):
+class AuthoredAgentsConfig(_AgentsConfig[AttachedSubagentRef]):
+    """User-authored subagent refs that have not resolved to ResourceHeads."""
+
+
+class HeadAgentsConfig(_AgentsConfig[HeadAttachedSubagentRef]):
+    """Normalized subagent refs bound to stable child ResourceHeads."""
+
+
+class ResolvedAgentsConfig(_AgentsConfig[ResolvedAttachedSubagentRef]):
     """Persisted agents toggle with immutable resolved child refs."""
 
-    model_config = ConfigDict(extra="forbid")
+    def to_head_config(self) -> HeadAgentsConfig:
+        """Drop exact-version fields after resolving normalized head edges."""
+        return HeadAgentsConfig(
+            enabled=self.enabled,
+            subagents=[
+                HeadAttachedSubagentRef(
+                    preset=subagent.preset,
+                    preset_id=subagent.preset_id,
+                    name=subagent.name,
+                    description=subagent.description,
+                    max_turns=subagent.max_turns,
+                )
+                for subagent in self.subagents
+            ],
+        )
 
-    enabled: bool = False
-    subagents: list[ResolvedAttachedSubagentRef] = Field(default_factory=list)
 
-    @model_validator(mode="after")
-    def validate_subagents_enabled(self) -> Self:
-        if not self.enabled and self.subagents:
-            raise ValueError("subagents require enabled=true")
-        return self
+class AgentSubagentsConfig(_AgentsConfig[CompatibleAttachedSubagentRef]):
+    """Mixed-version compatibility parser for authored and persisted refs.
+
+    New state-specific boundaries should use :class:`AuthoredAgentsConfig`,
+    :class:`HeadAgentsConfig`, or :class:`ResolvedAgentsConfig` instead.
+    """
 
 
 def validate_subagent_alias(alias: str) -> None:

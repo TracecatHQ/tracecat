@@ -640,7 +640,7 @@ export type AgentPresetCreate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
-  agents?: AgentSubagentsConfig_Input
+  agents?: AuthoredAgentsConfig
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -690,7 +690,7 @@ export type AgentPresetRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
-  agents?: AgentSubagentsConfig_Output
+  agents?: AgentSubagentsConfig
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -794,7 +794,7 @@ export type AgentPresetUpdate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
-  agents?: AgentSubagentsConfig_Input | null
+  agents?: AuthoredAgentsConfig | null
   retries?: number | null
   enable_thinking?: boolean | null
   enable_internet_access?: boolean | null
@@ -835,7 +835,7 @@ export type AgentPresetVersionRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
-  agents?: AgentSubagentsConfig_Output
+  agents?: AgentSubagentsConfig
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -1122,19 +1122,14 @@ export type AgentSettingsUpdate = {
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * Mixed-version compatibility parser for authored and persisted refs.
+ *
+ * New state-specific boundaries should use :class:`AuthoredAgentsConfig`,
+ * :class:`HeadAgentsConfig`, or :class:`ResolvedAgentsConfig` instead.
  */
-export type AgentSubagentsConfig_Input = {
+export type AgentSubagentsConfig = {
   enabled?: boolean
-  subagents?: Array<AnyAttachedSubagentRef>
-}
-
-/**
- * User-facing agents toggle and optional preset-backed subagents.
- */
-export type AgentSubagentsConfig_Output = {
-  enabled?: boolean
-  subagents?: Array<AnyAttachedSubagentRef>
+  subagents?: Array<CompatibleAttachedSubagentRef>
 }
 
 /**
@@ -1157,10 +1152,6 @@ export type AlertArtifact = {
   type?: "alert"
 }
 
-export type AnyAttachedSubagentRef =
-  | ResolvedAttachedSubagentRef
-  | AttachedSubagentRef
-
 /**
  * Settings for the app.
  */
@@ -1171,7 +1162,6 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1202,10 +1192,6 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
-  /**
-   * How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.
-   */
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1358,7 +1344,6 @@ export type AssistantMessage = {
  */
 export type AttachedSubagentRef = {
   preset: string
-  preset_version?: number | null
   name?: string | null
   description?: string | null
   max_turns?: number | null
@@ -1517,6 +1502,14 @@ export type AuthDiscoverResponse = {
  * Authentication method hint for client-side routing.
  */
 export type AuthDiscoveryMethod = "basic" | "oidc" | "saml"
+
+/**
+ * User-authored subagent refs that have not resolved to ResourceHeads.
+ */
+export type AuthoredAgentsConfig = {
+  enabled?: boolean
+  subagents?: Array<AttachedSubagentRef>
+}
 
 /**
  * Workspace-scoped AWS AssumeRole details shown in the credentials UI.
@@ -3218,6 +3211,11 @@ export type CommitInfo = {
   message?: string
 }
 
+export type CompatibleAttachedSubagentRef =
+  | ResolvedAttachedSubagentRef
+  | HeadAttachedSubagentRef
+  | AttachedSubagentRef
+
 /**
  * Payload to continue a CE run after collecting approvals.
  */
@@ -4702,6 +4700,17 @@ export type HTTPValidationError = {
  * Supported agent harnesses.
  */
 export type HarnessType = "pydantic-ai" | "claude_code"
+
+/**
+ * Stable internal reference to a child preset ResourceHead.
+ */
+export type HeadAttachedSubagentRef = {
+  preset: string
+  name?: string | null
+  description?: string | null
+  max_turns?: number | null
+  preset_id: string
+}
 
 export type HealthResponse = {
   status: string
@@ -6808,12 +6817,12 @@ export type ResolvedAgentsConfig = {
  */
 export type ResolvedAttachedSubagentRef = {
   preset: string
-  preset_version?: number | null
   name?: string | null
   description?: string | null
   max_turns?: number | null
   preset_id: string
   preset_version_id: string
+  preset_version?: number | null
 }
 
 export type ResourcePullCount = {
@@ -9007,8 +9016,6 @@ export type VersionDiff = {
   actions_modified?: Array<ActionChange>
   total_changes?: number
 }
-
-export type VersionedResourceResolutionStrategy = "pinned" | "latest"
 
 /**
  * Vertex AI catalog entry.

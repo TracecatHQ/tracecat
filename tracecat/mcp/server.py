@@ -8805,7 +8805,8 @@ async def run_agent_preset(
         workspace_id: The workspace ID (from list_workspaces).
         preset_slug: Slug of the agent preset to run (from list_agent_presets).
         prompt: The user prompt to send to the agent.
-        preset_version: Optional preset version number to pin.
+        preset_version: Deprecated and ignored. Preset resources always resolve
+            through their current heads.
         timeout_seconds: Max seconds to wait for response (default 120, max 300).
 
     Returns:
@@ -8821,10 +8822,7 @@ async def run_agent_preset(
             preset = await svc.get_preset_by_slug(preset_slug)
             if not preset:
                 raise ToolError(f"Agent preset '{preset_slug}' not found")
-            version = await svc.resolve_agent_preset_version(
-                slug=preset_slug,
-                preset_version=preset_version,
-            )
+            version = await svc.resolve_agent_preset_version(slug=preset_slug)
 
         # Create ephemeral session and run turn
         async with AgentSessionService.with_session(role=role) as svc:

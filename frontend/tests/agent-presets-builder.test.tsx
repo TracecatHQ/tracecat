@@ -1,6 +1,7 @@
 import {
   AGENT_PRESET_PUBLISHING_FIELDS,
   buildAgentPresetUpdatePayload,
+  buildAuthoredAgentsConfig,
   buildDuplicateAgentPresetPayload,
   buildDuplicateAgentSlug,
   buildSkillCommandItemValue,
@@ -56,6 +57,36 @@ describe("buildAgentPresetUpdatePayload", () => {
     })
 
     expect(update.skills).toEqual(presetPayload.skills)
+  })
+})
+
+describe("buildAuthoredAgentsConfig", () => {
+  it("keeps resolved preset IDs out of authored API payloads", () => {
+    const agents = buildAuthoredAgentsConfig({
+      enabled: true,
+      subagents: [
+        {
+          preset: " analyst ",
+          presetId: "11111111-1111-1111-1111-111111111111",
+          name: " investigator ",
+          description: " Investigates alerts ",
+          maxTurns: "5",
+        },
+      ],
+    })
+
+    expect(agents).toEqual({
+      enabled: true,
+      subagents: [
+        {
+          preset: "analyst",
+          name: "investigator",
+          description: "Investigates alerts",
+          max_turns: 5,
+        },
+      ],
+    })
+    expect(agents.subagents?.[0]).not.toHaveProperty("preset_id")
   })
 })
 
@@ -140,6 +171,20 @@ describe("canSubmitAgentPresetForm", () => {
         namespaces: ["core.http_request"],
         tool_approvals: { "core.http_request": true },
         mcp_integrations: ["mcp-1"],
+        agents: {
+          enabled: true,
+          subagents: [
+            {
+              preset: "evidence-agent",
+              preset_id: "11111111-1111-1111-1111-111111111111",
+              preset_version_id: "22222222-2222-2222-2222-222222222222",
+              preset_version: 3,
+              name: "investigator",
+              description: "Investigates alerts",
+              max_turns: 5,
+            },
+          ],
+        },
         retries: 2,
         enable_internet_access: true,
         created_at: "2026-03-13T12:00:00Z",
@@ -153,6 +198,21 @@ describe("canSubmitAgentPresetForm", () => {
     expect(duplicated.instructions).toBe("Investigate alerts")
     expect(duplicated.actions).toEqual(["core.http_request"])
     expect(duplicated.enable_internet_access).toBe(true)
+    expect(duplicated.agents).toEqual({
+      enabled: true,
+      subagents: [
+        {
+          preset: "evidence-agent",
+          name: "investigator",
+          description: "Investigates alerts",
+          max_turns: 5,
+        },
+      ],
+    })
+    expect(duplicated.agents?.subagents?.[0]).not.toHaveProperty("preset_id")
+    expect(duplicated.agents?.subagents?.[0]).not.toHaveProperty(
+      "preset_version_id"
+    )
   })
 
   it("keeps skill picker command values safe when skill descriptions contain selector metacharacters", () => {
