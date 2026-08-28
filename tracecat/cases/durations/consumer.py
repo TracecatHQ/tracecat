@@ -93,7 +93,11 @@ class CaseDurationSyncConsumer:
     """Consume and coalesce case duration sync jobs."""
 
     def __init__(
-        self, client: RedisClient, *, consumer_name: str | None = None
+        self,
+        client: RedisClient,
+        *,
+        consumer_name: str | None = None,
+        stop_event: asyncio.Event | None = None,
     ) -> None:
         self.client = client
         self.stream_key = config.TRACECAT__CASE_DURATION_SYNC_STREAM_KEY
@@ -104,6 +108,11 @@ class CaseDurationSyncConsumer:
         self.backfill_batch = config.TRACECAT__CASE_DURATION_SYNC_BACKFILL_BATCH
         self.consumer_name = consumer_name or f"{socket.gethostname()}:{os.getpid()}"
         self._pending_check_interval = max(self.claim_idle_ms / 1000.0, 30.0)
+        self._stop_event = stop_event
+
+    def _stop_signalled(self) -> bool:
+        """Whether a graceful shutdown signal has been received."""
+        return self._stop_event is not None and self._stop_event.is_set()
 
     async def run(self) -> None:
         last_pending_check = monotonic()
@@ -111,7 +120,7 @@ class CaseDurationSyncConsumer:
         group_ready = False
         rollout_enqueued = False
         started = False
-        while True:
+        while not self._stop_signalled():
             try:
                 if not rollout_enqueued:
                     rollout_enqueued = await enqueue_rollout_backfill_once()
@@ -126,6 +135,10 @@ class CaseDurationSyncConsumer:
                         consumer=self.consumer_name,
                     )
                     started = True
+                # Initialization awaits can yield after the loop condition has
+                # passed. Do not claim a new batch if shutdown began meanwhile.
+                if self._stop_signalled():
+                    break
                 try:
                     messages = await self.client.xreadgroup(
                         group_name=self.group,
@@ -147,7 +160,13 @@ class CaseDurationSyncConsumer:
                     for _stream, entries in messages:
                         await self._handle_entries(entries)
                 now = monotonic()
-                if now - last_pending_check >= self._pending_check_interval:
+                # Do not start pending-message recovery past the stop signal:
+                # recovery claims fresh work the terminating pod never had in
+                # flight, and a claimed batch can exceed the drain deadline.
+                if (
+                    not self._stop_signalled()
+                    and now - last_pending_check >= self._pending_check_interval
+                ):
                     await self._claim_idle_messages()
                     last_pending_check = now
                 await asyncio.sleep(0)
@@ -163,6 +182,9 @@ class CaseDurationSyncConsumer:
                 )
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, RETRY_BACKOFF_MAX_SECONDS)
+        # The stop event was set either between iterations or during pre-read
+        # initialization, and any batch already read completed.
+        logger.info("Case duration sync consumer stopped gracefully")
 
     async def _ensure_group(self) -> None:
         # Read from the start of the stream ("0") rather than only new
@@ -415,6 +437,8 @@ class CaseDurationSyncConsumer:
                 count=self.batch,
                 idle=self.claim_idle_ms,
             )
+            if self._stop_signalled():
+                return
             if not pending:
                 return
 
@@ -430,12 +454,27 @@ class CaseDurationSyncConsumer:
                 message_ids,
             )
             await self._handle_entries(claimed)
+            # Graceful shutdown: complete the batch already claimed, but do
+            # not claim further pending work past the stop signal — otherwise
+            # a large or continuously replenished pending list keeps the
+            # consumer working until the drain deadline cancels it mid-batch.
+            if self._stop_signalled():
+                return
             if len(pending) < self.batch:
                 return
             await asyncio.sleep(0)
 
 
-async def start_case_duration_sync_consumer() -> None:
+async def start_case_duration_sync_consumer(
+    stop_event: asyncio.Event | None = None,
+) -> None:
+    """Run the case duration sync consumer until cancelled or stopped.
+
+    The stop event enables graceful shutdown: setting it finishes the current
+    batch (including acks) and exits the loop without cancellation, so the
+    pod's terminating consumer does not strand jobs in the pending list
+    during rolling upgrades.
+    """
     client = await get_redis_client()
-    consumer = CaseDurationSyncConsumer(client)
+    consumer = CaseDurationSyncConsumer(client, stop_event=stop_event)
     await consumer.run()

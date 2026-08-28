@@ -1098,6 +1098,20 @@ TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX = 1000
 TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT = TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX
 """Default row count for internal table download."""
 
+# === API Lifecycle === #
+TRACECAT__API_TASK_DRAIN_TIMEOUT = float(
+    os.environ.get("TRACECAT__API_TASK_DRAIN_TIMEOUT") or 10.0
+)
+"""Seconds to let finite in-process API tasks finish during shutdown.
+
+Stoppable consumers (e.g. case triggers) are signalled to finish in-flight
+work and are awaited alongside finite startup tasks (e.g. registry sync) for
+this duration. Stragglers are then cancelled and get the same duration again
+for cleanup; non-stoppable long-running tasks are cancelled immediately. The
+deployment's termination grace period must exceed twice this value for full
+coverage.
+"""
+
 # === Context Compression === #
 TRACECAT__CONTEXT_COMPRESSION_ENABLED = env_bool(
     "TRACECAT__CONTEXT_COMPRESSION_ENABLED", default=False
