@@ -110,9 +110,20 @@ def decode_result_envelope(
     try:
         envelope = _ResultEnvelope.model_validate(result_data)
     except (ValidationError, ValueError) as exc:
+        # Log sanitized metadata only: rendering the full ValidationError would
+        # copy the rejected input_value — sandbox-controlled, potentially
+        # sensitive data — into executor logs.
+        errors = (
+            [
+                f"{'.'.join(str(part) for part in error.get('loc', []))}: {error.get('type', 'unknown_error')}"
+                for error in exc.errors()
+            ]
+            if isinstance(exc, ValidationError)
+            else [type(exc).__name__]
+        )
         logger.warning(
             f"Rejected invalid {log_label} result fields",
-            error=str(exc),
+            errors=errors,
         )
         return _invalid_result(
             error=invalid_result_error,

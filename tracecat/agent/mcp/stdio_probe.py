@@ -62,13 +62,35 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
+import resource
 import traceback
 from pathlib import Path
 from typing import Any
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
+
+
+def _enforce_nproc_limit() -> None:
+    # Cap the jail's process count via RLIMIT_NPROC before the MCP command runs.
+    #
+    # nsjail cannot enforce rlimit_nproc when it creates a user namespace
+    # (clone_newuser), so the host injects the configured limit via
+    # TRACECAT__SANDBOX_RLIMIT_NPROC and this trusted entrypoint applies it
+    # before spawning the user-selected MCP command. The command inherits the
+    # rlimit, containing fork bombs to this probe's configured process cap.
+    raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
+    if not raw:
+        return
+    try:
+        limit = int(raw)
+        if limit > 0:
+            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError):
+        # Values are host-injected; ignore malformed or unenforceable ones.
+        pass
 
 URL_PATTERN = re.compile(r"\bhttps?://\S+", re.IGNORECASE)
 URL_USERINFO_PATTERN = re.compile(r"^(https?://)[^/@]*@", re.IGNORECASE)
@@ -143,6 +165,9 @@ def write_result(result: dict[str, Any]) -> None:
 
 
 async def main() -> None:
+    # Apply the process cap before anything untrusted (the MCP command) runs.
+    _enforce_nproc_limit()
+
     payload = json.loads(Path("input.json").read_text(encoding="utf-8"))
     command = payload["command"]
     args = payload.get("args") or []

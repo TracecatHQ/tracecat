@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tracecat.agent.mcp.stdio_probe import _SANDBOX_PROBE_SCRIPT
 from tracecat.agent.sandbox.config import (
     AgentResourceLimits,
     AgentSandboxConfig,
@@ -205,6 +206,8 @@ def test_trusted_entrypoints_enforce_nproc_limit() -> None:
     assert NPROC_ENV_VAR in WRAPPER_SCRIPT
     assert "setrlimit" in INSTALL_SCRIPT
     assert NPROC_ENV_VAR in INSTALL_SCRIPT
+    assert "setrlimit" in _SANDBOX_PROBE_SCRIPT
+    assert NPROC_ENV_VAR in _SANDBOX_PROBE_SCRIPT
 
     runner_source = Path(minimal_runner.__file__).read_text()
     assert "setrlimit" in runner_source

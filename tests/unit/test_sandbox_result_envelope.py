@@ -8,7 +8,9 @@ from typing import Literal
 
 import orjson
 import pytest
+import pytest_mock
 
+from tracecat.sandbox import result_envelope as result_envelope_module
 from tracecat.sandbox.result_envelope import (
     ResultEnvelopeOutcome,
     decode_result_envelope,
@@ -73,6 +75,23 @@ def test_decode_result_envelope_rejects_invalid_json_shapes(
     (tmp_path / "result.json").write_bytes(result_bytes)
 
     _assert_invalid_result(_decode(tmp_path))
+
+
+def test_decode_result_envelope_does_not_log_rejected_input_value(
+    tmp_path: Path,
+    mocker: pytest_mock.MockerFixture,
+) -> None:
+    """Validation warnings must not copy sandbox-controlled values into logs."""
+    secret_marker = "customer-controlled-secret-token-12345"
+    (tmp_path / "result.json").write_bytes(orjson.dumps({"success": [secret_marker]}))
+
+    warning = mocker.patch.object(result_envelope_module.logger, "warning")
+
+    _assert_invalid_result(_decode(tmp_path))
+
+    warning.assert_called_once()
+    assert secret_marker not in str(warning.call_args)
+    assert secret_marker not in str(warning.call_args.kwargs)
 
 
 def test_decode_result_envelope_rejects_oversized_file(tmp_path: Path) -> None:
