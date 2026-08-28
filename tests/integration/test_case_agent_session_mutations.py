@@ -24,6 +24,7 @@ from tracecat.cases.schemas import (
     CaseUpdate,
 )
 from tracecat.cases.service import CaseCommentsService, CasesService
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.contexts import ctx_agent_session_id
 from tracecat.db.models import (
     AgentSession,
@@ -122,7 +123,9 @@ async def test_agent_case_and_comment_mutations_record_root_interactions(
     root, child = await _create_session_lineage(session, svc_role)
     cases = CasesService(session=session, role=svc_role)
     comments = CaseCommentsService(session=session, role=svc_role)
+    tags = CaseTagsService(session=session, role=svc_role)
     read_then_no_op_case = await cases.create_case(_case_create("Read then no-op case"))
+    child_resource_case = await cases.create_case(_case_create("Child resource case"))
 
     context_token = ctx_agent_session_id.set(child.id)
     try:
@@ -160,6 +163,11 @@ async def test_agent_case_and_comment_mutations_record_root_interactions(
             CaseUpdate(status=CaseStatus.IN_PROGRESS),
         )
         assert batch_response.succeeded == 1
+        await tags.add_case_tag(
+            child_resource_case.id,
+            "agent-child-mutation",
+            create_if_missing=True,
+        )
     finally:
         ctx_agent_session_id.reset(context_token)
 
@@ -200,6 +208,11 @@ async def test_agent_case_and_comment_mutations_record_root_interactions(
         ),
         (
             third_case.id,
+            CaseAgentSessionInteractionOperation.UPDATE,
+            root.id,
+        ),
+        (
+            child_resource_case.id,
             CaseAgentSessionInteractionOperation.UPDATE,
             root.id,
         ),

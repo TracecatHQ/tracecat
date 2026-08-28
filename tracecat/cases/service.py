@@ -2966,6 +2966,13 @@ class CaseTasksService(BaseWorkspaceService):
 
     service_name = "case_tasks"
 
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role)
+        self.agent_session_interactions = CaseAgentSessionInteractionService(
+            session=self.session,
+            role=self.role,
+        )
+
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_tasks(self, case_id: uuid.UUID) -> Sequence[CaseTask]:
         """List all tasks for a case.
@@ -3128,6 +3135,10 @@ class CaseTasksService(BaseWorkspaceService):
         # Update parent case's updated_at timestamp
         case.updated_at = datetime.now(UTC)
 
+        await self.agent_session_interactions.record_from_context(
+            case_id=case.id,
+            operation=CaseAgentSessionInteractionOperation.UPDATE,
+        )
         await self.session.commit()
         await self.session.refresh(task)
         return task
@@ -3267,6 +3278,10 @@ class CaseTasksService(BaseWorkspaceService):
         # Update parent case's updated_at timestamp
         case.updated_at = datetime.now(UTC)
 
+        await self.agent_session_interactions.record_from_context(
+            case_id=case.id,
+            operation=CaseAgentSessionInteractionOperation.UPDATE,
+        )
         await self.session.commit()
         await self.session.refresh(task)
         return task
@@ -3310,4 +3325,8 @@ class CaseTasksService(BaseWorkspaceService):
         case.updated_at = datetime.now(UTC)
 
         await self.session.delete(task)
+        await self.agent_session_interactions.record_from_context(
+            case_id=case.id,
+            operation=CaseAgentSessionInteractionOperation.UPDATE,
+        )
         await self.session.commit()
