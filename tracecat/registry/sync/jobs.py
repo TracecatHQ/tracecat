@@ -7,8 +7,8 @@ to prevent race conditions when multiple API processes start simultaneously.
 
 from __future__ import annotations
 
-import asyncio
 import re
+from dataclasses import dataclass
 from uuid import UUID
 
 import tracecat_registry
@@ -33,7 +33,6 @@ from tracecat.registry.versions.service import PlatformRegistryVersionsService
 
 MAX_SYNC_RETRIES = 3
 PLATFORM_SYNC_LOCK_KEY = derive_lock_key_from_parts("platform_registry_sync")
-_platform_registry_artifact_build_tasks: set[asyncio.Task[None]] = set()
 _RELEASE_TAG_PATTERN = re.compile(
     r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
     r"(?:-(?P<stage>alpha|a|beta|b|rc|dev|post)\.(?P<number>\d+)"
@@ -49,6 +48,15 @@ _STAGE_RANK = {
     "final": 4,
     "post": 5,
 }
+
+
+@dataclass(frozen=True, slots=True)
+class _ArtifactBuildRequest:
+    """Artifact work to run after releasing the startup leader lock."""
+
+    target_version: str
+    promote_version_id: UUID | None = None
+    expected_current_version_id: UUID | None = None
 
 
 def _release_tag_key(version: str) -> tuple[int, int, int, int, int, int, int]:
@@ -96,12 +104,14 @@ async def sync_platform_registry_on_startup() -> None:
        b. If target exists with no current version → build artifact then promote
        c. If version exists but is not current → preserve rollback → done
        d. If version doesn't exist → run sync with retries
-    3. If lock not acquired (non-leader) → exit immediately
+    3. Release the leader lock and session, then await any artifact build
+    4. If lock not acquired (non-leader) → exit immediately
     """
     target_version = tracecat_registry.__version__
     logger.info("Attempting platform registry sync", target_version=target_version)
 
     try:
+        artifact_build: _ArtifactBuildRequest | None = None
         async with get_async_session_bypass_rls_context_manager() as session:
             # Leader election: try to acquire lock (non-blocking)
             acquired = await try_pg_advisory_lock(session, PLATFORM_SYNC_LOCK_KEY)
@@ -112,10 +122,22 @@ async def sync_platform_registry_on_startup() -> None:
                 return
 
             try:
-                await _sync_as_leader(session, target_version)
+                artifact_build = await _sync_as_leader(session, target_version)
             finally:
                 # Always release lock
                 await pg_advisory_unlock(session, PLATFORM_SYNC_LOCK_KEY)
+
+        # This coroutine itself is supervised by the API lifespan. Awaiting the
+        # artifact build here keeps it inside that lifecycle while still
+        # releasing the advisory lock and database session before the build.
+        if artifact_build is not None:
+            await _build_platform_registry_artifact(
+                artifact_build.target_version,
+                promote_version_id=artifact_build.promote_version_id,
+                expected_current_version_id=(
+                    artifact_build.expected_current_version_id
+                ),
+            )
 
     except Exception as e:
         logger.warning(
@@ -126,8 +148,10 @@ async def sync_platform_registry_on_startup() -> None:
         # Don't re-raise - API should continue
 
 
-async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
-    """Leader-only sync logic with retries."""
+async def _sync_as_leader(
+    session: AsyncSession, target_version: str
+) -> _ArtifactBuildRequest | None:
+    """Run leader-only sync and return deferred artifact work, if any."""
     repos_service = PlatformRegistryReposService(session)
     versions_service = PlatformRegistryVersionsService(session)
 
@@ -150,27 +174,25 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
                 "Platform registry already at target version",
                 version=target_version,
             )
-            _schedule_platform_registry_artifact_build(
-                target_version,
+            return _ArtifactBuildRequest(
+                target_version=target_version,
                 promote_version_id=existing_version.id,
                 expected_current_version_id=existing_version.id,
             )
-            return
 
         # If this repo has versions but no current selection, wait until the
         # referenced artifact is present before repairing the pointer.
         if repo.current_version_id is None:
             logger.info(
-                "Target platform registry version exists with no current selection; scheduling artifact build before promotion",
+                "Target platform registry version exists with no current selection; deferring artifact build before promotion",
                 target_version=target_version,
                 version_id=str(existing_version.id),
             )
-            _schedule_platform_registry_artifact_build(
-                target_version,
+            return _ArtifactBuildRequest(
+                target_version=target_version,
                 promote_version_id=existing_version.id,
                 expected_current_version_id=None,
             )
-            return
 
         # Version exists but is not current - don't auto-promote
         # There may be a deliberate reason it's not current (e.g., manual rollback)
@@ -233,12 +255,11 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
 
             # Seed registry scopes for the synced actions
             await _seed_registry_scopes(session, result.actions)
-            _schedule_platform_registry_artifact_build(
-                result.version_string,
+            return _ArtifactBuildRequest(
+                target_version=result.version_string,
                 promote_version_id=None if is_fresh_install else result.version.id,
                 expected_current_version_id=expected_current_version_id,
             )
-            return
 
         except Exception as e:
             logger.warning(
@@ -280,44 +301,6 @@ async def _seed_registry_scopes(
         logger.warning("Failed to seed registry scopes", error=str(e))
         # Don't fail the sync if scope seeding fails due to DB errors
         await session.rollback()
-
-
-def _schedule_platform_registry_artifact_build(
-    target_version: str,
-    *,
-    promote_version_id: UUID | None = None,
-    expected_current_version_id: UUID | None = None,
-) -> None:
-    """Ensure the current builtin registry SquashFS artifact in the background."""
-    try:
-        task = asyncio.create_task(
-            _build_platform_registry_artifact(
-                target_version,
-                promote_version_id=promote_version_id,
-                expected_current_version_id=expected_current_version_id,
-            ),
-            name=f"platform_registry_artifact_{target_version}",
-        )
-    except RuntimeError as e:
-        logger.warning(
-            "Failed to schedule platform registry artifact build",
-            target_version=target_version,
-            error=str(e),
-        )
-        return
-
-    _platform_registry_artifact_build_tasks.add(task)
-    task.add_done_callback(_log_platform_registry_artifact_build_result)
-
-
-def _log_platform_registry_artifact_build_result(task: asyncio.Task[None]) -> None:
-    _platform_registry_artifact_build_tasks.discard(task)
-    try:
-        task.result()
-    except asyncio.CancelledError:
-        logger.warning("Platform registry artifact build was cancelled")
-    except Exception as e:
-        logger.warning("Platform registry artifact build failed", error=str(e))
 
 
 async def _build_platform_registry_artifact(

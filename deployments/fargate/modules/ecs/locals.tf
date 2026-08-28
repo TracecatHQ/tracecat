@@ -67,12 +67,28 @@ locals {
     TRACECAT__AGENT_SANDBOX_TIMEOUT = var.agent_sandbox_timeout
   }
 
+  tracecat_platform_otel_env = {
+    TRACECAT__PLATFORM_OTEL_ENABLED = var.platform_otel_enabled
+    OTEL_EXPORTER_OTLP_ENDPOINT     = var.otel_exporter_otlp_endpoint
+  }
+
   tracecat_temporal_payload_encryption_env = {
     TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED           = var.temporal_payload_encryption_enabled
     TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN       = var.temporal_payload_encryption_keyring_arn
     TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS = var.temporal_payload_encryption_cache_ttl_seconds
     TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS   = var.temporal_payload_encryption_cache_max_items
   }
+
+  # Presigned S3 origins the browser fetches directly (skills upload PUT,
+  # inline attachment image fetch). Appended to the UI CSP connect-src.
+  # botocore emits the legacy global host for us-east-1 unless
+  # AWS_S3_US_EAST_1_REGIONAL_ENDPOINT=regional is set.
+  presigned_browser_origins = distinct(flatten([
+    for bucket in [aws_s3_bucket.skills.bucket, aws_s3_bucket.attachments.bucket] : compact([
+      "https://${bucket}.s3.${var.aws_region}.amazonaws.com",
+      var.aws_region == "us-east-1" ? "https://${bucket}.s3.amazonaws.com" : "",
+    ])
+  ]))
 
   tracecat_blob_storage_env = {
     TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS = aws_s3_bucket.attachments.bucket
@@ -85,6 +101,7 @@ locals {
   api_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_platform_otel_env,
       local.tracecat_litellm_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
@@ -114,6 +131,7 @@ locals {
   worker_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_platform_otel_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
@@ -162,6 +180,7 @@ locals {
   executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_platform_otel_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
@@ -249,6 +268,7 @@ locals {
     for k, v in merge(
       local.tracecat_common_env,
       local.tracecat_temporal_payload_encryption_env,
+      local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
         TRACECAT__DB_ENDPOINT                     = local.core_db_hostname
@@ -285,12 +305,13 @@ locals {
 
   ui_env = [
     for k, v in {
-      NEXT_PUBLIC_API_URL    = local.public_api_url
-      NEXT_PUBLIC_APP_ENV    = var.tracecat_app_env
-      NEXT_PUBLIC_APP_URL    = local.public_app_url
-      NEXT_PUBLIC_AUTH_TYPES = var.auth_types
-      NEXT_SERVER_API_URL    = local.internal_api_url
-      NODE_ENV               = "production"
+      NEXT_PUBLIC_API_URL               = local.public_api_url
+      NEXT_PUBLIC_APP_ENV               = var.tracecat_app_env
+      NEXT_PUBLIC_APP_URL               = local.public_app_url
+      NEXT_PUBLIC_AUTH_TYPES            = var.auth_types
+      NEXT_SERVER_API_URL               = local.internal_api_url
+      NODE_ENV                          = "production"
+      TRACECAT__CSP_CONNECT_SRC_ORIGINS = join(" ", local.presigned_browser_origins)
     } :
     { name = k, value = tostring(v) } if v != null
   ]

@@ -47,7 +47,47 @@ class StorageDownloadError(RuntimeError):
         self.error_code = error_code
 
 
-def _download_log_identifiers(
+class StorageUploadError(RuntimeError):
+    """A storage upload failed without exposing object identifiers."""
+
+    def __init__(self, *, error_code: str | None) -> None:
+        super().__init__("Storage upload failed")
+        self.error_code = error_code
+
+
+class StorageMetadataError(RuntimeError):
+    """A storage metadata request failed without exposing object identifiers."""
+
+    def __init__(self, *, error_code: str | None) -> None:
+        super().__init__("Storage metadata request failed")
+        self.error_code = error_code
+
+
+class StorageDeleteError(RuntimeError):
+    """A storage deletion failed without exposing object identifiers."""
+
+    def __init__(self, *, error_code: str | None) -> None:
+        super().__init__("Storage deletion failed")
+        self.error_code = error_code
+
+
+class StorageCopyError(RuntimeError):
+    """A storage copy failed without exposing object identifiers."""
+
+    def __init__(self, *, error_code: str | None) -> None:
+        super().__init__("Storage copy failed")
+        self.error_code = error_code
+
+
+class StoragePresignError(RuntimeError):
+    """Storage URL generation failed without exposing object identifiers."""
+
+    def __init__(self, *, error_code: str | None) -> None:
+        super().__init__("Storage URL generation failed")
+        self.error_code = error_code
+
+
+def _storage_log_identifiers(
     key: str,
     bucket: str,
     *,
@@ -80,6 +120,19 @@ _STORAGE_CLIENT_CONFIG = AioConfig(
         "total_max_attempts": config.TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS,
         "mode": "standard",
     },
+)
+
+
+# AWS S3 (no custom endpoint) additionally pins SigV4 and virtual-host
+# addressing. Left to its defaults, botocore presigns against the legacy global
+# `<bucket>.s3.amazonaws.com` host using the deprecated SigV2, while the
+# deployment CSP only allows the regional `<bucket>.s3.<region>.amazonaws.com`
+# origin, so the browser would block every presigned request.
+_AWS_STORAGE_CLIENT_CONFIG = _STORAGE_CLIENT_CONFIG.merge(
+    AioConfig(
+        signature_version="s3v4",
+        s3={"addressing_style": "virtual"},
+    )
 )
 
 
@@ -125,7 +178,7 @@ def _create_storage_client_context() -> AbstractAsyncContextManager[S3Client]:
             ),
         )
     # AWS S3 configuration - use AWS credentials from environment or default credential chain
-    return session.client("s3", config=_STORAGE_CLIENT_CONFIG)
+    return session.client("s3", config=_AWS_STORAGE_CLIENT_CONFIG)
 
 
 async def _get_storage_client() -> S3Client:
@@ -380,12 +433,22 @@ async def configure_bucket_lifecycle(
             raise
 
 
+def _rewrite_presigned_endpoint(url: str) -> str:
+    """Swap the internal storage endpoint prefix for the browser-reachable one."""
+    internal = config.TRACECAT__BLOB_STORAGE_ENDPOINT
+    public = config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT
+    if not internal or not public or not url.startswith(internal):
+        return url
+    return f"{public}{url[len(internal) :]}"
+
+
 async def generate_presigned_download_url(
     key: str,
     bucket: str,
     expiry: int | None = None,
     force_download: bool = True,
     override_content_type: str | None = None,
+    redact_log_identifiers: bool = False,
 ) -> str:
     """Generate a presigned URL for downloading a file with enhanced security.
 
@@ -395,14 +458,22 @@ async def generate_presigned_download_url(
         expiry: URL expiry time in seconds (defaults to config)
         force_download: If True, forces Content-Disposition: attachment
         override_content_type: Override the Content-Type header (e.g., 'application/octet-stream')
+        redact_log_identifiers: Hide the key, bucket, and provider prose in logs
+            and raised errors.
 
     Returns:
         Presigned URL for downloading the file
 
     Raises:
-        ClientError: If URL generation fails
+        ClientError: If an unredacted URL generation fails.
+        StoragePresignError: If a redacted URL generation fails.
     """
     expiry = expiry or config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+    log_key, log_bucket = _storage_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
 
     # Build request parameters with security headers
     params = {"Bucket": bucket, "Key": key}
@@ -417,30 +488,46 @@ async def generate_presigned_download_url(
     if override_content_type:
         params["ResponseContentType"] = override_content_type
 
-    async with get_storage_client() as s3_client:
-        try:
+    try:
+        async with get_storage_client() as s3_client:
             url = await s3_client.generate_presigned_url(
                 "get_object",
                 Params=params,
                 ExpiresIn=expiry,
             )
-            if (
-                config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT is not None
-                and config.TRACECAT__BLOB_STORAGE_ENDPOINT
-            ):
-                url = url.replace(
-                    config.TRACECAT__BLOB_STORAGE_ENDPOINT,
-                    config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT,
-                )
+            url = _rewrite_presigned_endpoint(url)
             return url
-        except ClientError as e:
+    except ClientError as e:
+        if redact_log_identifiers:
+            error_code = _safe_storage_error_code(
+                e.response.get("Error", {}).get("Code")
+            )
             logger.error(
                 "Failed to generate presigned download URL",
-                key=key,
-                bucket=bucket,
-                error=str(e),
+                key=log_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
             )
+            raise StoragePresignError(error_code=error_code) from None
+        logger.error(
+            "Failed to generate presigned download URL",
+            key=key,
+            bucket=bucket,
+            error=str(e),
+        )
+        raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
             raise
+        logger.error(
+            "Failed to generate presigned download URL",
+            key=log_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StoragePresignError(error_code=None) from None
 
 
 async def generate_presigned_upload_url(
@@ -448,6 +535,8 @@ async def generate_presigned_upload_url(
     bucket: str,
     expiry: int | None = None,
     content_type: str | None = None,
+    checksum_sha256: str | None = None,
+    redact_log_identifiers: bool = False,
 ) -> str:
     """Generate a presigned URL for uploading a file.
 
@@ -456,42 +545,78 @@ async def generate_presigned_upload_url(
         bucket: Bucket name (required)
         expiry: URL expiry time in seconds (defaults to config)
         content_type: Optional content type constraint
+        checksum_sha256: Optional base64-encoded SHA-256 checksum constraint
+        redact_log_identifiers: Hide the key, bucket, and provider prose in logs
+            and raised errors.
 
     Returns:
         Presigned URL for uploading the file
 
     Raises:
-        ClientError: If URL generation fails
+        ClientError: If an unredacted URL generation fails.
+        StoragePresignError: If a redacted URL generation fails.
     """
     expiry = expiry or config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+    log_key, log_bucket = _storage_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
 
     params = {"Bucket": bucket, "Key": key}
     if content_type:
         params["ContentType"] = content_type
+    if checksum_sha256 is not None:
+        params["ChecksumSHA256"] = checksum_sha256
 
-    async with get_storage_client() as s3_client:
-        try:
+    try:
+        async with get_storage_client() as s3_client:
             url = await s3_client.generate_presigned_url(
                 "put_object",
                 Params=params,
                 ExpiresIn=expiry,
             )
+            url = _rewrite_presigned_endpoint(url)
             logger.debug(
                 "Generated presigned upload URL",
-                key=key,
-                bucket=bucket,
+                key=log_key,
+                bucket=log_bucket,
                 expiry=expiry,
                 content_type=content_type,
+                checksum_sha256=checksum_sha256,
             )
             return url
-        except ClientError as e:
+    except ClientError as e:
+        if redact_log_identifiers:
+            error_code = _safe_storage_error_code(
+                e.response.get("Error", {}).get("Code")
+            )
             logger.error(
                 "Failed to generate presigned upload URL",
-                key=key,
-                bucket=bucket,
-                error=str(e),
+                key=log_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
             )
+            raise StoragePresignError(error_code=error_code) from None
+        logger.error(
+            "Failed to generate presigned upload URL",
+            key=key,
+            bucket=bucket,
+            error=str(e),
+        )
+        raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
             raise
+        logger.error(
+            "Failed to generate presigned upload URL",
+            key=log_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StoragePresignError(error_code=None) from None
 
 
 async def upload_file(
@@ -499,6 +624,8 @@ async def upload_file(
     key: str,
     bucket: str,
     content_type: str | None = None,
+    *,
+    redact_log_identifiers: bool = False,
 ) -> None:
     """Upload a file to S3.
 
@@ -507,10 +634,19 @@ async def upload_file(
         key: The S3 object key
         bucket: Bucket name (required)
         content_type: Optional MIME type of the file
+        redact_log_identifiers: Hide the key, bucket, and provider prose in logs
+            and raised errors.
 
     Raises:
-        ClientError: If the upload fails
+        ClientError: If an unredacted upload fails.
+        StorageUploadError: If a redacted upload fails.
     """
+
+    log_key, log_bucket = _storage_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
 
     try:
         async with get_storage_client() as s3_client:
@@ -525,11 +661,23 @@ async def upload_file(
             await s3_client.put_object(**kwargs)
             logger.info(
                 "File uploaded successfully",
-                key=key,
-                bucket=bucket,
+                key=log_key,
+                bucket=log_bucket,
                 size=len(content),
             )
     except ClientError as e:
+        if redact_log_identifiers:
+            error_code = _safe_storage_error_code(
+                e.response.get("Error", {}).get("Code")
+            )
+            logger.error(
+                "Failed to upload file",
+                key=log_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
+            )
+            raise StorageUploadError(error_code=error_code) from None
         logger.error(
             "Failed to upload file",
             key=key,
@@ -537,6 +685,17 @@ async def upload_file(
             error=str(e),
         )
         raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
+            raise
+        logger.error(
+            "Failed to upload file",
+            key=log_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StorageUploadError(error_code=None) from None
 
 
 async def upload_file_from_path(
@@ -602,8 +761,33 @@ async def copy_file(
     destination_key: str,
     bucket: str,
     content_type: str | None = None,
+    redact_log_identifiers: bool = False,
 ) -> None:
-    """Copy an object within a bucket without routing bytes through the app."""
+    """Copy an object within a bucket without routing bytes through the app.
+
+    Args:
+        source_key: Existing object key.
+        destination_key: Key for the copied object.
+        bucket: Bucket containing both objects.
+        content_type: Optional content type to replace on the copied object.
+        redact_log_identifiers: Hide both keys, the bucket, and provider prose
+            in logs and raised errors.
+
+    Raises:
+        ClientError: If an unredacted copy fails.
+        StorageCopyError: If a redacted copy fails.
+    """
+
+    log_source_key, log_bucket = _storage_log_identifiers(
+        source_key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
+    log_destination_key, _ = _storage_log_identifiers(
+        destination_key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
 
     try:
         async with get_storage_client() as s3_client:
@@ -619,11 +803,24 @@ async def copy_file(
             await s3_client.copy_object(**kwargs)
             logger.info(
                 "File copied successfully",
-                source_key=source_key,
-                destination_key=destination_key,
-                bucket=bucket,
+                source_key=log_source_key,
+                destination_key=log_destination_key,
+                bucket=log_bucket,
             )
     except ClientError as e:
+        if redact_log_identifiers:
+            error_code = _safe_storage_error_code(
+                e.response.get("Error", {}).get("Code")
+            )
+            logger.error(
+                "Failed to copy file",
+                source_key=log_source_key,
+                destination_key=log_destination_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
+            )
+            raise StorageCopyError(error_code=error_code) from None
         logger.error(
             "Failed to copy file",
             source_key=source_key,
@@ -632,30 +829,59 @@ async def copy_file(
             error=str(e),
         )
         raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
+            raise
+        logger.error(
+            "Failed to copy file",
+            source_key=log_source_key,
+            destination_key=log_destination_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StorageCopyError(error_code=None) from None
 
 
-async def download_file(key: str, bucket: str) -> bytes:
+async def download_file(
+    key: str,
+    bucket: str,
+    *,
+    redact_log_identifiers: bool = False,
+) -> bytes:
     """Download a file from S3.
 
     Args:
         key: The S3 object key
         bucket: Bucket name (required)
+        redact_log_identifiers: Hide the key, bucket, and provider prose in logs
+            and raised errors.
 
     Returns:
         File content as bytes
 
     Raises:
-        ClientError: If the download fails
-        FileNotFoundError: If the file doesn't exist
+        ClientError: If an unredacted download fails.
+        StorageDownloadError: If a redacted download fails.
+        FileNotFoundError: If the file doesn't exist.
     """
 
-    async with open_download_stream(key=key, bucket=bucket) as (stream, _):
+    log_key, log_bucket = _storage_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
+    async with open_download_stream(
+        key=key,
+        bucket=bucket,
+        redact_log_identifiers=redact_log_identifiers,
+    ) as (stream, _):
         content = await stream.read()
 
     logger.debug(
         "File downloaded successfully",
-        key=key,
-        bucket=bucket,
+        key=log_key,
+        bucket=log_bucket,
         size=len(content),
     )
     return content
@@ -764,7 +990,7 @@ async def open_download_stream(
         StorageDownloadError: If a redacted download fails.
         FileNotFoundError: If the file doesn't exist.
     """
-    log_key, log_bucket = _download_log_identifiers(
+    log_key, log_bucket = _storage_log_identifiers(
         key,
         bucket,
         redact=redact_log_identifiers,
@@ -854,7 +1080,7 @@ async def download_file_to_path(
 
     hasher = hashlib.sha256() if expected_sha256 is not None else None
     bytes_written = 0
-    log_key, log_bucket = _download_log_identifiers(
+    log_key, log_bucket = _storage_log_identifiers(
         key,
         bucket,
         redact=redact_log_identifiers,
@@ -948,26 +1174,51 @@ async def download_file_to_path(
     return bytes_written
 
 
-async def delete_file(key: str, bucket: str) -> None:
+async def delete_file(
+    key: str,
+    bucket: str,
+    *,
+    redact_log_identifiers: bool = False,
+) -> None:
     """Delete a file from S3.
 
     Args:
         key: The S3 object key
-        bucket: Bucket name (required)
+        bucket: Bucket name (required).
+        redact_log_identifiers: Hide the key, bucket, and provider message in
+            logs and raised errors.
 
     Raises:
-        ClientError: If the deletion fails
+        ClientError: If an unredacted deletion fails.
+        StorageDeleteError: If a redacted deletion fails.
     """
 
+    log_key, log_bucket = _storage_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
     try:
         async with get_storage_client() as s3_client:
             await s3_client.delete_object(Bucket=bucket, Key=key)
             logger.info(
                 "File deleted successfully",
-                key=key,
-                bucket=bucket,
+                key=log_key,
+                bucket=log_bucket,
             )
     except ClientError as e:
+        if redact_log_identifiers:
+            error_code = _safe_storage_error_code(
+                e.response.get("Error", {}).get("Code")
+            )
+            logger.error(
+                "Failed to delete file",
+                key=log_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
+            )
+            raise StorageDeleteError(error_code=error_code) from None
         logger.error(
             "Failed to delete file",
             key=key,
@@ -975,26 +1226,74 @@ async def delete_file(key: str, bucket: str) -> None:
             error=str(e),
         )
         raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
+            raise
+        logger.error(
+            "Failed to delete file",
+            key=log_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StorageDeleteError(error_code=None) from None
 
 
-async def file_exists(key: str, bucket: str) -> bool:
+async def file_exists(
+    key: str,
+    bucket: str,
+    *,
+    redact_log_identifiers: bool = False,
+) -> bool:
     """Check if a file exists in S3.
 
     Args:
         key: The S3 object key
         bucket: Bucket name (required)
+        redact_log_identifiers: Hide the key, bucket, and provider prose in logs
+            and raised errors.
 
     Returns:
         True if the file exists, False otherwise
+
+    Raises:
+        ClientError: If an unredacted metadata request fails.
+        StorageMetadataError: If a redacted metadata request fails.
     """
+    log_key, log_bucket = _storage_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
     try:
         async with get_storage_client() as s3_client:
             await s3_client.head_object(Bucket=bucket, Key=key)
             return True
     except ClientError as e:
-        if e.response.get("Error", {}).get("Code") == "404":
+        error_code = _safe_storage_error_code(e.response.get("Error", {}).get("Code"))
+        if error_code == "404":
             return False
+        if redact_log_identifiers:
+            logger.error(
+                "Failed to check file existence",
+                key=log_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
+            )
+            raise StorageMetadataError(error_code=error_code) from None
         raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
+            raise
+        logger.error(
+            "Failed to check file existence",
+            key=log_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StorageMetadataError(error_code=None) from None
 
 
 async def select_object_content(

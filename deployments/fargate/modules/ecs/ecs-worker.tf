@@ -27,7 +27,7 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
         }
       }
       environment = local.worker_env
-      secrets     = local.tracecat_temporal_secrets
+      secrets     = local.worker_secrets
     }
   ])
 }

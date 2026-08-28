@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
@@ -53,6 +52,7 @@ from tracecat.api.common import (
     http_exception_handler,
     tracecat_exception_handler,
 )
+from tracecat.api.lifespan import LifespanTaskSupervisor
 from tracecat.auth.credentials import authenticated_user_only
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
@@ -184,12 +184,6 @@ async def lifespan(app: FastAPI):
     get_user_auth_secret()
     assert_soft_delete_listener_registered()
 
-    # Temporal
-    # Workflows may upsert these attributes as soon as the API accepts requests.
-    # Gate startup so a failed registration is retried and remains visible.
-    await add_temporal_search_attributes()
-    logger.debug("Temporal search attributes are ready")
-
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
@@ -210,33 +204,48 @@ async def lifespan(app: FastAPI):
     async with get_async_session_bypass_rls_context_manager() as session:
         await setup_rbac_defaults(session)
 
+    # All in-process background tasks run under a lifespan-owned supervisor.
+    # On SIGTERM, uvicorn drains ASGI requests but not these tasks; the
+    # supervisor keeps strong references to them and drains them in a bounded
+    # period so they are not silently dropped or garbage collected at
+    # shutdown. Critical work must still checkpoint to durable storage.
+    supervisor = LifespanTaskSupervisor(
+        drain_timeout=config.TRACECAT__API_TASK_DRAIN_TIMEOUT
+    )
+
+    # Temporal Cloud runtime credentials may not have operator-service access
+    # to inspect or register namespace search attributes. Keep registration
+    # supervised and visible without making that administrative permission a
+    # prerequisite for API availability.
+    supervisor.spawn(
+        add_temporal_search_attributes(),
+        name="temporal_search_attribute_registration",
+        kind="finite",
+    )
+
     # Spawn platform registry sync as background task (non-blocking)
     # Uses leader election to prevent race conditions across multiple API processes
-    registry_sync_task = asyncio.create_task(
+    supervisor.spawn(
         sync_platform_registry_on_startup(),
         name="platform_registry_sync",
+        kind="finite",
     )
-    logger.debug("Spawned background task for platform registry sync")
-
-    platform_catalog_task = asyncio.create_task(
+    supervisor.spawn(
         load_platform_catalog_on_startup(),
         name="platform_catalog_load",
+        kind="finite",
     )
-    logger.debug("Spawned background task for platform catalog load")
 
-    case_trigger_task = None
     if config.TRACECAT__CASE_TRIGGERS_ENABLED:
-        case_trigger_task = asyncio.create_task(
-            start_case_trigger_consumer(),
+        supervisor.spawn_stoppable(
+            start_case_trigger_consumer,
             name="case_trigger_consumer",
         )
-        logger.debug("Spawned background task for case trigger consumer")
 
-    case_duration_sync_task = asyncio.create_task(
-        start_case_duration_sync_consumer(),
+    supervisor.spawn_stoppable(
+        start_case_duration_sync_consumer,
         name="case_duration_sync_consumer",
     )
-    logger.debug("Spawned background task for case duration sync consumer")
 
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
@@ -246,76 +255,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Gracefully handle the registry sync task during shutdown
-    if not registry_sync_task.done():
-        logger.info("Waiting for platform registry sync task to complete...")
-        try:
-            # Give the task a reasonable time to complete
-            await asyncio.wait_for(registry_sync_task, timeout=10.0)
-            logger.info("Platform registry sync task completed")
-        except TimeoutError:
-            logger.warning(
-                "Platform registry sync task did not complete in time, cancelling"
-            )
-            registry_sync_task.cancel()
-            try:
-                await registry_sync_task
-            except asyncio.CancelledError:
-                logger.debug("Platform registry sync task cancelled")
-        except Exception as e:
-            logger.warning(
-                "Platform registry sync task failed during shutdown", error=e
-            )
-    else:
-        # Task already completed - retrieve result to surface any exceptions
-        try:
-            registry_sync_task.result()
-            logger.debug("Platform registry sync task had already completed")
-        except Exception as e:
-            logger.warning(
-                "Platform registry sync task failed before shutdown", error=e
-            )
-
-    if not platform_catalog_task.done():
-        logger.info("Waiting for platform catalog load task to complete...")
-        try:
-            await asyncio.wait_for(platform_catalog_task, timeout=10.0)
-            logger.info("Platform catalog load task completed")
-        except TimeoutError:
-            logger.warning(
-                "Platform catalog load task did not complete in time, cancelling"
-            )
-            platform_catalog_task.cancel()
-            try:
-                await platform_catalog_task
-            except asyncio.CancelledError:
-                logger.debug("Platform catalog load task cancelled")
-        except Exception as e:
-            logger.warning("Platform catalog load task failed during shutdown", error=e)
-    else:
-        try:
-            platform_catalog_task.result()
-            logger.debug("Platform catalog load task had already completed")
-        except Exception as e:
-            logger.warning("Platform catalog load task failed before shutdown", error=e)
-
-    if case_trigger_task is not None:
-        case_trigger_task.cancel()
-        try:
-            await case_trigger_task
-        except asyncio.CancelledError:
-            logger.debug("Case trigger consumer task cancelled")
-        except Exception as e:
-            logger.warning("Case trigger consumer stopped with error", error=e)
-
-    case_duration_sync_task.cancel()
-    try:
-        await case_duration_sync_task
-    except asyncio.CancelledError:
-        logger.debug("Case duration sync consumer task cancelled")
-    except Exception as e:
-        logger.warning("Case duration sync consumer stopped with error", error=e)
-
+    await supervisor.drain()
     await close_storage_client_cache()
 
 
