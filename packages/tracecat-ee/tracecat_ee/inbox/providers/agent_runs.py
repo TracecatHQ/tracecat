@@ -18,7 +18,13 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import AgentSession, Approval, User, Workflow
+from tracecat.db.models import (
+    AgentSession,
+    Approval,
+    CaseAgentSessionInteraction,
+    User,
+    Workflow,
+)
 from tracecat.dsl.client import get_temporal_client
 from tracecat.inbox.schemas import InboxItemRead, UserSummary, WorkflowSummary
 from tracecat.inbox.types import InboxGroup, InboxItemStatus, InboxItemType
@@ -175,6 +181,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         self,
         search: str | None,
         *,
+        case_id: uuid.UUID | None = None,
         entity_type: AgentSessionEntity | None = None,
         created_after: datetime | None = None,
         updated_after: datetime | None = None,
@@ -201,6 +208,18 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 has_approvals,
             ),
         )
+
+        if case_id is not None:
+            has_case_interaction = (
+                select(CaseAgentSessionInteraction.id)
+                .where(
+                    CaseAgentSessionInteraction.workspace_id == self.workspace_id,
+                    CaseAgentSessionInteraction.case_id == case_id,
+                    CaseAgentSessionInteraction.agent_session_id == AgentSession.id,
+                )
+                .exists()
+            )
+            base_stmt = base_stmt.where(has_case_interaction)
 
         if entity_type is not None:
             base_stmt = base_stmt.where(AgentSession.entity_type == entity_type)
@@ -264,6 +283,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
         search: str | None = None,
+        case_id: uuid.UUID | None = None,
         group: InboxGroup | None = None,
         entity_type: AgentSessionEntity | None = None,
         created_after: datetime | None = None,
@@ -278,6 +298,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 order_by=order_by,
                 sort=sort,
                 search=search,
+                case_id=case_id,
                 group=group,
                 entity_type=entity_type,
                 created_after=created_after,
@@ -286,6 +307,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
 
         base_stmt = self._base_query(
             search,
+            case_id=case_id,
             entity_type=entity_type,
             created_after=created_after,
             updated_after=updated_after,
@@ -535,6 +557,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         sort: Literal["asc", "desc"] | None,
         search: str | None,
         group: InboxGroup,
+        case_id: uuid.UUID | None = None,
         entity_type: AgentSessionEntity | None = None,
         created_after: datetime | None = None,
         updated_after: datetime | None = None,
@@ -563,6 +586,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
 
         base_stmt = self._base_query(
             search,
+            case_id=case_id,
             entity_type=entity_type,
             created_after=created_after,
             updated_after=updated_after,

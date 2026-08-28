@@ -8295,6 +8295,7 @@ export const inboxGetPendingCount = (
  * @param data.orderBy Column name to order by (created_at, updated_at)
  * @param data.sort Sort direction (asc or desc)
  * @param data.search Case-insensitive search on item title
+ * @param data.caseId Filter items to root sessions associated with this case
  * @param data.group Filter items to a single display group
  * @param data.entityType Filter items to a single entity type
  * @param data.createdAfter Only items created at or after this time (ISO 8601)
@@ -8318,6 +8319,7 @@ export const inboxListItems = (
       order_by: data.orderBy,
       sort: data.sort,
       search: data.search,
+      case_id: data.caseId,
       group: data.group,
       entity_type: data.entityType,
       created_after: data.createdAfter,
