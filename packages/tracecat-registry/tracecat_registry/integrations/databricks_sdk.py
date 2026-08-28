@@ -96,6 +96,8 @@ def _get_client(base_url: str) -> WorkspaceClient:
 
 def _get_sdk_method(client: WorkspaceClient, service: str, method_name: str) -> Any:
     """Resolve a method from a generated Workspace API service."""
+    if service.startswith("_") or method_name.startswith("_"):
+        raise AttributeError(f"Unknown Databricks SDK method: {service}.{method_name}")
     if sdk_service := getattr(client, service, None):
         if method := getattr(sdk_service, method_name, None):
             return method

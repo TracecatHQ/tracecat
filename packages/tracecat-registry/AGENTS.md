@@ -334,7 +334,9 @@ SDK-backed or not.
   `if method := getattr(client, sdk_method, None):` when resolving an optional
   callable. Do not precompute or maintain service, method, hostname, or endpoint
   allowlists for a generic wrapper; resolve the caller's service and method
-  dynamically and let the pinned SDK own its public surface.
+  dynamically and let the pinned SDK own its public surface. Reject only Python
+  attributes beginning with `_`, which are private implementation details rather
+  than part of that public SDK surface.
 - Keep API semantics in the official SDK or provider. Wrapper-side validation is
   limited to Tracecat-owned protocol boundaries such as bounding pagination and
   producing JSON-serializable results. Do not duplicate the provider's request
