@@ -11,6 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.session.history import prepare_session_history
+from tracecat.agent.subagents import (
+    ResolvedAgentsConfig,
+    ResolvedAttachedSubagentRef,
+)
 from tracecat.auth.types import Role
 from tracecat.cases.agent_sessions.backfill import CaseAgentSessionBackfill
 from tracecat.cases.agent_sessions.types import CaseAgentSessionBackfillSkipReason
@@ -148,6 +152,18 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
         entity_type="approval",
         entity_id=uuid.uuid4(),
         parent_session=root,
+        agents_binding=ResolvedAgentsConfig(
+            enabled=True,
+            subagents=[
+                ResolvedAttachedSubagentRef(
+                    preset="analyst",
+                    name="analyst",
+                    preset_id=uuid.uuid4(),
+                    preset_version_id=uuid.uuid4(),
+                    preset_version=1,
+                )
+            ],
+        ).model_dump(mode="json"),
     )
     entity_only = AgentSession(
         workspace_id=workspace_id,
@@ -210,7 +226,12 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
         ),
         _use(
             "external-update",
-            "mcp__customer-server__core__cases__update_case",
+            "mcp__tracecat-registry-fake__core__cases__update_case",
+            case_id=str(updated.id),
+        ),
+        _use(
+            "subagent-update",
+            "mcp__tracecat-registry-analyst__core__cases__update_case",
             case_id=str(updated.id),
         ),
         _use(
@@ -241,6 +262,7 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
         _result("comment"),
         _result("legacy-update"),
         _result("external-update"),
+        _result("subagent-update"),
         _result("child-mutation"),
         _result(
             "create",
@@ -269,7 +291,7 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
     assert applied.batches_processed == 3
     assert applied.sessions_scanned == 3
     assert applied.history_rows_scanned == 5
-    assert applied.mutation_candidates == 6
+    assert applied.mutation_candidates == 7
     assert (applied.inserted, applied.existing) == (4, 2)
     assert (rerun.inserted, rerun.existing) == (0, 6)
     expected_skips = {

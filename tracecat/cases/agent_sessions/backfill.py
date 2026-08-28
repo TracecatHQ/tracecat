@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 import orjson
+from pydantic import ValidationError
 from sqlalchemy import exists, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,7 @@ from tracecat.agent.mcp.utils import (
     normalize_mcp_tool_name,
 )
 from tracecat.agent.session.history import decode_raw_session_line
+from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.cases.agent_sessions.types import (
     CaseAgentSessionBackfillReport,
     CaseAgentSessionBackfillSkipReason,
@@ -75,6 +77,7 @@ class _Session:
     surrogate_id: int
     id: uuid.UUID
     workspace_id: uuid.UUID
+    trusted_mcp_server_names: frozenset[str]
 
 
 type _SourceMutation = tuple[_Session, _Mutation]
@@ -98,7 +101,26 @@ def _parse_uuid(value: object) -> uuid.UUID | None:
         return None
 
 
-def _is_tracecat_owned_tool(name: str) -> bool:
+def _trusted_mcp_server_names(
+    agents_binding: dict[str, Any] | None,
+) -> frozenset[str]:
+    names = {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
+    if agents_binding is None:
+        return frozenset(names)
+    try:
+        subagents = ResolvedAgentsConfig.model_validate(agents_binding).subagents
+    except ValidationError:
+        return frozenset(names)
+    for subagent in subagents:
+        names.add(f"{REGISTRY_MCP_SERVER_NAME}-{subagent.alias}")
+        names.add(f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-{subagent.alias}")
+    return frozenset(names)
+
+
+def _is_tracecat_owned_tool(
+    name: str,
+    trusted_mcp_server_names: frozenset[str],
+) -> bool:
     """Reject tools routed through MCP servers Tracecat does not own."""
     for separator in ("__", "."):
         if not name.startswith(f"mcp{separator}"):
@@ -106,22 +128,19 @@ def _is_tracecat_owned_tool(name: str) -> bool:
         parts = name.split(separator, 2)
         if len(parts) != 3:
             return False
-        server_name = parts[1]
-        return server_name in {
-            REGISTRY_MCP_SERVER_NAME,
-            LEGACY_REGISTRY_MCP_SERVER_NAME,
-        } or server_name.startswith(
-            (f"{REGISTRY_MCP_SERVER_NAME}-", f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-")
-        )
+        return parts[1] in trusted_mcp_server_names
     return True
 
 
 def _resolve_tool(
     block: Mapping[str, Any],
+    trusted_mcp_server_names: frozenset[str],
 ) -> tuple[str, Mapping[str, Any] | None] | None:
     """Resolve a supported direct or legacy wrapper tool call."""
     name = block.get("name")
-    if not isinstance(name, str) or not _is_tracecat_owned_tool(name):
+    if not isinstance(name, str) or not _is_tracecat_owned_tool(
+        name, trusted_mcp_server_names
+    ):
         return None
 
     action = normalize_mcp_tool_name(name)
@@ -134,7 +153,8 @@ def _resolve_tool(
             return None
         wrapped_name = arguments.get("tool_name")
         if not isinstance(wrapped_name, str) or not _is_tracecat_owned_tool(
-            wrapped_name
+            wrapped_name,
+            trusted_mcp_server_names,
         ):
             return None
         action = normalize_mcp_tool_name(wrapped_name)
@@ -217,6 +237,7 @@ def _history_content(entry: AgentSessionHistory) -> Mapping[str, Any]:
 
 def _parse_mutations(
     entries: Sequence[AgentSessionHistory],
+    trusted_mcp_server_names: frozenset[str],
 ) -> tuple[list[_Mutation], Counter[CaseAgentSessionBackfillSkipReason]]:
     """Extract successful case mutations from ordered session history."""
     pending: dict[str, _PendingMutation] = {}
@@ -236,7 +257,7 @@ def _parse_mutations(
             for block in blocks:
                 if not isinstance(block, dict) or block.get("type") != "tool_use":
                     continue
-                tool = _resolve_tool(block)
+                tool = _resolve_tool(block, trusted_mcp_server_names)
                 if tool is None:
                     continue
                 tool_call_id = block.get("id")
@@ -313,6 +334,7 @@ class CaseAgentSessionBackfill:
                     AgentSession.surrogate_id,
                     AgentSession.id,
                     AgentSession.workspace_id,
+                    AgentSession.agents_binding,
                 )
                 .where(
                     AgentSession.surrogate_id > after_surrogate_id,
@@ -327,8 +349,9 @@ class CaseAgentSessionBackfill:
                 surrogate_id=surrogate_id,
                 id=session_id,
                 workspace_id=workspace_id,
+                trusted_mcp_server_names=_trusted_mcp_server_names(agents_binding),
             )
-            for surrogate_id, session_id, workspace_id in rows
+            for surrogate_id, session_id, workspace_id, agents_binding in rows
         ]
 
     async def _load_histories(
@@ -552,7 +575,10 @@ class CaseAgentSessionBackfill:
             source_mutations: list[_SourceMutation] = []
             batch_skips: Counter[CaseAgentSessionBackfillSkipReason] = Counter()
             for source in sessions:
-                mutations, parse_skips = _parse_mutations(histories.get(source.id, []))
+                mutations, parse_skips = _parse_mutations(
+                    histories.get(source.id, []),
+                    source.trusted_mcp_server_names,
+                )
                 source_mutations.extend((source, mutation) for mutation in mutations)
                 batch_skips.update(parse_skips)
 

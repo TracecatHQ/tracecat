@@ -21,7 +21,9 @@ class CaseAgentSessionBackfillWorkflow:
             case_agent_session_backfill_activity,
             start_to_close_timeout=timedelta(days=1),
             heartbeat_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            # Each batch commits independently. Failing the operation keeps its
+            # report honest; a later explicit rerun remains safe and idempotent.
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
 
