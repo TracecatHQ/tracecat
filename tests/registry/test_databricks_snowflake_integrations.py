@@ -5,6 +5,7 @@ from io import BytesIO
 import pytest
 from databricks.sdk.service._internal import Wait
 from databricks.sdk.service.files import DownloadResponse
+from tracecat_registry.integrations import databricks_sdk
 from tracecat_registry.integrations.databricks_sdk import (
     _WORKSPACE_SERVICE_NAMES,
     _serialize,
@@ -82,6 +83,18 @@ def test_databricks_serializes_binary_sdk_response() -> None:
         "content-type": "image/png",
         "contents": {"content_base64": "iVBORw0K"},
     }
+
+
+def test_databricks_bounds_binary_stream_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(databricks_sdk, "TRACECAT__MAX_FILE_SIZE_BYTES", 4)
+    stream = BytesIO(b"12345remaining-content-is-not-read")
+
+    with pytest.raises(ValueError, match="binary response exceeds maximum size"):
+        _serialize(stream)
+
+    assert stream.tell() == 5
 
 
 @pytest.mark.parametrize(

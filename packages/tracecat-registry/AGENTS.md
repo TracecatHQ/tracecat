@@ -346,8 +346,10 @@ SDK-backed or not.
   generated response model. Read the pinned SDK's real stream shape and encode
   bytes using the registry's explicit `{"content_base64": "..."}` convention;
   never let bytes, file-like objects, or SDK streams escape the wrapper unchanged.
-  Cover both a direct stream and a generated response containing a stream when
-  the SDK supports both shapes.
+  Enforce `TRACECAT__MAX_FILE_SIZE_BYTES` before base64 encoding: read streams
+  with `limit + 1`, reject an over-limit result, and never call an unbounded
+  `read()`. Cover both a direct stream and a generated response containing a
+  stream when the SDK supports both shapes.
 - Before declaring an SDK template complete, confirm against the pinned SDK that
   every referenced `service.method` exists and every forwarded keyword is
   accepted by that method's signature.
