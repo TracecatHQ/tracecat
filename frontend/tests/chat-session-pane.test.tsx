@@ -1764,6 +1764,47 @@ describe("ChatSessionPane", () => {
       mockPresets([TRIAGE_PRESET])
     })
 
+    it("ignores a second Enter while the preset write is still in flight", async () => {
+      // The optimistic selectedPresetId flips before updateChat resolves, so a
+      // second Enter used to skip the write it was still waiting on and send
+      // under the server's previous preset -- then the first submit resumed and
+      // sent again.
+      let resolvePreset: (applied: boolean) => void = () => {}
+      const onSelect = jest.fn().mockReturnValue(
+        new Promise<boolean>((resolve) => {
+          resolvePreset = resolve
+        })
+      )
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect,
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@tri", selectionStart: 4 },
+      })
+      await screen.findByText("Triage agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(textarea).toHaveValue("@Triage agent "))
+
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1))
+
+      // Second Enter lands while the write is pending.
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      expect(sendMessage).not.toHaveBeenCalled()
+
+      resolvePreset(true)
+
+      await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1))
+      expect(onSelect).toHaveBeenCalledTimes(1)
+    })
+
     it("replaces the first agent when a second one is picked", async () => {
       // A chat session owns one preset, so a stale name left in the text would
       // quietly win at submit.

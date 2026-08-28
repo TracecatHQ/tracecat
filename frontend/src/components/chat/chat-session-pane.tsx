@@ -510,6 +510,8 @@ export function ChatSessionPane({
   }, [cancelChatTurn, cancelRequested, chat?.id, isReadonly])
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
+  /** Guards `handleSubmit` against re-entry while it awaits a preset write. */
+  const submitInFlightRef = useRef(false)
   const wasInputDisabledRef = useRef(isInputDisabled)
 
   useEffect(() => {
@@ -967,6 +969,24 @@ export function ChatSessionPane({
       return
     }
 
+    // A submit awaits the preset write before it sends, and the composer stays
+    // enabled meanwhile. Without this a second Enter would see the optimistic
+    // `selectedPresetId`, skip the write it is still waiting on, and send under
+    // the preset the server has -- then the first submit would resume and send
+    // again. A ref rather than state because two keystrokes in the same tick
+    // would both read a stale `false`.
+    if (submitInFlightRef.current) {
+      return
+    }
+    submitInFlightRef.current = true
+    try {
+      await submitMessage(message)
+    } finally {
+      submitInFlightRef.current = false
+    }
+  }
+
+  const submitMessage = async (message: PromptInputMessage) => {
     const messageText = message.text || ""
 
     // An `@Agent` mention sets the session preset for the whole conversation.
