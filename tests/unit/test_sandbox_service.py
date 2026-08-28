@@ -110,6 +110,88 @@ async def test_install_packages_rejoins_copy_before_cleanup_on_cancellation(
 
 
 @pytest.mark.anyio
+async def test_install_packages_discards_copy_worker_error_under_cancellation(
+    tmp_path: Path,
+    mocker: pytest_mock.MockerFixture,
+) -> None:
+    """A copy-worker failure must not mask a pending cancellation.
+
+    If the copy thread completes with a non-safety error (e.g. PermissionError)
+    at the same loop tick that cancellation lands, the rejoin helper re-raises
+    the worker error inside the caller's cancellation handler. The promotion
+    must discard it and re-raise the cancellation instead. Regression for the
+    PR #3088 review finding.
+    """
+    cache_dir = tmp_path / "cache"
+    service = SandboxService(cache_dir=str(cache_dir))
+
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    site_packages = job_dir / "cache" / "site-packages"
+    site_packages.mkdir(parents=True)
+    (site_packages / "pkg.py").write_text("x")
+
+    class _FakeExecutor:
+        async def execute_install(
+            self,
+            job_dir: Path,  # noqa: ARG002
+            cache_key: str,  # noqa: ARG002
+            timeout_seconds: int,  # noqa: ARG002
+        ) -> Any:
+            return SandboxResult(success=True, exit_code=0)
+
+    service._nsjail_executor = cast(Any, _FakeExecutor())
+
+    copy_started = asyncio.Event()
+    release = threading.Event()
+
+    def failing_copy(
+        site_packages_src: Path,  # noqa: ARG001
+        temp_dest: Path,  # noqa: ARG001
+        **kwargs: object,  # noqa: ARG001
+    ) -> bool:
+        copy_started.set()
+        release.wait(timeout=5)
+        raise PermissionError("copy worker failed")
+
+    mocker.patch(
+        "tracecat.sandbox.service.copy_tree_without_following_symlinks",
+        failing_copy,
+    )
+    mocker.patch("tracecat.sandbox.service.shutil.rmtree", shutil.rmtree)
+
+    # Simulate the rejoin helper being entered when the copy task has already
+    # completed with an error: it surfaces the worker error to the caller's
+    # cancellation handler. Awaiting the task is behaviorally identical to
+    # the real helper's already-completed path (task.result()).
+    async def fake_rejoined(task: asyncio.Task[Any]) -> Any:
+        return await task
+
+    mocker.patch(
+        "tracecat.sandbox.service._await_task_rejoined",
+        fake_rejoined,
+    )
+
+    task = asyncio.create_task(
+        service._install_packages(
+            job_dir=job_dir,
+            dependencies=["pkg"],
+            cache_key="abc123",
+        )
+    )
+    await copy_started.wait()
+    task.cancel()  # Cancellation lands while the copy is still in flight.
+    release.set()  # The worker then fails before the handler's join completes.
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # The cancelled promotion was not published.
+    published = cache_dir / "packages" / "abc123" / "site-packages"
+    assert not published.exists()
+
+
+@pytest.mark.anyio
 async def test_await_task_rejoined_reraises_cancellation_after_worker_finishes() -> (
     None
 ):

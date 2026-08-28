@@ -334,6 +334,15 @@ class SandboxService:
                         "Discarded cancelled package promotion",
                         error=str(exc),
                     )
+                except Exception as exc:
+                    # A copy-worker failure that already completed before the
+                    # join (e.g. PermissionError or shutil.Error) must not
+                    # mask the pending cancellation either; log it and let the
+                    # cancellation win once the thread is rejoined.
+                    logger.warning(
+                        "Cancelled package promotion copy worker failed",
+                        error=str(exc),
+                    )
                 raise
             except SandboxFileSafetyError as exc:
                 raise PackageInstallError(
