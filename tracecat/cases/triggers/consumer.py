@@ -820,6 +820,8 @@ class CaseTriggerConsumer:
             count=self.batch,
             idle=self.claim_idle_ms,
         )
+        if self._stop_signalled():
+            return
         if not pending:
             return
 

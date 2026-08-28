@@ -1132,6 +1132,41 @@ async def test_claim_idle_messages_drains_all_available_batches(
 
 
 @pytest.mark.anyio
+async def test_claim_idle_messages_does_not_claim_after_stop_during_pending_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop_event = asyncio.Event()
+    pending_started = asyncio.Event()
+    finish_pending = asyncio.Event()
+    client = AsyncMock()
+
+    async def pending_during_shutdown(
+        *args: object, **kwargs: object
+    ) -> list[dict[str, str]]:
+        del args, kwargs
+        pending_started.set()
+        await finish_pending.wait()
+        return [{"message_id": "1-0"}]
+
+    client.xpending_range = AsyncMock(side_effect=pending_during_shutdown)
+    client.xclaim = AsyncMock()
+    consumer = CaseDurationSyncConsumer(
+        cast(RedisClient, client), stop_event=stop_event
+    )
+    handle_entries_mock = AsyncMock()
+    monkeypatch.setattr(consumer, "_handle_entries", handle_entries_mock)
+
+    claim_task = asyncio.create_task(consumer._claim_idle_messages())
+    await asyncio.wait_for(pending_started.wait(), timeout=5.0)
+    stop_event.set()
+    finish_pending.set()
+    await asyncio.wait_for(claim_task, timeout=5.0)
+
+    client.xclaim.assert_not_awaited()
+    handle_entries_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_consumer_retries_transient_read_failure_and_processes_next_batch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
