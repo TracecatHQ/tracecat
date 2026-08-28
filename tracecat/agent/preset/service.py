@@ -496,7 +496,11 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentPresetVersionRead:
         """Build the response model for an immutable preset version."""
 
-        agents = await self._get_version_agents_config(version)
+        binding = await self.get_version_subagent_binding(version)
+        agents = AgentSubagentsConfig(
+            enabled=binding.enabled,
+            subagents=list(binding.subagents),
+        )
         return AgentPresetVersionRead(
             id=version.id,
             preset_id=version.preset_id,

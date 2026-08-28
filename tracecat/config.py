@@ -103,6 +103,10 @@ TRACECAT__PUBLIC_API_URL = os.environ.get(
 TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
+TRACECAT__PLATFORM_OTEL_ENABLED = env_bool(
+    "TRACECAT__PLATFORM_OTEL_ENABLED", default=False
+)
+"""Enable Tracecat-operated platform tracing, separate from agent OTel export."""
 
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(
     os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64
@@ -1024,6 +1028,31 @@ TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES = int(
 )
 """The maximum size of the aggregate upload size in bytes. Defaults to 100MB."""
 
+TRACECAT__MAX_SKILL_FILE_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_SKILL_FILE_SIZE_BYTES") or 20 * 1024 * 1024
+)
+"""Maximum size of one skill file in bytes. Defaults to 20 MiB."""
+
+TRACECAT__MAX_SKILL_FILES_COUNT = int(
+    os.environ.get("TRACECAT__MAX_SKILL_FILES_COUNT") or 1_000
+)
+"""Maximum number of files in one skill draft. Defaults to 1,000."""
+
+TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT = int(
+    os.environ.get("TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT") or 64
+)
+"""Maximum number of files in one staged skill transfer. Defaults to 64."""
+
+TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES") or 100 * 1024 * 1024
+)
+"""Maximum aggregate size of one skill draft in bytes. Defaults to 100 MiB."""
+
+TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES") or 256 * 1024
+)
+"""Maximum size of a root skill SKILL.md manifest. Defaults to 256 KiB."""
+
 # === System PATH config === #
 TRACECAT__SYSTEM_PATH = os.environ.get(
     "TRACECAT__SYSTEM_PATH", "/usr/local/bin:/usr/bin:/bin"
@@ -1072,6 +1101,20 @@ TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX = 1000
 
 TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT = TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX
 """Default row count for internal table download."""
+
+# === API Lifecycle === #
+TRACECAT__API_TASK_DRAIN_TIMEOUT = float(
+    os.environ.get("TRACECAT__API_TASK_DRAIN_TIMEOUT") or 10.0
+)
+"""Seconds to let finite in-process API tasks finish during shutdown.
+
+Stoppable consumers (e.g. case triggers) are signalled to finish in-flight
+work and are awaited alongside finite startup tasks (e.g. registry sync) for
+this duration. Stragglers are then cancelled and get the same duration again
+for cleanup; non-stoppable long-running tasks are cancelled immediately. The
+deployment's termination grace period must exceed twice this value for full
+coverage.
+"""
 
 # === Context Compression === #
 TRACECAT__CONTEXT_COMPRESSION_ENABLED = env_bool(

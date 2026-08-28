@@ -68,7 +68,7 @@ async def test_record_upserts_repeated_operation_and_preserves_first_seen(
     first = await service.record(
         case_id=case.id,
         agent_session_id=agent_session.id,
-        operation=CaseAgentSessionInteractionOperation.READ,
+        operation=CaseAgentSessionInteractionOperation.UPDATE,
     )
     first_seen_at = first.created_at
     old_last_seen_at = datetime(2020, 1, 1, tzinfo=UTC)
@@ -81,7 +81,7 @@ async def test_record_upserts_repeated_operation_and_preserves_first_seen(
     repeated = await service.record(
         case_id=case.id,
         agent_session_id=agent_session.id,
-        operation=CaseAgentSessionInteractionOperation.READ,
+        operation=CaseAgentSessionInteractionOperation.UPDATE,
     )
 
     count = await session.scalar(
@@ -103,7 +103,6 @@ async def test_record_preserves_distinct_operations(
     service = CaseAgentSessionInteractionService(session, svc_role)
 
     for operation in (
-        CaseAgentSessionInteractionOperation.READ,
         CaseAgentSessionInteractionOperation.CREATE,
         CaseAgentSessionInteractionOperation.UPDATE,
     ):
@@ -123,7 +122,6 @@ async def test_record_preserves_distinct_operations(
         ).all()
     )
     assert operations == {
-        CaseAgentSessionInteractionOperation.READ,
         CaseAgentSessionInteractionOperation.CREATE,
         CaseAgentSessionInteractionOperation.UPDATE,
     }
@@ -177,7 +175,7 @@ async def test_record_does_not_commit_callers_transaction(
     await service.record(
         case_id=case.id,
         agent_session_id=agent_session.id,
-        operation=CaseAgentSessionInteractionOperation.READ,
+        operation=CaseAgentSessionInteractionOperation.UPDATE,
     )
 
     commit.assert_not_awaited()
@@ -221,13 +219,13 @@ async def test_record_rejects_cross_workspace_case_and_session(
         await service.record(
             case_id=other_case.id,
             agent_session_id=own_session.id,
-            operation=CaseAgentSessionInteractionOperation.READ,
+            operation=CaseAgentSessionInteractionOperation.UPDATE,
         )
     with pytest.raises(TracecatNotFoundError):
         await service.record(
             case_id=own_case.id,
             agent_session_id=other_session.id,
-            operation=CaseAgentSessionInteractionOperation.READ,
+            operation=CaseAgentSessionInteractionOperation.UPDATE,
         )
 
     count = await session.scalar(

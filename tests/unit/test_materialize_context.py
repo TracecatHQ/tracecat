@@ -48,7 +48,7 @@ def test_run_sync_reuses_storage_client_until_runner_closes(
 
             mock_session_cls.assert_called_once()
             mock_session.client.assert_called_once_with(
-                "s3", config=blob_module._STORAGE_CLIENT_CONFIG
+                "s3", config=blob_module._AWS_STORAGE_CLIENT_CONFIG
             )
             mock_session.client.return_value.__aenter__.assert_awaited_once()
             mock_session.client.return_value.__aexit__.assert_not_awaited()

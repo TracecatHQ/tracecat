@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: Execute SQL statement
+  description: Execute a SQL statement on a Databricks SQL warehouse.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/sql/statement_execution.html#databricks.sdk.service.sql.StatementExecutionAPI.execute_statement
+  namespace: tools.databricks
+  name: execute_statement
+  expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
+    statement:
+      type: str
+      description: SQL statement to execute.
+    warehouse_id:
+      type: str
+      description: Identifier of the SQL warehouse.
+    catalog:
+      type: str | None
+      description: Default catalog for statement execution.
+      default: null
+    schema:
+      type: str | None
+      description: Default schema for statement execution.
+      default: null
+    byte_limit:
+      type: int | None
+      description: Maximum number of result bytes to return inline.
+      default: null
+    row_limit:
+      type: int | None
+      description: Maximum number of result rows to return inline.
+      default: null
+    wait_timeout:
+      type: str | None
+      description: Time to wait for a result, from 0s through 50s.
+      default: null
+  steps:
+    - ref: execute_statement
+      action: tools.databricks_sdk.call_method
+      args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
+        service: statement_execution
+        method_name: execute_statement
+        params:
+          statement: ${{ inputs.statement }}
+          warehouse_id: ${{ inputs.warehouse_id }}
+          catalog: ${{ inputs.catalog }}
+          schema: ${{ inputs.schema }}
+          byte_limit: ${{ inputs.byte_limit }}
+          row_limit: ${{ inputs.row_limit }}
+          wait_timeout: ${{ inputs.wait_timeout }}
+  returns: ${{ steps.execute_statement.result }}

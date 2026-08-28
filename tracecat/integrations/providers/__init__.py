@@ -1,6 +1,10 @@
 from typing import Final
 
 from tracecat.integrations.providers.base import BaseOAuthProvider
+from tracecat.integrations.providers.databricks import (
+    DatabricksACProvider,
+    DatabricksCCProvider,
+)
 from tracecat.integrations.providers.github.mcp import GitHubMCPProvider
 from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
 from tracecat.integrations.providers.google import (
@@ -38,6 +42,10 @@ from tracecat.integrations.providers.microsoft import (
     MicrosoftEntraCCProvider,
     MicrosoftGraphACProvider,
     MicrosoftGraphCCProvider,
+    MicrosoftGraphSecurityACProvider,
+    MicrosoftGraphSecurityCCProvider,
+    MicrosoftOutlookACProvider,
+    MicrosoftOutlookCCProvider,
     MicrosoftSentinelACProvider,
     MicrosoftSentinelCCProvider,
     MicrosoftTeamsACProvider,
@@ -49,12 +57,18 @@ from tracecat.integrations.providers.secureannex.mcp import SecureAnnexMCPProvid
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 from tracecat.integrations.providers.servicenow.oauth import ServiceNowOAuthProvider
 from tracecat.integrations.providers.slack.oauth import SlackOAuthProvider
+from tracecat.integrations.providers.snowflake import (
+    SnowflakeACProvider,
+    SnowflakeCCProvider,
+)
 from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
 from tracecat.integrations.schemas import ProviderKey
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     GitHubOAuthProvider,
     GitHubMCPProvider,
+    DatabricksACProvider,
+    DatabricksCCProvider,
     GoogleAdminACProvider,
     GoogleAdminCCProvider,
     GoogleChronicleACProvider,
@@ -94,9 +108,15 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     MicrosoftEntraCCProvider,
     MicrosoftGraphACProvider,
     MicrosoftGraphCCProvider,
+    MicrosoftGraphSecurityACProvider,
+    MicrosoftGraphSecurityCCProvider,
+    MicrosoftOutlookACProvider,
+    MicrosoftOutlookCCProvider,
     MicrosoftTeamsACProvider,
     MicrosoftTeamsCCProvider,
     SlackOAuthProvider,
+    SnowflakeACProvider,
+    SnowflakeCCProvider,
     ServiceNowOAuthProvider,
 ]
 

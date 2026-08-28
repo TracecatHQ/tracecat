@@ -437,18 +437,32 @@
   Use this before updating, publishing, or attaching skills to agent presets.
 </ResponseField>
 
-<ResponseField name="upload_skill" type="tool">
-  Upload a local skill directory into Tracecat as a workspace skill.
+<ResponseField name="get_skill" type="tool">
+  Get skill details and the mutable draft manifest, or read one draft file.
 
-  This creates a new logical skill. Use `update_skill` when replacing an existing skill draft to avoid duplicate skill rows with the same name.
+  Without `path`, return the draft manifest: paths, SHA-256 digests, sizes, `draft_revision`, `is_publishable`, and `validation_errors`; it never returns file contents. Call this before updating an existing skill to reconcile after a `draft_revision_conflict` and to see what a complete-tree replacement would delete.
 
-  Agents should read the local directory themselves, preserve relative paths, include the root `SKILL.md` file, and pass every file in `files` using `content_base64`.
+  With `path`, read that one file from the draft. Small UTF-8 text files are returned inline. Other files return a short-lived download URL whose bytes must be fetched to disk with a plain HTTP GET; never inline downloaded bytes into context.
 </ResponseField>
 
-<ResponseField name="update_skill" type="tool">
-  Replace an existing skill draft with a local skill directory.
+<ResponseField name="prepare_skill_download" type="tool">
+  Prepare direct HTTP downloads of the complete mutable skill draft.
 
-  This does not publish the draft. Call `publish_skill` after the update if the skill should be attachable to agent presets.
+  Pass the response to the local helper, which streams each file's bytes to disk and verifies its SHA-256 digest. Never fetch these URLs into model context. Use `get_skill` without `path` when only file digests are needed, and use `get_skill` with `path` to read one small text file inline.
+</ResponseField>
+
+<ResponseField name="prepare_skill_upload" type="tool">
+  Prepare direct HTTP uploads for a complete local skill directory.
+
+  This is the preferred local-directory upload path. Pass file paths, SHA-256 digests, sizes, and content types only; never inline file contents or base64. Omit `skill_id` and provide `name` to create a skill, or provide `skill_id` and omit `name`/`description` to replace an existing draft.
+
+  Upload every file to its short-lived URL with the returned method and headers, then call `complete_skill_upload` with the returned `skill_id`, `base_revision`, paths, and upload IDs.
+</ResponseField>
+
+<ResponseField name="complete_skill_upload" type="tool">
+  Attach staged uploads and replace a skill draft with the local file set.
+
+  Call this only after every URL returned by `prepare_skill_upload` has received its raw file bytes. Files absent from this complete set are removed. `base_revision` prevents overwriting a concurrent draft edit. This does not publish the draft.
 </ResponseField>
 
 <ResponseField name="publish_skill" type="tool">

@@ -5,13 +5,16 @@ import base64
 import hashlib
 import os
 import uuid
+from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
+from urllib.parse import urlparse
 
 import pytest
 from asyncpg import UniqueViolationError
+from botocore.exceptions import ClientError
 from dotenv import dotenv_values
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -26,10 +29,12 @@ from tracecat.agent.preset.schemas import (
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.skill import service as skill_service_module
 from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
+    SkillDraftMoveFileOp,
     SkillDraftPatch,
     SkillDraftRead,
     SkillDraftUpsertTextFileOp,
@@ -40,7 +45,13 @@ from tracecat.agent.skill.schemas import (
     SkillVersionPublish,
     SkillVersionReadMinimal,
 )
-from tracecat.agent.skill.service import SKILL_SLUG_UNIQUE_CONSTRAINT, SkillService
+from tracecat.agent.skill.service import (
+    SKILL_SLUG_UNIQUE_CONSTRAINT,
+    PreparedDraftAttachUploadedBlobOp,
+    PublishedBlobObject,
+    SkillBlobPublicationClaim,
+    SkillService,
+)
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     Skill,
@@ -53,7 +64,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
-from tracecat.storage.blob import ensure_bucket_exists
+from tracecat.storage.blob import ensure_bucket_exists, file_exists, upload_file
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -112,7 +123,7 @@ async def configure_minio_for_skills(
     monkeypatch.setattr(
         config,
         "TRACECAT__BLOB_STORAGE_ENDPOINT",
-        "http://localhost:9000",
+        f"http://localhost:{os.environ.get('MINIO_PORT', '9000')}",
         raising=False,
     )
     monkeypatch.setattr(
@@ -152,23 +163,23 @@ async def _legacy_archive_skill(session: AsyncSession, skill_id: uuid.UUID) -> d
 
 @pytest.mark.anyio
 class TestSkillService:
-    async def test_insert_blob_row_reuses_existing_blob_identity(
+    async def test_claim_blob_publication_reuses_existing_identity(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Concurrent blob inserts should reuse the canonical row on conflict."""
+        """Only the first claim should own publication for a blob identity."""
 
         content = b"shared blob content"
         sha256 = hashlib.sha256(content).hexdigest()
         storage_key = skill_service._storage_key_for(sha256)
 
-        original = await skill_service._insert_blob_row(
+        original = await skill_service._claim_blob_publication(
             sha256=sha256,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
             size_bytes=len(content),
         )
-        reused = await skill_service._insert_blob_row(
+        reused = await skill_service._claim_blob_publication(
             sha256=sha256,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
@@ -187,7 +198,9 @@ class TestSkillService:
             .all()
         )
 
-        assert reused.id == original.id
+        assert original.is_owner is True
+        assert reused.is_owner is False
+        assert reused.blob.id == original.blob.id
         assert len(blob_rows) == 1
 
     async def test_create_skill_seeds_default_draft(
@@ -213,6 +226,93 @@ class TestSkillService:
         assert draft.name == "triage-skill"
         assert draft.description == "Handle security triage"
         assert [file.path for file in draft.files] == ["SKILL.md"]
+
+    async def test_prepare_draft_download_returns_presigned_plan_for_all_files(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Every draft file should receive a rewritten presigned download URL."""
+
+        contents = {
+            "SKILL.md": b"---\nname: download-skill\n---\n\n# Download\n",
+            "scripts/helper.py": b"def main():\n    return 'ok'\n",
+        }
+        created = await skill_service.upload_skill(
+            SkillUpload(
+                name="download-skill",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(contents["SKILL.md"]).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                    SkillUploadFile(
+                        path="scripts/helper.py",
+                        content_base64=base64.b64encode(
+                            contents["scripts/helper.py"]
+                        ).decode(),
+                        content_type="text/x-python; charset=utf-8",
+                    ),
+                ],
+            )
+        )
+        monkeypatch.setattr(
+            config,
+            "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT",
+            "http://downloads.example",
+        )
+
+        prepared = await skill_service.prepare_draft_download(skill_id=created.id)
+
+        assert prepared is not None
+        assert prepared.workspace_id == skill_service.workspace_id
+        assert prepared.skill_id == created.id
+        assert prepared.skill_name == "download-skill"
+        assert prepared.draft_revision == created.draft_revision
+        files_by_path = {file.path: file for file in prepared.files}
+        assert set(files_by_path) == {"SKILL.md", "scripts/helper.py"}
+        assert {path: file.sha256 for path, file in files_by_path.items()} == {
+            path: hashlib.sha256(content).hexdigest()
+            for path, content in contents.items()
+        }
+        assert files_by_path["SKILL.md"].size_bytes == len(contents["SKILL.md"])
+        assert (
+            files_by_path["scripts/helper.py"].content_type
+            == "text/x-python; charset=utf-8"
+        )
+        assert all(
+            urlparse(file.download_url).hostname == "downloads.example"
+            for file in prepared.files
+        )
+
+    async def test_prepare_draft_download_returns_none_for_missing_skill(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Missing skills should not produce a draft download plan."""
+
+        assert await skill_service.prepare_draft_download(skill_id=uuid.uuid4()) is None
+
+    async def test_oversized_existing_manifest_is_visible_but_not_downloadable(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="bounded-read"))
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES", 1)
+
+        draft = await skill_service.get_draft(created.id)
+
+        assert draft is not None
+        assert draft.is_publishable is False
+        assert [error.code for error in draft.validation_errors] == [
+            "skill_manifest_size_limit_exceeded"
+        ]
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.prepare_draft_download(skill_id=created.id)
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "skill_manifest_size_limit_exceeded"
 
     async def test_create_skill_suffixes_live_duplicate_slug(
         self,
@@ -275,6 +375,7 @@ class TestSkillService:
     async def test_create_skill_retries_slug_unique_violation(
         self,
         skill_service: SkillService,
+        svc_workspace: Workspace,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Slug unique races roll back, reallocate, and retry the insert."""
@@ -310,6 +411,7 @@ class TestSkillService:
         assert flush_calls >= 3
         assert rollback_calls == 1
         assert allocated_slugs == []
+        await skill_service.session.refresh(svc_workspace)
 
     async def test_create_skill_reuses_slug_after_soft_delete(
         self,
@@ -645,8 +747,9 @@ class TestSkillService:
             key: str,
             bucket: str,
             content_type: str,
+            redact_log_identifiers: bool = False,
         ) -> None:
-            del content, key, bucket, content_type
+            del content, key, bucket, content_type, redact_log_identifiers
             nonlocal upload_called
             upload_called = True
 
@@ -754,8 +857,9 @@ class TestSkillService:
             key: str,
             bucket: str,
             content_type: str,
+            redact_log_identifiers: bool = False,
         ) -> None:
-            del content, key, bucket, content_type
+            del content, key, bucket, content_type, redact_log_identifiers
             nonlocal upload_called
             upload_called = True
 
@@ -1152,18 +1256,104 @@ class TestSkillService:
         finally:
             await concurrent_engine.dispose()
 
+    async def test_patch_draft_refreshes_preloaded_revision_before_lock(
+        self,
+        svc_role: Role,
+    ) -> None:
+        """The locking read must refresh a skill already in the identity map."""
+
+        role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+        concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
+
+        try:
+            async with session_factory() as stale_session:
+                workspace = await stale_session.scalar(
+                    select(Workspace).where(Workspace.id == role.workspace_id)
+                )
+                if workspace is None:
+                    stale_session.add(
+                        Workspace(
+                            id=role.workspace_id,
+                            name="test-workspace",
+                            organization_id=role.organization_id,
+                        )
+                    )
+                    await stale_session.commit()
+
+                stale_service = SkillService(
+                    session=stale_session,
+                    role=role.model_copy(deep=True),
+                )
+                created = await stale_service.create_skill(
+                    SkillCreate(name="preloaded-revision-skill")
+                )
+                stale_draft = await stale_service.get_draft(created.id)
+                assert stale_draft is not None
+
+                async with session_factory() as competing_session:
+                    competing_service = SkillService(
+                        session=competing_session,
+                        role=role.model_copy(deep=True),
+                    )
+                    committed = await competing_service.patch_draft(
+                        skill_id=created.id,
+                        params=SkillDraftPatch(
+                            base_revision=stale_draft.draft_revision,
+                            operations=[
+                                SkillDraftUpsertTextFileOp(
+                                    path="references/competing.md",
+                                    content="competing content",
+                                )
+                            ],
+                        ),
+                    )
+
+                with pytest.raises(TracecatValidationError) as exc_info:
+                    await stale_service.patch_draft(
+                        skill_id=created.id,
+                        params=SkillDraftPatch(
+                            base_revision=stale_draft.draft_revision,
+                            operations=[
+                                SkillDraftUpsertTextFileOp(
+                                    path="references/stale.md",
+                                    content="stale content",
+                                )
+                            ],
+                        ),
+                    )
+
+                assert exc_info.value.detail is not None
+                assert exc_info.value.detail["code"] == "draft_revision_conflict"
+                assert (
+                    exc_info.value.detail["current_revision"]
+                    == committed.draft_revision
+                )
+        finally:
+            await concurrent_engine.dispose()
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param(b"uploaded content", id="nonempty"),
+            pytest.param(b"", id="empty"),
+        ],
+    )
     async def test_attach_uploaded_blob_promotes_from_staged_key(
         self,
         skill_service: SkillService,
         monkeypatch: pytest.MonkeyPatch,
+        content: bytes,
     ) -> None:
-        """Uppercase upload digests normalize before staged-key promotion."""
+        """Staged uploads support empty files and normalized uppercase digests."""
 
         created = await skill_service.create_skill(SkillCreate(name="staged-upload"))
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
 
-        content = b"uploaded content"
         sha256 = hashlib.sha256(content).hexdigest()
         upload_sha256 = sha256.upper()
         upload = await skill_service.create_draft_upload(
@@ -1177,13 +1367,16 @@ class TestSkillService:
 
         canonical_key = skill_service._storage_key_for(sha256)
         assert upload.key != canonical_key
-        assert "/uploads/" in upload.key
+        assert upload.key.startswith(f"skill-uploads/{skill_service.workspace_id}/")
         assert upload.key.endswith(sha256)
 
         uploaded: dict[str, str] = {}
 
-        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
             del key, bucket
+            assert redact_log_identifiers is True
             return True
 
         class FakeStream:
@@ -1195,8 +1388,11 @@ class TestSkillService:
                 yield content
 
         @asynccontextmanager
-        async def fake_open_download_stream(*, key: str, bucket: str):
-            del key, bucket
+        async def fake_open_download_stream(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ):
+            del bucket
+            assert redact_log_identifiers is True
             yield FakeStream(), len(content)
 
         async def fake_copy_file(
@@ -1205,8 +1401,10 @@ class TestSkillService:
             destination_key: str,
             bucket: str,
             content_type: str | None = None,
+            redact_log_identifiers: bool = False,
         ) -> None:
             del source_key, bucket, content_type
+            assert redact_log_identifiers is True
             uploaded["key"] = destination_key
 
         monkeypatch.setattr(
@@ -1246,6 +1444,1036 @@ class TestSkillService:
         assert uploaded["key"] == canonical_key
         assert blob_row.key == canonical_key
         assert blob_row.sha256 == sha256
+
+    async def test_delete_published_blob_objects_redacts_failure_logs(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Rollback cleanup must not log tenant-bearing storage identifiers."""
+
+        sensitive_bucket = "affected-customer-bucket"
+        sensitive_key = "skills/tenant-id/private-object"
+        delete_file = AsyncMock(
+            side_effect=RuntimeError(f"failed {sensitive_bucket}/{sensitive_key}")
+        )
+        mock_logger = MagicMock()
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", delete_file
+        )
+        monkeypatch.setattr(skill_service, "logger", mock_logger)
+
+        await skill_service._delete_blob_objects(
+            [PublishedBlobObject(bucket=sensitive_bucket, key=sensitive_key)]
+        )
+
+        delete_file.assert_awaited_once_with(
+            key=sensitive_key,
+            bucket=sensitive_bucket,
+            redact_log_identifiers=True,
+        )
+        mock_logger.warning.assert_called_once_with(
+            "Failed to delete rolled-back skill blob object",
+            error_type="RuntimeError",
+        )
+        assert sensitive_bucket not in str(mock_logger.mock_calls)
+        assert sensitive_key not in str(mock_logger.mock_calls)
+
+    async def test_patch_draft_rollback_deletes_canonical_objects_it_published(
+        self,
+        skill_service: SkillService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """A failed batch must remove canonical objects copied for earlier files.
+
+        Uses real MinIO: the first upload is copied to its canonical key before
+        the second fails verification. The rollback must delete that copy but
+        keep the object of a committed blob the same batch merely reused.
+        """
+
+        created = await skill_service.create_skill(SkillCreate(name="batch-rollback"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS
+
+        seed_markdown = SkillService._build_default_skill_markdown(
+            name="batch-rollback", description=None
+        )
+        seed_key = skill_service._storage_key_for(
+            hashlib.sha256(seed_markdown.encode("utf-8")).hexdigest()
+        )
+        assert await file_exists(key=seed_key, bucket=bucket)
+
+        # Materialization runs in digest order, so the lower digest is the one
+        # copied to its canonical key before the higher one fails.
+        good_content, bad_content = sorted(
+            (b"first staged file", b"second staged file"),
+            key=lambda content: hashlib.sha256(content).hexdigest(),
+        )
+        good_sha256 = hashlib.sha256(good_content).hexdigest()
+        bad_sha256 = hashlib.sha256(bad_content).hexdigest()
+        good_canonical_key = skill_service._storage_key_for(good_sha256)
+
+        uploads: list[Any] = []
+        for content, sha256 in ((good_content, good_sha256), (bad_content, bad_sha256)):
+            upload = await skill_service.create_draft_upload(
+                skill_id=created.id,
+                params=SkillUploadSessionCreate(
+                    sha256=sha256,
+                    size_bytes=len(content),
+                    content_type="text/plain; charset=utf-8",
+                ),
+            )
+            uploads.append(upload)
+        good_upload, bad_upload = uploads
+        await upload_file(
+            content=good_content,
+            key=good_upload.key,
+            bucket=good_upload.bucket,
+            content_type="application/octet-stream",
+        )
+        # Corrupt the second staged object so its verification fails.
+        await upload_file(
+            content=bad_content + b"!",
+            key=bad_upload.key,
+            bucket=bad_upload.bucket,
+            content_type="application/octet-stream",
+        )
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/good.txt",
+                            upload_id=good_upload.upload_id,
+                        ),
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/bad.txt",
+                            upload_id=bad_upload.upload_id,
+                        ),
+                        # Reuses the committed seed blob; must survive rollback.
+                        SkillDraftUpsertTextFileOp(
+                            path="references/seed-copy.md",
+                            content=seed_markdown,
+                            content_type="text/markdown; charset=utf-8",
+                        ),
+                    ],
+                ),
+            )
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "upload_integrity_error"
+
+        assert not await file_exists(key=good_canonical_key, bucket=bucket)
+        assert await file_exists(key=seed_key, bucket=bucket)
+        good_blob_row = await skill_service.session.scalar(
+            select(SkillBlob).where(
+                SkillBlob.workspace_id == skill_service.workspace_id,
+                SkillBlob.sha256 == good_sha256,
+            )
+        )
+        assert good_blob_row is None
+        refreshed = await skill_service.get_draft(created.id)
+        assert refreshed is not None
+        assert refreshed.draft_revision == draft.draft_revision
+        await skill_service.session.refresh(svc_workspace)
+
+    async def test_attach_rejects_canonical_copy_poisoned_after_verification(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A staged re-PUT racing the canonical copy must not become a blob.
+
+        The staged PUT URL can still be valid while completion runs, so the
+        canonical copy is re-verified; bytes that differ from the verified
+        staged read are rejected and the canonical object is deleted.
+        """
+
+        content = b"verified staged bytes\n"
+        poisoned = b"poisoned canonical bytes\n"
+        sha256 = hashlib.sha256(content).hexdigest()
+
+        created = await skill_service.create_skill(SkillCreate(name="poison-race"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=sha256,
+                size_bytes=len(content),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        canonical_key = skill_service._storage_key_for(sha256)
+        deleted: list[str] = []
+
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
+            del key, bucket
+            assert redact_log_identifiers is True
+            return True
+
+        class FakeStream:
+            def __init__(self, payload: bytes) -> None:
+                self._payload = payload
+
+            async def read(self) -> bytes:
+                return self._payload
+
+            async def iter_chunks(self, *, chunk_size: int):
+                del chunk_size
+                yield self._payload
+
+        @asynccontextmanager
+        async def fake_open_download_stream(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ):
+            del bucket
+            assert redact_log_identifiers is True
+            payload = poisoned if key == canonical_key else content
+            yield FakeStream(payload), len(payload)
+
+        async def fake_copy_file(
+            *,
+            source_key: str,
+            destination_key: str,
+            bucket: str,
+            content_type: str | None = None,
+            redact_log_identifiers: bool = False,
+        ) -> None:
+            del source_key, destination_key, bucket, content_type
+            assert redact_log_identifiers is True
+
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            assert redact_log_identifiers is True
+            del bucket
+            deleted.append(key)
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.open_download_stream",
+            fake_open_download_stream,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.copy_file", fake_copy_file
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+        )
+
+        with pytest.raises(TracecatValidationError) as excinfo:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            )
+
+        assert excinfo.value.detail is not None
+        assert excinfo.value.detail["code"] == "upload_integrity_error"
+        # Both the immediate integrity-error cleanup and the outer rollback
+        # cleanup may delete the canonical object; S3 deletes are idempotent.
+        assert deleted
+        assert set(deleted) == {canonical_key}
+        blob_row = (
+            await skill_service.session.execute(
+                select(SkillBlob).where(
+                    SkillBlob.workspace_id == skill_service.workspace_id,
+                    SkillBlob.sha256 == sha256,
+                )
+            )
+        ).scalar_one_or_none()
+        assert blob_row is None
+
+    async def test_upload_cancellation_cleans_registered_canonical_key(
+        self,
+        skill_service: SkillService,
+        svc_workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cancellation after an accepted upload must delete the canonical object."""
+
+        content = "upload accepted before cancellation\n"
+        sha256 = hashlib.sha256(content.encode()).hexdigest()
+        created = await skill_service.create_skill(SkillCreate(name="cancel-upload"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        canonical_key = skill_service._storage_key_for(sha256)
+        stored_keys: set[str] = set()
+        deleted: list[str] = []
+
+        async def cancel_after_accepted_upload(
+            *,
+            content: bytes,
+            key: str,
+            bucket: str,
+            content_type: str | None = None,
+            redact_log_identifiers: bool = False,
+        ) -> None:
+            del content, bucket, content_type
+            assert redact_log_identifiers is True
+            stored_keys.add(key)
+            raise asyncio.CancelledError()
+
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            del bucket
+            assert redact_log_identifiers is True
+            deleted.append(key)
+            stored_keys.discard(key)
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.upload_file",
+            cancel_after_accepted_upload,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftUpsertTextFileOp(
+                            path="references/uploaded.txt",
+                            content=content,
+                        )
+                    ],
+                ),
+            )
+
+        assert deleted == [canonical_key]
+        assert stored_keys == set()
+        blob_row = await skill_service.session.scalar(
+            select(SkillBlob).where(
+                SkillBlob.workspace_id == skill_service.workspace_id,
+                SkillBlob.sha256 == sha256,
+            )
+        )
+        assert blob_row is None
+        await skill_service.session.refresh(svc_workspace)
+
+    async def test_attach_redacts_canonical_verification_failure(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Canonical verification hides tenant identifiers on storage failure."""
+
+        content = b"verified staged bytes\n"
+        sha256 = hashlib.sha256(content).hexdigest()
+        created = await skill_service.create_skill(SkillCreate(name="verify-failure"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=sha256,
+                size_bytes=len(content),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        canonical_key = skill_service._storage_key_for(sha256)
+        provider_message = f"denied access to {upload.bucket}/{canonical_key}"
+        get_object_calls = 0
+        deleted: list[str] = []
+
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
+            del key, bucket
+            assert redact_log_identifiers is True
+            return True
+
+        class FakeStream:
+            async def __aenter__(self) -> "FakeStream":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def iter_chunks(self, *, chunk_size: int):
+                del chunk_size
+                yield content
+
+        @asynccontextmanager
+        async def fake_get_storage_client():
+            client = AsyncMock()
+
+            async def get_object(*, Bucket: str, Key: str):
+                nonlocal get_object_calls
+                get_object_calls += 1
+                if get_object_calls == 1:
+                    return {"Body": FakeStream(), "ContentLength": len(content)}
+                raise ClientError(
+                    error_response={
+                        "Error": {
+                            "Code": "AccessDenied",
+                            "Message": provider_message,
+                        }
+                    },
+                    operation_name="GetObject",
+                )
+
+            client.get_object.side_effect = get_object
+            yield client
+
+        async def fake_copy_file(
+            *,
+            source_key: str,
+            destination_key: str,
+            bucket: str,
+            content_type: str | None = None,
+            redact_log_identifiers: bool = False,
+        ) -> None:
+            del source_key, destination_key, bucket, content_type
+            assert redact_log_identifiers is True
+
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            del bucket
+            assert redact_log_identifiers is True
+            deleted.append(key)
+
+        mock_logger = MagicMock()
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.get_storage_client",
+            fake_get_storage_client,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.copy_file", fake_copy_file
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+        )
+        monkeypatch.setattr("tracecat.storage.blob.logger", mock_logger)
+
+        with pytest.raises(skill_service_module.blob.StorageDownloadError) as raised:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            )
+
+        assert raised.value.error_code == "AccessDenied"
+        assert canonical_key not in str(raised.value)
+        assert provider_message not in str(raised.value)
+        mock_logger.error.assert_called_once_with(
+            "Failed to open download stream",
+            key="<redacted>",
+            bucket="<redacted>",
+            error_code="AccessDenied",
+            error_type="ClientError",
+        )
+        assert canonical_key not in str(mock_logger.mock_calls)
+        assert str(skill_service.workspace_id) not in str(mock_logger.mock_calls)
+        assert provider_message not in str(mock_logger.mock_calls)
+        assert get_object_calls == 2
+        assert deleted
+        assert set(deleted) == {canonical_key}
+
+    async def test_copy_cancellation_cleans_registered_canonical_key(
+        self,
+        skill_service: SkillService,
+        svc_workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cancellation after an accepted copy must delete the canonical object."""
+
+        content = b"copy accepted before cancellation\n"
+        sha256 = hashlib.sha256(content).hexdigest()
+        created = await skill_service.create_skill(SkillCreate(name="cancel-copy"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=sha256,
+                size_bytes=len(content),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        canonical_key = skill_service._storage_key_for(sha256)
+        stored_keys: set[str] = set()
+        deleted: list[str] = []
+
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
+            del key, bucket
+            assert redact_log_identifiers is True
+            return True
+
+        async def fake_stream_verify_object(**_kwargs: Any) -> None:
+            return None
+
+        async def cancel_after_accepted_copy(
+            *,
+            source_key: str,
+            destination_key: str,
+            bucket: str,
+            content_type: str | None = None,
+            redact_log_identifiers: bool = False,
+        ) -> None:
+            del source_key, bucket, content_type
+            assert redact_log_identifiers is True
+            stored_keys.add(destination_key)
+            raise asyncio.CancelledError()
+
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            del bucket
+            assert redact_log_identifiers is True
+            deleted.append(key)
+            stored_keys.discard(key)
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+        )
+        monkeypatch.setattr(
+            skill_service,
+            "_stream_verify_object",
+            fake_stream_verify_object,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.copy_file",
+            cancel_after_accepted_copy,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            )
+
+        assert deleted == [canonical_key]
+        assert stored_keys == set()
+        blob_row = await skill_service.session.scalar(
+            select(SkillBlob).where(
+                SkillBlob.workspace_id == skill_service.workspace_id,
+                SkillBlob.sha256 == sha256,
+            )
+        )
+        assert blob_row is None
+        await skill_service.session.refresh(svc_workspace)
+
+    async def test_patch_draft_returns_before_staged_object_cleanup(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Slow post-commit cleanup must not delay the committed draft response."""
+
+        content = b"background staged cleanup\n"
+        created = await skill_service.create_skill(
+            SkillCreate(name="background-cleanup")
+        )
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        await upload_file(
+            content=content,
+            key=upload.key,
+            bucket=upload.bucket,
+            content_type="application/octet-stream",
+        )
+
+        deletion_started = asyncio.Event()
+        allow_deletion = asyncio.Event()
+        deleted: list[tuple[str, str]] = []
+
+        async def blocked_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            assert redact_log_identifiers is True
+            deletion_started.set()
+            await allow_deletion.wait()
+            deleted.append((key, bucket))
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", blocked_delete_file
+        )
+
+        patched = await asyncio.wait_for(
+            skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            ),
+            timeout=5,
+        )
+
+        assert patched.draft_revision == draft.draft_revision + 1
+        try:
+            await asyncio.wait_for(deletion_started.wait(), timeout=1)
+            assert deleted == []
+        finally:
+            allow_deletion.set()
+            await asyncio.gather(*skill_service_module._staged_upload_cleanup_tasks)
+        assert deleted == [(upload.key, upload.bucket)]
+
+    async def test_concurrent_blob_claims_reuse_the_committed_owner(
+        self,
+        svc_role: Role,
+    ) -> None:
+        """Same-digest contenders should reuse the row claimed by the winner."""
+
+        role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+        concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
+
+        try:
+            async with session_factory() as seed_session:
+                seed_session.add(
+                    Workspace(
+                        id=role.workspace_id,
+                        name="test-workspace",
+                        organization_id=role.organization_id,
+                    )
+                )
+                await seed_session.commit()
+
+            content = b"shared staged upload\n"
+            sha256 = hashlib.sha256(content).hexdigest()
+            storage_key = f"skills/{role.workspace_id}/{sha256}"
+            async with (
+                session_factory() as owner_session,
+                session_factory() as contender_session,
+            ):
+                owner_service = SkillService(
+                    session=owner_session,
+                    role=role.model_copy(deep=True),
+                )
+                contender_service = SkillService(
+                    session=contender_session,
+                    role=role.model_copy(deep=True),
+                )
+                owner_claim = await owner_service._claim_blob_publication(
+                    sha256=sha256,
+                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                    key=storage_key,
+                    size_bytes=len(content),
+                )
+
+                contender_started = asyncio.Event()
+
+                async def claim_as_contender() -> SkillBlobPublicationClaim:
+                    contender_started.set()
+                    claim = await contender_service._claim_blob_publication(
+                        sha256=sha256,
+                        bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                        key=storage_key,
+                        size_bytes=len(content),
+                    )
+                    await contender_session.commit()
+                    return claim
+
+                contender_task = asyncio.create_task(claim_as_contender())
+                await contender_started.wait()
+                await asyncio.sleep(0)
+                assert contender_task.done() is False
+
+                await owner_session.commit()
+                contender_claim = await asyncio.wait_for(contender_task, timeout=5)
+
+            assert owner_claim.is_owner is True
+            assert contender_claim.is_owner is False
+            assert contender_claim.blob.id == owner_claim.blob.id
+        finally:
+            await concurrent_engine.dispose()
+
+    async def test_patch_materializes_blob_claims_in_digest_order(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Caller path order must not become PostgreSQL claim-lock order."""
+
+        skill_id = uuid.uuid4()
+        now = datetime.now(UTC)
+
+        def upload_for(digest: str) -> SkillUploadModel:
+            upload = SkillUploadModel(
+                workspace_id=skill_service.workspace_id,
+                skill_id=skill_id,
+                sha256=digest,
+                size_bytes=1,
+                content_type="application/octet-stream",
+                bucket="skills",
+                key=f"skill-uploads/{skill_service.workspace_id}/{digest}",
+                expires_at=now + timedelta(minutes=5),
+                created_by=None,
+            )
+            upload.id = uuid.uuid4()
+            return upload
+
+        upload_a = upload_for("a" * 64)
+        upload_b = upload_for("b" * 64)
+        blob_a = SkillBlob(
+            id=uuid.uuid4(),
+            workspace_id=skill_service.workspace_id,
+            sha256=upload_a.sha256,
+            bucket="skills",
+            key=f"skills/{skill_service.workspace_id}/{upload_a.sha256}",
+            size_bytes=1,
+        )
+        blob_b = SkillBlob(
+            id=uuid.uuid4(),
+            workspace_id=skill_service.workspace_id,
+            sha256=upload_b.sha256,
+            bucket="skills",
+            key=f"skills/{skill_service.workspace_id}/{upload_b.sha256}",
+            size_bytes=1,
+        )
+        calls: list[str] = []
+
+        async def materialize(
+            upload: SkillUploadModel,
+            *,
+            published: list[PublishedBlobObject] | None = None,
+        ) -> SkillBlob:
+            del published
+            calls.append(upload.sha256)
+            return blob_a if upload.sha256 == upload_a.sha256 else blob_b
+
+        monkeypatch.setattr(skill_service, "_materialize_uploaded_blob", materialize)
+
+        materialized = await skill_service._materialize_patch_operation_blobs(
+            [
+                PreparedDraftAttachUploadedBlobOp(path="b.txt", upload=upload_b),
+                PreparedDraftAttachUploadedBlobOp(path="a.txt", upload=upload_a),
+            ]
+        )
+
+        assert calls == [upload_a.sha256, upload_b.sha256]
+        assert materialized[0] is blob_b
+        assert materialized[1] is blob_a
+
+    async def test_prepare_draft_uploads_commits_one_checksum_bound_batch(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="prepare-batch"))
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 2)
+        captured: list[tuple[str, str, str, str, int]] = []
+
+        async def generate_presigned_upload_url(
+            *,
+            key: str,
+            bucket: str,
+            content_type: str,
+            checksum_sha256: str,
+            expiry: int,
+            redact_log_identifiers: bool = False,
+        ) -> str:
+            assert redact_log_identifiers is True
+            captured.append(
+                (
+                    key,
+                    bucket,
+                    content_type,
+                    checksum_sha256,
+                    expiry,
+                )
+            )
+            return f"https://uploads.example/{len(captured)}"
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.generate_presigned_upload_url",
+            generate_presigned_upload_url,
+        )
+        params = [
+            SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="application/octet-stream",
+            )
+            for content in (b"first", b"")
+        ]
+
+        prepared = await skill_service.prepare_draft_uploads(
+            skill_id=created.id,
+            params=params,
+            url_expiry_seconds=60,
+        )
+
+        assert prepared.created is False
+        assert prepared.skill_id == created.id
+        assert [item[4] for item in captured] == [60, 60]
+        assert [item[3] for item in captured] == [
+            base64.b64encode(hashlib.sha256(content).digest()).decode("ascii")
+            for content in (b"first", b"")
+        ]
+        assert [upload.headers["Content-Length"] for upload in prepared.uploads] == [
+            "5",
+            "0",
+        ]
+        assert [
+            upload.headers["x-amz-checksum-sha256"] for upload in prepared.uploads
+        ] == [item[3] for item in captured]
+        upload_rows = (
+            await skill_service.session.execute(
+                select(SkillUploadModel).where(
+                    SkillUploadModel.id.in_(
+                        [upload.upload_id for upload in prepared.uploads]
+                    )
+                )
+            )
+        ).scalars()
+        assert len(upload_rows.all()) == 2
+
+    async def test_prepare_new_skill_uploads_rolls_back_presigning_failure(
+        self,
+        skill_service: SkillService,
+        svc_workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        call_count = 0
+
+        async def generate_presigned_upload_url(**_kwargs: Any) -> str:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise RuntimeError("signing failed")
+            return "https://uploads.example/first"
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.generate_presigned_upload_url",
+            generate_presigned_upload_url,
+        )
+        params = [
+            SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="application/octet-stream",
+            )
+            for content in (b"first", b"second")
+        ]
+
+        with pytest.raises(RuntimeError, match="signing failed"):
+            await skill_service.prepare_new_skill_draft_uploads(
+                skill_params=SkillCreate(name="atomic-prepare"),
+                params=params,
+                url_expiry_seconds=60,
+            )
+
+        skill = await skill_service.session.scalar(
+            select(Skill).where(
+                Skill.workspace_id == skill_service.workspace_id,
+                Skill.name == "atomic-prepare",
+            )
+        )
+        uploads = (
+            await skill_service.session.execute(
+                select(SkillUploadModel).where(
+                    SkillUploadModel.workspace_id == skill_service.workspace_id
+                )
+            )
+        ).scalars()
+        assert skill is None
+        assert uploads.all() == []
+        # The seed SKILL.md object was written outside the SQL transaction and
+        # must not be left behind as an orphan.
+        seed_markdown = SkillService._build_default_skill_markdown(
+            name="atomic-prepare", description=None
+        )
+        seed_key = skill_service._storage_key_for(
+            hashlib.sha256(seed_markdown.encode("utf-8")).hexdigest()
+        )
+        assert not await file_exists(
+            key=seed_key, bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS
+        )
+        await skill_service.session.refresh(svc_workspace)
+
+    async def test_prepare_new_skill_uploads_rollback_keeps_reused_blob_object(
+        self,
+        skill_service: SkillService,
+        svc_workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A rollback must only delete objects it published, never reused ones."""
+
+        existing = await skill_service.create_skill(SkillCreate(name="shared-seed"))
+        seed_markdown = SkillService._build_default_skill_markdown(
+            name="shared-seed", description=None
+        )
+        seed_sha256 = hashlib.sha256(seed_markdown.encode("utf-8")).hexdigest()
+        seed_key = skill_service._storage_key_for(seed_sha256)
+        assert await file_exists(
+            key=seed_key, bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS
+        )
+
+        async def generate_presigned_upload_url(**_kwargs: Any) -> str:
+            raise RuntimeError("signing failed")
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.generate_presigned_upload_url",
+            generate_presigned_upload_url,
+        )
+        content = b"payload"
+        with pytest.raises(RuntimeError, match="signing failed"):
+            await skill_service.prepare_new_skill_draft_uploads(
+                skill_params=SkillCreate(name="shared-seed"),
+                params=[
+                    SkillUploadSessionCreate(
+                        sha256=hashlib.sha256(content).hexdigest(),
+                        size_bytes=len(content),
+                        content_type="application/octet-stream",
+                    )
+                ],
+                url_expiry_seconds=60,
+            )
+
+        # The second skill reused the committed seed blob, so the rollback must
+        # leave both the row and its object for the first skill.
+        assert await file_exists(
+            key=seed_key, bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS
+        )
+        blob_row = await skill_service.session.scalar(
+            select(SkillBlob).where(
+                SkillBlob.workspace_id == skill_service.workspace_id,
+                SkillBlob.sha256 == seed_sha256,
+            )
+        )
+        assert blob_row is not None
+        assert await skill_service.get_skill(existing.id) is not None
+        await skill_service.session.refresh(svc_workspace)
+
+    async def test_prepare_draft_uploads_rejects_aggregate_limit_before_writes(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="bounded-prepare"))
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES", 1)
+        params = [
+            SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="application/octet-stream",
+            )
+            for content in (b"a", b"b")
+        ]
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.prepare_draft_uploads(
+                skill_id=created.id,
+                params=params,
+            )
+
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "skill_total_size_limit_exceeded"
+        upload_rows = (
+            await skill_service.session.execute(
+                select(SkillUploadModel).where(
+                    SkillUploadModel.workspace_id == skill_service.workspace_id
+                )
+            )
+        ).scalars()
+        assert upload_rows.all() == []
+
+    async def test_prepare_draft_uploads_rejects_transfer_file_limit_before_writes(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="bounded-transfer"))
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 1)
+
+        async def unexpected_generate_presigned_upload_url(**_kwargs: Any) -> str:
+            raise AssertionError("Presigning must not start")
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.generate_presigned_upload_url",
+            unexpected_generate_presigned_upload_url,
+        )
+        params = [
+            SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="application/octet-stream",
+            )
+            for content in (b"a", b"b")
+        ]
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.prepare_draft_uploads(
+                skill_id=created.id,
+                params=params,
+            )
+
+        assert exc_info.value.detail == {
+            "code": "skill_transfer_file_count_limit_exceeded",
+            "file_count": 2,
+            "max_file_count": 1,
+        }
+        upload_rows = (
+            await skill_service.session.execute(
+                select(SkillUploadModel).where(
+                    SkillUploadModel.skill_id == created.id,
+                )
+            )
+        ).scalars()
+        assert upload_rows.all() == []
 
     @pytest.mark.parametrize(
         ("content_type", "reason"),
@@ -1320,9 +2548,16 @@ class TestSkillService:
         skill_service.session.add(stale_upload_row)
         await skill_service.session.commit()
 
+        deletion_started = asyncio.Event()
+        allow_deletion = asyncio.Event()
         deleted: dict[str, str] = {}
 
-        async def fake_delete_file(*, key: str, bucket: str) -> None:
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            assert redact_log_identifiers is True
+            deletion_started.set()
+            await allow_deletion.wait()
             deleted["key"] = key
             deleted["bucket"] = bucket
 
@@ -1341,6 +2576,12 @@ class TestSkillService:
         )
 
         assert fresh_upload.upload_id != stale_upload.upload_id
+        try:
+            await asyncio.wait_for(deletion_started.wait(), timeout=1)
+            assert deleted == {}
+        finally:
+            allow_deletion.set()
+            await asyncio.gather(*skill_service_module._staged_upload_cleanup_tasks)
         assert deleted == {
             "key": stale_upload.key,
             "bucket": config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
@@ -1353,6 +2594,74 @@ class TestSkillService:
             )
             is None
         )
+
+    async def test_prepare_new_skill_upload_returns_before_reaped_object_cleanup(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Slow expired-object maintenance must not delay a committed plan."""
+
+        existing = await skill_service.create_skill(
+            SkillCreate(name="stale-upload-owner")
+        )
+        stale_upload = await skill_service.create_draft_upload(
+            skill_id=existing.id,
+            params=SkillUploadSessionCreate(
+                sha256=hashlib.sha256(b"stale upload").hexdigest(),
+                size_bytes=len(b"stale upload"),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        stale_upload_row = await skill_service.session.scalar(
+            select(SkillUploadModel).where(
+                SkillUploadModel.id == stale_upload.upload_id
+            )
+        )
+        assert stale_upload_row is not None
+        stale_upload_row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        skill_service.session.add(stale_upload_row)
+        await skill_service.session.commit()
+
+        deletion_started = asyncio.Event()
+        allow_deletion = asyncio.Event()
+
+        async def blocked_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            del key, bucket
+            assert redact_log_identifiers is True
+            deletion_started.set()
+            await allow_deletion.wait()
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file",
+            blocked_delete_file,
+        )
+
+        content = b"new upload"
+        prepared = await asyncio.wait_for(
+            skill_service.prepare_new_skill_draft_uploads(
+                skill_params=SkillCreate(name="nonblocking-cleanup"),
+                params=[
+                    SkillUploadSessionCreate(
+                        sha256=hashlib.sha256(content).hexdigest(),
+                        size_bytes=len(content),
+                        content_type="application/octet-stream",
+                    )
+                ],
+                url_expiry_seconds=60,
+            ),
+            timeout=5,
+        )
+
+        assert prepared.created is True
+        assert prepared.skill_id != existing.id
+        try:
+            await asyncio.wait_for(deletion_started.wait(), timeout=1)
+        finally:
+            allow_deletion.set()
+            await asyncio.gather(*skill_service_module._staged_upload_cleanup_tasks)
 
     async def test_attach_uploaded_blob_rejects_size_mismatch(
         self,
@@ -1377,8 +2686,11 @@ class TestSkillService:
         )
         iterated = False
 
-        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
             del key, bucket
+            assert redact_log_identifiers is True
             return True
 
         class FakeStream:
@@ -1392,8 +2704,12 @@ class TestSkillService:
                 yield content
 
         @asynccontextmanager
-        async def fake_open_download_stream(*, key: str, bucket: str):
-            del key, bucket
+        async def fake_open_download_stream(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ):
+            del bucket
+            assert key == upload.key
+            assert redact_log_identifiers is True
             yield FakeStream(), len(content)
 
         monkeypatch.setattr(
@@ -1448,7 +2764,10 @@ class TestSkillService:
 
         deleted: dict[str, str] = {}
 
-        async def fake_delete_file(*, key: str, bucket: str) -> None:
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            assert redact_log_identifiers is True
             deleted["key"] = key
             deleted["bucket"] = bucket
 
@@ -1503,8 +2822,11 @@ class TestSkillService:
         )
         chunks_yielded = 0
 
-        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
             del key, bucket
+            assert redact_log_identifiers is True
             return True
 
         class FakeStream:
@@ -1516,8 +2838,12 @@ class TestSkillService:
                     yield chunk
 
         @asynccontextmanager
-        async def fake_open_download_stream(*, key: str, bucket: str):
-            del key, bucket
+        async def fake_open_download_stream(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ):
+            del bucket
+            assert key == upload.key
+            assert redact_log_identifiers is True
             yield FakeStream(), None
 
         monkeypatch.setattr(
@@ -1564,11 +2890,13 @@ class TestSkillService:
                 content_type="text/plain; charset=utf-8",
             ),
         )
-
         deleted: dict[str, str] = {}
 
-        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        async def fake_file_exists(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> bool:
             del key, bucket
+            assert redact_log_identifiers is True
             return True
 
         class FakeStream:
@@ -1580,8 +2908,11 @@ class TestSkillService:
                 yield content
 
         @asynccontextmanager
-        async def fake_open_download_stream(*, key: str, bucket: str):
-            del key, bucket
+        async def fake_open_download_stream(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ):
+            del bucket
+            assert redact_log_identifiers is True
             yield FakeStream(), len(content)
 
         async def fake_copy_file(
@@ -1590,10 +2921,15 @@ class TestSkillService:
             destination_key: str,
             bucket: str,
             content_type: str | None = None,
+            redact_log_identifiers: bool = False,
         ) -> None:
             del source_key, destination_key, bucket, content_type
+            assert redact_log_identifiers is True
 
-        async def fake_delete_file(*, key: str, bucket: str) -> None:
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            assert redact_log_identifiers is True
             deleted["key"] = key
             deleted["bucket"] = bucket
 
@@ -1662,7 +2998,7 @@ class TestSkillService:
             unexpected_file_exists,
         )
 
-        with pytest.raises(TracecatValidationError, match="escape the skill root"):
+        with pytest.raises(TracecatValidationError, match="Cannot move missing"):
             await skill_service.patch_draft(
                 skill_id=created.id,
                 params=SkillDraftPatch(
@@ -1672,7 +3008,10 @@ class TestSkillService:
                             path="references/uploaded.txt",
                             upload_id=upload.upload_id,
                         ),
-                        SkillDraftDeleteFileOp(path="../escape.txt"),
+                        SkillDraftMoveFileOp(
+                            from_path="references/missing.txt",
+                            to_path="references/moved.txt",
+                        ),
                     ],
                 ),
             )
@@ -1692,6 +3031,190 @@ class TestSkillService:
             )
             is None
         )
+
+    async def test_patch_rejects_final_size_limit_before_upload_materialization(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="bounded-patch"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        content = b"bounded payload"
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="application/octet-stream",
+            ),
+        )
+        monkeypatch.setattr(
+            config,
+            "TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES",
+            sum(file.size_bytes for file in draft.files) + len(content) - 1,
+        )
+
+        async def unexpected_file_exists(*, key: str, bucket: str) -> bool:
+            del key, bucket
+            raise AssertionError("Upload materialization must not start")
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists",
+            unexpected_file_exists,
+        )
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/payload.bin",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            )
+
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "skill_total_size_limit_exceeded"
+
+    async def test_patch_rejects_transfer_file_limit_before_upload_lookup(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="bounded-complete"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 1)
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/first.bin",
+                            upload_id=uuid.uuid4(),
+                        ),
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/second.bin",
+                            upload_id=uuid.uuid4(),
+                        ),
+                    ],
+                ),
+            )
+
+        assert exc_info.value.detail == {
+            "code": "skill_transfer_file_count_limit_exceeded",
+            "file_count": 2,
+            "max_file_count": 1,
+        }
+
+    async def test_prepare_draft_download_enforces_transfer_file_limit(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A bulk download is capped like uploads: over the limit is rejected."""
+
+        created = await skill_service.upload_skill(
+            SkillUpload(
+                name="bounded-download",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(
+                            b"---\nname: bounded-download\n---\n\n# Bounded\n"
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                    SkillUploadFile(
+                        path="scripts/helper.py",
+                        content_base64=base64.b64encode(b"print('ok')\n").decode(),
+                        content_type="text/x-python; charset=utf-8",
+                    ),
+                ],
+            )
+        )
+
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 1)
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.prepare_draft_download(skill_id=created.id)
+        assert exc_info.value.detail == {
+            "code": "skill_transfer_file_count_limit_exceeded",
+            "file_count": 2,
+            "max_file_count": 1,
+        }
+
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 2)
+        prepared = await skill_service.prepare_draft_download(skill_id=created.id)
+        assert prepared is not None
+        assert len(prepared.files) == 2
+
+    async def test_patch_draft_cancellation_deletes_published_objects(
+        self,
+        skill_service: SkillService,
+        svc_workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cancellation mid-materialization still removes published objects."""
+
+        created = await skill_service.create_skill(SkillCreate(name="cancelled-patch"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        cancelled_object = PublishedBlobObject(
+            bucket="skills-bucket", key="skills/cancelled/object"
+        )
+
+        async def cancel_after_publishing(
+            operations: Sequence[Any],
+            *,
+            published: list[PublishedBlobObject] | None = None,
+        ) -> dict[int, SkillBlob]:
+            del operations
+            assert published is not None
+            published.append(cancelled_object)
+            raise asyncio.CancelledError()
+
+        deleted: list[tuple[str, str]] = []
+
+        async def fake_delete_file(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ) -> None:
+            assert redact_log_identifiers is True
+            deleted.append((key, bucket))
+
+        monkeypatch.setattr(
+            skill_service,
+            "_materialize_patch_operation_blobs",
+            cancel_after_publishing,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftUpsertTextFileOp(
+                            path="references/note.txt",
+                            content="cancelled",
+                        )
+                    ],
+                ),
+            )
+
+        assert deleted == [(cancelled_object.key, cancelled_object.bucket)]
+        await skill_service.session.refresh(svc_workspace)
 
     async def test_publish_requires_root_skill_md(
         self,

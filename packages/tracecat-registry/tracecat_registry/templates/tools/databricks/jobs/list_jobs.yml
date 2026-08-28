@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: List jobs
+  description: Retrieve jobs visible to the authenticated identity.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/jobs/jobs.html#databricks.sdk.service.jobs.JobsExt.list
+  namespace: tools.databricks
+  name: list_jobs
+  expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
+    expand_tasks:
+      type: bool | None
+      description: Whether to include task and cluster details in each job.
+      default: null
+    limit:
+      type: int | None
+      description: Number of jobs returned per server page.
+      default: null
+    name:
+      type: str | None
+      description: Filter jobs by a case-insensitive name match.
+      default: null
+    page_token:
+      type: str | None
+      description: Token for a subsequent page.
+      default: null
+    max_items:
+      type: int
+      description: Maximum number of jobs to return across SDK pages.
+      default: 1000
+  steps:
+    - ref: list_jobs
+      action: tools.databricks_sdk.call_paginated_method
+      args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
+        service: jobs
+        method_name: list
+        params:
+          expand_tasks: ${{ inputs.expand_tasks }}
+          limit: ${{ inputs.limit }}
+          name: ${{ inputs.name }}
+          page_token: ${{ inputs.page_token }}
+        limit: ${{ inputs.max_items }}
+  returns: ${{ steps.list_jobs.result }}
