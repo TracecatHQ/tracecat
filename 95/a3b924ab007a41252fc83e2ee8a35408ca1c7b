@@ -1,0 +1,28 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/snowflake/get_statement.yml
+  s_58501ff1e81729::t_0c78cb7812d0fb 9-27,45-90,92,96-100
+packages/tracecat-registry/AGENTS.md
+  s_58501ff1e81729::t_e660f04167ca82 27-31,237-238,240-248,251-253
+packages/tracecat-registry/tracecat_registry/templates/tools/snowflake/cancel_statement.yml
+  s_58501ff1e81729::t_0c78cb7812d0fb 9-27,41-86,88,92-96
+packages/tracecat-registry/tracecat_registry/templates/tools/snowflake/execute_statement.yml
+  s_58501ff1e81729::t_0c78cb7812d0fb 9-27,57-102,104,108-112
+docs/tools/snowflake.mdx
+  s_58501ff1e81729::t_0eabddf6715b3e 7,9,11,13,55-62,119-125
+  s_58501ff1e81729::t_cd2979b7bc9f30 126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "95a3b924ab007a41252fc83e2ee8a35408ca1c7b",
+  "prompts": {},
+  "sessions": {
+    "s_58501ff1e81729": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044d1-6b3f-7060-b268-82273c1aed51",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}

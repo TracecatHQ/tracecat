@@ -1,0 +1,21 @@
+frontend/src/components/icons.test.tsx
+  s_58501ff1e81729::t_fc5d2a10d5648f 1,3-5,9-11,13-17,44-53,124-194
+frontend/src/components/icons.tsx
+  s_58501ff1e81729::t_fc5d2a10d5648f 676-677,684,993-1002,1203-1212,2879-2908
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b5465dba79852122043fc201092e378494d93eed",
+  "prompts": {},
+  "sessions": {
+    "s_58501ff1e81729": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044d1-6b3f-7060-b268-82273c1aed51",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+packages/tracecat-registry/tracecat_registry/integrations/databricks_sdk.py
+  s_58501ff1e81729::t_f2be5b0a72c61f 99-100
+packages/tracecat-registry/AGENTS.md
+  s_58501ff1e81729::t_f2be5b0a72c61f 337-339
+tests/registry/test_databricks_snowflake_integrations.py
+  s_58501ff1e81729::t_cfcf14778b16b3 24-27
+  s_58501ff1e81729::t_f2be5b0a72c61f 6,10-23,28-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "938fa3c7908a1306c8c1cd6370face5459aab747",
+  "prompts": {},
+  "sessions": {
+    "s_58501ff1e81729": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044d1-6b3f-7060-b268-82273c1aed51",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}

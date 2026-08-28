@@ -1,0 +1,32 @@
+packages/tracecat-registry/tracecat_registry/integrations/databricks_sdk.py
+  s_58501ff1e81729::t_2e7272d33a8f64 120
+  s_58501ff1e81729::t_3257b140a1842e 123
+tests/registry/test_databricks_snowflake_integrations.py
+  s_58501ff1e81729::t_2e7272d33a8f64 4,7,45-56
+  s_58501ff1e81729::t_3482df73281820 1
+  s_cb812704bae2b3::t_ade91e67ce2f86 57-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "532842fd76c99fd259365ca7464e42ae79068101",
+  "prompts": {},
+  "sessions": {
+    "s_58501ff1e81729": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044d1-6b3f-7060-b268-82273c1aed51",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_cb812704bae2b3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0449d-ab74-7f62-b808-bdbc98dab27c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}

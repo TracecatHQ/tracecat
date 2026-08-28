@@ -1,0 +1,76 @@
+packages/tracecat-registry/tracecat_registry/integrations/databricks_sdk.py
+  s_58501ff1e81729::t_b17617314d21e8 1-2,4-45,51-73,76-112,114-163
+  s_58501ff1e81729::t_ca7138b7b3b9a3 3,46-50,75,113
+  s_58501ff1e81729::t_3693f4529391cd 74
+docs/tools/snowflake_sql.mdx
+  s_58501ff1e81729::t_ae826f1a556dac 1-151
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/statement_execution/cancel_statement.yml
+  s_58501ff1e81729::t_af93ceb3c6d3e5 1-21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/get_run.yml
+  s_58501ff1e81729::t_1dd2c459bf0ccc 1-36
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/clusters/list_clusters.yml
+  s_58501ff1e81729::t_1dd2c459bf0ccc 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/sql_warehouses/list_warehouses.yml
+  s_58501ff1e81729::t_af93ceb3c6d3e5 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/list_runs.yml
+  s_58501ff1e81729::t_1dd2c459bf0ccc 1-62
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/sql_warehouses/get_warehouse.yml
+  s_58501ff1e81729::t_af93ceb3c6d3e5 1-21
+packages/tracecat-registry/tracecat_registry/templates/tools/snowflake_sql/execute_statement.yml
+  s_58501ff1e81729::t_af93ceb3c6d3e5 1-5,7-59
+  s_58501ff1e81729::t_6496416e23de8c 6
+packages/tracecat-registry/tracecat_registry/templates/tools/snowflake_sql/cancel_statement.yml
+  s_58501ff1e81729::t_6496416e23de8c 6
+  s_58501ff1e81729::t_af93ceb3c6d3e5 1-5,7-39
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/run_job.yml
+  s_58501ff1e81729::t_1dd2c459bf0ccc 1-51
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/list_jobs.yml
+  s_58501ff1e81729::t_1dd2c459bf0ccc 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/clusters/start_cluster.yml
+  s_58501ff1e81729::t_1dd2c459bf0ccc 1-21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/cancel_run.yml
+  s_58501ff1e81729::t_1dd2c459bf0ccc 1-21
+docs/docs.json
+  s_58501ff1e81729::t_ae826f1a556dac 190-191,269
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/statement_execution/execute_statement.yml
+  s_58501ff1e81729::t_af93ceb3c6d3e5 1-50
+packages/tracecat-registry/tracecat_registry/templates/tools/snowflake_sql/get_statement.yml
+  s_58501ff1e81729::t_6496416e23de8c 6
+  s_58501ff1e81729::t_af93ceb3c6d3e5 1-5,7-44
+docs/tools/databricks.mdx
+  s_58501ff1e81729::t_ae826f1a556dac 1-547
+docs/tools/databricks_sdk.mdx
+  s_58501ff1e81729::t_ae826f1a556dac 1-85
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/clusters/terminate_cluster.yml
+  s_58501ff1e81729::t_1dd2c459bf0ccc 1-21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/clusters/get_cluster.yml
+  s_58501ff1e81729::t_1dd2c459bf0ccc 1-21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/sql_warehouses/start_warehouse.yml
+  s_58501ff1e81729::t_af93ceb3c6d3e5 1-21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/sql_warehouses/stop_warehouse.yml
+  s_58501ff1e81729::t_af93ceb3c6d3e5 1-21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/statement_execution/get_statement.yml
+  s_58501ff1e81729::t_af93ceb3c6d3e5 1-21
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/get_job.yml
+  s_58501ff1e81729::t_1dd2c459bf0ccc 1-31
+packages/tracecat-registry/pyproject.toml
+  s_58501ff1e81729::t_b17617314d21e8 30
+uv.lock
+  s_58501ff1e81729::t_0b24a55d6d493a 1080-1094,5199,5243
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "75555a90e9d405d48f68184bcf26ffb20baea423",
+  "prompts": {},
+  "sessions": {
+    "s_58501ff1e81729": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044d1-6b3f-7060-b268-82273c1aed51",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}

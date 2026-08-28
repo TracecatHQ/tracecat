@@ -1,0 +1,19 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/databricks/jobs/run_job.yml
+  s_58501ff1e81729::t_2690c2a1d5e76c 18,23,28,37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "debf8a3df92da5714e59e4186aedef9de8c98b78",
+  "prompts": {},
+  "sessions": {
+    "s_58501ff1e81729": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044d1-6b3f-7060-b268-82273c1aed51",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}

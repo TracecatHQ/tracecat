@@ -1,0 +1,19 @@
+packages/tracecat-registry/AGENTS.md
+  s_58501ff1e81729::t_b482b2200eedad 155-160,180-195,234-258,308-335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "6e628babbf6abd18fb77d8d8ef958fee9f6ff9fb",
+  "prompts": {},
+  "sessions": {
+    "s_58501ff1e81729": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044d1-6b3f-7060-b268-82273c1aed51",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
