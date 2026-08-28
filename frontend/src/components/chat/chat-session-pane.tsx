@@ -22,7 +22,6 @@ import { motion } from "motion/react"
 import {
   type ChangeEvent,
   type FocusEvent,
-  type KeyboardEvent,
   memo,
   type ReactNode,
   useCallback,
@@ -127,13 +126,6 @@ const AGENT_TOOL_NESTED_INPUT_KEYS = ["args", "input", "tool_input"]
 
 const TOOL_ICON_PROPS = { className: "size-5 p-[3px]" } as const
 
-type ToolSuggestion = {
-  value: string
-  label: string
-  description?: string
-  group?: string
-}
-
 function messageHasVisibleParts(message: UIMessage): boolean {
   return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
 }
@@ -202,8 +194,11 @@ function areToolListsEqual(left: string[], right: string[]): boolean {
 type ChatPresetSelector = {
   label: string
   selectedPresetId: string | null
-  /** Awaited before a message is sent so the preset lands on the same turn. */
-  onSelect: (presetId: string | null) => Promise<void>
+  /**
+   * Awaited before a message is sent so the preset lands on the same turn.
+   * Resolves false when the write failed, which aborts the send.
+   */
+  onSelect: (presetId: string | null) => Promise<boolean>
   disabled?: boolean
   showSpinner?: boolean
 }
@@ -596,22 +591,19 @@ export function ChatSessionPane({
     onMessagesChange?.(messages)
   }, [messages, onMessagesChange])
 
-  const toolSuggestions = useMemo<ToolSuggestion[]>(() => {
-    const actions = registryActions ?? []
-    return actions
-      .filter((action) => isAgentToolSelectable(action.action))
-      .map((action) => ({
-        value: action.action,
-        label: action.default_title || action.action,
-        description: action.description ?? undefined,
-        group: action.namespace,
-      }))
-      .sort((left, right) => left.value.localeCompare(right.value))
-  }, [registryActions])
-
-  const toolSuggestionMap = useMemo(
-    () => new Map(toolSuggestions.map((tool) => [tool.value, tool])),
-    [toolSuggestions]
+  // Display labels for the selected-tool chips. Tools are picked in the Tools
+  // popover, which builds its own list, so nothing here needs ordering.
+  const toolLabels = useMemo(
+    () =>
+      new Map<string, string>(
+        (registryActions ?? [])
+          .filter((action) => isAgentToolSelectable(action.action))
+          .map((action) => [
+            action.action,
+            action.default_title || action.action,
+          ])
+      ),
+    [registryActions]
   )
 
   const persistToolsChainRef = useRef<Promise<void>>(Promise.resolve())
@@ -814,16 +806,6 @@ export function ChatSessionPane({
     [handleMentionTextChange]
   )
 
-  const handleInputKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      // The mention layer owns popover keys and atomic mention backspace. It
-      // calls preventDefault when it consumes a key, which is what stops the
-      // prompt input from submitting on Enter while the popover is open.
-      handleMentionKeyDown(event)
-    },
-    [handleMentionKeyDown]
-  )
-
   const handleInputFocus = useCallback(() => {
     promptTextareaFocusedRef.current = true
     setIsInputFocused(true)
@@ -875,17 +857,14 @@ export function ChatSessionPane({
 
   const selectedToolBadges = useMemo(
     () =>
-      selectedTools.map((toolName) => {
-        const suggestion = toolSuggestionMap.get(toolName)
-        return {
-          value: toolName,
-          label: suggestion?.label ?? toolName,
-          icon: getIcon(toolName, {
-            className: "size-5 shrink-0",
-          }),
-        }
-      }),
-    [selectedTools, toolSuggestionMap]
+      selectedTools.map((toolName) => ({
+        value: toolName,
+        label: toolLabels.get(toolName) ?? toolName,
+        icon: getIcon(toolName, {
+          className: "size-5 shrink-0",
+        }),
+      })),
+    [selectedTools, toolLabels]
   )
 
   const transformedMessages = useMemo(
@@ -999,7 +978,14 @@ export function ChatSessionPane({
       presetSelector &&
       agentMention.targetId !== presetSelector.selectedPresetId
     ) {
-      await presetSelector.onSelect(agentMention.targetId)
+      // The mention names the agent that should answer, so a failed write must
+      // not fall through and run the turn under the previous one. The draft is
+      // left intact -- `handlePresetChange` has already toasted the error --
+      // so the user can retry.
+      const applied = await presetSelector.onSelect(agentMention.targetId)
+      if (!applied) {
+        return
+      }
     }
 
     if (onBeforeSend) {
@@ -1077,6 +1063,7 @@ export function ChatSessionPane({
         activeIndex={mentions.activeIndex}
         isLoading={mentions.isLoading}
         locked={mentions.locked}
+        hasError={mentions.hasError}
         onSelect={mentions.selectSuggestion}
       >
         <PromptInput onSubmit={handleSubmit} className={promptInputClassName}>
@@ -1100,7 +1087,11 @@ export function ChatSessionPane({
             <PromptInputTextarea
               ref={promptTextareaRef}
               onChange={handleInputChange}
-              onKeyDown={handleInputKeyDown}
+              // The mention layer owns popover keys and atomic mention
+              // backspace. It calls preventDefault when it consumes a key,
+              // which is what stops the prompt input from submitting on Enter
+              // while the popover is open.
+              onKeyDown={handleMentionKeyDown}
               onFocus={handleInputFocus}
               onBlur={handleInputBlur}
               onSelect={mentions.handleSelectionChange}
@@ -1152,7 +1143,7 @@ export function ChatSessionPane({
                 <MentionHint
                   show={isInputFocused && !input.trim()}
                   agents={mentions.agents}
-                  workflows="unavailable"
+                  workflows={mentions.workflows}
                 />
               )}
               <PromptInputSubmit

@@ -132,16 +132,24 @@ export function useChatPresetManager({
     }
   )
 
-  const handlePresetChange = async (nextPresetId: string | null) => {
+  /**
+   * Apply a preset to the session. Returns false when the write failed, so a
+   * caller that depends on the preset landing -- sending a turn from an
+   * `@Agent` mention, for one -- can stop instead of running the turn under
+   * the previous agent.
+   */
+  const handlePresetChange = async (
+    nextPresetId: string | null
+  ): Promise<boolean> => {
     if (nextPresetId === effectivePresetId) {
-      return
+      return true
     }
 
     if (!selectedChatId) {
       setDraftPresetId({ ownerId: null, value: nextPresetId })
       setDraftPresetVersionId({ ownerId: null, value: null })
       pendingSelectionRef.current = { presetId: nextPresetId, versionId: null }
-      return
+      return true
     }
 
     const previousPresetId = effectivePresetId
@@ -169,7 +177,10 @@ export function useChatPresetManager({
         description: parseChatError(error),
         variant: "destructive",
       })
+      return false
     }
+
+    return true
   }
 
   const handlePresetVersionChange = async (nextVersionId: string | null) => {

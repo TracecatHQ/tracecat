@@ -791,6 +791,7 @@ function CommentComposer({
                   activeIndex={mentions.activeIndex}
                   isLoading={mentions.isLoading}
                   locked={mentions.locked}
+                  hasError={mentions.hasError}
                   onSelect={mentions.selectSuggestion}
                 >
                   <MentionOverlay

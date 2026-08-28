@@ -116,6 +116,8 @@ export interface Mentions {
   /** Position of the trigger character, measured once per mention session. */
   caret: CaretCoordinates | undefined
   isLoading: boolean
+  /** True when the open source's lookup failed, so it is not simply empty. */
+  hasError: boolean
   /** Id of the workflow picked with `/`, or null when there is none. */
   workflowId: string | null
   selectSuggestion: (suggestion: MentionSuggestion) => void
@@ -215,9 +217,10 @@ export function useMentions({
     hasEntitlement
   )
 
-  const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
-    enabled: agents === "enabled",
-  })
+  const { presets, presetsIsLoading, presetsError } = useAgentPresets(
+    workspaceId,
+    { enabled: agents === "enabled" }
+  )
   const { items: workflowItems, isLoading: workflowsIsLoading } =
     useCommentWorkflows(workspaceId, workflows === "enabled")
   const [ranges, setRanges] = useState<MentionRange[]>([])
@@ -445,15 +448,17 @@ export function useMentions({
     setSession(undefined)
   }, [])
 
-  // A locked source fetches nothing, so it must never report a spinner.
+  // A locked source is never fetched, so it reports neither spinner nor error.
   let isLoading = false
-  if (locked) {
-    isLoading = false
-  } else if (session?.kind === "agent") {
+  if (!locked && session?.kind === "agent") {
     isLoading = presetsIsLoading
-  } else if (session?.kind === "workflow") {
+  } else if (!locked && session?.kind === "workflow") {
     isLoading = workflowsIsLoading
   }
+
+  // A failed lookup returns no rows, which would otherwise read as "no agents
+  // found" and hide the fact that the request needs retrying.
+  const hasError = !locked && session?.kind === "agent" && Boolean(presetsError)
 
   return {
     ranges,
@@ -467,6 +472,7 @@ export function useMentions({
     activeIndex,
     caret: session?.caret,
     isLoading,
+    hasError,
     workflowId: findWorkflowMention(ranges)?.targetId ?? null,
     selectSuggestion,
     dismiss,

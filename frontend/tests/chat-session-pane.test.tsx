@@ -158,6 +158,17 @@ function mockPresets(presets: AgentPresetReadMinimal[]) {
   } as any)
 }
 
+/** Serve the agent-mention popover a failed preset lookup. */
+function mockPresetsError() {
+  mockUseAgentPresets.mockReturnValue({
+    presets: undefined,
+    presetsIsLoading: false,
+    presetsError: new Error("boom"),
+    refetchPresets: jest.fn(),
+    // biome-ignore lint/suspicious/noExplicitAny: partial mock of a query result
+  } as any)
+}
+
 /** Add a registry tool through the Tools picker, then close the popover. */
 async function addToolFromPicker(label: string) {
   fireEvent.click(screen.getByRole("button", { name: /^Tools/ }))
@@ -1745,7 +1756,7 @@ describe("ChatSessionPane", () => {
     })
 
     it("sets the session preset from an @ mention and sends the text verbatim", async () => {
-      const onSelect = jest.fn().mockResolvedValue(undefined)
+      const onSelect = jest.fn().mockResolvedValue(true)
       renderPane({
         agentMentionsSupported: true,
         presetSelector: {
@@ -1779,6 +1790,58 @@ describe("ChatSessionPane", () => {
       )
     })
 
+    it("says the lookup failed rather than claiming there are no agents", async () => {
+      mockPresetsError()
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect: jest.fn().mockResolvedValue(true),
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, { target: { value: "@", selectionStart: 1 } })
+
+      expect(
+        await screen.findByText("Could not load agents. Try again.")
+      ).toBeInTheDocument()
+      expect(screen.queryByText("No agents found")).not.toBeInTheDocument()
+    })
+
+    it("does not send when the mentioned preset fails to persist", async () => {
+      // A failed preset write must not fall through and run the turn under the
+      // previous agent; the draft stays put so the user can retry.
+      const onSelect = jest.fn().mockResolvedValue(false)
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect,
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@tri", selectionStart: 4 },
+      })
+
+      await screen.findByText("Triage agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(textarea).toHaveValue("@Triage agent "))
+
+      fireEvent.change(textarea, {
+        target: { value: "@Triage agent hello", selectionStart: 19 },
+      })
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+
+      await waitFor(() => expect(onSelect).toHaveBeenCalledWith("preset-1"))
+      expect(sendMessage).not.toHaveBeenCalled()
+      expect(textarea).toHaveValue("@Triage agent hello")
+    })
+
     it("no longer offers tools on @", async () => {
       const action = {
         id: "action-1",
@@ -1804,7 +1867,7 @@ describe("ChatSessionPane", () => {
         presetSelector: {
           label: "No preset",
           selectedPresetId: null,
-          onSelect: jest.fn().mockResolvedValue(undefined),
+          onSelect: jest.fn().mockResolvedValue(true),
         },
       })
 
@@ -1826,7 +1889,7 @@ describe("ChatSessionPane", () => {
         presetSelector: {
           label: "No preset",
           selectedPresetId: null,
-          onSelect: jest.fn().mockResolvedValue(undefined),
+          onSelect: jest.fn().mockResolvedValue(true),
         },
       })
 
@@ -1855,7 +1918,7 @@ describe("ChatSessionPane", () => {
         presetSelector: {
           label: "No preset",
           selectedPresetId: null,
-          onSelect: jest.fn().mockResolvedValue(undefined),
+          onSelect: jest.fn().mockResolvedValue(true),
         },
       })
 
@@ -1897,7 +1960,7 @@ describe("ChatSessionPane", () => {
     })
 
     it("replaces the hint with the active preset badge and clears back to tools", () => {
-      const onSelect = jest.fn().mockResolvedValue(undefined)
+      const onSelect = jest.fn().mockResolvedValue(true)
       renderPane({
         agentMentionsSupported: true,
         toolsEnabled: false,

@@ -528,7 +528,7 @@ interface ChatBodyProps {
   presetSelector?: {
     label: string
     selectedPresetId: string | null
-    onSelect: (presetId: string | null) => Promise<void>
+    onSelect: (presetId: string | null) => Promise<boolean>
     disabled?: boolean
     showSpinner?: boolean
   }
