@@ -1,0 +1,79 @@
+frontend/tests/chat-session-pane.test.tsx
+  s_0afebddc7f7329::t_7979f8193def7b 10-15,21,23,100-108,122-179,257-259
+  s_0afebddc7f7329::t_4a6b9d1ce41d27 1816-1817,1819
+  s_0afebddc7f7329::t_f81fc93a3d3278 1036,1083,1089,1160,1240,1246,1560,1640,1646
+  s_0afebddc7f7329::t_37132f1e071de3 1709-1815,1818,1820-1925
+tests/unit/test_tier_defaults.py
+  s_0afebddc7f7329::t_ded0f2e72b27b3 17,45
+frontend/src/components/cases/case-comments-section.tsx
+  s_0afebddc7f7329::t_9df434893d4a4f 67,83,258
+  s_0afebddc7f7329::t_dc4f9862770879 33-35
+  s_0afebddc7f7329::t_b9543cbe86a3bc 698,703-704,785,793,796,838,845,847-848
+frontend/tests/memo-render-count.test.tsx
+  s_0afebddc7f7329::t_9738ffcd0762d7 85-102
+tests/unit/test_agent_session_router.py
+  s_0afebddc7f7329::t_23e2625f746863 216-247
+  s_0afebddc7f7329::t_42cd589ca13738 129-136,143-147,186-190,261-265
+  s_0afebddc7f7329::t_22221e91c0dd18 215
+frontend/src/components/chat/chat-session-pane.tsx
+  s_0afebddc7f7329::t_977f24b15964c5 198-201,205-206,225-229,295
+  s_0afebddc7f7329::t_3a2cdeee030728 806-811,814,819-822,824,829,845-846,865
+  s_0afebddc7f7329::t_e19ceb4418ade0 993-1004,1022,1038
+  s_0afebddc7f7329::t_08851aef817ac7 354
+  s_0afebddc7f7329::t_08617a6155f14c 323-342
+  s_0afebddc7f7329::t_9815720af9cb65 85-86,100,118,1085-1096
+  s_0afebddc7f7329::t_5f9aaee1cee2fa 1053-1060,1455-1460,1462-1463,1465,1467-1468,1471-1484,1486-1489
+  s_0afebddc7f7329::t_257da6c797a937 1071-1084,1099-1167,1169-1172
+frontend/src/components/ui/input-group.tsx
+  s_0afebddc7f7329::t_bc8f09c25ba62c 4,146-149,157,161
+tracecat/tiers/defaults.py
+  s_0afebddc7f7329::t_ded0f2e72b27b3 45,48-51,62,95
+frontend/src/components/mentions/mention-popover.tsx
+  s_0afebddc7f7329::t_9df434893d4a4f 7
+  s_0afebddc7f7329::t_4a529ece5e2973 1-6,8-154
+frontend/src/components/ai-elements/prompt-input.tsx
+  s_0afebddc7f7329::t_e0235b1953a1de 26,831-847,953,958
+frontend/src/hooks/use-chat-preset-manager.ts
+  s_0afebddc7f7329::t_f10a4b1dd99708 1,17-22,67-82,143,259
+frontend/src/hooks/use-entitlements.ts
+  s_0afebddc7f7329::t_d877825cfc80b3 5-6
+frontend/src/hooks/use-mentions.ts
+  s_0afebddc7f7329::t_977fede7b2344f 226-229,448,450-452,469
+  s_0afebddc7f7329::t_9df434893d4a4f 9
+  s_0afebddc7f7329::t_ad19beb4a30cc7 1-8,11-22,24-42,56-78,80-85,90-96,98-99,104-105,108-143,163-165,169,174,178,180-183,187-206,217-218,220,223-224,231-232,234-237,239-271,273-302,305-320,322-386,390-447,449,453-459,462,464-468,470-480
+  s_0afebddc7f7329::t_affedb6643aec1 10,23,43-55,79,86-89,97,100-103,106-107,144-162,166-168,170-173,175-177,179,184-186,207-216,219,221-222,225,230,233,238,272,303-304,321,387-389,460-461,463
+frontend/src/components/mentions/mention-overlay.tsx
+  s_0afebddc7f7329::t_0829712a671758 39
+  s_0afebddc7f7329::t_4a529ece5e2973 1-38,40-61
+frontend/src/components/mentions/mention-hint.tsx
+  s_0afebddc7f7329::t_aa9f40155b58d8 1-47
+frontend/src/components/chat/chat-interface.tsx
+  s_0afebddc7f7329::t_d2cd8635421d46 157-162,388,491,524-525,531,562,676,710
+  s_0afebddc7f7329::t_116ea5bf66a98f 192,301-304,312-313
+frontend/src/lib/mentions.ts
+  s_0afebddc7f7329::t_6d1421fd2ba6d9 1-374
+frontend/src/components/chat/chat-session-pane.test.tsx
+  s_0afebddc7f7329::t_9738ffcd0762d7 76-93
+frontend/tests/case-comments-section.test.tsx
+  s_0afebddc7f7329::t_0829712a671758 676,1665
+  s_0afebddc7f7329::t_c767ba9960254b 1779,1798-1801
+  s_0afebddc7f7329::t_ec4b920fc56e22 1761,1768-1770,1772-1775,1778,1780-1797,1802-1832
+frontend/tests/mentions.test.ts
+  s_0afebddc7f7329::t_33ebe95dfda220 1-425
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9b5cbe01869a889b084fa9a0d6e8aa50f27e9175",
+  "prompts": {},
+  "sessions": {
+    "s_0afebddc7f7329": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c8cd4429-2157-49fb-9414-9789d80c8518",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
