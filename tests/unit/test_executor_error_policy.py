@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tracecat.exceptions import ExecutionError, LoopExecutionError
+from tracecat.exceptions import EntitlementRequired, ExecutionError, LoopExecutionError
 from tracecat.executor.error_policy import classify_execute_action_error
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactCacheLeaseContentionError,
@@ -40,6 +40,20 @@ def _lease_contention() -> RegistryArtifactCacheLeaseContentionError:
         additional_bytes=30,
         max_bytes=100,
     )
+
+
+def test_wrapped_entitlement_failure_is_non_retryable_user_error() -> None:
+    cause = EntitlementRequired("synthetic_feature")
+
+    result = classify_execute_action_error(
+        _iteration_error(cause, index=0),
+        action_name="test_action",
+    )
+
+    assert result.owner is RuntimeErrorOwner.USER
+    assert result.kind is RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED
+    assert result.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert result.cause_type == "EntitlementRequired"
 
 
 @pytest.mark.parametrize("platform_first", [True, False])

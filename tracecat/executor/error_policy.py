@@ -43,6 +43,13 @@ def _chained_error_classification(
     ``RegistryArtifactCacheCapacityError``, so it must be matched first.
     """
     for cause in iter_error_chain(error):
+        if isinstance(cause, EntitlementRequired):
+            return RuntimeErrorClassification.user(
+                kind=RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
+                message=str(cause),
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                cause=cause,
+            )
         if isinstance(cause, RegistryArtifactCacheLeaseContentionError):
             return RuntimeErrorClassification.platform(
                 kind=RuntimeErrorKind.EXECUTOR_REGISTRY_LEASE_CONTENTION,
