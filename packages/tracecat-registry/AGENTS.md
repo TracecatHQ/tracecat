@@ -213,6 +213,37 @@ SDK-backed or not.
   private connectivity, proxies, regional endpoints, and government-cloud
   deployments as vendors add them. Platform-wide egress controls belong in the
   platform network boundary, not in individual integration wrappers.
+
+  Wrong — a vendor suffix list will always omit a valid deployment eventually:
+
+  ```python
+  _VENDOR_HOST_SUFFIXES = ("vendor.com", "vendor.cn")
+
+  def _validate_vendor_url(url: str) -> None:
+      hostname = urlsplit(url).hostname or ""
+      if not any(hostname.endswith(suffix) for suffix in _VENDOR_HOST_SUFFIXES):
+          raise ValueError("Unsupported vendor URL")
+
+  def _get_client(base_url: str) -> VendorClient:
+      _validate_vendor_url(base_url)
+      return VendorClient(host=base_url, credentials=_oauth_credentials())
+  ```
+
+  Correct — use the action input/`VARS` value as supplied:
+
+  ```python
+  def _get_client(base_url: str) -> VendorClient:
+      return VendorClient(host=base_url, credentials=_oauth_credentials())
+
+  async def call_api(url: str) -> dict[str, Any]:
+      async with httpx.AsyncClient() as client:
+          response = await client.get(url, headers=_oauth_headers())
+      response.raise_for_status()
+      return response.json()
+  ```
+
+  Do not replace the wrong example with a longer suffix list. Remove the
+  validator.
 - Distinguish multiple placements of one credential from genuinely different
   authentication modes. If the same API key can be sent in a query parameter,
   custom header, Bearer header, or Basic auth, implement one safest documented
@@ -337,6 +368,30 @@ SDK-backed or not.
   dynamically and let the pinned SDK own its public surface. Reject only Python
   attributes beginning with `_`, which are private implementation details rather
   than part of that public SDK surface.
+
+  Wrong — this duplicates the SDK surface and drifts as the SDK changes:
+
+  ```python
+  _ALLOWED_SERVICES = frozenset({"clusters", "jobs", "warehouses"})
+
+  def _get_sdk_method(client: Any, service: str, method_name: str) -> Any:
+      if service not in _ALLOWED_SERVICES:
+          raise AttributeError(service)
+      return getattr(getattr(client, service), method_name)
+  ```
+
+  Correct — block only private Python attributes and dispatch public SDK members
+  dynamically, using the same walrus style as `slack_sdk.py`:
+
+  ```python
+  def _get_sdk_method(client: Any, service: str, method_name: str) -> Any:
+      if service.startswith("_") or method_name.startswith("_"):
+          raise AttributeError(f"Unknown SDK method: {service}.{method_name}")
+      if sdk_service := getattr(client, service, None):
+          if method := getattr(sdk_service, method_name, None):
+              return method
+      raise AttributeError(f"Unknown SDK method: {service}.{method_name}")
+  ```
 - Keep API semantics in the official SDK or provider. Wrapper-side validation is
   limited to Tracecat-owned protocol boundaries such as bounding pagination and
   producing JSON-serializable results. Do not duplicate the provider's request
