@@ -1,9 +1,10 @@
 "use client"
 
 import { DatabaseIcon, LoaderCircleIcon } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
-  adminMaintenanceBackfillCaseAgentSessionInteractions,
+  adminMaintenanceGetCaseAgentSessionInteractionBackfill,
+  adminMaintenanceStartCaseAgentSessionInteractionBackfill,
   type CaseAgentSessionInteractionBackfillResponse,
 } from "@/client"
 import {
@@ -27,32 +28,72 @@ import {
   ItemTitle,
 } from "@/components/ui/item"
 import { toast } from "@/components/ui/use-toast"
-import { useMutation } from "@/lib/query"
+import { useMutation, useQuery } from "@/lib/query"
 
 export default function AdminMaintenancePage() {
   const [lastReport, setLastReport] =
     useState<CaseAgentSessionInteractionBackfillResponse>()
-  const { mutateAsync: runBackfill, isPending } = useMutation({
-    mutationFn: adminMaintenanceBackfillCaseAgentSessionInteractions,
+  const [operationId, setOperationId] = useState<string>()
+  const [reportedOperationId, setReportedOperationId] = useState<string>()
+  const { mutateAsync: startBackfill, isPending: isStarting } = useMutation({
+    mutationFn: adminMaintenanceStartCaseAgentSessionInteractionBackfill,
+  })
+  const { data: operation } = useQuery({
+    queryKey: ["admin", "maintenance", "case-agent-interactions", operationId],
+    queryFn: () =>
+      adminMaintenanceGetCaseAgentSessionInteractionBackfill({
+        operationId: operationId as string,
+      }),
+    enabled: operationId !== undefined,
+    refetchInterval: (query) =>
+      query.state.data?.status === "running" ? 2000 : false,
   })
 
-  async function handleRunBackfill() {
-    try {
-      const report = await runBackfill()
-      setLastReport(report)
+  useEffect(() => {
+    if (!operationId || reportedOperationId === operationId) {
+      return
+    }
+    if (operation?.status === "completed" && operation.report) {
+      setLastReport(operation.report)
+      setReportedOperationId(operationId)
       toast({
         title: "Backfill complete",
-        description: `Created ${report.inserted} case interaction records.`,
+        description: `Created ${operation.report.inserted} case interaction records.`,
       })
-    } catch (error) {
-      console.error("Failed to backfill case agent interactions", error)
+    } else if (operation?.status === "failed") {
+      setReportedOperationId(operationId)
       toast({
         title: "Backfill failed",
         description: "The maintenance operation did not complete.",
         variant: "destructive",
       })
     }
+  }, [operation, operationId, reportedOperationId])
+
+  async function handleRunBackfill() {
+    try {
+      const started = await startBackfill()
+      setOperationId(started.operation_id)
+      setLastReport(undefined)
+      toast({
+        title: "Backfill started",
+        description: "The maintenance operation is running in the background.",
+      })
+    } catch (error) {
+      console.error("Failed to start case agent interaction backfill", error)
+      toast({
+        title: "Could not start backfill",
+        description: "The maintenance operation could not be started.",
+        variant: "destructive",
+      })
+    }
   }
+
+  const isRunning =
+    isStarting ||
+    (operationId !== undefined &&
+      operation?.status !== "completed" &&
+      operation?.status !== "failed")
 
   const skippedCount = lastReport
     ? Object.values(lastReport.skipped).reduce(
@@ -86,7 +127,12 @@ export default function AdminMaintenancePage() {
               persisted agent session history. Reads and failed tool calls are
               ignored, and the operation is safe to rerun.
             </ItemDescription>
-            {lastReport ? (
+            {isRunning ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Backfill is running in the background. You can safely leave this
+                page.
+              </p>
+            ) : lastReport ? (
               <p className="mt-2 text-sm text-muted-foreground">
                 Last run: {lastReport.inserted} inserted, {lastReport.existing}{" "}
                 already present, and {skippedCount} skipped across{" "}
@@ -97,11 +143,11 @@ export default function AdminMaintenancePage() {
           <ItemActions>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button size="sm" disabled={isPending}>
-                  {isPending ? (
+                <Button size="sm" disabled={isRunning}>
+                  {isRunning ? (
                     <LoaderCircleIcon className="mr-2 size-4 animate-spin" />
                   ) : null}
-                  {isPending ? "Running..." : "Run backfill"}
+                  {isRunning ? "Running..." : "Run backfill"}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>

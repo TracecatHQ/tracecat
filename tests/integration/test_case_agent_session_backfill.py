@@ -209,6 +209,11 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
             case_id=str(updated.id),
         ),
         _use(
+            "external-update",
+            "mcp__customer-server__core__cases__update_case",
+            case_id=str(updated.id),
+        ),
+        _use(
             "incomplete",
             "core.cases.create_comment",
             case_id=str(commented.id),
@@ -229,6 +234,7 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
         _result("edit-comment"),
         _result("comment"),
         _result("legacy-update"),
+        _result("external-update"),
         _result(
             "create",
             [{"type": "text", "text": f'{{"id":"{created.id}"}}'}],

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter, defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -13,7 +13,11 @@ from sqlalchemy import exists, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.mcp.utils import (
+    LEGACY_REGISTRY_MCP_SERVER_NAME,
+    REGISTRY_MCP_SERVER_NAME,
+    normalize_mcp_tool_name,
+)
 from tracecat.agent.session.history import decode_raw_session_line
 from tracecat.cases.agent_sessions.types import (
     CaseAgentSessionBackfillReport,
@@ -83,12 +87,30 @@ def _parse_uuid(value: object) -> uuid.UUID | None:
         return None
 
 
+def _is_tracecat_owned_tool(name: str) -> bool:
+    """Reject tools routed through MCP servers Tracecat does not own."""
+    for separator in ("__", "."):
+        if not name.startswith(f"mcp{separator}"):
+            continue
+        parts = name.split(separator, 2)
+        if len(parts) != 3:
+            return False
+        server_name = parts[1]
+        return server_name in {
+            REGISTRY_MCP_SERVER_NAME,
+            LEGACY_REGISTRY_MCP_SERVER_NAME,
+        } or server_name.startswith(
+            (f"{REGISTRY_MCP_SERVER_NAME}-", f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-")
+        )
+    return True
+
+
 def _resolve_tool(
     block: Mapping[str, Any],
 ) -> tuple[str, Mapping[str, Any] | None] | None:
     """Resolve a supported direct or legacy wrapper tool call."""
     name = block.get("name")
-    if not isinstance(name, str):
+    if not isinstance(name, str) or not _is_tracecat_owned_tool(name):
         return None
 
     action = normalize_mcp_tool_name(name)
@@ -100,7 +122,9 @@ def _resolve_tool(
         if arguments is None:
             return None
         wrapped_name = arguments.get("tool_name")
-        if not isinstance(wrapped_name, str):
+        if not isinstance(wrapped_name, str) or not _is_tracecat_owned_tool(
+            wrapped_name
+        ):
             return None
         action = normalize_mcp_tool_name(wrapped_name)
         arguments = arguments.get("args", arguments)
@@ -490,7 +514,12 @@ class CaseAgentSessionBackfill:
         inserted = len(inserted_ids.all())
         return inserted, len(interactions) - inserted
 
-    async def run(self, *, batch_size: int = 100) -> CaseAgentSessionBackfillReport:
+    async def run(
+        self,
+        *,
+        batch_size: int = 100,
+        on_batch_complete: Callable[[], None] | None = None,
+    ) -> CaseAgentSessionBackfillReport:
         """Run the restart-safe backfill, committing after each session batch."""
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
@@ -535,6 +564,8 @@ class CaseAgentSessionBackfill:
             after_surrogate_id = sessions[-1].surrogate_id
 
             await self.session.commit()
+            if on_batch_complete is not None:
+                on_batch_complete()
             logger.info(
                 "Processed case-agent interaction backfill batch",
                 batch_number=batches_processed,
