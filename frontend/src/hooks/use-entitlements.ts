@@ -31,7 +31,12 @@ export function useEntitlements({
     refetchOnWindowFocus: false,
   })
 
-  const hasEntitlementData = entitlements !== undefined
+  // React Query keeps the last good `entitlements` when a refetch fails, while
+  // `hasEntitlement` below starts answering false. Reporting "known" off stale
+  // data and "not entitled" off the error would tell a paying org it lacks a
+  // feature; callers that separate those states must see "unknown" instead, so
+  // both halves distrust an errored result.
+  const hasEntitlementData = entitlements !== undefined && !error
 
   return {
     hasEntitlement: (key: EntitlementKey) => {
