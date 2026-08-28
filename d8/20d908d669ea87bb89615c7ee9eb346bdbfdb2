@@ -1,0 +1,22 @@
+docs/agents/workspace-chat.mdx
+  s_0afebddc7f7329::t_f72aa8191cdc32 30-32
+frontend/src/hooks/use-mentions.ts
+  s_0afebddc7f7329::t_f09aef4f8c4396 213,217,223
+  s_0afebddc7f7329::t_295c57899bc640 155-158,163,166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d820d908d669ea87bb89615c7ee9eb346bdbfdb2",
+  "prompts": {},
+  "sessions": {
+    "s_0afebddc7f7329": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c8cd4429-2157-49fb-9414-9789d80c8518",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
