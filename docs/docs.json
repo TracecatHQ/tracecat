@@ -266,7 +266,7 @@
               "tools/shodan",
               "tools/slack",
               "tools/slack_sdk",
-              "tools/snowflake_sql",
+              "tools/snowflake",
               "tools/socket",
               "tools/splunk",
               "tools/sublime",

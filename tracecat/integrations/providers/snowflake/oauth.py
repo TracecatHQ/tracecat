@@ -1,4 +1,4 @@
-"""Snowflake OAuth providers for SQL API access."""
+"""Snowflake OAuth providers for REST API access."""
 
 from typing import ClassVar
 
@@ -21,18 +21,22 @@ SNOWFLAKE_EXTERNAL_OAUTH_TOKEN_ENDPOINT = "https://{identity-provider}/oauth/tok
 class SnowflakeACProvider(AuthorizationCodeOAuthProvider):
     """Snowflake user OAuth provider."""
 
-    id: ClassVar[str] = "snowflake_sql"
+    id: ClassVar[str] = "snowflake"
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=["refresh_token"])
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
-        id="snowflake_sql",
-        name="Snowflake SQL API (User OAuth)",
-        description="Connect a Snowflake user with OAuth to call the SQL API.",
+        id="snowflake",
+        name="Snowflake (User OAuth)",
+        description="Connect a Snowflake user with OAuth to call its REST APIs.",
         requires_config=True,
         enabled=True,
-        api_docs_url=("https://docs.snowflake.com/en/developer-guide/sql-api/index"),
+        api_docs_url=(
+            "https://docs.snowflake.com/en/developer-guide/snowflake-rest-api/"
+            "snowflake-rest-api"
+        ),
         setup_guide_url=SNOWFLAKE_OAUTH_DOCS_URL,
         troubleshooting_url=(
-            "https://docs.snowflake.com/en/developer-guide/sql-api/authenticating"
+            "https://docs.snowflake.com/en/developer-guide/snowflake-rest-api/"
+            "authentication"
         ),
     )
     default_authorization_endpoint: ClassVar[str | None] = (
@@ -54,21 +58,25 @@ class SnowflakeACProvider(AuthorizationCodeOAuthProvider):
 class SnowflakeCCProvider(ClientCredentialsOAuthProvider):
     """Snowflake service OAuth provider using an external identity provider."""
 
-    id: ClassVar[str] = "snowflake_sql"
+    id: ClassVar[str] = "snowflake"
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
-        id="snowflake_sql",
-        name="Snowflake SQL API (Service OAuth)",
+        id="snowflake",
+        name="Snowflake (Service OAuth)",
         description=(
             "Mint a Snowflake-compatible service token from an external identity "
             "provider using client credentials and configured scopes."
         ),
         requires_config=True,
         enabled=True,
-        api_docs_url=("https://docs.snowflake.com/en/developer-guide/sql-api/index"),
+        api_docs_url=(
+            "https://docs.snowflake.com/en/developer-guide/snowflake-rest-api/"
+            "snowflake-rest-api"
+        ),
         setup_guide_url=("https://docs.snowflake.com/en/user-guide/oauth-ext-custom"),
         troubleshooting_url=(
-            "https://docs.snowflake.com/en/developer-guide/sql-api/authenticating"
+            "https://docs.snowflake.com/en/developer-guide/snowflake-rest-api/"
+            "authentication"
         ),
     )
     # External OAuth only uses the client credentials token endpoint. The base

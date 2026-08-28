@@ -160,8 +160,8 @@ describe("action namespace icons", () => {
     ["tools.databricks.jobs.run_job", "Databricks"],
     ["tools.databricks_sdk", "Databricks"],
     ["tools.databricks_sdk.call_method", "Databricks"],
-    ["tools.snowflake_sql", "Snowflake"],
-    ["tools.snowflake_sql.execute_statement", "Snowflake"],
+    ["tools.snowflake", "Snowflake"],
+    ["tools.snowflake.execute_statement", "Snowflake"],
   ]
 
   it.each(cases)("maps %s to the %s mark", (namespace, title) => {
@@ -177,7 +177,7 @@ describe("action namespace icons", () => {
 describe("OAuth provider and credential icons", () => {
   const cases: [providerId: string, title: string][] = [
     ["databricks", "Databricks"],
-    ["snowflake_sql", "Snowflake"],
+    ["snowflake", "Snowflake"],
   ]
 
   it.each(cases)("maps the %s provider to the %s mark", (providerId, title) => {

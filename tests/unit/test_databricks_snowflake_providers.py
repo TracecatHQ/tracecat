@@ -15,14 +15,14 @@ AC = OAuthGrantType.AUTHORIZATION_CODE
 CC = OAuthGrantType.CLIENT_CREDENTIALS
 
 
-@pytest.mark.parametrize("provider_id", ["databricks", "snowflake_sql"])
+@pytest.mark.parametrize("provider_id", ["databricks", "snowflake"])
 def test_registered_grant_types(provider_id: str) -> None:
     """Both integrations register user and service OAuth grants."""
     registered = {key.grant_type for key in PROVIDER_REGISTRY if key.id == provider_id}
     assert registered == {AC, CC}
 
 
-@pytest.mark.parametrize("provider_id", ["databricks", "snowflake_sql"])
+@pytest.mark.parametrize("provider_id", ["databricks", "snowflake"])
 def test_provider_ids_match_metadata(provider_id: str) -> None:
     """Each provider registration uses a consistent integration id."""
     for grant_type in (AC, CC):
@@ -41,14 +41,14 @@ def test_databricks_default_scopes() -> None:
 
 def test_snowflake_default_scopes() -> None:
     """Native user OAuth requests refresh; external service scopes are configured."""
-    user_cls = PROVIDER_REGISTRY[ProviderKey(id="snowflake_sql", grant_type=AC)]
-    service_cls = PROVIDER_REGISTRY[ProviderKey(id="snowflake_sql", grant_type=CC)]
+    user_cls = PROVIDER_REGISTRY[ProviderKey(id="snowflake", grant_type=AC)]
+    service_cls = PROVIDER_REGISTRY[ProviderKey(id="snowflake", grant_type=CC)]
 
     assert user_cls.scopes.default == ["refresh_token"]
     assert service_cls.scopes.default == []
 
 
-@pytest.mark.parametrize("provider_id", ["databricks", "snowflake_sql"])
+@pytest.mark.parametrize("provider_id", ["databricks", "snowflake"])
 def test_user_oauth_uses_pkce(provider_id: str) -> None:
     """Both user authorization-code providers enable PKCE."""
     cls = PROVIDER_REGISTRY[ProviderKey(id=provider_id, grant_type=AC)]

@@ -2,9 +2,9 @@ type: action
 definition:
   title: Cancel SQL statement
   description: Cancel execution of a Snowflake SQL statement.
-  display_group: Snowflake SQL API
+  display_group: Snowflake
   doc_url: https://docs.snowflake.com/en/developer-guide/sql-api/reference#post-apiv2statementsstatementhandlecancel
-  namespace: tools.snowflake_sql
+  namespace: tools.snowflake
   name: cancel_statement
   expects:
     statementHandle:
@@ -20,9 +20,9 @@ definition:
       default: null
   steps:
     - ref: request
-      action: tools.snowflake_sql.call_api
+      action: tools.snowflake.call_api
       args:
-        url: ${{ inputs.base_url || VARS.snowflake_sql.base_url }}/api/v2/statements/${{ FN.url_encode(inputs.statementHandle) }}/cancel
+        url: ${{ inputs.base_url || VARS.snowflake.base_url }}/api/v2/statements/${{ FN.url_encode(inputs.statementHandle) }}/cancel
         method: POST
         params:
           requestId: ${{ inputs.requestId }}

@@ -2,9 +2,9 @@ type: action
 definition:
   title: Execute SQL statement
   description: Submit one or more Snowflake SQL statements for execution.
-  display_group: Snowflake SQL API
+  display_group: Snowflake
   doc_url: https://docs.snowflake.com/en/developer-guide/sql-api/reference#post-apiv2statements
-  namespace: tools.snowflake_sql
+  namespace: tools.snowflake
   name: execute_statement
   expects:
     payload:
@@ -36,9 +36,9 @@ definition:
       default: null
   steps:
     - ref: request
-      action: tools.snowflake_sql.call_api
+      action: tools.snowflake.call_api
       args:
-        url: ${{ inputs.base_url || VARS.snowflake_sql.base_url }}/api/v2/statements
+        url: ${{ inputs.base_url || VARS.snowflake.base_url }}/api/v2/statements
         method: POST
         params:
           requestId: ${{ inputs.requestId }}

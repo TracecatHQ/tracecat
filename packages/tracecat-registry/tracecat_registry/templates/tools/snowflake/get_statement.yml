@@ -2,9 +2,9 @@ type: action
 definition:
   title: Get SQL statement
   description: Check statement status or retrieve a result partition.
-  display_group: Snowflake SQL API
+  display_group: Snowflake
   doc_url: https://docs.snowflake.com/en/developer-guide/sql-api/reference#get-apiv2statementsstatementhandle
-  namespace: tools.snowflake_sql
+  namespace: tools.snowflake
   name: get_statement
   expects:
     statementHandle:
@@ -24,9 +24,9 @@ definition:
       default: null
   steps:
     - ref: request
-      action: tools.snowflake_sql.call_api
+      action: tools.snowflake.call_api
       args:
-        url: ${{ inputs.base_url || VARS.snowflake_sql.base_url }}/api/v2/statements/${{ FN.url_encode(inputs.statementHandle) }}
+        url: ${{ inputs.base_url || VARS.snowflake.base_url }}/api/v2/statements/${{ FN.url_encode(inputs.statementHandle) }}
         method: GET
         params:
           requestId: ${{ inputs.requestId }}

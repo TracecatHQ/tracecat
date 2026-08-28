@@ -681,7 +681,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.kubernetes_sdk": createIconRenderer(KubernetesIcon),
     "tools.minio": createIconRenderer(MinioIcon),
     "tools.pymongo": createIconRenderer(MongoDbIcon),
-    "tools.snowflake_sql": createIconRenderer(SnowflakeIcon),
+    "tools.snowflake": createIconRenderer(SnowflakeIcon),
     "tools.zendesk": createIconRenderer(ZendeskIcon),
     // MCP catalog raster brand marks reused for tool namespaces
     "tools.cloudflare_sdk": createCatalogIconRenderer("cloudflare_mcp"),
@@ -995,7 +995,7 @@ export const providerIcons: Record<
       <DatabricksIcon {...rest} />
     </div>
   ),
-  snowflake_sql: ({ className, ...rest }) => (
+  snowflake: ({ className, ...rest }) => (
     <div className={className}>
       <SnowflakeIcon {...rest} />
     </div>
@@ -1205,7 +1205,7 @@ export const secretIcons: Record<
       <DatabricksIcon {...rest} />
     </div>
   ),
-  snowflake_sql: ({ className, ...rest }) => (
+  snowflake: ({ className, ...rest }) => (
     <div className={className}>
       <SnowflakeIcon {...rest} />
     </div>

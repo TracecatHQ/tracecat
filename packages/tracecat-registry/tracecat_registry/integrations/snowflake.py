@@ -1,4 +1,4 @@
-"""Generic Snowflake SQL REST API client."""
+"""Generic Snowflake REST API client."""
 
 from typing import Annotated, Any, TypedDict, cast
 
@@ -8,21 +8,21 @@ from pydantic import Field
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret, registry, secrets
 
 snowflake_user_oauth_secret = RegistryOAuthSecret(
-    provider_id="snowflake_sql",
+    provider_id="snowflake",
     grant_type="authorization_code",
     optional=True,
 )
 """Snowflake user OAuth credentials."""
 
 snowflake_service_oauth_secret = RegistryOAuthSecret(
-    provider_id="snowflake_sql",
+    provider_id="snowflake",
     grant_type="client_credentials",
     optional=True,
 )
 """Snowflake service OAuth credentials."""
 
-snowflake_sql_secret = RegistrySecret(
-    name="snowflake_sql",
+snowflake_secret = RegistrySecret(
+    name="snowflake",
     keys=[
         "SNOWFLAKE_OAUTH_CLIENT_ID",
         "SNOWFLAKE_OAUTH_CLIENT_SECRET",
@@ -35,9 +35,9 @@ snowflake_sql_secret = RegistrySecret(
     ],
     optional=True,
 )
-"""Stored Snowflake SQL API OAuth service credentials.
+"""Stored Snowflake REST API OAuth service credentials.
 
-- name: `snowflake_sql`
+- name: `snowflake`
 - keys:
     - `SNOWFLAKE_OAUTH_CLIENT_ID`
     - `SNOWFLAKE_OAUTH_CLIENT_SECRET`
@@ -54,8 +54,8 @@ Token endpoint authentication defaults to `client_secret_post`; set it to
 """
 
 
-class SnowflakeSQLResponse(TypedDict):
-    """Snowflake SQL API HTTP response envelope."""
+class SnowflakeResponse(TypedDict):
+    """Snowflake REST API HTTP response envelope."""
 
     status_code: int
     headers: dict[str, str]
@@ -105,24 +105,24 @@ async def _get_oauth_token() -> str:
 
 @registry.register(
     default_title="Call API",
-    description="Call a Snowflake SQL REST API endpoint.",
-    display_group="Snowflake SQL API",
-    doc_url="https://docs.snowflake.com/en/developer-guide/sql-api/index",
-    namespace="tools.snowflake_sql",
+    description="Call a Snowflake REST API endpoint.",
+    display_group="Snowflake",
+    doc_url="https://docs.snowflake.com/en/developer-guide/snowflake-rest-api/snowflake-rest-api",
+    namespace="tools.snowflake",
     secrets=[
         snowflake_user_oauth_secret,
         snowflake_service_oauth_secret,
-        snowflake_sql_secret,
+        snowflake_secret,
     ],
 )
 async def call_api(
     url: Annotated[
         str,
-        Field(..., description="Full Snowflake SQL REST API URL."),
+        Field(..., description="Full Snowflake REST API URL."),
     ],
     method: Annotated[
         str,
-        Field(..., description="HTTP method for the Snowflake SQL API request."),
+        Field(..., description="HTTP method for the Snowflake REST API request."),
     ],
     params: Annotated[
         dict[str, Any] | None,
@@ -139,13 +139,13 @@ async def call_api(
             description="Request timeout in seconds. Set to null to disable it.",
         ),
     ] = 60.0,
-) -> SnowflakeSQLResponse:
-    """Call a Snowflake SQL API endpoint and return its HTTP response."""
+) -> SnowflakeResponse:
+    """Call a Snowflake REST API endpoint and return its HTTP response."""
     token = await _get_oauth_token()
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "Tracecat-Snowflake-SQL-API/1.0",
+        "User-Agent": "Tracecat-Snowflake-REST-API/1.0",
         "Authorization": f"Bearer {token}",
         "X-Snowflake-Authorization-Token-Type": "OAUTH",
     }
@@ -164,7 +164,7 @@ async def call_api(
             json=payload,
         )
     response.raise_for_status()
-    return SnowflakeSQLResponse(
+    return SnowflakeResponse(
         status_code=response.status_code,
         headers=dict(response.headers.items()),
         data=response.json() if response.content else None,
