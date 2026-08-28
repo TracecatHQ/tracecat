@@ -24,6 +24,11 @@ do not break their public inputs or outputs without an explicitly planned migrat
   APIs. If research finds a maintained official Python SDK, ask the user during
   planning whether to use it. If approved, add generic direct and paginated SDK UDFs
   plus YAML endpoint templates over those wrappers.
+- Do not create a generic authenticated REST UDF that accepts a caller-provided URL,
+  method, or path. It duplicates `core.http_request` and can attach provider
+  credentials to an arbitrary destination. Generic dispatch UDFs are for actual
+  SDK clients whose public service and method surface is owned by the pinned SDK;
+  REST integrations use endpoint-specific YAML templates over `core.http_request`.
 
 ### Documentation links
 
@@ -229,21 +234,23 @@ SDK-backed or not.
       return VendorClient(host=base_url, credentials=_oauth_credentials())
   ```
 
-  Correct — use the action input/`VARS` value as supplied:
+  Correct — use the action input/`VARS` value directly in an endpoint-specific
+  REST template:
 
-  ```python
-  def _get_client(base_url: str) -> VendorClient:
-      return VendorClient(host=base_url, credentials=_oauth_credentials())
-
-  async def call_api(url: str) -> dict[str, Any]:
-      async with httpx.AsyncClient() as client:
-          response = await client.get(url, headers=_oauth_headers())
-      response.raise_for_status()
-      return response.json()
+  ```yaml
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.vendor.base_url }}/v1/resources
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.vendor_oauth.VENDOR_USER_TOKEN || SECRETS.vendor_oauth.VENDOR_SERVICE_TOKEN }}
   ```
 
-  Do not replace the wrong example with a longer suffix list. Remove the
-  validator.
+  Do not replace the wrong example with a longer suffix list or a generic Python
+  URL wrapper. Remove the validator and keep the request endpoint-specific in
+  the template.
 - Distinguish multiple placements of one credential from genuinely different
   authentication modes. If the same API key can be sent in a query parameter,
   custom header, Bearer header, or Basic auth, implement one safest documented

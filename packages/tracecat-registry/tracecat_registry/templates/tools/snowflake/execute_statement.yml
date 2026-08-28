@@ -6,6 +6,25 @@ definition:
   doc_url: https://docs.snowflake.com/en/developer-guide/sql-api/reference#post-apiv2statements
   namespace: tools.snowflake
   name: execute_statement
+  secrets:
+    - type: oauth
+      provider_id: snowflake
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: snowflake
+      grant_type: client_credentials
+      optional: true
+    - name: snowflake
+      keys:
+        - SNOWFLAKE_OAUTH_CLIENT_ID
+        - SNOWFLAKE_OAUTH_CLIENT_SECRET
+        - SNOWFLAKE_OAUTH_TOKEN_URL
+      optional_keys:
+        - SNOWFLAKE_OAUTH_SCOPE
+        - SNOWFLAKE_OAUTH_AUDIENCE
+        - SNOWFLAKE_OAUTH_TOKEN_ENDPOINT_AUTH_METHOD
+      optional: true
   expects:
     payload:
       # Generic: optional Snowflake request fields must be omitted rather than sent
@@ -35,11 +54,62 @@ definition:
       description: Snowflake account URL, for example https://org-account.snowflakecomputing.com.
       default: null
   steps:
+    - ref: resolve_access_token
+      action: core.script.run_python
+      args:
+        allow_network: true
+        inputs:
+          access_token: ${{ SECRETS.snowflake_oauth.SNOWFLAKE_USER_TOKEN || SECRETS.snowflake_oauth.SNOWFLAKE_SERVICE_TOKEN }}
+          client_id: ${{ SECRETS.snowflake.SNOWFLAKE_OAUTH_CLIENT_ID }}
+          client_secret: ${{ SECRETS.snowflake.SNOWFLAKE_OAUTH_CLIENT_SECRET }}
+          token_url: ${{ SECRETS.snowflake.SNOWFLAKE_OAUTH_TOKEN_URL }}
+          scope: ${{ SECRETS.snowflake.SNOWFLAKE_OAUTH_SCOPE }}
+          audience: ${{ SECRETS.snowflake.SNOWFLAKE_OAUTH_AUDIENCE }}
+          auth_method: ${{ SECRETS.snowflake.SNOWFLAKE_OAUTH_TOKEN_ENDPOINT_AUTH_METHOD }}
+        script: |
+          def main(access_token, client_id, client_secret, token_url, scope, audience, auth_method):
+              if access_token:
+                  return access_token
+
+              import base64
+              import json
+              from urllib.parse import urlencode
+              from urllib.request import Request, urlopen
+
+              form = {"grant_type": "client_credentials"}
+              if scope:
+                  form["scope"] = scope
+              if audience:
+                  form["audience"] = audience
+
+              headers = {"Content-Type": "application/x-www-form-urlencoded"}
+              if auth_method == "client_secret_basic":
+                  credentials = base64.b64encode(
+                      f"{client_id}:{client_secret}".encode()
+                  ).decode()
+                  headers["Authorization"] = f"Basic {credentials}"
+              else:
+                  form["client_id"] = client_id
+                  form["client_secret"] = client_secret
+
+              request = Request(
+                  token_url,
+                  data=urlencode(form).encode(),
+                  headers=headers,
+                  method="POST",
+              )
+              with urlopen(request, timeout=30) as response:
+                  return json.load(response)["access_token"]
     - ref: request
-      action: tools.snowflake.call_api
+      action: core.http_request
       args:
         url: ${{ inputs.base_url || VARS.snowflake.base_url }}/api/v2/statements
         method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ steps.resolve_access_token.result }}
+          Content-Type: application/json
+          X-Snowflake-Authorization-Token-Type: OAUTH
         params:
           requestId: ${{ inputs.requestId }}
           async: ${{ inputs.async }}
