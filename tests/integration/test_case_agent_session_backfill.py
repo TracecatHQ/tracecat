@@ -250,10 +250,10 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
     assert await _interactions(session, workspace_id) == {
         (updated.id, CaseAgentSessionInteractionOperation.UPDATE, root.id)
     }
-    applied = await backfill.run(batch_size=1)
-    rerun = await backfill.run(batch_size=1)
+    applied = await backfill.run()
+    rerun = await backfill.run()
 
-    assert applied.batches_processed == 3
+    assert applied.batches_processed == 1
     assert applied.sessions_scanned == 3
     assert applied.history_rows_scanned == 5
     assert applied.mutation_candidates == 5

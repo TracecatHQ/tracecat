@@ -15,11 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.session.history import decode_raw_session_line
-from tracecat.auth.types import Role
-from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.cases.agent_sessions.service import (
-    CaseAgentSessionInteractionService,
-)
 from tracecat.cases.agent_sessions.types import (
     CaseAgentSessionBackfillReport,
     CaseAgentSessionBackfillSkipReason,
@@ -31,9 +26,7 @@ from tracecat.db.models import (
     Case,
     CaseAgentSessionInteraction,
     CaseComment,
-    Workspace,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.logger import logger
 
 _CREATE_CASE = "core.cases.create_case"
@@ -67,7 +60,6 @@ class _Session:
     surrogate_id: int
     id: uuid.UUID
     workspace_id: uuid.UUID
-    organization_id: uuid.UUID
 
 
 type _SourceMutation = tuple[_Session, _Mutation]
@@ -286,9 +278,7 @@ class CaseAgentSessionBackfill:
                     AgentSession.surrogate_id,
                     AgentSession.id,
                     AgentSession.workspace_id,
-                    Workspace.organization_id,
                 )
-                .join(Workspace, Workspace.id == AgentSession.workspace_id)
                 .where(
                     AgentSession.surrogate_id > after_surrogate_id,
                     history_exists,
@@ -302,9 +292,8 @@ class CaseAgentSessionBackfill:
                 surrogate_id=surrogate_id,
                 id=session_id,
                 workspace_id=workspace_id,
-                organization_id=organization_id,
             )
-            for surrogate_id, session_id, workspace_id, organization_id in rows
+            for surrogate_id, session_id, workspace_id in rows
         ]
 
     async def _load_histories(
@@ -330,18 +319,56 @@ class CaseAgentSessionBackfill:
             histories[entry.session_id].append(entry)
         return histories
 
-    def _interaction_service(
+    async def _resolve_root_session_ids(
         self,
-        source: _Session,
-    ) -> CaseAgentSessionInteractionService:
-        role = Role(
-            type="service",
-            service_id="tracecat-service",
-            workspace_id=source.workspace_id,
-            organization_id=source.organization_id,
-            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
-        )
-        return CaseAgentSessionInteractionService(self.session, role)
+        sources: set[_Session],
+    ) -> dict[_Session, uuid.UUID | None]:
+        """Resolve one lineage level at a time for every source in the batch."""
+        unresolved = {source: source.id for source in sources}
+        visited = {source: {source.id} for source in sources}
+        roots: dict[_Session, uuid.UUID | None] = {}
+
+        while unresolved:
+            session_keys = {
+                (source.workspace_id, session_id)
+                for source, session_id in unresolved.items()
+            }
+            rows = (
+                await self.session.execute(
+                    select(
+                        AgentSession.workspace_id,
+                        AgentSession.id,
+                        AgentSession.parent_session_id,
+                    ).where(
+                        tuple_(AgentSession.workspace_id, AgentSession.id).in_(
+                            session_keys
+                        )
+                    )
+                )
+            ).tuples()
+            parents = {
+                (workspace_id, session_id): parent_id
+                for workspace_id, session_id, parent_id in rows
+            }
+
+            next_level: dict[_Session, uuid.UUID] = {}
+            for source, session_id in unresolved.items():
+                key = (source.workspace_id, session_id)
+                if key not in parents:
+                    roots[source] = None
+                    continue
+
+                parent_id = parents[key]
+                if parent_id is None:
+                    roots[source] = session_id
+                elif parent_id in visited[source]:
+                    roots[source] = None
+                else:
+                    visited[source].add(parent_id)
+                    next_level[source] = parent_id
+            unresolved = next_level
+
+        return roots
 
     async def _resolve_interactions(
         self,
@@ -401,19 +428,18 @@ class CaseAgentSessionBackfill:
                 .all()
             )
 
-        root_ids: dict[_Session, uuid.UUID | None] = {}
-        interactions: set[_InteractionKey] = set()
+        valid: list[_ResolvedMutation] = []
         for source, mutation, case_id in resolved:
             if (source.workspace_id, case_id) not in existing_cases:
                 skipped[CaseAgentSessionBackfillSkipReason.MISSING_CASE] += 1
                 continue
-            if source not in root_ids:
-                try:
-                    root_ids[source] = await self._interaction_service(
-                        source
-                    ).resolve_root_session_id(source.id)
-                except (TracecatNotFoundError, TracecatValidationError):
-                    root_ids[source] = None
+            valid.append((source, mutation, case_id))
+
+        root_ids = await self._resolve_root_session_ids(
+            {source for source, _, _ in valid}
+        )
+        interactions: set[_InteractionKey] = set()
+        for source, mutation, case_id in valid:
             root_id = root_ids[source]
             if root_id is None:
                 skipped[CaseAgentSessionBackfillSkipReason.INVALID_SESSION_LINEAGE] += 1
