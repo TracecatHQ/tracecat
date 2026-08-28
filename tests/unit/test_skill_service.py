@@ -1254,6 +1254,85 @@ class TestSkillService:
         finally:
             await concurrent_engine.dispose()
 
+    async def test_patch_draft_refreshes_preloaded_revision_before_lock(
+        self,
+        svc_role: Role,
+    ) -> None:
+        """The locking read must refresh a skill already in the identity map."""
+
+        role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+        concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
+
+        try:
+            async with session_factory() as stale_session:
+                workspace = await stale_session.scalar(
+                    select(Workspace).where(Workspace.id == role.workspace_id)
+                )
+                if workspace is None:
+                    stale_session.add(
+                        Workspace(
+                            id=role.workspace_id,
+                            name="test-workspace",
+                            organization_id=role.organization_id,
+                        )
+                    )
+                    await stale_session.commit()
+
+                stale_service = SkillService(
+                    session=stale_session,
+                    role=role.model_copy(deep=True),
+                )
+                created = await stale_service.create_skill(
+                    SkillCreate(name="preloaded-revision-skill")
+                )
+                stale_draft = await stale_service.get_draft(created.id)
+                assert stale_draft is not None
+
+                async with session_factory() as competing_session:
+                    competing_service = SkillService(
+                        session=competing_session,
+                        role=role.model_copy(deep=True),
+                    )
+                    committed = await competing_service.patch_draft(
+                        skill_id=created.id,
+                        params=SkillDraftPatch(
+                            base_revision=stale_draft.draft_revision,
+                            operations=[
+                                SkillDraftUpsertTextFileOp(
+                                    path="references/competing.md",
+                                    content="competing content",
+                                )
+                            ],
+                        ),
+                    )
+
+                with pytest.raises(TracecatValidationError) as exc_info:
+                    await stale_service.patch_draft(
+                        skill_id=created.id,
+                        params=SkillDraftPatch(
+                            base_revision=stale_draft.draft_revision,
+                            operations=[
+                                SkillDraftUpsertTextFileOp(
+                                    path="references/stale.md",
+                                    content="stale content",
+                                )
+                            ],
+                        ),
+                    )
+
+                assert exc_info.value.detail is not None
+                assert exc_info.value.detail["code"] == "draft_revision_conflict"
+                assert (
+                    exc_info.value.detail["current_revision"]
+                    == committed.draft_revision
+                )
+        finally:
+            await concurrent_engine.dispose()
+
     @pytest.mark.parametrize(
         "content",
         [

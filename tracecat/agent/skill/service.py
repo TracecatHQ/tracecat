@@ -1927,7 +1927,12 @@ class SkillService(BaseWorkspaceService):
         ]
         if not include_archived:
             predicates.extend((Skill.deleted_at.is_(None), Skill.archived_at.is_(None)))
-        stmt = select(Skill).where(*predicates).with_for_update()
+        stmt = (
+            select(Skill)
+            .where(*predicates)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if include_archived:
             stmt = with_deleted(stmt)
         return (await self.session.execute(stmt)).scalar_one_or_none()
