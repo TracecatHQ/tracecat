@@ -1755,6 +1755,59 @@ describe("ChatSessionPane", () => {
       mockPresets([TRIAGE_PRESET])
     })
 
+    it("keeps the list open while a multi-word name is typed out", async () => {
+      // Preset names contain spaces, so a query that stopped at the first one
+      // made a hand-typed mention impossible to select and silently unbound.
+      const onSelect = jest.fn().mockResolvedValue(true)
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect,
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@Triage ag", selectionStart: 10 },
+      })
+
+      await screen.findByText("Triage agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(textarea).toHaveValue("@Triage agent "))
+
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(onSelect).toHaveBeenCalledWith("preset-1"))
+    })
+
+    it("releases the trigger once a multi-word query matches nothing", async () => {
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect: jest.fn().mockResolvedValue(true),
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@Triage ag", selectionStart: 10 },
+      })
+      await screen.findByText("Triage agent")
+
+      // Prose after a stray trigger must not trail an open popover.
+      fireEvent.change(textarea, {
+        target: { value: "@Triage ag please look at this", selectionStart: 30 },
+      })
+
+      await waitFor(() =>
+        expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+      )
+      expect(screen.queryByText("No agents found")).not.toBeInTheDocument()
+    })
+
     it("sets the session preset from an @ mention and sends the text verbatim", async () => {
       const onSelect = jest.fn().mockResolvedValue(true)
       renderPane({

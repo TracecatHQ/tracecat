@@ -290,7 +290,34 @@ export function useMentions({
   const activeIndex = session
     ? Math.min(session.activeIndex, Math.max(items.length - 1, 0))
     : 0
-  const isOpen = session !== undefined
+
+  // A locked source is never fetched, so it reports neither spinner nor error.
+  let isLoading = false
+  if (!locked && session?.kind === "agent") {
+    isLoading = presetsIsLoading
+  } else if (!locked && session?.kind === "workflow") {
+    isLoading = workflowsIsLoading
+  }
+
+  // A failed lookup returns no rows, which would otherwise read as "no agents
+  // found" and hide the fact that the request needs retrying.
+  const hasError = !locked && session?.kind === "agent" && Boolean(presetsError)
+
+  // A query may span spaces so a multi-word name can be typed out, but once it
+  // matches nothing the user is writing prose after a stray trigger. Release
+  // the popover then, and take it back if they edit their way to a match
+  // again. Derived rather than stored so no keystroke writes state twice.
+  //
+  // Only an enabled source can be abandoned: a locked or failed one is empty
+  // for its own reason, and its row is the thing worth reading.
+  const abandoned =
+    session !== undefined &&
+    !locked &&
+    !hasError &&
+    !isLoading &&
+    /\s/.test(session.query) &&
+    items.length === 0
+  const isOpen = session !== undefined && !abandoned
 
   const dismiss = useCallback(() => setSession(undefined), [])
 
@@ -454,18 +481,6 @@ export function useMentions({
     setRanges([])
     setSession(undefined)
   }, [])
-
-  // A locked source is never fetched, so it reports neither spinner nor error.
-  let isLoading = false
-  if (!locked && session?.kind === "agent") {
-    isLoading = presetsIsLoading
-  } else if (!locked && session?.kind === "workflow") {
-    isLoading = workflowsIsLoading
-  }
-
-  // A failed lookup returns no rows, which would otherwise read as "no agents
-  // found" and hide the fact that the request needs retrying.
-  const hasError = !locked && session?.kind === "agent" && Boolean(presetsError)
 
   return {
     ranges,

@@ -236,6 +236,13 @@ export interface MentionToken {
   kind: MentionKind
 }
 
+/**
+ * Longest query a trigger will carry. Comfortably past any agent or workflow
+ * name, short enough that a stray `@` releases instead of following the caret
+ * through a paragraph.
+ */
+const MAX_MENTION_QUERY_LENGTH = 64
+
 function getTokenForKind(
   beforeCaret: string,
   caret: number,
@@ -253,7 +260,15 @@ function getTokenForKind(
   }
 
   const query = beforeCaret.slice(triggerIndex + 1)
-  if (/\s/.test(query)) {
+  // Agent and workflow names are usually several words, so a space has to be
+  // able to sit inside a query. A leading space means the trigger was typed on
+  // its own and prose followed, a newline always ends the mention, and the cap
+  // stops a stray trigger from trailing the rest of a paragraph. The caller
+  // closes the session once a multi-word query stops matching anything.
+  if (/^\s/.test(query) || query.includes("\n")) {
+    return undefined
+  }
+  if (query.length > MAX_MENTION_QUERY_LENGTH) {
     return undefined
   }
 
@@ -269,10 +284,11 @@ function getTokenForKind(
  * Locate the `@query` or `/query` token immediately before the caret.
  *
  * The trigger must sit at the start of the text or directly after whitespace,
- * and any whitespace inside the query dismisses the token. When both triggers
- * qualify, the one nearer the caret wins, so `@bar/baz` is still an agent
- * token. The whitespace rule is also what keeps `/` inside URLs and paths from
- * opening the popover.
+ * which is what keeps `/` inside URLs and paths from opening the popover. A
+ * query may contain spaces so multi-word names can be typed out; it ends at a
+ * newline, at a leading space, or at `MAX_MENTION_QUERY_LENGTH`. When both
+ * triggers qualify, the one nearer the caret wins, so `@bar/baz` is still an
+ * agent token.
  */
 export function getMentionToken(
   text: string,

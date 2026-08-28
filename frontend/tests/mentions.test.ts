@@ -278,10 +278,30 @@ describe("getMentionToken", () => {
     })
   })
 
-  it("returns undefined without a trigger, after a non-space, or with whitespace", () => {
+  it("returns undefined without a trigger or after a non-space", () => {
     expect(getMentionToken("ping", 4)).toBeUndefined()
     expect(getMentionToken("email@tri", 9)).toBeUndefined()
-    expect(getMentionToken("@tri agent", 10)).toBeUndefined()
+  })
+
+  it("carries spaces so a multi-word name can be typed out", () => {
+    expect(getMentionToken("@Triage ana", 11)).toEqual({
+      start: 0,
+      end: 11,
+      query: "Triage ana",
+      kind: "agent",
+    })
+  })
+
+  it("ends the query at a leading space, a newline, or the length cap", () => {
+    expect(getMentionToken("@ triage", 8)).toBeUndefined()
+    expect(getMentionToken("@tri\nagent", 10)).toBeUndefined()
+    expect(getMentionToken(`@${"a".repeat(65)}`, 66)).toBeUndefined()
+    expect(getMentionToken(`@${"a".repeat(64)}`, 65)).toEqual({
+      start: 0,
+      end: 65,
+      query: "a".repeat(64),
+      kind: "agent",
+    })
   })
 
   it("ignores text after the caret", () => {
