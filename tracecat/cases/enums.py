@@ -67,7 +67,6 @@ class CaseVersionField(StrEnum):
 class CaseAgentSessionInteractionOperation(StrEnum):
     """Operations that associate an agent session with a case."""
 
-    READ = "read"
     CREATE = "create"
     UPDATE = "update"
 
