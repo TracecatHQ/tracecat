@@ -1667,6 +1667,25 @@ describe("CommentSection", () => {
       expect(screen.getByText("malware-agent")).toBeInTheDocument()
     })
 
+    it("narrows on the slug, which is what tells duplicates apart", () => {
+      // Two presets share a name, so the slug is the only way to reach the
+      // second one -- and a hint the query cannot match would not help.
+      mockAgentPresets([
+        { ...createAgentPresetFixtures()[0], name: "Triage agent" },
+        {
+          ...createAgentPresetFixtures()[1],
+          name: "Triage agent",
+          slug: "triage-agent-eu",
+        },
+      ])
+      renderCommentSection()
+
+      typeInto(getRootComposer(), "@triage-agent-eu")
+
+      expect(screen.getByText("triage-agent-eu")).toBeInTheDocument()
+      expect(screen.queryByText("triage-agent")).not.toBeInTheDocument()
+    })
+
     it("selects with the mouse from the inline reply composer", async () => {
       renderCommentSection()
       const reply = screen.getByPlaceholderText("Leave a reply...")

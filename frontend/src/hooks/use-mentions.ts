@@ -272,7 +272,15 @@ export function useMentions({
       return [{ section: "workflows", label: "Workflows", items }]
     }
     const items = (presets ?? [])
-      .filter((preset) => preset.name.toLowerCase().includes(query))
+      // Matched on slug as well as name, the way the workflow rows above match
+      // an alias. The slug is what tells two presets of the same name apart, so
+      // showing it as the hint without letting the query reach it would leave
+      // the duplicate past the result cap with no way to narrow to it.
+      .filter(
+        (preset) =>
+          preset.name.toLowerCase().includes(query) ||
+          preset.slug.toLowerCase().includes(query)
+      )
       .slice(0, MAX_MENTION_RESULTS)
       .map(
         (preset: AgentPresetReadMinimal): MentionSuggestion => ({

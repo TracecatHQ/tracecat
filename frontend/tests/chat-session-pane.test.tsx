@@ -130,23 +130,34 @@ const mockUseAgentPresets = useAgentPresets as jest.MockedFunction<
   typeof useAgentPresets
 >
 
+// No cast: these must satisfy `AgentPresetReadMinimal` in full. The cast these
+// replaced hid a missing `slug`, which the suggestion list reads, so the rows
+// rendered no hint here and nothing noticed.
 const TRIAGE_PRESET: AgentPresetReadMinimal = {
   id: "preset-1",
+  workspace_id: "workspace-1",
   name: "Triage agent",
+  slug: "triage-agent",
   description: "Triages new cases",
+  model_provider: "openai",
+  model_name: "gpt-4o",
   current_version_id: "version-1",
   created_at: "2024-01-01T00:00:00.000Z",
   updated_at: "2024-01-01T00:00:00.000Z",
-} as AgentPresetReadMinimal
+}
 
 const MALWARE_PRESET: AgentPresetReadMinimal = {
   id: "preset-2",
+  workspace_id: "workspace-1",
   name: "Malware agent",
+  slug: "malware-agent",
   description: "Analyses malware",
+  model_provider: "openai",
+  model_name: "gpt-4o",
   current_version_id: "version-2",
   created_at: "2024-01-01T00:00:00.000Z",
   updated_at: "2024-01-01T00:00:00.000Z",
-} as AgentPresetReadMinimal
+}
 
 /** Grant or withhold every entitlement the mention layer looks at. */
 function mockEntitled(entitled: boolean) {
