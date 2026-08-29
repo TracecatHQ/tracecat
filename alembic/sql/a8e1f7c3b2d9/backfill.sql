@@ -1,3 +1,9 @@
+-- This asset runs after the migration has locked every topology source and
+-- existing target. All validation and writes share the Alembic transaction, so
+-- any raised exception rolls back the schema change and the entire backfill.
+
+-- A live head may only read topology from a current version that belongs to it
+-- and to the same workspace. Reject corrupt pointers before resolving edges.
 DO $$
 BEGIN
     IF EXISTS (
@@ -18,6 +24,10 @@ BEGIN
     END IF;
 END $$;
 
+-- Resolve the desired subagent head edges once into a transaction-local table.
+-- Prefer the immutable current-version projection; parent.agents supports heads
+-- that have not created a version yet. Explicit preset IDs take precedence over
+-- legacy slugs, and a slug is accepted only when it identifies exactly one head.
 CREATE TEMP TABLE _agent_preset_subagent_backfill
 ON COMMIT DROP AS
 WITH current_topology AS (
@@ -80,6 +90,9 @@ LEFT JOIN LATERAL (
         AND candidate.deleted_at IS NULL
 ) AS child_by_slug ON TRUE;
 
+-- Fail closed before inserting anything. NULL child IDs include missing,
+-- deleted, ambiguous, and cross-workspace references; aliases must also remain
+-- unique within the same parent because they are the runtime lookup key.
 DO $$
 BEGIN
     IF EXISTS (
@@ -101,6 +114,7 @@ BEGIN
     END IF;
 END $$;
 
+-- The target table is new, so this is a straight snapshot insert.
 INSERT INTO agent_preset_subagent (
     id,
     parent_preset_id,
@@ -121,6 +135,9 @@ SELECT
 FROM _agent_preset_subagent_backfill
 ORDER BY parent_id, alias;
 
+-- Skill edges already have a head-owned table. Validate every current-version
+-- edge and its concrete immutable skill version before replacing that table's
+-- active-parent projection.
 DO $$
 BEGIN
     IF EXISTS (
@@ -149,6 +166,9 @@ BEGIN
     END IF;
 END $$;
 
+-- Remove head edges no longer present in the current legacy projection. Keep
+-- rows for deleted heads and heads without a current version untouched; they do
+-- not participate in the live topology snapshot.
 DELETE FROM agent_preset_skill AS head_edge
 USING agent_preset AS preset
 WHERE preset.workspace_id = head_edge.workspace_id
@@ -163,6 +183,8 @@ WHERE preset.workspace_id = head_edge.workspace_id
             AND version_edge.skill_id = head_edge.skill_id
     );
 
+-- Insert missing head edges and update the concrete version pinned by existing
+-- ones. Legacy version-owned edges remain unchanged for application rollback.
 INSERT INTO agent_preset_skill (
     id,
     preset_id,

@@ -4,9 +4,14 @@ Revision ID: a8e1f7c3b2d9
 Revises: 44d7e75b6f4c
 Create Date: 2026-08-28 19:00:00.000000
 
-The legacy topology projections remain in place for rollback compatibility.
-New application code treats ``agent_preset_subagent`` and
-``agent_preset_skill`` as the canonical head-owned topology.
+This is a roll-forward data migration: it derives the initial head-owned
+topology from each preset's current legacy projection, while leaving every
+legacy field and version-owned edge intact for application rollback.
+
+The upgrade locks all source and target tables before taking the snapshot,
+creates the missing subagent edge table, then validates and backfills both
+subagent and skill head edges in the same transaction. Any invalid reference
+aborts the migration before the transaction commits.
 """
 
 from collections.abc import Sequence
@@ -113,16 +118,40 @@ def _create_subagent_head_edges() -> None:
 
 
 def upgrade() -> None:
-    # Freeze every legacy topology source and shadow target for the transaction.
-    # Old topology writers should still be drained before deployment; the lock
-    # closes the race between that operational gate and the migration snapshot.
-    _execute_sql_asset("lock.sql")
+    # Freeze every legacy topology source and existing head-edge target before
+    # deriving the canonical snapshot. Old topology writers should still be
+    # drained before deployment; this closes the remaining snapshot race.
+    op.execute(
+        sa.text(
+            """
+            LOCK TABLE
+                agent_preset,
+                agent_preset_version,
+                agent_preset_version_skill,
+                agent_preset_skill,
+                skill,
+                skill_version
+            IN SHARE ROW EXCLUSIVE MODE
+            """
+        )
+    )
+
+    # The SQL asset expects this table to exist and populates it alongside the
+    # already-existing agent_preset_skill head-edge table.
     _create_subagent_head_edges()
+
+    # Validate first and fail closed, then materialize the current desired
+    # topology. The revision-scoped asset remains part of this migration.
     _execute_sql_asset("backfill.sql")
+
+    # Backfill runs with migration privileges; application access is subject to
+    # workspace RLS only after the canonical table contains a complete snapshot.
     op.execute(enable_workspace_table_rls("agent_preset_subagent"))
 
 
 def downgrade() -> None:
+    # No reverse backfill is necessary: upgrade deliberately leaves all legacy
+    # version-owned topology untouched for the old application code to consume.
     op.execute(disable_workspace_table_rls("agent_preset_subagent"))
     op.drop_index(
         op.f("ix_agent_preset_subagent_child_preset_id"),
