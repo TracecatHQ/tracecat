@@ -3082,7 +3082,7 @@ class AgentSession(WorkspaceModel):
     agents_binding: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB,
         nullable=True,
-        doc="Normalized subagent bindings for this session",
+        doc="Resolved subagent binding shadow for the session's latest turn",
     )
     # Agent harness fields
     harness_type: Mapped[str | None] = mapped_column(
@@ -3823,7 +3823,7 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         default=lambda: {"enabled": False},
         server_default=text("'{\"enabled\": false}'::jsonb"),
         nullable=False,
-        doc="Subagent configuration for this preset",
+        doc="Rollback-only JSON shadow of canonical head subagent edges",
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
@@ -3865,6 +3865,12 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         "AgentPresetSkill",
         back_populates="preset",
         cascade="all, delete-orphan",
+    )
+    subagent_bindings: Mapped[list[AgentPresetSubagent]] = relationship(
+        "AgentPresetSubagent",
+        back_populates="parent_preset",
+        cascade="all, delete-orphan",
+        foreign_keys="[AgentPresetSubagent.parent_preset_id]",
     )
     current_version: Mapped[AgentPresetVersion | None] = relationship(
         "AgentPresetVersion",
@@ -3958,7 +3964,7 @@ class AgentPresetVersion(WorkspaceModel):
         default=lambda: {"enabled": False},
         server_default=text("'{\"enabled\": false}'::jsonb"),
         nullable=False,
-        doc="Subagent configuration for this preset version",
+        doc="Immutable legacy subagent shadow retained only for rollback",
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
@@ -3987,6 +3993,55 @@ class AgentPresetVersion(WorkspaceModel):
         "AgentPresetVersionSkill",
         back_populates="preset_version",
         cascade="all, delete-orphan",
+    )
+
+
+class AgentPresetSubagent(WorkspaceModel):
+    """Mutable topology edge from one preset head to another."""
+
+    __tablename__ = "agent_preset_subagent"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "parent_preset_id",
+            "alias",
+            name="uq_agent_preset_subagent_workspace_parent_alias",
+        ),
+        CheckConstraint(
+            "max_turns IS NULL OR max_turns >= 1",
+            name="max_turns_positive",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    parent_preset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    child_preset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    alias: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    max_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    parent_preset: Mapped[AgentPreset] = relationship(
+        back_populates="subagent_bindings",
+        foreign_keys=[parent_preset_id],
+    )
+    child_preset: Mapped[AgentPreset] = relationship(
+        foreign_keys=[child_preset_id],
     )
 
 
@@ -4390,7 +4445,7 @@ class SkillVersionFile(WorkspaceModel):
 
 
 class AgentPresetSkill(WorkspaceModel):
-    """Mutable skill binding for the current preset head."""
+    """Mutable topology edge from an AgentPreset head to a Skill head."""
 
     __tablename__ = "agent_preset_skill"
     __table_args__ = (
@@ -4426,7 +4481,7 @@ class AgentPresetSkill(WorkspaceModel):
         ForeignKey("skill_version.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
-        doc="Exact published skill version selected on the mutable preset head",
+        doc="Rollback-only shadow of the Skill head's current version",
     )
 
     preset: Mapped[AgentPreset] = relationship(back_populates="skill_bindings")
@@ -4438,7 +4493,7 @@ class AgentPresetSkill(WorkspaceModel):
 
 
 class AgentPresetVersionSkill(WorkspaceModel):
-    """Exact skill version snapshot bound to an immutable preset version."""
+    """Immutable legacy Skill edge retained only for rollback."""
 
     __tablename__ = "agent_preset_version_skill"
     __table_args__ = (
