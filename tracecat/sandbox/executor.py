@@ -134,6 +134,18 @@ os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
 """
 
 
+def _parse_result_error_code(value: object) -> SandboxErrorCode | None:
+    """Parse an untrusted result error code without escaping the boundary."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return SandboxErrorCode.WORKLOAD_FAILURE
+    try:
+        return SandboxErrorCode(value)
+    except ValueError:
+        return SandboxErrorCode.WORKLOAD_FAILURE
+
+
 def _classify_missing_nsjail_result(
     returncode: int | None,
     *,
@@ -564,11 +576,7 @@ class NsjailExecutor:
                     stdout=result_data.get("stdout", stdout),
                     stderr=result_data.get("stderr", stderr),
                     error=result_data.get("error"),
-                    error_code=(
-                        SandboxErrorCode(error_code)
-                        if (error_code := result_data.get("error_code"))
-                        else None
-                    ),
+                    error_code=_parse_result_error_code(result_data.get("error_code")),
                     exit_code=returncode,
                     execution_time_ms=execution_time_ms,
                 )
@@ -935,11 +943,7 @@ class NsjailExecutor:
                     stdout=stdout,
                     stderr=stderr,
                     error=result_data.get("error"),
-                    error_code=(
-                        SandboxErrorCode(error_code)
-                        if (error_code := result_data.get("error_code"))
-                        else None
-                    ),
+                    error_code=_parse_result_error_code(result_data.get("error_code")),
                     exit_code=returncode,
                     execution_time_ms=execution_time_ms,
                 )

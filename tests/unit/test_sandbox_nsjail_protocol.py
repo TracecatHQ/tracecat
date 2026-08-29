@@ -192,6 +192,50 @@ async def test_invocation_marker_attributes_exit_255_for_every_phase(
     assert result.error_code is expected_code
 
 
+@pytest.mark.parametrize("phase", ["execute", "action"])
+@pytest.mark.anyio
+async def test_unknown_result_error_code_is_a_workload_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    phase: str,
+) -> None:
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    (job_dir / "result.json").write_text(
+        '{"success": false, "error_code": "synthetic.unknown"}'
+    )
+
+    async def fake_invoke_nsjail(**kwargs: object) -> NsjailCompletedProcess:
+        return NsjailCompletedProcess(
+            returncode=0xFF,
+            stdout=b"",
+            stderr=b"",
+            workload_started=True,
+        )
+
+    monkeypatch.setattr(executor_module, "invoke_nsjail", fake_invoke_nsjail)
+    executor = NsjailExecutor(
+        nsjail_path=str(tmp_path / "nsjail"),
+        rootfs_path=str(tmp_path / "rootfs"),
+        cache_dir=str(tmp_path / "cache"),
+    )
+
+    if phase == "execute":
+        result = await executor.execute(job_dir, SandboxConfig())
+    else:
+        result = await executor.execute_action(
+            job_dir,
+            ActionSandboxConfig(
+                registry_paths=[],
+                tracecat_app_dir=tmp_path,
+                network=None,
+            ),
+        )
+
+    assert result.success is False
+    assert result.error_code is SandboxErrorCode.WORKLOAD_FAILURE
+
+
 @pytest.mark.anyio
 async def test_workload_start_proof_is_scoped_to_each_nsjail_invocation(
     tmp_path: Path,
