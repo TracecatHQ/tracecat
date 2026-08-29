@@ -59,9 +59,9 @@ export function DeleteSkillDialog({
           <AlertDialogDescription>
             Delete{" "}
             <span className="font-medium text-foreground">{skill?.name}</span>?
-            This removes it from Skills Studio and prevents future agent
-            bindings. Skills referenced by current or previous agent versions
-            cannot be deleted.
+            This permanently removes it from Skills Studio. If agents use this
+            skill, it will also be permanently unlinked from them. This cannot
+            be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="flex flex-col gap-2">

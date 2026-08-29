@@ -78,7 +78,6 @@ async def test_resolve_agent_preset_version_ref_activity_returns_ids(
 
     service.resolve_agent_preset_version.assert_awaited_once_with(
         slug="triage-agent",
-        preset_version=3,
     )
     assert result.preset_id == version.preset_id
     assert result.preset_version_id == version.id
@@ -158,7 +157,7 @@ async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None
     )
 
     service.resolve_agent_preset_version.assert_awaited_once_with(
-        preset_version_id=preset_version_id,
+        preset_id=preset_id,
     )
     assert result["subagents"][0]["preset_version_id"] == str(preset_version_id)
     assert result["subagents"][0]["preset_version"] == 8
@@ -187,7 +186,6 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
                 retries=3,
             )
         ),
-        use_latest_resource_versions=AsyncMock(return_value=False),
     )
     role = Role(
         type="service",
@@ -222,9 +220,8 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
     )
 
     service.resolve_agent_preset_version.assert_awaited_once_with(
-        preset_version_id=preset_version_id,
+        preset_id=preset_id,
     )
-    service.use_latest_resource_versions.assert_awaited_once()
     assert result.subagents[0].binding.preset_version_id == preset_version_id
     assert result.subagents[0].binding.preset_version == 4
 
@@ -252,7 +249,6 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
                 retries=3,
             )
         ),
-        use_latest_resource_versions=AsyncMock(return_value=True),
     )
     role = Role(
         type="service",
@@ -285,7 +281,6 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
         )
     )
 
-    service.use_latest_resource_versions.assert_not_awaited()
     service.resolve_agent_preset_version.assert_awaited_once_with(
         preset_version_id=preset_version_id,
     )

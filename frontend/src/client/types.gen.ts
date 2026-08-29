@@ -1171,7 +1171,6 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1202,10 +1201,6 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
-  /**
-   * How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.
-   */
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -9008,8 +9003,6 @@ export type VersionDiff = {
   total_changes?: number
 }
 
-export type VersionedResourceResolutionStrategy = "pinned" | "latest"
-
 /**
  * Vertex AI catalog entry.
  */
@@ -11801,6 +11794,10 @@ export type AgentPresetsUpdateAgentPresetData = {
 export type AgentPresetsUpdateAgentPresetResponse = AgentPresetRead
 
 export type AgentPresetsDeleteAgentPresetData = {
+  /**
+   * Confirm unlinking this preset from active parent agents.
+   */
+  confirmUnlink?: boolean
   presetId: string
   workspaceId: string
 }
@@ -12024,6 +12021,10 @@ export type AgentSkillsGetSkillData = {
 export type AgentSkillsGetSkillResponse = SkillRead
 
 export type AgentSkillsArchiveSkillData = {
+  /**
+   * Confirm unlinking this skill from active agent presets.
+   */
+  confirmUnlink?: boolean
   skillId: string
   workspaceId: string
 }

@@ -87,8 +87,6 @@ from tracecat.pagination import (
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 from tracecat.service import BaseWorkspaceService, requires_entitlement
-from tracecat.settings.schemas import VersionedResourceResolutionStrategy
-from tracecat.settings.service import get_versioned_resource_resolution_strategy
 from tracecat.tiers.enums import Entitlement
 
 if TYPE_CHECKING:
@@ -121,15 +119,6 @@ class AgentPresetService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
         self.skills = SkillService(session, role=self.role)
-
-    async def use_latest_resource_versions(self) -> bool:
-        """Return whether preset dependencies should resolve to current versions."""
-
-        strategy = await get_versioned_resource_resolution_strategy(
-            role=self.role,
-            session=self.session,
-        )
-        return strategy is VersionedResourceResolutionStrategy.LATEST
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
@@ -506,27 +495,122 @@ class AgentPresetService(BaseWorkspaceService):
     @require_scope("agent:delete")
     @audit_log(resource_type="agent_preset", action="delete")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def delete_preset(self, preset: AgentPreset) -> None:
-        """Soft-delete a preset without deleting its published versions."""
+    async def delete_preset(
+        self,
+        preset: AgentPreset,
+        *,
+        confirm_unlink: bool = False,
+    ) -> None:
+        """Soft-delete a preset, publishing removals from active parents first."""
         await self._lock_preset_row(preset.id)
-        await self._ensure_not_referenced_as_subagent(preset)
+        reference_count = await self._count_head_subagent_references(preset)
+        if reference_count > 0 and not confirm_unlink:
+            raise TracecatValidationError(
+                "Deleting this agent preset requires confirmation because it is "
+                "still referenced as a subagent",
+                detail={
+                    "code": "preset_in_use_as_subagent",
+                    "head_reference_count": reference_count,
+                },
+            )
+        if reference_count > 0:
+            await self._unlink_subagent_from_active_presets(preset)
         channel_service = AgentChannelService(self.session, role=self.role)
         await channel_service.deactivate_tokens_for_preset(preset.id)
         preset.deleted_at = datetime.now(UTC)
         self.session.add(preset)
         await self.session.commit()
 
-    async def _ensure_not_referenced_as_subagent(self, preset: AgentPreset) -> None:
-        """Block deletion while other preset heads still reference this preset."""
-        reference_count = await self._count_head_subagent_references(preset)
-        if reference_count > 0:
+    async def _unlink_subagent_from_active_presets(self, child: AgentPreset) -> None:
+        """Publish removal of ``child`` from every active parent preset."""
+
+        reference_exists = self._subagent_reference_exists(
+            AgentPreset.agents,
+            preset_id=child.id,
+            slug=child.slug,
+        )
+        stmt = (
+            select(AgentPreset)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.id != child.id,
+                AgentPreset.deleted_at.is_(None),
+                reference_exists,
+            )
+            .order_by(AgentPreset.id)
+            .with_for_update()
+        )
+        parents = list((await self.session.execute(stmt)).scalars().all())
+        for parent in parents:
+            agents = AgentSubagentsConfig.model_validate(parent.agents)
+            remaining = [
+                ref
+                for ref in agents.subagents
+                if not (
+                    isinstance(ref, ResolvedAttachedSubagentRef)
+                    and ref.preset_id == child.id
+                )
+                and not (
+                    not isinstance(ref, ResolvedAttachedSubagentRef)
+                    and ref.preset == child.slug
+                )
+            ]
+            parent.agents = AgentSubagentsConfig(
+                enabled=agents.enabled and bool(remaining),
+                subagents=remaining,
+            ).model_dump(mode="json")
+            version = await self._create_version_from_preset(
+                parent,
+                preset_locked=True,
+            )
+            parent.current_version_id = version.id
+            self.session.add(parent)
+
+    async def unlink_skill_from_active_presets(
+        self,
+        skill_id: uuid.UUID,
+        *,
+        confirm_unlink: bool,
+    ) -> int:
+        """Publish removal of a skill from every active parent preset."""
+
+        stmt = (
+            select(AgentPreset)
+            .join(AgentPresetSkill, AgentPresetSkill.preset_id == AgentPreset.id)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+                AgentPresetSkill.workspace_id == self.workspace_id,
+                AgentPresetSkill.skill_id == skill_id,
+            )
+            .order_by(AgentPreset.id)
+            .with_for_update()
+        )
+        parents = list((await self.session.execute(stmt)).scalars().unique().all())
+        if parents and not confirm_unlink:
             raise TracecatValidationError(
-                "Cannot delete an agent preset that is still referenced as a subagent",
+                "Deleting this skill requires confirmation because it is still "
+                "referenced by agent presets",
                 detail={
-                    "code": "preset_in_use_as_subagent",
-                    "head_reference_count": reference_count,
+                    "code": "skill_in_use",
+                    "head_reference_count": len(parents),
                 },
             )
+        for parent in parents:
+            await self.session.execute(
+                sa.delete(AgentPresetSkill).where(
+                    AgentPresetSkill.workspace_id == self.workspace_id,
+                    AgentPresetSkill.preset_id == parent.id,
+                    AgentPresetSkill.skill_id == skill_id,
+                )
+            )
+            version = await self._create_version_from_preset(
+                parent,
+                preset_locked=True,
+            )
+            parent.current_version_id = version.id
+            self.session.add(parent)
+        return len(parents)
 
     async def _count_head_subagent_references(self, preset: AgentPreset) -> int:
         subagent_ref_exists = self._subagent_reference_exists(
@@ -586,6 +670,7 @@ class AgentPresetService(BaseWorkspaceService):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        resolve_dependencies_from_heads: bool = True,
     ) -> AgentConfig:
         """Get an agent configuration from a preset by ID or slug with MCP integrations resolved."""
         version = await self.resolve_agent_preset_version(
@@ -594,7 +679,10 @@ class AgentPresetService(BaseWorkspaceService):
             preset_version_id=preset_version_id,
             preset_version=preset_version,
         )
-        return await self._version_to_agent_config(version)
+        return await self._version_to_agent_config(
+            version,
+            resolve_dependencies_from_heads=resolve_dependencies_from_heads,
+        )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_version(
@@ -610,9 +698,6 @@ class AgentPresetService(BaseWorkspaceService):
             raise ValueError(
                 "Either preset_id, slug, or preset_version_id must be provided"
             )
-        if preset_version is not None and slug is None and preset_id is None:
-            raise ValueError("'preset_version' requires a preset_id or slug")
-
         preset: AgentPreset | None = None
         if preset_id is not None:
             preset = await self.get_preset(preset_id)
@@ -638,17 +723,9 @@ class AgentPresetService(BaseWorkspaceService):
         if preset is None:
             raise TracecatNotFoundError("Agent preset not found")
 
-        if preset_version is not None:
-            version = await self.get_version_by_number(
-                preset_id=preset.id,
-                version=preset_version,
-            )
-            if version is None:
-                raise TracecatNotFoundError(
-                    f"Agent preset version {preset_version} not found"
-                )
-            return version
-
+        # ``preset_version`` is retained as a compatibility-only input for old
+        # workflow definitions and SDK callers. Fresh executions always follow
+        # the selected preset head; exact UUID pins are internal run snapshots.
         return await self.get_current_version_for_preset(preset)
 
     async def load_selected_mcp_integrations(
@@ -735,6 +812,7 @@ class AgentPresetService(BaseWorkspaceService):
             agents=config,
             parent_preset_id=parent_preset_id,
             parent_slug=parent_slug,
+            follow_latest_versions=True,
         )
         binding = resolved.to_agents_binding()
         await self._lock_active_subagent_presets(binding)
@@ -1703,21 +1781,15 @@ class AgentPresetService(BaseWorkspaceService):
     async def _restore_head_skill_bindings_from_version(
         self, *, preset_id: uuid.UUID, version_id: uuid.UUID
     ) -> None:
-        """Copy exact historical skill versions back to the mutable preset head."""
+        """Restore historical membership against each skill's current head."""
 
-        stmt = select(
-            AgentPresetVersionSkill.skill_id,
-            AgentPresetVersionSkill.skill_version_id,
-        ).where(
+        stmt = select(AgentPresetVersionSkill.skill_id).where(
             AgentPresetVersionSkill.workspace_id == self.workspace_id,
             AgentPresetVersionSkill.preset_version_id == version_id,
         )
-        rows = (await self.session.execute(stmt)).tuples().all()
-        await self.skills.validate_binding_inputs(
-            [
-                AgentPresetSkillBindingBase(skill_id=skill_id)
-                for skill_id, _skill_version_id in rows
-            ],
+        skill_ids = list((await self.session.execute(stmt)).scalars().all())
+        current_bindings = await self._current_skill_binding_specs(
+            skill_ids,
             for_update=True,
         )
         await self.session.execute(
@@ -1726,13 +1798,13 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPresetSkill.preset_id == preset_id,
             )
         )
-        for skill_id, skill_version_id in rows:
+        for binding in current_bindings:
             self.session.add(
                 AgentPresetSkill(
                     workspace_id=self.workspace_id,
                     preset_id=preset_id,
-                    skill_id=skill_id,
-                    skill_version_id=skill_version_id,
+                    skill_id=binding.skill_id,
+                    skill_version_id=binding.skill_version_id,
                 )
             )
         await self.session.flush()
@@ -1854,7 +1926,11 @@ class AgentPresetService(BaseWorkspaceService):
             preset_id=preset.id,
             version_id=version.id,
         )
-        preset.current_version_id = version.id
+        restored_version = await self._create_version_from_preset(
+            preset,
+            preset_locked=True,
+        )
+        preset.current_version_id = restored_version.id
         self.session.add(preset)
         await self.session.commit()
         await self.session.refresh(preset)
@@ -1965,9 +2041,11 @@ class AgentPresetService(BaseWorkspaceService):
         )
 
     async def _version_to_agent_config(
-        self, version: AgentPresetVersion
+        self,
+        version: AgentPresetVersion,
+        *,
+        resolve_dependencies_from_heads: bool = True,
     ) -> AgentConfig:
-        use_latest_resource_versions = await self.use_latest_resource_versions()
         # Resolve refs only — no headers / stdio env. The resulting
         # AgentConfig is safe to cross Temporal boundaries. Trusted callers
         # (build_tool_definitions, trusted MCP server) re-resolve secrets
@@ -1976,7 +2054,7 @@ class AgentPresetService(BaseWorkspaceService):
         model_settings: dict[str, Any] = {}
         resolved_skills = await self.skills.get_resolved_skill_refs_for_preset_version(
             version.id,
-            use_latest_versions=use_latest_resource_versions,
+            use_latest_versions=resolve_dependencies_from_heads,
         )
         duplicate_skill_names = sorted(
             name
@@ -1998,7 +2076,7 @@ class AgentPresetService(BaseWorkspaceService):
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
         agents = AgentSubagentsConfig.model_validate(version.agents)
-        if use_latest_resource_versions:
+        if resolve_dependencies_from_heads:
             resolved_agents = await resolve_agents_config(
                 self,
                 agents=agents,

@@ -44,6 +44,7 @@ class AgentPresetResolutionService(Protocol):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        resolve_dependencies_from_heads: bool = True,
     ) -> Awaitable[AgentConfig]: ...
 
 
@@ -214,6 +215,7 @@ async def resolve_agents_config(
             preset = await service.get_preset(version.preset_id)
             child_config = await service.resolve_agent_preset_config(
                 preset_version_id=version.id,
+                resolve_dependencies_from_heads=follow_latest_versions,
             )
             description = (
                 ref.description

@@ -352,6 +352,10 @@ async def restore_skill_version(
 async def archive_skill(
     *,
     skill_id: uuid.UUID,
+    confirm_unlink: bool = Query(
+        default=False,
+        description="Confirm unlinking this skill from active agent presets.",
+    ),
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
 ) -> None:
@@ -359,7 +363,7 @@ async def archive_skill(
 
     service = SkillService(session, role=role)
     try:
-        await service.archive_skill(skill_id)
+        await service.archive_skill(skill_id, confirm_unlink=confirm_unlink)
     except TracecatValidationError as exc:
         _raise_skill_validation_error(exc)
     except TracecatNotFoundError as exc:

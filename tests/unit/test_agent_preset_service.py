@@ -3,6 +3,7 @@
 import asyncio
 import os
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -65,11 +66,6 @@ from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
     RegistryVersionManifestAction,
 )
-from tracecat.settings.schemas import (
-    AppSettingsUpdate,
-    VersionedResourceResolutionStrategy,
-)
-from tracecat.settings.service import SettingsService
 from tracecat.storage.blob import ensure_bucket_exists
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -1397,24 +1393,14 @@ class TestAgentPresetService:
         assert detail["code"] == "skill_not_published"
         assert detail["skill_id"] == str(created_skill.id)
 
-    async def test_resolve_config_uses_latest_skill_versions_when_setting_enabled(
+    async def test_resolve_config_uses_latest_skill_versions(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
-        svc_admin_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """Latest-resource mode resolves skills by current version at execution time."""
-
-        settings_service = SettingsService(session=session, role=svc_admin_role)
-        await settings_service.update_app_settings(
-            AppSettingsUpdate(
-                app_versioned_resource_resolution_strategy=(
-                    VersionedResourceResolutionStrategy.LATEST
-                )
-            )
-        )
+        """Fresh execution resolves skills by current version."""
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
             SkillCreate(name="latest-skill-v1")
@@ -1465,24 +1451,14 @@ class TestAgentPresetService:
         assert resolved_skill.skill_version_id == skill_version_two.id
         assert resolved_skill.skill_name == "latest-skill-v2"
 
-    async def test_resolve_config_rejects_archived_skill_in_latest_mode(
+    async def test_resolve_config_rejects_archived_skill_from_head_resolution(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
-        svc_admin_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """Latest-resource mode refuses archived skills from historical versions."""
-
-        settings_service = SettingsService(session=session, role=svc_admin_role)
-        await settings_service.update_app_settings(
-            AppSettingsUpdate(
-                app_versioned_resource_resolution_strategy=(
-                    VersionedResourceResolutionStrategy.LATEST
-                )
-            )
-        )
+        """Fresh resolution refuses archived skills in historical memberships."""
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
             SkillCreate(name="latest-archived-skill")
@@ -1522,24 +1498,14 @@ class TestAgentPresetService:
         assert detail["code"] == "skill_archived"
         assert str(created_skill.id) in str(detail["skills"])
 
-    async def test_resolve_config_rejects_archived_skill_in_pinned_mode(
+    async def test_resolve_snapshot_rejects_archived_skill(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
-        svc_admin_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """Pinned-resource mode refuses archived skills from historical versions."""
-
-        settings_service = SettingsService(session=session, role=svc_admin_role)
-        await settings_service.update_app_settings(
-            AppSettingsUpdate(
-                app_versioned_resource_resolution_strategy=(
-                    VersionedResourceResolutionStrategy.PINNED
-                )
-            )
-        )
+        """Exact run-snapshot reconstruction refuses archived dependencies."""
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
             SkillCreate(name="pinned-archived-skill")
@@ -1572,6 +1538,7 @@ class TestAgentPresetService:
             await agent_preset_service.resolve_agent_preset_config(
                 preset_id=created_preset.id,
                 preset_version_id=historical_version.id,
+                resolve_dependencies_from_heads=False,
             )
 
         detail = exc_info.value.detail
@@ -1657,14 +1624,14 @@ class TestAgentPresetService:
 
         assert [version.version for version in version_reads.items] == [2, 1]
 
-    async def test_restore_version_restores_historical_skill_versions_on_head(
+    async def test_restore_version_restores_membership_with_current_skill_head(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """Restoring a preset version copies historical skill versions onto the head."""
+        """Restore historical membership while following the current Skill head."""
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
@@ -1738,7 +1705,7 @@ class TestAgentPresetService:
         assert diff.skill_changes[0].old_skill_version_id == skill_version_one.id
         assert diff.skill_changes[0].new_skill_version_id == skill_version_two.id
         assert len(restored_bindings) == 1
-        assert restored_bindings[0].skill_version_id == skill_version_one.id
+        assert restored_bindings[0].skill_version_id == skill_version_two.id
 
     async def test_build_version_read_uses_snapshot_skill_version_name(
         self,
@@ -2101,22 +2068,25 @@ class TestAgentPresetService:
         await skill_service.publish_skill(created_skill.id)
 
         captured_for_update: list[bool] = []
-        original_validate_binding_inputs = (
-            agent_preset_service.skills.validate_binding_inputs
+        original_current_skill_binding_specs = (
+            agent_preset_service._current_skill_binding_specs
         )
 
-        async def instrumented_validate_binding_inputs(
-            bindings: list[AgentPresetSkillBindingBase],
+        async def instrumented_current_skill_binding_specs(
+            skill_ids: Sequence[uuid.UUID],
             *,
             for_update: bool = False,
-        ) -> None:
+        ) -> list[SkillBindingSpec]:
             captured_for_update.append(for_update)
-            await original_validate_binding_inputs(bindings, for_update=for_update)
+            return await original_current_skill_binding_specs(
+                skill_ids,
+                for_update=for_update,
+            )
 
         monkeypatch.setattr(
-            agent_preset_service.skills,
-            "validate_binding_inputs",
-            instrumented_validate_binding_inputs,
+            agent_preset_service,
+            "_current_skill_binding_specs",
+            instrumented_current_skill_binding_specs,
         )
 
         await agent_preset_service.create_preset(
@@ -2134,7 +2104,8 @@ class TestAgentPresetService:
             )
         )
 
-        assert captured_for_update == [True]
+        assert captured_for_update
+        assert all(captured_for_update)
 
     async def test_update_preset_clears_all_skill_bindings_when_skills_is_null(
         self,
@@ -2208,22 +2179,25 @@ class TestAgentPresetService:
         )
 
         captured_for_update: list[bool] = []
-        original_validate_binding_inputs = (
-            agent_preset_service.skills.validate_binding_inputs
+        original_current_skill_binding_specs = (
+            agent_preset_service._current_skill_binding_specs
         )
 
-        async def instrumented_validate_binding_inputs(
-            bindings: list[AgentPresetSkillBindingBase],
+        async def instrumented_current_skill_binding_specs(
+            skill_ids: Sequence[uuid.UUID],
             *,
             for_update: bool = False,
-        ) -> None:
+        ) -> list[SkillBindingSpec]:
             captured_for_update.append(for_update)
-            await original_validate_binding_inputs(bindings, for_update=for_update)
+            return await original_current_skill_binding_specs(
+                skill_ids,
+                for_update=for_update,
+            )
 
         monkeypatch.setattr(
-            agent_preset_service.skills,
-            "validate_binding_inputs",
-            instrumented_validate_binding_inputs,
+            agent_preset_service,
+            "_current_skill_binding_specs",
+            instrumented_current_skill_binding_specs,
         )
 
         await agent_preset_service.update_preset(
@@ -2237,7 +2211,8 @@ class TestAgentPresetService:
             ),
         )
 
-        assert captured_for_update == [True]
+        assert captured_for_update
+        assert all(captured_for_update)
 
     async def test_update_preset_locks_preset_before_replacing_skill_bindings(
         self,
@@ -2318,12 +2293,12 @@ class TestAgentPresetService:
         assert call_order[:3] == ["lock", "read_specs", "replace"]
         assert call_order.count("lock") == 1
 
-    async def test_restore_version_moves_current_pointer(
+    async def test_restore_version_publishes_new_current_version(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Restoring an old version repoints current without creating another row."""
+        """Restoring an old snapshot publishes it as a new immutable version."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
@@ -2343,9 +2318,10 @@ class TestAgentPresetService:
             CursorPaginationParams(limit=10),
         )
 
-        assert restored_preset.current_version_id == version_1.id
+        assert restored_preset.current_version_id != version_1.id
         assert restored_preset.instructions == agent_preset_create_params.instructions
-        assert [version.version for version in versions.items] == [2, 1]
+        assert [version.version for version in versions.items] == [3, 2, 1]
+        assert versions.items[0].id == restored_preset.current_version_id
 
     async def test_restore_version_locks_preset_before_replacing_skill_bindings(
         self,
@@ -2554,27 +2530,31 @@ class TestAgentPresetService:
         )
 
         captured_for_update: list[bool] = []
-        original_validate_binding_inputs = (
-            agent_preset_service.skills.validate_binding_inputs
+        original_current_skill_binding_specs = (
+            agent_preset_service._current_skill_binding_specs
         )
 
-        async def instrumented_validate_binding_inputs(
-            bindings: list[AgentPresetSkillBindingBase],
+        async def instrumented_current_skill_binding_specs(
+            skill_ids: Sequence[uuid.UUID],
             *,
             for_update: bool = False,
-        ) -> None:
+        ) -> list[SkillBindingSpec]:
             captured_for_update.append(for_update)
-            await original_validate_binding_inputs(bindings, for_update=for_update)
+            return await original_current_skill_binding_specs(
+                skill_ids,
+                for_update=for_update,
+            )
 
         monkeypatch.setattr(
-            agent_preset_service.skills,
-            "validate_binding_inputs",
-            instrumented_validate_binding_inputs,
+            agent_preset_service,
+            "_current_skill_binding_specs",
+            instrumented_current_skill_binding_specs,
         )
 
         await agent_preset_service.restore_version(created_preset, version_1)
 
-        assert captured_for_update == [True]
+        assert captured_for_update
+        assert all(captured_for_update)
 
     async def test_update_preset_slug(
         self,
@@ -2900,15 +2880,15 @@ class TestAgentPresetService:
         )
         call_order: list[str] = []
         original_lock = agent_preset_service._lock_preset_row
-        original_ensure = agent_preset_service._ensure_not_referenced_as_subagent
+        original_count = agent_preset_service._count_head_subagent_references
 
         async def instrumented_lock(preset_id: uuid.UUID) -> None:
             call_order.append("lock")
             await original_lock(preset_id)
 
-        async def instrumented_ensure(preset: AgentPreset) -> None:
+        async def instrumented_count(preset: AgentPreset) -> int:
             call_order.append("reference_check")
-            await original_ensure(preset)
+            return await original_count(preset)
 
         monkeypatch.setattr(
             agent_preset_service,
@@ -2917,8 +2897,8 @@ class TestAgentPresetService:
         )
         monkeypatch.setattr(
             agent_preset_service,
-            "_ensure_not_referenced_as_subagent",
-            instrumented_ensure,
+            "_count_head_subagent_references",
+            instrumented_count,
         )
 
         await agent_preset_service.delete_preset(created_preset)
@@ -2963,6 +2943,44 @@ class TestAgentPresetService:
             "head_reference_count": 1,
         }
         assert await agent_preset_service.get_preset(child.id) is not None
+
+    async def test_delete_preset_with_confirmation_unlinks_and_publishes_parent(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Confirmed deletion publishes parent membership removal atomically."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Confirmed Child", "slug": "confirmed-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Confirmed Parent",
+                    "slug": "confirmed-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        original_parent_version_id = parent.current_version_id
+
+        await agent_preset_service.delete_preset(child, confirm_unlink=True)
+
+        refreshed_parent = await agent_preset_service.get_preset(parent.id)
+        assert refreshed_parent is not None
+        assert refreshed_parent.current_version_id != original_parent_version_id
+        assert (
+            AgentSubagentsConfig.model_validate(refreshed_parent.agents).subagents == []
+        )
+        assert await agent_preset_service.get_preset(child.id) is None
 
     async def test_delete_preset_soft_deletes_when_only_referenced_as_subagent_in_history(
         self,
@@ -3443,24 +3461,12 @@ class TestAgentPresetService:
         assert isinstance(agents.subagents[0], ResolvedAttachedSubagentRef)
         assert agents.subagents[0].preset_id == child.id
 
-    async def test_resolve_config_uses_latest_subagent_version_when_setting_enabled(
+    async def test_resolve_config_uses_latest_subagent_version(
         self,
-        session: AsyncSession,
-        svc_role: Role,
-        svc_admin_role: Role,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Latest-resource mode resolves preset-backed subagents by current version."""
-
-        settings_service = SettingsService(session=session, role=svc_admin_role)
-        await settings_service.update_app_settings(
-            AppSettingsUpdate(
-                app_versioned_resource_resolution_strategy=(
-                    VersionedResourceResolutionStrategy.LATEST
-                )
-            )
-        )
+        """Fresh resolution follows a referenced subagent's current version."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={

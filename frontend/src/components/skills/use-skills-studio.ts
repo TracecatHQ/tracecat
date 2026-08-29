@@ -774,7 +774,10 @@ export function useSkillsStudio(params: {
       return
     }
     try {
-      await deleteSkill({ skillId: deleteSkillTarget.id })
+      await deleteSkill({
+        skillId: deleteSkillTarget.id,
+        confirmUnlink: true,
+      })
       setShowDeleteSkillDialog(false)
       setDeleteSkillTarget(null)
       router.push(`/workspaces/${workspaceId}/skills`)

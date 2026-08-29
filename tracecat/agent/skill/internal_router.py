@@ -297,12 +297,19 @@ async def restore_skill_version(
 @router.delete("/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("agent:delete")
 async def archive_skill(
-    *, skill_id: str, role: ExecutorWorkspaceRole, session: AsyncDBSession
+    *,
+    skill_id: str,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    confirm_unlink: bool = Query(default=False),
 ) -> None:
     service = SkillService(session, role=role)
     resolved_skill_id = await _resolve_skill_id(service, skill_id)
     try:
-        await service.archive_skill(resolved_skill_id)
+        await service.archive_skill(
+            resolved_skill_id,
+            confirm_unlink=confirm_unlink,
+        )
     except TracecatValidationError as exc:
         _raise_skill_validation_error(exc)
     except TracecatNotFoundError as exc:

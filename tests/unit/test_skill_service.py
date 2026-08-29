@@ -3465,11 +3465,11 @@ class TestSkillService:
         finally:
             await concurrent_engine.dispose()
 
-    async def test_restore_version_updates_current_version_without_replacing_draft(
+    async def test_restore_version_publishes_copy_without_replacing_draft(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Restoring a version should move the head pointer without rewriting draft files."""
+        """Restoring publishes a copy while leaving the working draft untouched."""
 
         created = await skill_service.create_skill(SkillCreate(name="snapshot-skill"))
         draft = await skill_service.get_draft(created.id)
@@ -3540,7 +3540,7 @@ class TestSkillService:
         )
 
         assert isinstance(restored, SkillReadMinimal)
-        assert restored.current_version_id == version_one.id
+        assert restored.current_version_id not in {version_one.id, version_two.id}
         assert restored.name == version_one.name
         assert restored.description == version_one.description
         assert restored_draft is not None
@@ -3912,9 +3912,40 @@ class TestSkillService:
 
         assert preset.current_version_id is not None
         with pytest.raises(
-            TracecatValidationError, match="still referenced by a preset"
+            TracecatValidationError, match="still referenced by agent presets"
         ):
             await skill_service.archive_skill(created.id)
+
+    async def test_archive_with_confirmation_unlinks_and_publishes_parent(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        skill_service: SkillService,
+    ) -> None:
+        """Confirmed skill deletion publishes parent membership removal."""
+
+        created = await skill_service.create_skill(SkillCreate(name="unlink-skill"))
+        await skill_service.publish_skill(created.id)
+        preset_service = AgentPresetService(session=session, role=svc_role)
+        preset = await preset_service.create_preset(
+            AgentPresetCreate(
+                name="Unlink preset",
+                description="Preset with a removable skill",
+                instructions="Use the skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=created.id)],
+            )
+        )
+        original_version_id = preset.current_version_id
+
+        await skill_service.archive_skill(created.id, confirm_unlink=True)
+
+        refreshed = await preset_service.get_preset(preset.id)
+        assert refreshed is not None
+        assert refreshed.current_version_id != original_version_id
+        assert await preset_service._list_head_skill_bindings(preset.id) == []
+        assert await skill_service.get_skill(created.id) is None
 
     async def test_archive_allows_when_only_preset_history_references_skill(
         self,

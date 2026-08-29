@@ -19,7 +19,7 @@ import yaml
 from asyncpg import UniqueViolationError as AsyncpgUniqueViolationError
 from psycopg.errors import UniqueViolation as PsycopgUniqueViolation
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -57,8 +57,6 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
-    AgentPreset,
-    AgentPresetSkill,
     AgentPresetVersionSkill,
     Skill,
     SkillBlob,
@@ -3131,44 +3129,53 @@ class SkillService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
         if version.name is None:
             self._raise_missing_version_name(skill_version_id=version.id)
-        skill.current_version_id = version.id
-        skill.name = version.name
-        skill.description = version.description
-        self.session.add(skill)
-        await self.session.commit()
-        await self.session.refresh(skill)
-        return self._build_skill_read_minimal(skill)
+        rows = await self._list_version_rows(version.id)
+        restored = await self._create_version_from_blob_refs(
+            skill=skill,
+            file_refs=[
+                (
+                    version_file.path,
+                    SkillFileBlobRef(
+                        blob=blob_row,
+                        content_type=version_file.content_type,
+                    ),
+                )
+                for version_file, blob_row in rows
+            ],
+            validation=ManifestValidationResult(
+                name=version.name,
+                description=version.description,
+            ),
+        )
+        refreshed = await self.get_skill(skill.id)
+        if refreshed is None:
+            raise TracecatNotFoundError(f"Skill '{skill.id}' not found")
+        if restored.id != refreshed.current_version_id:
+            raise RuntimeError("Restored skill version was not selected as current")
+        return self._build_skill_read_minimal(refreshed)
 
     @require_scope("agent:delete")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def archive_skill(self, skill_id: uuid.UUID) -> None:
-        """Archive a skill unless any preset head still references it."""
+    async def archive_skill(
+        self,
+        skill_id: uuid.UUID,
+        *,
+        confirm_unlink: bool = False,
+    ) -> None:
+        """Archive a skill, publishing removals from active presets first."""
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
-        binding_stmt = (
-            select(func.count())
-            .select_from(AgentPresetSkill)
-            .join(
-                AgentPreset,
-                AgentPreset.id == AgentPresetSkill.preset_id,
-            )
-            .where(
-                AgentPresetSkill.workspace_id == self.workspace_id,
-                AgentPresetSkill.skill_id == skill.id,
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.deleted_at.is_(None),
-            )
+        # Local import avoids a module cycle: preset publication already owns
+        # the atomic dual-write of mutable head bindings and immutable versions.
+        from tracecat.agent.preset.service import AgentPresetService
+
+        preset_service = AgentPresetService(self.session, role=self.role)
+        await preset_service.unlink_skill_from_active_presets(
+            skill.id,
+            confirm_unlink=confirm_unlink,
         )
-        binding_count = int(
-            (await self.session.execute(binding_stmt)).scalar_one() or 0
-        )
-        if binding_count > 0:
-            raise TracecatValidationError(
-                "Cannot delete a skill that is still referenced by a preset",
-                detail={"code": "skill_in_use"},
-            )
         archived_at = datetime.now(UTC)
         skill.archived_at = archived_at
         skill.deleted_at = archived_at
