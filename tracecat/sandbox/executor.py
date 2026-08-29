@@ -141,9 +141,12 @@ def _parse_result_error_code(value: object) -> SandboxErrorCode | None:
     if not isinstance(value, str):
         return SandboxErrorCode.WORKLOAD_FAILURE
     try:
-        return SandboxErrorCode(value)
+        error_code = SandboxErrorCode(value)
     except ValueError:
         return SandboxErrorCode.WORKLOAD_FAILURE
+    if error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+        return SandboxErrorCode.WORKLOAD_FAILURE
+    return error_code
 
 
 def _classify_missing_nsjail_result(

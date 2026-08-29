@@ -192,17 +192,22 @@ async def test_invocation_marker_attributes_exit_255_for_every_phase(
     assert result.error_code is expected_code
 
 
+@pytest.mark.parametrize(
+    "untrusted_code",
+    ["synthetic.unknown", SandboxErrorCode.INFRASTRUCTURE_FAILURE],
+)
 @pytest.mark.parametrize("phase", ["execute", "action"])
 @pytest.mark.anyio
-async def test_unknown_result_error_code_is_a_workload_failure(
+async def test_untrusted_result_error_code_cannot_claim_platform_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     phase: str,
+    untrusted_code: str,
 ) -> None:
     job_dir = tmp_path / "job"
     job_dir.mkdir()
     (job_dir / "result.json").write_text(
-        '{"success": false, "error_code": "synthetic.unknown"}'
+        f'{{"success": false, "error_code": "{untrusted_code}"}}'
     )
 
     async def fake_invoke_nsjail(**kwargs: object) -> NsjailCompletedProcess:
