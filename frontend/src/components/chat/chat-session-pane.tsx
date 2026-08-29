@@ -1011,23 +1011,33 @@ export function ChatSessionPane({
     // Awaited first so the write lands before the turn is sent, and before the
     // tool and MCP persistence chains below.
     const agentMention = findAgentMention(mentions.ranges)
-    if (
-      agentMention &&
-      presetSelector &&
-      agentMention.targetId !== presetSelector.selectedPresetId
-    ) {
-      // The mention names the agent that should answer, so a failed write must
-      // not fall through and run the turn under the previous one. The draft is
-      // left intact -- `handlePresetChange` has already toasted the error --
-      // so the user can retry.
-      const applied = await presetSelector.onSelect(agentMention.targetId)
-      if (!applied) {
-        // Reject rather than return: `submitPrompt` treats a resolved submit as
-        // sent and runs its cleanup, which drops any attached files even though
-        // nothing left the composer. It swallows a rejection instead.
-        throw new SubmitAbandonedError(
-          "Failed to persist the mentioned agent preset"
-        )
+    if (agentMention) {
+      // The mention names the agent that should answer, so nothing below may
+      // fall through and run the turn under the previous one.
+      if (!presetSelector) {
+        // `ChatInterface` drops the selector as soon as agent add-ons stop
+        // resolving -- revoked, or a refetch that failed -- while the bound
+        // range survives in the composer. Nothing here can apply the mention,
+        // and nothing else would tell the user, so say so before abandoning.
+        toast({
+          title: "Could not route to the mentioned agent",
+          description:
+            "Agent presets are unavailable right now. Reload and try again.",
+        })
+        throw new SubmitAbandonedError("Preset selector is unavailable")
+      }
+      if (agentMention.targetId !== presetSelector.selectedPresetId) {
+        // The draft is left intact -- `handlePresetChange` has already toasted
+        // the error -- so the user can retry.
+        const applied = await presetSelector.onSelect(agentMention.targetId)
+        if (!applied) {
+          // Reject rather than return: `submitPrompt` treats a resolved submit
+          // as sent and runs its cleanup, which drops any attached files even
+          // though nothing left the composer. It swallows a rejection instead.
+          throw new SubmitAbandonedError(
+            "Failed to persist the mentioned agent preset"
+          )
+        }
       }
     }
 

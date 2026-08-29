@@ -1731,21 +1731,31 @@ describe("ChatSessionPane", () => {
     function renderPane(
       props: Partial<Parameters<typeof ChatSessionPane>[0]> = {}
     ) {
-      return render(
+      // One chat object across rerenders, so a prop change is the only thing
+      // that differs between them.
+      const chat = createChatFixture()
+      const tree = (next: Partial<Parameters<typeof ChatSessionPane>[0]>) => (
         <QueryClientProvider client={queryClient}>
           <TooltipProvider>
             <ChatSessionPane
-              chat={createChatFixture()}
+              chat={chat}
               workspaceId="workspace-1"
               entityType="case"
               entityId="case-1"
               modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
               toolsEnabled
-              {...props}
+              {...next}
             />
           </TooltipProvider>
         </QueryClientProvider>
       )
+      const result = render(tree(props))
+      return {
+        ...result,
+        /** Re-render the pane with a different prop set, keeping the tree. */
+        rerenderPane: (next: Partial<Parameters<typeof ChatSessionPane>[0]>) =>
+          result.rerender(tree(next)),
+      }
     }
 
     let sendMessage: jest.Mock
@@ -1898,6 +1908,44 @@ describe("ChatSessionPane", () => {
         expect.objectContaining({ text: "@Triage agent " })
       )
       expect(textarea).toHaveValue("next question")
+    })
+
+    it("abandons the turn when the selector goes before a bound mention", async () => {
+      // Losing agent add-ons mid-draft removes `presetSelector` while the bound
+      // range survives. Sending would run the turn under the previous agent,
+      // which is not the one the user named.
+      const onSelect = jest.fn().mockResolvedValue(true)
+      const { rerenderPane } = renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect,
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@tri", selectionStart: 4 },
+      })
+      await screen.findByText("Triage agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(textarea).toHaveValue("@Triage agent "))
+
+      // The entitlement stops resolving, so the selector disappears.
+      rerenderPane({
+        agentMentionsSupported: true,
+        presetSelector: undefined,
+      })
+
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0))
+      })
+
+      expect(sendMessage).not.toHaveBeenCalled()
+      expect(onSelect).not.toHaveBeenCalled()
+      expect(textarea).toHaveValue("@Triage agent ")
     })
 
     it("replaces the first agent when a second one is picked", async () => {

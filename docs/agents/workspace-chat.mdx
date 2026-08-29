@@ -17,7 +17,7 @@ Go to `Organization > Settings > Agent`, connect a [provider](/agents/custom-llm
 
 Select `Tools` to open the picker. Tracecat defaults are always included.
 
-- In `Active capabilities`, `Cases`, `Tables`, and `Workflows` are always on.
+- In `Active capabilities`, `Cases`, `Tables`, and `Workflows` are on by default. Tracecat drops any tool your workspace role could not run itself, so a restricted role sees fewer.
 - In `Add tools`, toggle individual tool groups on or off.
 
 The agent add-ons entitlement adds two more. `Agent presets` joins `Active capabilities`, and an `MCP integrations` section appears where `Connect an MCP server` adds a server; see [MCP servers](/automations/integrations/mcp-integrations) to connect a remote or local one. The screenshot below shows a workspace that has them.
