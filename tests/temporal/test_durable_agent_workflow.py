@@ -1397,7 +1397,7 @@ async def test_approval_wait_cancellation_defers_end_until_marker_and_finalize(
 
 @pytest.mark.anyio
 @pytest.mark.integration
-async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
+async def test_agent_workflow_resolves_current_subagent_binding_each_turn(
     svc_role: Role,
     temporal_client: Client,
     agent_worker_factory,
@@ -1419,8 +1419,8 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
         preset_id=child_preset_id,
         preset_version_id=latest_version_id,
     )
-    stored_binding = ResolvedAgentsConfig(enabled=True, subagents=[stored_ref])
-    latest_agents_config = AgentSubagentsConfig(enabled=True, subagents=[latest_ref])
+    stored_binding = ResolvedAgentsConfig(subagents=[stored_ref])
+    latest_agents_config = AgentSubagentsConfig(subagents=[latest_ref])
     resolve_inputs: list[ResolveAgentsConfigActivityInput] = []
     create_inputs: list[CreateSessionInput] = []
     agent_inputs: list[AgentExecutorInput] = []
@@ -1442,18 +1442,17 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
         input: ResolveAgentsConfigActivityInput,
     ) -> ResolvedAgentsRuntimeConfig:
         resolve_inputs.append(input)
-        assert input.follow_latest_versions is False
+        assert input.follow_latest_versions is None
         assert len(input.agents.subagents) == 1
         resolved_ref = input.agents.subagents[0]
         assert isinstance(resolved_ref, ResolvedAttachedSubagentRef)
-        assert resolved_ref.preset_version_id == stored_version_id
+        assert resolved_ref.preset_version_id == latest_version_id
 
         return ResolvedAgentsRuntimeConfig(
-            enabled=True,
             subagents=[
                 ResolvedSubagentConfig(
-                    binding=stored_ref,
-                    description="Stored analyst",
+                    binding=latest_ref,
+                    description="Current analyst",
                     prompt="Complete the delegated analysis.",
                     config=agent_config_to_payload(
                         AgentConfig(
@@ -1471,7 +1470,7 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
         input: CreateSessionInput,
     ) -> CreateSessionResult:
         create_inputs.append(input)
-        assert input.agents_binding == stored_binding
+        assert input.agents_binding == ResolvedAgentsConfig(subagents=[latest_ref])
         return CreateSessionResult(session_id=input.session_id, success=True)
 
     @activity.defn(name="run_agent_activity")
@@ -1526,9 +1525,11 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
     assert result.session_id == mock_session_id
     assert result.output == {"status": "ok"}
     assert len(resolve_inputs) == 1
-    assert resolve_inputs[0].agents.subagents == [stored_ref]
+    assert resolve_inputs[0].agents.subagents == [latest_ref]
     assert len(create_inputs) == 1
-    assert create_inputs[0].agents_binding == stored_binding
+    assert create_inputs[0].agents_binding == ResolvedAgentsConfig(
+        subagents=[latest_ref]
+    )
     assert len(agent_inputs) == 1
     assert agent_inputs[0].sdk_session_id == "sdk-session"
     assert [subagent.alias for subagent in agent_inputs[0].subagents] == ["analyst"]

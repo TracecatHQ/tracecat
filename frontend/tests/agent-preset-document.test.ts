@@ -76,34 +76,17 @@ const SHARED_EXECUTION = {
 const DRAFT_SUBAGENTS: AnyAttachedSubagentRef[] = [
   {
     preset: "triage",
-    preset_version: 2,
+    preset_id: "55555555-5555-5555-5555-555555555555",
     name: "Triage",
     description: "Triages alerts",
     max_turns: 4,
   },
   {
     preset: "writer",
-    preset_version: null,
+    preset_id: "33333333-3333-3333-3333-333333333333",
     name: "Alpha writer",
     description: null,
     max_turns: null,
-  },
-]
-
-/**
- * The same subagents as stored on a saved version: resolved UUIDs attached, and
- * in a different order.
- */
-const VERSION_SUBAGENTS: AnyAttachedSubagentRef[] = [
-  {
-    ...DRAFT_SUBAGENTS[1],
-    preset_id: "33333333-3333-3333-3333-333333333333",
-    preset_version_id: "44444444-4444-4444-4444-444444444444",
-  },
-  {
-    ...DRAFT_SUBAGENTS[0],
-    preset_id: "55555555-5555-5555-5555-555555555555",
-    preset_version_id: "66666666-6666-6666-6666-666666666666",
   },
 ]
 
@@ -112,8 +95,6 @@ function buildVersion(
 ): AgentPresetVersionRead {
   return {
     ...SHARED_EXECUTION,
-    agents: { enabled: true, subagents: VERSION_SUBAGENTS },
-    skills: VERSION_SKILLS,
     id: "version-1",
     preset_id: "preset-1",
     workspace_id: "workspace-1",
@@ -129,7 +110,7 @@ function buildPayload(
 ): AgentPresetCreate {
   return {
     ...SHARED_EXECUTION,
-    agents: { enabled: true, subagents: DRAFT_SUBAGENTS },
+    agents: { subagents: DRAFT_SUBAGENTS },
     skills: [{ skill_id: SKILL_ALPHA_ID }, { skill_id: SKILL_BETA_ID }],
     name: "Alert triage agent",
     slug: "alert-triage-agent",
@@ -140,10 +121,17 @@ function buildPayload(
 
 function renderVersion(
   version: AgentPresetVersionRead,
-  skillNames: ReadonlyMap<string, string> = SKILL_NAMES
+  skillNames: ReadonlyMap<string, string> = SKILL_NAMES,
+  topology: Pick<AgentPresetCreate, "agents" | "skills"> = buildPayload(),
+  headBindings: ReadonlyMap<string, AgentPresetSkillBindingRead> = HEAD_BINDINGS
 ) {
   return buildAgentPresetVirtualFiles(
-    agentPresetVersionToDocumentInput(version, skillNames)
+    agentPresetVersionToDocumentInput(
+      version,
+      topology,
+      skillNames,
+      headBindings
+    )
   )
 }
 
@@ -226,7 +214,6 @@ describe("buildAgentPresetVirtualFiles determinism", () => {
     const shuffled = renderPayload(
       buildPayload({
         agents: {
-          enabled: true,
           subagents: [...DRAFT_SUBAGENTS].reverse(),
         },
       })
@@ -316,18 +303,18 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
     )
   })
 
-  it("excludes resolved subagent uuids", () => {
+  it("excludes resolved subagent uuids and version selectors", () => {
     const { config } = renderVersion(buildVersion())
     expect(config).not.toContain("preset_id")
     expect(config).not.toContain("preset_version_id")
-    expect(config).toContain("preset_version: 2")
+    expect(config).not.toContain("preset_version")
   })
 
-  it("forces an empty agent list when subagents are disabled", () => {
+  it("renders an empty list when no preset subagents are attached", () => {
     const { config } = renderPayload(
-      buildPayload({ agents: { enabled: false, subagents: DRAFT_SUBAGENTS } })
+      buildPayload({ agents: { subagents: [] } })
     )
-    expect(config).toContain("subagents:\n  enabled: false\n  agents: []\n")
+    expect(config).toContain("subagents: []\n")
   })
 
   it("emits explicit nulls and empty lists for a minimal preset", () => {
@@ -350,9 +337,7 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
         "namespaces: []",
         "mcp_integrations: []",
         "tool_approvals: []",
-        "subagents:",
-        "  enabled: false",
-        "  agents: []",
+        "subagents: []",
         "skills: []",
         "runtime:",
         "  retries: 3",
@@ -364,25 +349,23 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
   })
 })
 
-describe("buildAgentPresetVirtualFiles skill version pins", () => {
-  /**
-   * Regression: skills used to render as bare names, so a version pinning
-   * `alpha-skill@5` against a head pinned at `alpha-skill@2` produced
-   * byte-identical configs — and the restore dialog claimed nothing would
-   * change while `restore_version` silently rolled the skill back to v5.
-   */
-  it("diffs the same skill pinned at different versions", () => {
+describe("buildAgentPresetVirtualFiles head-owned skill topology", () => {
+  it("uses current head bindings on both sides of a version comparison", () => {
     const fromVersion = renderVersion(
-      buildVersion({
-        skills: [
+      buildVersion(),
+      SKILL_NAMES,
+      buildPayload({ skills: [{ skill_id: SKILL_ALPHA_ID }] }),
+      new Map([
+        [
+          SKILL_ALPHA_ID,
           {
             skill_id: SKILL_ALPHA_ID,
-            skill_version_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            skill_version_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
             skill_name: "alpha-skill",
-            skill_version: 5,
+            skill_version: 2,
           },
         ],
-      })
+      ])
     )
     const fromPayload = renderPayload(
       buildPayload({ skills: [{ skill_id: SKILL_ALPHA_ID }] }),
@@ -400,10 +383,7 @@ describe("buildAgentPresetVirtualFiles skill version pins", () => {
       ])
     )
 
-    expect(fromVersion.config).not.toBe(fromPayload.config)
-    expect(fromVersion.config).toContain(
-      "skills:\n  - name: alpha-skill\n    version: 5\n"
-    )
+    expect(fromVersion.config).toBe(fromPayload.config)
     expect(fromPayload.config).toContain(
       "skills:\n  - name: alpha-skill\n    version: 2\n"
     )

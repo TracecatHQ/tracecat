@@ -4029,7 +4029,7 @@ class TestSkillService:
         svc_role: Role,
         skill_service: SkillService,
     ) -> None:
-        """Legacy archived-only skills remain unbindable and resolve as archived."""
+        """Legacy archived-only skills remain unbindable and are omitted."""
 
         created = await skill_service.create_skill(
             SkillCreate(name="legacy-resolution")
@@ -4050,8 +4050,6 @@ class TestSkillService:
                 ],
             )
         )
-        assert preset.current_version_id is not None
-
         await _legacy_archive_skill(session, created.id)
 
         with pytest.raises(TracecatValidationError) as bind_exc_info:
@@ -4066,16 +4064,10 @@ class TestSkillService:
         assert bind_detail is not None
         assert bind_detail["code"] == "skill_not_found"
 
-        for use_latest_versions in (False, True):
-            with pytest.raises(TracecatValidationError) as resolve_exc_info:
-                await skill_service.get_resolved_skill_refs_for_preset_version(
-                    preset.current_version_id,
-                    use_latest_versions=use_latest_versions,
-                )
-            resolve_detail = resolve_exc_info.value.detail
-            assert resolve_detail is not None
-            assert resolve_detail["code"] == "skill_archived"
-            assert str(created.id) in str(resolve_detail["skills"])
+        resolved = await skill_service.get_resolved_skill_refs_for_preset_head(
+            preset.id
+        )
+        assert resolved == []
 
     async def test_legacy_archived_skill_api_projection_reports_deleted_at(
         self,

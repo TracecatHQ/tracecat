@@ -47,17 +47,15 @@ export interface AgentPresetToolApproval {
 /**
  * A subagent attachment as rendered in the document.
  *
- * `preset_id` / `preset_version_id` are intentionally excluded: they are opaque
- * UUIDs that the draft may not have resolved yet, so including them would show a
- * change on every unsaved edit.
+ * `preset_id` is intentionally excluded: it is an opaque UUID that the draft
+ * may not have resolved yet, so including it would show a change on every
+ * unsaved edit.
  */
 export interface AgentPresetSubagentEntry {
   /** Display name override, or null to use the preset's own name. */
   name: string | null
   /** Preset slug the subagent is backed by. */
   preset: string
-  /** Pinned preset version, or null to track the latest. */
-  presetVersion: number | null
   /** Maximum turns allowed for this subagent, or null for the default. */
   maxTurns: number | null
   /** Description override, or null. */
@@ -67,10 +65,9 @@ export interface AgentPresetSubagentEntry {
 /**
  * A skill attachment as rendered in the document.
  *
- * The version matters: restoring a version copies its exact historical skill
- * pins back onto the preset head (`_restore_head_skill_bindings_from_version`
- * on the backend), so two sides pinning the same skill at different versions
- * must render differently or the diff hides a real change.
+ * The version is informational. Both sides of a version-history comparison use
+ * the current head topology because restoring an immutable config version does
+ * not restore or otherwise change topology.
  */
 export interface AgentPresetSkillEntry {
   /** Skill name, resolved through the current workspace skill names. */
@@ -107,9 +104,7 @@ export interface AgentPresetDocumentInput {
   mcpIntegrations: string[]
   /** Tool approvals, sorted by tool name. */
   toolApprovals: AgentPresetToolApproval[]
-  /** Whether subagents are enabled. */
-  subagentsEnabled: boolean
-  /** Attached subagents, sorted by name then preset. Empty when disabled. */
+  /** Attached subagents, sorted by name then preset. */
   subagents: AgentPresetSubagentEntry[]
   /** Attached skills with their version pins, sorted by name then version. */
   skills: AgentPresetSkillEntry[]
@@ -206,7 +201,6 @@ function normalizeSubagents(
     .map((subagent) => ({
       name: subagent.name ?? null,
       preset: subagent.preset,
-      presetVersion: subagent.preset_version ?? null,
       maxTurns: subagent.max_turns ?? null,
       description: subagent.description ?? null,
     }))
@@ -267,12 +261,7 @@ function agentPresetExecutionFieldsToDocumentInput(
   skillBindings: readonly RawSkillBinding[],
   skillNamesById: ReadonlyMap<string, string>
 ): AgentPresetDocumentInput {
-  const subagentsEnabled = fields.agents?.enabled ?? false
-  // Mirrors `formValuesToAgentsPayload` in the builder: a disabled toggle drops
-  // the attachments entirely, so a stale list must not show up in the diff.
-  const subagents = subagentsEnabled
-    ? normalizeSubagents(fields.agents?.subagents)
-    : []
+  const subagents = normalizeSubagents(fields.agents?.subagents)
 
   return {
     instructions: fields.instructions ?? "",
@@ -285,7 +274,6 @@ function agentPresetExecutionFieldsToDocumentInput(
     namespaces: sortStrings(fields.namespaces ?? []),
     mcpIntegrations: sortStrings(fields.mcp_integrations ?? []),
     toolApprovals: normalizeToolApprovals(fields.tool_approvals),
-    subagentsEnabled,
     subagents,
     skills: normalizeSkills(skillBindings, skillNamesById),
     // `form.getValues()` returns raw input and `retries` is a `z.coerce.number()`
@@ -297,22 +285,26 @@ function agentPresetExecutionFieldsToDocumentInput(
 }
 
 /**
- * Normalizes a saved preset version into the shared document input.
- *
- * Skill pins come straight from the version's bindings: restoring copies those
- * exact `skill_version` pins back to the head, so they are part of the diff.
+ * Normalizes a saved preset version into the shared document input. Topology is
+ * supplied from the current draft/head, because versions are config-only and a
+ * restore leaves the current topology untouched.
  */
 export function agentPresetVersionToDocumentInput(
   version: AgentPresetVersionRead,
-  skillNamesById: ReadonlyMap<string, string>
+  topology: Pick<AgentPresetCreate, "agents" | "skills">,
+  skillNamesById: ReadonlyMap<string, string>,
+  headBindingsBySkillId: ReadonlyMap<string, AgentPresetSkillBindingRead>
 ): AgentPresetDocumentInput {
   return agentPresetExecutionFieldsToDocumentInput(
-    version,
-    (version.skills ?? []).map((skill) => ({
-      skillId: skill.skill_id,
-      fallbackName: skill.skill_name,
-      version: skill.skill_version,
-    })),
+    { ...version, agents: topology.agents },
+    (topology.skills ?? []).map((skill) => {
+      const headBinding = headBindingsBySkillId.get(skill.skill_id)
+      return {
+        skillId: skill.skill_id,
+        fallbackName: headBinding?.skill_name ?? null,
+        version: headBinding?.skill_version ?? null,
+      }
+    }),
     skillNamesById
   )
 }
@@ -403,16 +395,12 @@ export function buildAgentPresetVirtualFiles(input: AgentPresetDocumentInput): {
       tool: approval.tool,
       allow: approval.allow,
     })),
-    subagents: {
-      enabled: input.subagentsEnabled,
-      agents: input.subagents.map((subagent) => ({
-        name: subagent.name,
-        preset: subagent.preset,
-        preset_version: subagent.presetVersion,
-        max_turns: subagent.maxTurns,
-        description: subagent.description,
-      })),
-    },
+    subagents: input.subagents.map((subagent) => ({
+      name: subagent.name,
+      preset: subagent.preset,
+      max_turns: subagent.maxTurns,
+      description: subagent.description,
+    })),
     skills: input.skills.map((skill) => ({
       name: skill.name,
       version: skill.version,

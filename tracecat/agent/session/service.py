@@ -66,6 +66,7 @@ from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
+from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_INTERRUPT_CONTENT_EXACT,
@@ -645,7 +646,7 @@ class AgentSessionService(BaseWorkspaceService):
     async def _resolve_agents_binding_for_preset_version_id(
         self, preset_version_id: uuid.UUID | None
     ) -> dict[str, Any] | None:
-        """Resolve the normalized subagent binding for a pinned preset version."""
+        """Resolve the preset head's current topology for a session shadow."""
         if preset_version_id is None:
             return None
 
@@ -653,9 +654,14 @@ class AgentSessionService(BaseWorkspaceService):
         version = await preset_service.resolve_agent_preset_version(
             preset_version_id=preset_version_id
         )
-        return ResolvedAgentsConfig.model_validate(version.agents).model_dump(
-            mode="json"
+        head_agents = await preset_service.get_head_subagents_config(version.preset_id)
+        resolved = await resolve_agents_config(
+            preset_service,
+            agents=head_agents,
+            parent_preset_id=version.preset_id,
+            follow_latest_versions=True,
         )
+        return resolved.to_agents_binding().model_dump(mode="json")
 
     async def get_session(
         self,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -20,7 +20,9 @@ if TYPE_CHECKING:
 
 
 type AgentPresetCapability = Literal["approvals", "subagents", "internet_access"]
-type AgentPresetSubagentEligibilityReason = Literal["agents_enabled", "tool_approvals"]
+type AgentPresetSubagentEligibilityReason = Literal[
+    "nested_subagents", "tool_approvals"
+]
 
 
 class AgentPresetSubagentEligibility(BaseModel):
@@ -44,17 +46,6 @@ class AgentPresetSkillBindingRead(Schema):
     skill_version_id: uuid.UUID
     skill_name: str
     skill_version: int
-
-
-class AgentPresetSkillBindingChange(BaseModel):
-    """Diff entry for skill binding changes between preset versions."""
-
-    skill_id: uuid.UUID
-    skill_name: str
-    old_skill_version_id: uuid.UUID | None = None
-    old_skill_version: int | None = None
-    new_skill_version_id: uuid.UUID | None = None
-    new_skill_version: int | None = None
 
 
 PresetName = Annotated[
@@ -88,7 +79,6 @@ class AgentPresetExecutionConfig(Schema):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
-    agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     retries: int = Field(default=3, ge=0)
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
@@ -181,39 +171,49 @@ def build_agent_preset_read_minimal(
     preset: AgentPreset,
 ) -> AgentPresetReadMinimal:
     """Build a minimal preset response without exposing approval rule details."""
-    read = AgentPresetReadMinimal.model_validate(preset)
-    agents_config = cast(
-        AgentSubagentsConfig | Mapping[str, object] | None, preset.agents
-    )
-    tool_approvals = cast(Mapping[str, bool] | None, preset.tool_approvals)
-    return read.model_copy(
-        update={
-            "capabilities": _agent_preset_capabilities(
-                agents_config=agents_config,
-                tool_approvals=tool_approvals,
-                enable_internet_access=bool(preset.enable_internet_access),
-            ),
-            "current_version_subagent_eligibility": build_subagent_eligibility(
-                agents_config=agents_config,
-                tool_approvals=tool_approvals,
-            ),
-        }
+    version = preset.current_version
+    if version is None:
+        raise ValueError(f"Agent preset {preset.id} has no current version")
+    has_subagents = bool(preset.subagent_bindings)
+    tool_approvals = version.tool_approvals
+    enable_internet_access = version.enable_internet_access
+    return AgentPresetReadMinimal(
+        id=preset.id,
+        workspace_id=preset.workspace_id,
+        name=preset.name,
+        slug=preset.slug,
+        description=preset.description,
+        model_provider=version.model_provider,
+        model_name=version.model_name,
+        folder_id=preset.folder_id,
+        tags=[TagRead.model_validate(tag) for tag in preset.tags],
+        current_version_id=preset.current_version_id,
+        capabilities=_agent_preset_capabilities(
+            has_subagents=has_subagents,
+            tool_approvals=tool_approvals,
+            enable_internet_access=enable_internet_access,
+        ),
+        current_version_subagent_eligibility=build_subagent_eligibility(
+            has_subagents=has_subagents,
+            tool_approvals=tool_approvals,
+        ),
+        created_at=preset.created_at,
+        updated_at=preset.updated_at,
     )
 
 
 def _agent_preset_capabilities(
     *,
-    agents_config: AgentSubagentsConfig | Mapping[str, object] | None,
+    has_subagents: bool,
     tool_approvals: Mapping[str, bool] | None,
     enable_internet_access: bool,
 ) -> list[AgentPresetCapability]:
     """Return lightweight capability flags for preset list UIs."""
 
     capabilities: list[AgentPresetCapability] = []
-    agents = AgentSubagentsConfig.model_validate(agents_config or {})
     if has_manual_tool_approvals(tool_approvals):
         capabilities.append("approvals")
-    if agents.enabled:
+    if has_subagents:
         capabilities.append("subagents")
     if enable_internet_access:
         capabilities.append("internet_access")
@@ -222,15 +222,14 @@ def _agent_preset_capabilities(
 
 def build_subagent_eligibility(
     *,
-    agents_config: AgentSubagentsConfig | Mapping[str, object] | None,
+    has_subagents: bool,
     tool_approvals: Mapping[str, bool] | None,
 ) -> AgentPresetSubagentEligibility:
     """Return whether this preset version can be attached as a subagent."""
 
     reasons: list[AgentPresetSubagentEligibilityReason] = []
-    agents = AgentSubagentsConfig.model_validate(agents_config or {})
-    if agents.enabled:
-        reasons.append("agents_enabled")
+    if has_subagents:
+        reasons.append("nested_subagents")
     if has_manual_tool_approvals(tool_approvals):
         reasons.append("tool_approvals")
     return AgentPresetSubagentEligibility(
@@ -246,10 +245,9 @@ def _subagent_eligibility_message(
     if not reasons:
         return None
     reason_set = set(reasons)
-    if reason_set == {"agents_enabled"}:
+    if reason_set == {"nested_subagents"}:
         return (
-            "This version defines its own subagents. Disable the Agent tool on "
-            "that version before attaching it as a subagent."
+            "This preset defines its own preset subagents, which cannot be nested yet."
         )
     if reason_set == {"tool_approvals"}:
         return (
@@ -272,6 +270,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
     description: str | None = Field(default=None, max_length=1000)
     current_version_id: uuid.UUID | None = None
     folder_id: uuid.UUID | None = None
+    agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     skills: list[AgentPresetSkillBindingRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -316,9 +315,6 @@ class AgentPresetVersionReadMinimal(Schema):
     workspace_id: WorkspaceID
     version: int
     capabilities: list[AgentPresetCapability] = Field(default_factory=list)
-    subagent_eligibility: AgentPresetSubagentEligibility = Field(
-        default_factory=AgentPresetSubagentEligibility
-    )
     created_at: datetime
     updated_at: datetime
 
@@ -333,10 +329,6 @@ class AgentPresetVersionRead(AgentPresetExecutionConfig):
     workspace_id: WorkspaceID
     version: int
     capabilities: list[AgentPresetCapability] = Field(default_factory=list)
-    subagent_eligibility: AgentPresetSubagentEligibility = Field(
-        default_factory=AgentPresetSubagentEligibility
-    )
-    skills: list[AgentPresetSkillBindingRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -380,5 +372,4 @@ class AgentPresetVersionDiff(BaseModel):
     scalar_changes: list[ScalarFieldChange] = Field(default_factory=list)
     list_changes: list[StringListFieldChange] = Field(default_factory=list)
     tool_approval_changes: list[ToolApprovalFieldChange] = Field(default_factory=list)
-    skill_changes: list[AgentPresetSkillBindingChange] = Field(default_factory=list)
     total_changes: int = 0

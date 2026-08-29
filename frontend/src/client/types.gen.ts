@@ -690,7 +690,6 @@ export type AgentPresetRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
-  agents?: AgentSubagentsConfig_Output
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -701,6 +700,7 @@ export type AgentPresetRead = {
   description?: string | null
   current_version_id?: string | null
   folder_id?: string | null
+  agents?: AgentSubagentsConfig_Output
   skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
@@ -734,18 +734,6 @@ export type AgentPresetSkillBindingBase = {
 }
 
 /**
- * Diff entry for skill binding changes between preset versions.
- */
-export type AgentPresetSkillBindingChange = {
-  skill_id: string
-  skill_name: string
-  old_skill_version_id?: string | null
-  old_skill_version?: number | null
-  new_skill_version_id?: string | null
-  new_skill_version?: number | null
-}
-
-/**
  * Resolved preset skill binding with metadata.
  */
 export type AgentPresetSkillBindingRead = {
@@ -765,7 +753,7 @@ export type AgentPresetSubagentEligibility = {
 }
 
 export type AgentPresetSubagentEligibilityReason =
-  | "agents_enabled"
+  | "nested_subagents"
   | "tool_approvals"
 
 /**
@@ -815,7 +803,6 @@ export type AgentPresetVersionDiff = {
   scalar_changes?: Array<ScalarFieldChange>
   list_changes?: Array<StringListFieldChange>
   tool_approval_changes?: Array<ToolApprovalFieldChange>
-  skill_changes?: Array<AgentPresetSkillBindingChange>
   total_changes?: number
 }
 
@@ -835,7 +822,6 @@ export type AgentPresetVersionRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
-  agents?: AgentSubagentsConfig_Output
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -844,8 +830,6 @@ export type AgentPresetVersionRead = {
   workspace_id: string
   version: number
   capabilities?: Array<AgentPresetCapability>
-  subagent_eligibility?: AgentPresetSubagentEligibility
-  skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
 }
@@ -859,7 +843,6 @@ export type AgentPresetVersionReadMinimal = {
   workspace_id: string
   version: number
   capabilities?: Array<AgentPresetCapability>
-  subagent_eligibility?: AgentPresetSubagentEligibility
   created_at: string
   updated_at: string
 }
@@ -1122,18 +1105,16 @@ export type AgentSettingsUpdate = {
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * User-facing preset-backed subagent attachments.
  */
 export type AgentSubagentsConfig_Input = {
-  enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * User-facing preset-backed subagent attachments.
  */
 export type AgentSubagentsConfig_Output = {
-  enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
 
@@ -1158,7 +1139,7 @@ export type AlertArtifact = {
 }
 
 export type AnyAttachedSubagentRef =
-  | ResolvedAttachedSubagentRef
+  | HeadAttachedSubagentRef
   | AttachedSubagentRef
 
 /**
@@ -1358,7 +1339,6 @@ export type AssistantMessage = {
  */
 export type AttachedSubagentRef = {
   preset: string
-  preset_version?: number | null
   name?: string | null
   description?: string | null
   max_turns?: number | null
@@ -4703,6 +4683,17 @@ export type HTTPValidationError = {
  */
 export type HarnessType = "pydantic-ai" | "claude_code"
 
+/**
+ * Canonical head-owned subagent ref with stable child-head identity.
+ */
+export type HeadAttachedSubagentRef = {
+  preset: string
+  name?: string | null
+  description?: string | null
+  max_turns?: number | null
+  preset_id: string
+}
+
 export type HealthResponse = {
   status: string
 }
@@ -6796,10 +6787,9 @@ export type RepositorySyncResult = {
 }
 
 /**
- * Persisted agents toggle with immutable resolved child refs.
+ * Immutable resolved child refs for a compiled turn.
  */
 export type ResolvedAgentsConfig = {
-  enabled?: boolean
   subagents?: Array<ResolvedAttachedSubagentRef>
 }
 
@@ -6808,12 +6798,12 @@ export type ResolvedAgentsConfig = {
  */
 export type ResolvedAttachedSubagentRef = {
   preset: string
-  preset_version?: number | null
   name?: string | null
   description?: string | null
   max_turns?: number | null
   preset_id: string
   preset_version_id: string
+  preset_version?: number | null
 }
 
 export type ResourcePullCount = {

@@ -97,7 +97,6 @@ from tracecat.workspace_sync.schemas import (
     ResourceRef,
     SkillFileSpec,
     SkillResourceSpec,
-    SkillVersionResourceSpec,
     WorkflowResourceSpec,
     WorkspaceManifest,
     WorkspaceProjection,
@@ -321,10 +320,9 @@ def test_selected_acceptance_fixture_models_transitive_closure() -> None:
     assert f"{WORKFLOW_ROOT}/qa-child/definition.yml" in files
     assert f"{WORKFLOW_ROOT}/qa-orphan/definition.yml" not in files
     assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" in files
-    assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/1.yml" in files
     assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml" in files
-    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml" in files
     assert f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml" in files
+    assert f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md" in files
     assert f"{TABLE_ROOT}/qa_indicators/table.yml" in files
     assert f"{CASE_TAG_ROOT}/qa-alert.yml" in files
     assert f"{VARIABLE_ROOT}/default/qa_config.yml" in files
@@ -366,15 +364,11 @@ def test_workflow_references_detects_preset_agent_preset_arg() -> None:
 
 def test_skill_fixture_records_file_sha256s() -> None:
     files = _expanded_full_git_tree(include_schedules=False)
-    version_spec = yaml.safe_load(
-        files[f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/version.yml"]
-    )
+    version_spec = yaml.safe_load(files[f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"])
 
     recorded_hashes = {file["path"]: file["sha256"] for file in version_spec["files"]}
     for file_path, expected_hash in recorded_hashes.items():
-        content = files[
-            f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/files/{file_path}"
-        ]
+        content = files[f"{SKILL_ROOT}/qa-enrichment-skill/files/{file_path}"]
         assert hashlib.sha256(content.encode()).hexdigest() == expected_hash
 
 
@@ -624,18 +618,20 @@ async def test_missing_skill_binding_is_dependency_diagnostic(
 
 
 @pytest.mark.anyio
-async def test_missing_pinned_skill_version_is_dependency_diagnostic(
+async def test_version_pinned_skill_binding_is_rejected(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
     files = _expanded_selected_git_tree()
-    del files[f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/version.yml"]
+    preset_path = f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml"
+    preset = yaml.safe_load(files[preset_path])
+    preset["skills"] = [{"slug": "qa-enrichment-skill", "version": 1}]
+    files[preset_path] = _yaml(preset)
 
     _, diagnostics = await workspace_sync_service.parse_files(files)
 
     assert any(
-        diagnostic.error_type == "dependency"
-        and "qa-enrichment-skill" in diagnostic.message
-        and "@1" in diagnostic.message
+        diagnostic.error_type == "validation"
+        and "skills.0.version" in diagnostic.message
         for diagnostic in diagnostics
     )
 
@@ -685,7 +681,7 @@ async def test_cyclic_preset_subagent_references_are_dependency_diagnostics(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
     files = _expanded_selected_git_tree()
-    child_path = f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml"
+    child_path = f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml"
     child_preset = yaml.safe_load(files[child_path])
     child_preset["subagents"] = [{"slug": "qa-triage-parent"}]
     files[child_path] = _yaml(child_preset)
@@ -880,10 +876,8 @@ async def test_project_workspace_exports_supported_non_workflow_resources(
     table_spec = yaml.safe_load(files[f"{TABLE_ROOT}/qa_indicators/table.yml"])
     assert "rows_path" not in table_spec
     assert "rows" not in table_spec
-    skill_version = yaml.safe_load(
-        files[f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/version.yml"]
-    )
-    assert {file["path"] for file in skill_version["files"]} == {
+    skill = yaml.safe_load(files[f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"])
+    assert {file["path"] for file in skill["files"]} == {
         "SKILL.md",
         "enrich.py",
     }
@@ -892,13 +886,10 @@ async def test_project_workspace_exports_supported_non_workflow_resources(
     )
     assert parent_preset["folder_path"] == "/QA/Agents/"
     assert parent_preset["tags"] == ["qa-sync"]
-    assert "instructions" not in parent_preset
-    parent_version = yaml.safe_load(
-        files[f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/1.yml"]
-    )
-    assert parent_version["instructions"] == (
+    assert parent_preset["instructions"] == (
         "Use the enrichment skill and escalate high severity."
     )
+    assert not any("/versions/" in path for path in files)
 
 
 @pytest.mark.anyio
@@ -961,7 +952,7 @@ async def test_large_agent_preset_workspace_preview_matches_export(
 
     expected_paths = set(source_files)
     assert preview.resource_counts[SyncResourceType.AGENT_PRESET.value] == 37
-    assert len(expected_paths) == 75
+    assert len(expected_paths) == 38
     assert set(preview.files) == expected_paths
     assert set(export.files) == expected_paths
     assert export.commit.sha is not None
@@ -973,7 +964,7 @@ async def test_agent_preset_projection_excludes_soft_deleted_presets(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """Workspace export excludes soft-deleted presets and their versions."""
+    """Workspace export excludes soft-deleted preset heads."""
     service = WorkspaceSyncService(session=session, role=svc_role)
     snapshot, diagnostics = await service.parse_files(
         _expanded_full_git_tree(include_schedules=False),
@@ -998,21 +989,17 @@ async def test_agent_preset_projection_excludes_soft_deleted_presets(
     projection = await service.project_workspace()
 
     assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" not in projection.files
-    assert not any(
-        path.startswith(f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/")
-        for path in projection.files
-    )
 
 
 @pytest.mark.anyio
-async def test_skill_projection_excludes_soft_deleted_preset_version_pins(
+async def test_skill_projection_exports_only_desired_head_content(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """Skill version snapshots pinned only by soft-deleted presets are not exported."""
+    """Skill projection contains desired head content, not version history."""
     service = WorkspaceSyncService(session=session, role=svc_role)
     snapshot, diagnostics = await service.parse_files(
-        _versioned_agent_skill_git_tree(),
+        _expanded_full_git_tree(include_schedules=False),
         commit_sha="d" * 40,
     )
     assert diagnostics == []
@@ -1020,11 +1007,10 @@ async def test_skill_projection_excludes_soft_deleted_preset_version_pins(
         session=session,
         role=svc_role,
     ).import_non_workflow_resources(snapshot.spec)
-    # agent-x is the only preset pinning skill-a v1 (head is v2, agent-y pins v2).
     pinning_preset = await session.scalar(
         select(AgentPreset).where(
             AgentPreset.workspace_id == svc_role.workspace_id,
-            AgentPreset.slug == "agent-x",
+            AgentPreset.slug == "qa-triage-parent",
         )
     )
     assert pinning_preset is not None
@@ -1034,8 +1020,9 @@ async def test_skill_projection_excludes_soft_deleted_preset_version_pins(
 
     projection = await service.project_workspace()
 
-    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" not in projection.files
-    assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in projection.files
+    assert f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml" in projection.files
+    assert f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md" in projection.files
+    assert not any("/versions/" in path for path in projection.files)
 
 
 @pytest.mark.anyio
@@ -1610,15 +1597,10 @@ async def test_agent_preset_only_export_lazily_includes_dependency_closure(
     files = fake_vcs.repo_files(git_url, ref=export.commit.sha)
     assert not any(path.startswith(f"{WORKFLOW_ROOT}/") for path in files)
     assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" in files
-    assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/1.yml" in files
     assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml" in files
-    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml" in files
     assert f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml" in files
-    assert f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/version.yml" in files
-    assert f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/files/SKILL.md" in files
-    assert not any(
-        path.startswith(f"{SKILL_ROOT}/qa-enrichment-skill/files/") for path in files
-    )
+    assert f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md" in files
+    assert not any("/versions/" in path for path in files)
     assert f"{VARIABLE_ROOT}/default/qa_config.yml" in files
     assert f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml" in files
     assert f"{TABLE_ROOT}/qa_indicators/table.yml" not in files
@@ -1641,14 +1623,14 @@ async def test_agent_preset_only_export_lazily_includes_dependency_closure(
         pytest.param(WorkspaceSyncExportPreviewRequest(), id="full_export"),
     ],
 )
-async def test_export_merges_seen_subagent_versions(
+async def test_export_includes_current_subagent_head_only(
     preview_request: WorkspaceSyncExportPreviewRequest,
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
     snapshot, diagnostics = await service.parse_files(
-        _versioned_subagent_git_tree(),
+        _head_subagent_git_tree(),
         commit_sha="2" * 40,
     )
     assert diagnostics == []
@@ -1659,23 +1641,16 @@ async def test_export_merges_seen_subagent_versions(
 
     preview = await service.preview_export_workspace(preview_request)
 
-    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml" in preview.files
-    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/2.yml" in preview.files
+    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml" in preview.files
+    assert not any("/versions/" in path for path in preview.files)
 
 
 @pytest.mark.anyio
-async def test_round_trip_preserves_presets_pinning_different_skill_versions(
+async def test_round_trip_preserves_head_owned_skill_topology(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """Round-tripping presets that pin distinct skill versions keeps the pins.
-
-    The Git tree carries one skill (``skill-a``) with two published versions and
-    two presets that bind different versions of it: ``agent-x`` pins ``skill-a``
-    v1 while ``agent-y`` pins v2. Importing, exporting, then pulling into a fresh
-    workspace must reproduce both skill versions and both per-preset pins exactly
-    rather than collapsing them onto a single (e.g. latest) version.
-    """
+    """Round-tripping desired heads recreates current content and head edges."""
     repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-versioned-agent-qa.git"
     git_url = GitUrl(
         host="github.com",
@@ -1732,11 +1707,10 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
 
     assert export.commit.status is PushStatus.COMMITTED
     assert export.commit.sha is not None
-    # Both pinned skill version snapshots must travel with the export so the pin
-    # targets still exist when the commit is pulled elsewhere.
     exported_files = fake_vcs.repo_files(git_url, ref=export.commit.sha)
-    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" in exported_files
-    assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in exported_files
+    assert f"{SKILL_ROOT}/skill-a/skill.yml" in exported_files
+    assert f"{SKILL_ROOT}/skill-a/files/SKILL.md" in exported_files
+    assert not any("/versions/" in path for path in exported_files)
 
     # Pull the exported commit into the independent target workspace.
     pull = await target_service.pull(options=PullOptions(commit_sha=export.commit.sha))
@@ -1751,7 +1725,7 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
         )
     )
     assert skill is not None
-    # Both versions land in the target with their original names intact.
+    # Pulling desired head content mints one local version in the target.
     skill_versions = {
         version.version: version.name
         for version in (
@@ -1765,9 +1739,8 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
             )
         ).all()
     }
-    assert skill_versions == {1: "Skill A v1", 2: "Skill A v2"}
-    # Head bindings (``AgentPresetSkill``) wire each preset's live config to the
-    # skill version it pinned: agent-x -> v1, agent-y -> v2.
+    assert skill_versions == {1: "Skill A current"}
+    # Both mutable preset heads point to the imported skill's current version.
     binding_rows = await session.execute(
         select(AgentPreset.slug, SkillVersion.version)
         .select_from(AgentPreset)
@@ -1783,10 +1756,8 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
         .order_by(AgentPreset.slug.asc())
     )
     bindings = dict(binding_rows.tuples().all())
-    assert bindings == {"agent-x": 1, "agent-y": 2}
-    # The immutable version snapshot of each preset (``AgentPresetVersionSkill``
-    # under the preset's current version) must record the same pins, proving the
-    # versioned binding table round-trips too, not only the mutable head.
+    assert bindings == {"agent-x": 1, "agent-y": 1}
+    # Newly minted immutable versions retain rollback shadows for the same edge.
     version_binding_rows = await session.execute(
         select(AgentPreset.slug, SkillVersion.version)
         .select_from(AgentPreset)
@@ -1802,23 +1773,15 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
         .order_by(AgentPreset.slug.asc())
     )
     version_bindings = dict(version_binding_rows.tuples().all())
-    assert version_bindings == {"agent-x": 1, "agent-y": 2}
+    assert version_bindings == {"agent-x": 1, "agent-y": 1}
 
 
 @pytest.mark.anyio
-async def test_full_workspace_export_includes_workflow_pinned_version_closure(
+async def test_full_workspace_export_uses_desired_heads_for_workflow_dependencies(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """A full export follows pinned versions transitively from workflow to skill.
-
-    The seeded workflow calls ``ai.preset_agent`` pinned to ``agent-x`` v1, while
-    that preset's head is v2; v1 pins ``skill-a`` v1 and v2 pins ``skill-a`` v2.
-    A whole-workspace export must walk this closure and emit both preset version
-    snapshots and both skill version snapshots, so the workflow's pinned-but-
-    non-head dependency (and the skill version it transitively pins) is not
-    dropped in favor of only the current head.
-    """
+    """A full export follows workflow dependencies without exporting history."""
     repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-workflow-pin-qa.git"
     git_url = GitUrl(
         host="github.com",
@@ -1846,7 +1809,7 @@ async def test_full_workspace_export_includes_workflow_pinned_version_closure(
     )
     seed_commit = await seed_transport.write_files(
         url=git_url,
-        files=_workflow_pinned_agent_version_git_tree(),
+        files=_workflow_agent_head_git_tree(),
         message="Seed workflow pinned agent version",
         branch="seed/workflow-pinned-agent",
         create_pr=False,
@@ -1877,13 +1840,10 @@ async def test_full_workspace_export_includes_workflow_pinned_version_closure(
     assert export.commit.status is PushStatus.COMMITTED
     assert export.commit.sha is not None
     exported_files = fake_vcs.repo_files(git_url, ref=export.commit.sha)
-    # The workflow itself, plus both preset versions (v1 is pinned by the
-    # workflow, v2 is the head) and both skill versions they pin transitively.
     assert f"{WORKFLOW_ROOT}/workflow-pins-agent/definition.yml" in exported_files
-    assert f"{AGENT_PRESET_ROOT}/agent-x/versions/1.yml" in exported_files
-    assert f"{AGENT_PRESET_ROOT}/agent-x/versions/2.yml" in exported_files
-    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" in exported_files
-    assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in exported_files
+    assert f"{AGENT_PRESET_ROOT}/agent-x/preset.yml" in exported_files
+    assert f"{SKILL_ROOT}/skill-a/skill.yml" in exported_files
+    assert not any("/versions/" in path for path in exported_files)
 
 
 @pytest.mark.anyio
@@ -1957,10 +1917,10 @@ async def test_single_workflow_export_includes_dependency_closure(
     assert f"{WORKFLOW_ROOT}/qa-root/definition.yml" in exported_files
     assert f"{WORKFLOW_ROOT}/qa-child/definition.yml" in exported_files
     assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" in exported_files
-    assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/1.yml" in exported_files
     assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml" in exported_files
     assert f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml" in exported_files
-    assert f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/version.yml" in exported_files
+    assert f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md" in exported_files
+    assert not any("/versions/" in path for path in exported_files)
     assert f"{VARIABLE_ROOT}/default/qa_config.yml" in exported_files
     assert f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml" in exported_files
     assert f"{TABLE_ROOT}/qa_indicators/table.yml" in exported_files
@@ -3255,12 +3215,12 @@ async def test_pull_agent_preset_slug_rename_reuses_source_id_mapping(
 
 
 @pytest.mark.anyio
-async def test_pull_unpublished_agent_preset_clears_current_version(
+async def test_pull_older_agent_preset_content_rolls_forward_a_new_version(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    unpublished_files = {
+    older_files = {
         MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
         f"{AGENT_PRESET_ROOT}/qa-draft/preset.yml": _yaml(
             {
@@ -3269,7 +3229,7 @@ async def test_pull_unpublished_agent_preset_clears_current_version(
                 "id": "qa-draft",
                 "slug": "qa-draft",
                 "name": "QA draft",
-                "current_version": None,
+                "instructions": "Restore the older desired configuration.",
             }
         ),
     }
@@ -3287,7 +3247,7 @@ async def test_pull_unpublished_agent_preset_clears_current_version(
         VcsTreeSnapshot(
             commit_sha="e" * 40,
             tree_sha="tree-2",
-            files=unpublished_files,
+            files=older_files,
         ),
     ]
     service._workspace_git_url = AsyncMock(
@@ -3299,6 +3259,14 @@ async def test_pull_unpublished_agent_preset_clears_current_version(
         return_value=transport,
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="d" * 40))
+        preset = await session.scalar(
+            select(AgentPreset).where(
+                AgentPreset.workspace_id == svc_role.workspace_id,
+                AgentPreset.slug == "qa-draft",
+            )
+        )
+        assert preset is not None
+        first_version_id = preset.current_version_id
         second_result = await service.pull(options=PullOptions(commit_sha="e" * 40))
 
     assert first_result.success is True
@@ -3310,16 +3278,18 @@ async def test_pull_unpublished_agent_preset_clears_current_version(
         )
     )
     assert preset is not None
-    assert preset.current_version_id is None
+    assert preset.current_version_id is not None
+    assert preset.current_version_id != first_version_id
+    assert preset.instructions == "Restore the older desired configuration."
 
 
 @pytest.mark.anyio
-async def test_pull_unversioned_skill_clears_current_version(
+async def test_pull_older_skill_content_rolls_forward_a_new_version(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    unversioned_files = {
+    older_files = {
         MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
         f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml": _yaml(
             {
@@ -3329,7 +3299,7 @@ async def test_pull_unversioned_skill_clears_current_version(
                 "slug": "qa-enrichment-skill",
                 "name": "QA enrichment skill",
                 "description": "Deterministic enrichment helper",
-                "current_version": None,
+                "files": [],
             }
         ),
     }
@@ -3347,7 +3317,7 @@ async def test_pull_unversioned_skill_clears_current_version(
         VcsTreeSnapshot(
             commit_sha="e" * 40,
             tree_sha="tree-2",
-            files=unversioned_files,
+            files=older_files,
         ),
     ]
     service._workspace_git_url = AsyncMock(
@@ -3381,6 +3351,7 @@ async def test_pull_unversioned_skill_clears_current_version(
         )
         assert skill is not None
         assert skill.current_version_id is not None
+        first_version_id = skill.current_version_id
         assert await draft_paths_for(skill.id) == ["SKILL.md"]
         second_result = await service.pull(options=PullOptions(commit_sha="e" * 40))
 
@@ -3393,7 +3364,8 @@ async def test_pull_unversioned_skill_clears_current_version(
         )
     )
     assert skill is not None
-    assert skill.current_version_id is None
+    assert skill.current_version_id is not None
+    assert skill.current_version_id != first_version_id
     assert await draft_paths_for(skill.id) == []
 
 
@@ -3545,11 +3517,20 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
         )
     )
     assert version is not None
-    assert version.name == "QA enrichment restored"
+    assert version.name == "QA enrichment skill"
+    current_version = await session.scalar(
+        select(SkillVersion).where(
+            SkillVersion.workspace_id == svc_role.workspace_id,
+            SkillVersion.id == skills[0].current_version_id,
+        )
+    )
+    assert current_version is not None
+    assert current_version.version == 2
+    assert current_version.name == "QA enrichment restored"
 
 
 @pytest.mark.anyio
-async def test_import_skill_version_rejects_missing_declared_file_content(
+async def test_import_skill_rejects_missing_declared_file_content(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -3559,20 +3540,13 @@ async def test_import_skill_version_rejects_missing_declared_file_content(
                 id="qa-enrichment-skill",
                 slug="qa-enrichment-skill",
                 name="QA enrichment skill",
-                current_version=1,
-                versions={
-                    1: SkillVersionResourceSpec(
-                        version_number=1,
-                        name="QA enrichment skill",
-                        files=[
-                            SkillFileSpec(
-                                path="SKILL.md",
-                                sha256=hashlib.sha256(b"missing").hexdigest(),
-                            )
-                        ],
-                        file_contents={},
+                files=[
+                    SkillFileSpec(
+                        path="SKILL.md",
+                        sha256=hashlib.sha256(b"missing").hexdigest(),
                     )
-                },
+                ],
+                file_contents={},
             )
         }
     )
@@ -3585,7 +3559,7 @@ async def test_import_skill_version_rejects_missing_declared_file_content(
 
 
 @pytest.mark.anyio
-async def test_project_workspace_preserves_binary_skill_version_file(
+async def test_project_workspace_preserves_binary_skill_file(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -3598,22 +3572,15 @@ async def test_project_workspace_preserves_binary_skill_version_file(
                 id="binary-skill",
                 slug="binary-skill",
                 name="Binary skill",
-                current_version=1,
-                versions={
-                    1: SkillVersionResourceSpec(
-                        version_number=1,
-                        name="Binary skill",
-                        files=[
-                            SkillFileSpec(
-                                path="assets/logo.png",
-                                sha256=binary_sha256,
-                                encoding="base64",
-                            )
-                        ],
-                        file_contents={
-                            "assets/logo.png": f"{encoded_content[:4]}\n{encoded_content[4:]}\n"
-                        },
+                files=[
+                    SkillFileSpec(
+                        path="assets/logo.png",
+                        sha256=binary_sha256,
+                        encoding="base64",
                     )
+                ],
+                file_contents={
+                    "assets/logo.png": f"{encoded_content[:4]}\n{encoded_content[4:]}\n"
                 },
             )
         }
@@ -3629,10 +3596,10 @@ async def test_project_workspace_preserves_binary_skill_version_file(
         role=svc_role,
     ).project_workspace()
 
-    version_path = f"{SKILL_ROOT}/binary-skill/versions/1/version.yml"
-    file_path = f"{SKILL_ROOT}/binary-skill/versions/1/files/assets/logo.png"
-    version_spec = yaml.safe_load(projection.files[version_path])
-    assert version_spec["files"] == [
+    skill_path = f"{SKILL_ROOT}/binary-skill/skill.yml"
+    file_path = f"{SKILL_ROOT}/binary-skill/files/assets/logo.png"
+    projected_spec = yaml.safe_load(projection.files[skill_path])
+    assert projected_spec["files"] == [
         {
             "path": "assets/logo.png",
             "sha256": binary_sha256,
@@ -4364,15 +4331,6 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
                 "id": "a-parent",
                 "slug": "a-parent",
                 "name": "A parent",
-                "current_version": 1,
-            }
-        ),
-        f"{AGENT_PRESET_ROOT}/a-parent/versions/1.yml": _yaml(
-            {
-                "version": 1,
-                "type": "agent_preset_version",
-                "version_number": 1,
-                "name": "A parent",
                 "subagents": [{"slug": "z-child"}],
             }
         ),
@@ -4382,15 +4340,6 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
                 "type": "agent_preset",
                 "id": "z-child",
                 "slug": "z-child",
-                "name": "Z child",
-                "current_version": 1,
-            }
-        ),
-        f"{AGENT_PRESET_ROOT}/z-child/versions/1.yml": _yaml(
-            {
-                "version": 1,
-                "type": "agent_preset_version",
-                "version_number": 1,
                 "name": "Z child",
             }
         ),
@@ -4439,19 +4388,9 @@ async def test_agent_preset_sync_preserves_subagent_options(
                 "id": "a-parent",
                 "slug": "a-parent",
                 "name": "A parent",
-                "current_version": 1,
-            }
-        ),
-        f"{AGENT_PRESET_ROOT}/a-parent/versions/1.yml": _yaml(
-            {
-                "version": 1,
-                "type": "agent_preset_version",
-                "version_number": 1,
-                "name": "A parent",
                 "subagents": [
                     {
                         "slug": "z-child",
-                        "version": 1,
                         "name": "evidence-child",
                         "description": "Collect evidence",
                         "max_turns": 3,
@@ -4465,15 +4404,6 @@ async def test_agent_preset_sync_preserves_subagent_options(
                 "type": "agent_preset",
                 "id": "z-child",
                 "slug": "z-child",
-                "name": "Z child",
-                "current_version": 1,
-            }
-        ),
-        f"{AGENT_PRESET_ROOT}/z-child/versions/1.yml": _yaml(
-            {
-                "version": 1,
-                "type": "agent_preset_version",
-                "version_number": 1,
                 "name": "Z child",
             }
         ),
@@ -4512,14 +4442,9 @@ async def test_agent_preset_sync_preserves_subagent_options(
     parent_spec = yaml.safe_load(
         projection.files[f"{AGENT_PRESET_ROOT}/a-parent/preset.yml"]
     )
-    assert "subagents" not in parent_spec
-    parent_version = yaml.safe_load(
-        projection.files[f"{AGENT_PRESET_ROOT}/a-parent/versions/1.yml"]
-    )
-    assert parent_version["subagents"] == [
+    assert parent_spec["subagents"] == [
         {
             "slug": "z-child",
-            "version": 1,
             "name": "evidence-child",
             "description": "Collect evidence",
             "max_turns": 3,
@@ -4613,7 +4538,7 @@ async def test_agent_preset_sync_preserves_enabled_local_catalog_id(
         slug="qa-catalog-backed",
         name="QA catalog backed",
     )
-    preset_path = f"{AGENT_PRESET_ROOT}/qa-catalog-backed/versions/1.yml"
+    preset_path = f"{AGENT_PRESET_ROOT}/qa-catalog-backed/preset.yml"
     preset_spec = yaml.safe_load(files[preset_path])
     preset_spec["catalog_id"] = str(catalog.id)
     preset_spec["model_provider"] = catalog.model_provider
@@ -4648,7 +4573,7 @@ async def test_agent_preset_sync_preserves_enabled_local_catalog_id(
 
 
 @pytest.mark.anyio
-async def test_agent_preset_sync_correlates_all_catalog_backed_versions(
+async def test_agent_preset_sync_correlates_catalog_backed_desired_head(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -4668,8 +4593,8 @@ async def test_agent_preset_sync_correlates_all_catalog_backed_versions(
         name="QA cross-environment catalog",
         version_number=2,
     )
-    current_path = f"{AGENT_PRESET_ROOT}/qa-cross-environment-catalog/versions/2.yml"
-    current_spec = _patch_yaml_file(
+    current_path = f"{AGENT_PRESET_ROOT}/qa-cross-environment-catalog/preset.yml"
+    _patch_yaml_file(
         files,
         current_path,
         {
@@ -4679,13 +4604,6 @@ async def test_agent_preset_sync_correlates_all_catalog_backed_versions(
             "base_url": source_base_url,
         },
     )
-    historical_spec = dict(current_spec)
-    historical_spec["version_number"] = 1
-    historical_spec["instructions"] = "Historical instructions"
-    files[f"{AGENT_PRESET_ROOT}/qa-cross-environment-catalog/versions/1.yml"] = _yaml(
-        historical_spec
-    )
-
     snapshot, diagnostics = await service.parse_files(files, commit_sha="m" * 40)
     assert diagnostics == []
     result = await service._import_snapshot(snapshot, sync_schedules=False)
@@ -4708,7 +4626,7 @@ async def test_agent_preset_sync_correlates_all_catalog_backed_versions(
             )
         ).all()
     )
-    assert [version.version for version in versions] == [1, 2]
+    assert [version.version for version in versions] == [1]
     assert {version.catalog_id for version in versions} == {local_catalog.id}
     assert {version.base_url for version in versions} == {None}
 
@@ -4737,7 +4655,7 @@ async def test_agent_preset_correlation_clears_source_base_url_for_openai(
         slug="qa-openai-cross-env",
         name="QA OpenAI cross-environment catalog",
     )
-    preset_path = f"{AGENT_PRESET_ROOT}/qa-openai-cross-env/versions/1.yml"
+    preset_path = f"{AGENT_PRESET_ROOT}/qa-openai-cross-env/preset.yml"
     _patch_yaml_file(
         files,
         preset_path,
@@ -4798,7 +4716,7 @@ async def test_agent_preset_dry_run_correlates_catalog_id_without_spurious_diff(
         slug="qa-preview-correlated",
         name="QA preview correlated",
     )
-    preset_path = f"{AGENT_PRESET_ROOT}/qa-preview-correlated/versions/1.yml"
+    preset_path = f"{AGENT_PRESET_ROOT}/qa-preview-correlated/preset.yml"
     _patch_yaml_file(
         files,
         preset_path,
@@ -4889,7 +4807,7 @@ async def test_agent_preset_sync_requires_an_ambiguous_catalog_choice_per_pull(
         slug=source_id,
         name="QA catalog choice",
     )
-    version_one_path = f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml"
+    version_one_path = f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml"
     _patch_yaml_file(
         files,
         version_one_path,
@@ -5046,7 +4964,7 @@ async def test_workspace_sync_catalog_mapping_rewrites_preset_and_workflow_toget
             },
         ),
     )
-    preset_version_path = f"{AGENT_PRESET_ROOT}/{preset_source_id}/versions/1.yml"
+    preset_version_path = f"{AGENT_PRESET_ROOT}/{preset_source_id}/preset.yml"
     _patch_yaml_file(
         files,
         preset_version_path,
@@ -5072,9 +4990,7 @@ async def test_workspace_sync_catalog_mapping_rewrites_preset_and_workflow_toget
 
     assert prepared.diagnostics == []
     assert prepared.catalog_mapping_requirements == []
-    prepared_version = prepared.snapshot.spec.agent_presets[preset_source_id].versions[
-        1
-    ]
+    prepared_version = prepared.snapshot.spec.agent_presets[preset_source_id]
     assert prepared_version.catalog_id == chosen_catalog.id
     assert prepared_version.base_url is None
     prepared_action_args = (
@@ -5406,7 +5322,7 @@ async def test_mcp_integration_exact_match_auto_resolves_without_interaction(
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml",
         {
             "mcp_integrations": [str(source_mcp_id)],
             "mcp_integration_hints": {
@@ -5421,7 +5337,7 @@ async def test_mcp_integration_exact_match_auto_resolves_without_interaction(
     prepared = await service._prepare_snapshot_for_import(snapshot)
     assert prepared.diagnostics == []
     assert prepared.mcp_integration_mapping_requirements == []
-    prepared_version = prepared.snapshot.spec.agent_presets[source_id].versions[1]
+    prepared_version = prepared.snapshot.spec.agent_presets[source_id]
     assert prepared_version.mcp_integrations == [str(local.id)]
     assert prepared_version.mcp_integration_hints == {
         local.id: McpIntegrationHint(
@@ -5477,7 +5393,7 @@ async def test_mcp_integration_hint_mismatch_requires_a_mapping_choice(
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml",
         {
             # server_type http vs the local stdio row: not an exact match.
             **_mcp_fields(source_mcp_id, slug="linear_mcp", name="Linear"),
@@ -5539,7 +5455,7 @@ async def test_mcp_integration_selection_applies_only_to_current_pull(
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml",
         _mcp_fields(source_mcp_id, slug="unmatched_mcp"),
     )
     service = WorkspaceSyncService(session=session, role=svc_role)
@@ -5597,7 +5513,7 @@ async def test_mcp_integration_legacy_manifest_requires_a_choice_per_pull(
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml",
         {"mcp_integrations": [str(source_mcp_id)]},
     )
     service = WorkspaceSyncService(session=session, role=svc_role)
@@ -5641,7 +5557,7 @@ async def test_repeat_preview_after_applied_mcp_pull_shows_no_diffs(
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml",
         {
             "model_name": "gpt-5.5",
             "model_provider": "openai",
@@ -5702,12 +5618,12 @@ async def test_mcp_integration_conflicting_meta_requires_choice_not_first_wins(
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{first_source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{first_source_id}/preset.yml",
         _mcp_fields(source_mcp_id, slug="linear_mcp"),
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{second_source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{second_source_id}/preset.yml",
         _mcp_fields(source_mcp_id, slug="github_mcp"),
     )
     service = WorkspaceSyncService(session=session, role=svc_role)
@@ -5720,9 +5636,7 @@ async def test_mcp_integration_conflicting_meta_requires_choice_not_first_wins(
     assert requirements[0].reason == "conflicting_metadata"
     for preset_source_id in (first_source_id, second_source_id):
         assert _mcp_entry_ids(
-            prepared.snapshot.spec.agent_presets[preset_source_id]
-            .versions[1]
-            .mcp_integrations
+            prepared.snapshot.spec.agent_presets[preset_source_id].mcp_integrations
         ) == [str(source_mcp_id)]
 
     result = await service._import_snapshot(
@@ -5768,12 +5682,12 @@ async def test_mcp_integration_name_drift_preserves_exact_correlation(
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{first_source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{first_source_id}/preset.yml",
         _mcp_fields(source_mcp_id, slug="linear_mcp", name="Linear"),
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{second_source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{second_source_id}/preset.yml",
         _mcp_fields(source_mcp_id, slug="linear_mcp", name="Linear renamed"),
     )
 
@@ -5786,9 +5700,7 @@ async def test_mcp_integration_name_drift_preserves_exact_correlation(
     assert prepared.mcp_integration_mapping_requirements == []
     for preset_source_id in (first_source_id, second_source_id):
         assert _mcp_entry_ids(
-            prepared.snapshot.spec.agent_presets[preset_source_id]
-            .versions[1]
-            .mcp_integrations
+            prepared.snapshot.spec.agent_presets[preset_source_id].mcp_integrations
         ) == [str(local.id)]
 
 
@@ -5805,7 +5717,7 @@ async def test_mcp_integration_zero_local_integrations_blocks_without_candidates
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml",
         _mcp_fields(source_mcp_id, slug="linear_mcp"),
     )
     service = WorkspaceSyncService(session=session, role=svc_role)
@@ -5846,7 +5758,7 @@ async def test_mcp_preview_allows_two_sources_selecting_the_same_target(
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml",
         {
             "mcp_integrations": [
                 str(first_source_id),
@@ -5869,7 +5781,7 @@ async def test_mcp_preview_allows_two_sources_selecting_the_same_target(
     assert prepared.diagnostics == []
     assert prepared.mcp_integration_mapping_requirements == []
     assert _mcp_entry_ids(
-        prepared.snapshot.spec.agent_presets[source_id].versions[1].mcp_integrations
+        prepared.snapshot.spec.agent_presets[source_id].mcp_integrations
     ) == [str(local.id), str(local.id)]
 
     result = await service._import_snapshot(
@@ -5915,7 +5827,7 @@ async def test_mcp_integration_refs_in_workflow_agent_args_are_correlated(
     # The workflow ref reuses the preset's hint: source UUIDs are shared.
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{preset_source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{preset_source_id}/preset.yml",
         _mcp_fields(source_mcp_id, slug="linear_mcp", name="Linear"),
     )
     service = WorkspaceSyncService(session=session, role=svc_role)
@@ -6013,7 +5925,7 @@ async def test_mcp_integration_correlation_preserves_reference_order(
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml",
         {
             "mcp_integrations": [str(source_first), str(source_second)],
             "mcp_integration_hints": {
@@ -6029,7 +5941,7 @@ async def test_mcp_integration_correlation_preserves_reference_order(
     prepared = await service._prepare_snapshot_for_import(snapshot)
     assert prepared.diagnostics == []
     assert _mcp_entry_ids(
-        prepared.snapshot.spec.agent_presets[source_id].versions[1].mcp_integrations
+        prepared.snapshot.spec.agent_presets[source_id].mcp_integrations
     ) == [str(first.id), str(second.id)]
 
 
@@ -6053,7 +5965,7 @@ async def test_mcp_integration_unused_selection_reports_source_not_found(
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml",
         _mcp_fields(source_mcp_id, slug="linear_mcp", name="Linear"),
     )
     service = WorkspaceSyncService(session=session, role=svc_role)
@@ -6087,7 +5999,7 @@ async def test_agent_preset_export_emits_rollback_safe_mcp_hints(
     files = _agent_preset_git_tree(
         source_id=source_id, slug=source_id, name="QA MCP export"
     )
-    version_path = f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml"
+    version_path = f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml"
     _patch_yaml_file(files, version_path, {"mcp_integrations": [str(local.id)]})
     service = WorkspaceSyncService(session=session, role=svc_role)
     snapshot, diagnostics = await service.parse_files(files, commit_sha="y" * 40)
@@ -6125,7 +6037,7 @@ async def test_agent_preset_export_without_mcp_refs_stays_unchanged(
     files = _agent_preset_git_tree(
         source_id=source_id, slug=source_id, name="QA MCP none"
     )
-    version_path = f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml"
+    version_path = f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml"
     service = WorkspaceSyncService(session=session, role=svc_role)
     snapshot, diagnostics = await service.parse_files(files, commit_sha="z" * 40)
     assert diagnostics == []
@@ -6144,7 +6056,7 @@ def _untyped_catalog_preset_git_tree(
     files = _agent_preset_git_tree(
         source_id=source_id, slug=source_id, name="QA untyped catalog"
     )
-    version_path = f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml"
+    version_path = f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml"
     version_spec = yaml.safe_load(files[version_path])
     version_spec["catalog_id"] = catalog_id
     files[version_path] = _yaml(version_spec)
@@ -6246,7 +6158,7 @@ async def test_workspace_sync_rejects_enabled_catalog_model_identity_mismatch(
         )
         _patch_yaml_file(
             files,
-            f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+            f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml",
             {
                 "catalog_id": str(local_catalog.id),
                 "model_provider": "manifest-provider",
@@ -6358,7 +6270,7 @@ async def test_workspace_sync_preserves_matching_enabled_catalog_identity_and_ur
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{preset_source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{preset_source_id}/preset.yml",
         {
             "catalog_id": str(selected_catalog.id),
             "model_provider": model_provider,
@@ -6374,9 +6286,7 @@ async def test_workspace_sync_preserves_matching_enabled_catalog_identity_and_ur
 
     assert prepared.diagnostics == []
     assert prepared.catalog_mapping_requirements == []
-    prepared_version = prepared.snapshot.spec.agent_presets[preset_source_id].versions[
-        1
-    ]
+    prepared_version = prepared.snapshot.spec.agent_presets[preset_source_id]
     assert prepared_version.catalog_id == selected_catalog.id
     assert prepared_version.base_url == preset_base_url
     prepared_args = (
@@ -6447,7 +6357,7 @@ async def test_workspace_sync_detects_catalog_identity_conflict_across_resources
     )
     _patch_yaml_file(
         files,
-        f"{AGENT_PRESET_ROOT}/{preset_source_id}/versions/1.yml",
+        f"{AGENT_PRESET_ROOT}/{preset_source_id}/preset.yml",
         {
             "catalog_id": str(source_catalog_id),
             "model_provider": "preset-provider",
@@ -6509,7 +6419,7 @@ async def test_agent_preset_sync_reports_unavailable_catalog_model_before_writes
         slug="qa-unavailable-catalog",
         name="QA unavailable catalog",
     )
-    preset_path = f"{AGENT_PRESET_ROOT}/qa-unavailable-catalog/versions/1.yml"
+    preset_path = f"{AGENT_PRESET_ROOT}/qa-unavailable-catalog/preset.yml"
     _patch_yaml_file(
         files,
         preset_path,
@@ -6552,7 +6462,7 @@ async def test_agent_preset_sync_dry_run_reports_unavailable_catalog_model(
         slug="qa-unavailable-catalog-preview",
         name="QA unavailable catalog preview",
     )
-    preset_path = f"{AGENT_PRESET_ROOT}/qa-unavailable-catalog-preview/versions/1.yml"
+    preset_path = f"{AGENT_PRESET_ROOT}/qa-unavailable-catalog-preview/preset.yml"
     _patch_yaml_file(
         files,
         preset_path,
@@ -8196,6 +8106,7 @@ def _agent_preset_git_tree(
     instructions: str | None = None,
     version_number: int = 1,
 ) -> dict[str, str]:
+    del version_number
     return {
         MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
         f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml": _yaml(
@@ -8204,15 +8115,6 @@ def _agent_preset_git_tree(
                 "type": "agent_preset",
                 "id": source_id,
                 "slug": slug,
-                "name": name,
-                "current_version": version_number,
-            }
-        ),
-        f"{AGENT_PRESET_ROOT}/{source_id}/versions/{version_number}.yml": _yaml(
-            {
-                "version": 1,
-                "type": "agent_preset_version",
-                "version_number": version_number,
                 "name": name,
                 "instructions": instructions,
             }
@@ -8328,16 +8230,6 @@ def _skill_git_tree(
                 "slug": slug,
                 "name": name,
                 "description": "Deterministic enrichment helper",
-                "current_version": 1,
-            }
-        ),
-        f"{SKILL_ROOT}/{source_id}/versions/1/version.yml": _yaml(
-            {
-                "version": 1,
-                "type": "skill_version",
-                "version_number": 1,
-                "name": name,
-                "description": "Deterministic enrichment helper",
                 "files": [
                     {
                         "path": "SKILL.md",
@@ -8346,61 +8238,30 @@ def _skill_git_tree(
                 ],
             }
         ),
-        f"{SKILL_ROOT}/{source_id}/versions/1/files/SKILL.md": content,
+        f"{SKILL_ROOT}/{source_id}/files/SKILL.md": content,
     }
 
 
 def _versioned_agent_skill_git_tree() -> dict[str, str]:
-    """Build a Git tree where two presets pin different versions of one skill.
+    """Build desired head state where two presets attach the same skill head."""
+    skill_content = "# Skill A\n\nCurrent behavior.\n"
 
-    Layout: ``skill-a`` publishes versions 1 and 2 (head at v2), ``agent-x`` pins
-    ``skill-a`` v1, and ``agent-y`` pins ``skill-a`` v2. Used to assert the import
-    -> export -> pull round trip preserves the divergent pins.
-    """
-    skill_v1 = "# Skill A\n\nVersion 1 behavior.\n"
-    skill_v2 = "# Skill A\n\nVersion 2 behavior.\n"
-
-    def skill_version(number: int, name: str, content: str) -> dict[str, Any]:
+    def preset(source_id: str, name: str) -> dict[str, str]:
         return {
-            "version": 1,
-            "type": "skill_version",
-            "version_number": number,
-            "name": name,
-            "files": [
+            f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml": _yaml(
                 {
-                    "path": "SKILL.md",
-                    "sha256": hashlib.sha256(content.encode()).hexdigest(),
+                    "version": 1,
+                    "type": "agent_preset",
+                    "id": source_id,
+                    "slug": source_id,
+                    "name": name,
+                    "instructions": "Use the current skill-a head.",
+                    "skills": [{"slug": "skill-a"}],
+                    "subagents": [],
+                    "model_name": "gpt-5.5",
+                    "model_provider": "openai",
                 }
-            ],
-        }
-
-    def preset(
-        source_id: str,
-        name: str,
-        skill_version: int,
-    ) -> dict[str, str]:
-        head = {
-            "version": 1,
-            "type": "agent_preset",
-            "id": source_id,
-            "slug": source_id,
-            "name": name,
-            "current_version": 1,
-        }
-        version = {
-            "version": 1,
-            "type": "agent_preset_version",
-            "version_number": 1,
-            "name": name,
-            "instructions": f"Use skill-a version {skill_version}.",
-            "skills": [{"slug": "skill-a", "version": skill_version}],
-            "subagents": [],
-            "model_name": "gpt-5.5",
-            "model_provider": "openai",
-        }
-        return {
-            f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml": _yaml(head),
-            f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml": _yaml(version),
+            )
         }
 
     files = {
@@ -8411,126 +8272,65 @@ def _versioned_agent_skill_git_tree() -> dict[str, str]:
                 "type": "skill",
                 "id": "skill-a",
                 "slug": "skill-a",
-                "name": "Skill A v2",
+                "name": "Skill A current",
                 "description": "Versioned skill fixture",
-                "current_version": 2,
+                "files": [
+                    {
+                        "path": "SKILL.md",
+                        "sha256": hashlib.sha256(skill_content.encode()).hexdigest(),
+                    }
+                ],
             }
         ),
-        f"{SKILL_ROOT}/skill-a/versions/1/version.yml": _yaml(
-            skill_version(1, "Skill A v1", skill_v1)
-        ),
-        f"{SKILL_ROOT}/skill-a/versions/1/files/SKILL.md": skill_v1,
-        f"{SKILL_ROOT}/skill-a/versions/2/version.yml": _yaml(
-            skill_version(2, "Skill A v2", skill_v2)
-        ),
-        f"{SKILL_ROOT}/skill-a/versions/2/files/SKILL.md": skill_v2,
-        **preset("agent-x", "Agent X", 1),
-        **preset("agent-y", "Agent Y", 2),
+        f"{SKILL_ROOT}/skill-a/files/SKILL.md": skill_content,
+        **preset("agent-x", "Agent X"),
+        **preset("agent-y", "Agent Y"),
     }
     return dict(sorted(files.items()))
 
 
-def _versioned_subagent_git_tree() -> dict[str, str]:
-    """Build a Git tree where a parent pins a non-head subagent version."""
-    subagent_ref = [{"slug": "qa-evidence-child", "version": 1}]
-    parent_head = {
-        "version": 1,
-        "type": "agent_preset",
-        "id": "qa-triage-parent",
-        "slug": "qa-triage-parent",
-        "name": "QA triage parent",
-        "current_version": 1,
-    }
-    parent_version = {
-        "version": 1,
-        "type": "agent_preset_version",
-        "version_number": 1,
-        "name": "QA triage parent",
-        "instructions": "Delegate to the evidence child.",
-        "skills": [],
-        "subagents": subagent_ref,
-        "model_name": "gpt-5.5",
-        "model_provider": "openai",
-    }
-    child_head = {
-        "version": 1,
-        "type": "agent_preset",
-        "id": "qa-evidence-child",
-        "slug": "qa-evidence-child",
-        "name": "QA evidence child",
-        "current_version": 2,
-    }
-
-    def child_version(number: int, instructions: str) -> dict[str, Any]:
-        return {
-            "version": 1,
-            "type": "agent_preset_version",
-            "version_number": number,
-            "name": "QA evidence child",
-            "instructions": instructions,
-            "skills": [],
-            "subagents": [],
-            "model_name": "gpt-5.5",
-            "model_provider": "openai",
-        }
-
+def _head_subagent_git_tree() -> dict[str, str]:
+    """Build desired head state where a parent attaches a child preset head."""
     return dict(
         sorted(
             {
                 MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
-                f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml": _yaml(parent_head),
-                f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/1.yml": _yaml(
-                    parent_version
+                f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml": _yaml(
+                    {
+                        "version": 1,
+                        "type": "agent_preset",
+                        "id": "qa-triage-parent",
+                        "slug": "qa-triage-parent",
+                        "name": "QA triage parent",
+                        "instructions": "Delegate to the evidence child.",
+                        "skills": [],
+                        "subagents": [{"slug": "qa-evidence-child"}],
+                        "model_name": "gpt-5.5",
+                        "model_provider": "openai",
+                    }
                 ),
-                f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml": _yaml(child_head),
-                f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml": _yaml(
-                    child_version(1, "Collect original evidence.")
-                ),
-                f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/2.yml": _yaml(
-                    child_version(2, "Collect current evidence.")
+                f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml": _yaml(
+                    {
+                        "version": 1,
+                        "type": "agent_preset",
+                        "id": "qa-evidence-child",
+                        "slug": "qa-evidence-child",
+                        "name": "QA evidence child",
+                        "instructions": "Collect current evidence.",
+                        "skills": [],
+                        "subagents": [],
+                        "model_name": "gpt-5.5",
+                        "model_provider": "openai",
+                    }
                 ),
             }.items()
         )
     )
 
 
-def _workflow_pinned_agent_version_git_tree() -> dict[str, str]:
-    """Build a Git tree whose workflow pins a non-head agent preset version.
-
-    Layout: a workflow calls ``ai.preset_agent`` pinned to ``agent-x`` v1, while
-    ``agent-x`` head is v2; v1 pins ``skill-a`` v1 and v2 pins ``skill-a`` v2.
-    Used to assert a full export walks the workflow -> preset version -> skill
-    version closure instead of exporting only the current heads.
-    """
-    skill_v1 = "# Skill A\n\nVersion 1 behavior.\n"
-    skill_v2 = "# Skill A\n\nVersion 2 behavior.\n"
-
-    def skill_version(number: int, name: str, content: str) -> dict[str, Any]:
-        return {
-            "version": 1,
-            "type": "skill_version",
-            "version_number": number,
-            "name": name,
-            "files": [
-                {
-                    "path": "SKILL.md",
-                    "sha256": hashlib.sha256(content.encode()).hexdigest(),
-                }
-            ],
-        }
-
-    def agent_version(number: int, skill_version: int) -> dict[str, Any]:
-        return {
-            "version": 1,
-            "type": "agent_preset_version",
-            "version_number": number,
-            "name": "Agent X",
-            "instructions": f"Use skill-a version {skill_version}.",
-            "skills": [{"slug": "skill-a", "version": skill_version}],
-            "subagents": [],
-            "model_name": "gpt-5.5",
-            "model_provider": "openai",
-        }
+def _workflow_agent_head_git_tree() -> dict[str, str]:
+    """Build desired head state for a workflow and its preset dependencies."""
+    skill_content = "# Skill A\n\nCurrent behavior.\n"
 
     return dict(
         sorted(
@@ -8548,8 +8348,7 @@ def _workflow_pinned_agent_version_git_tree() -> dict[str, str]:
                                 "action": "ai.preset_agent",
                                 "args": {
                                     "preset_slug": "agent-x",
-                                    "preset_version": 1,
-                                    "prompt": "Use the pinned preset version.",
+                                    "prompt": "Use the current preset head.",
                                 },
                             }
                         ],
@@ -8562,14 +8361,12 @@ def _workflow_pinned_agent_version_git_tree() -> dict[str, str]:
                         "id": "agent-x",
                         "slug": "agent-x",
                         "name": "Agent X",
-                        "current_version": 2,
+                        "instructions": "Use the current skill-a head.",
+                        "skills": [{"slug": "skill-a"}],
+                        "subagents": [],
+                        "model_name": "gpt-5.5",
+                        "model_provider": "openai",
                     }
-                ),
-                f"{AGENT_PRESET_ROOT}/agent-x/versions/1.yml": _yaml(
-                    agent_version(1, 1)
-                ),
-                f"{AGENT_PRESET_ROOT}/agent-x/versions/2.yml": _yaml(
-                    agent_version(2, 2)
                 ),
                 f"{SKILL_ROOT}/skill-a/skill.yml": _yaml(
                     {
@@ -8577,19 +8374,19 @@ def _workflow_pinned_agent_version_git_tree() -> dict[str, str]:
                         "type": "skill",
                         "id": "skill-a",
                         "slug": "skill-a",
-                        "name": "Skill A v2",
-                        "description": "Versioned skill fixture",
-                        "current_version": 2,
+                        "name": "Skill A current",
+                        "description": "Desired skill head fixture",
+                        "files": [
+                            {
+                                "path": "SKILL.md",
+                                "sha256": hashlib.sha256(
+                                    skill_content.encode()
+                                ).hexdigest(),
+                            }
+                        ],
                     }
                 ),
-                f"{SKILL_ROOT}/skill-a/versions/1/version.yml": _yaml(
-                    skill_version(1, "Skill A v1", skill_v1)
-                ),
-                f"{SKILL_ROOT}/skill-a/versions/1/files/SKILL.md": skill_v1,
-                f"{SKILL_ROOT}/skill-a/versions/2/version.yml": _yaml(
-                    skill_version(2, "Skill A v2", skill_v2)
-                ),
-                f"{SKILL_ROOT}/skill-a/versions/2/files/SKILL.md": skill_v2,
+                f"{SKILL_ROOT}/skill-a/files/SKILL.md": skill_content,
             }.items()
         )
     )
@@ -8809,21 +8606,12 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                 "id": "qa-triage-parent",
                 "slug": "qa-triage-parent",
                 "name": "QA triage parent",
-                "current_version": 1,
                 "folder_path": "QA/Agents",
                 "tags": ["qa-sync"],
-            }
-        ),
-        f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/1.yml": _yaml(
-            {
-                "version": 1,
-                "type": "agent_preset_version",
-                "version_number": 1,
-                "name": "QA triage parent",
                 "instructions": "Use the enrichment skill and escalate high severity.",
                 "tool_approvals": {"tools.qa_enrichment.lookup": "always"},
                 "actions": ["tools.qa_enrichment.lookup"],
-                "skills": [{"slug": "qa-enrichment-skill", "version": 1}],
+                "skills": [{"slug": "qa-enrichment-skill"}],
                 "subagents": [{"slug": "qa-evidence-child"}],
                 "model_name": "gpt-5.5",
                 "model_provider": "openai",
@@ -8843,45 +8631,16 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                 "id": "qa-evidence-child",
                 "slug": "qa-evidence-child",
                 "name": "QA evidence child",
-                "current_version": 1,
                 "folder_path": "QA/Agents",
                 "tags": ["qa-sync"],
-            }
-        ),
-        f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml": _yaml(
-            {
-                "version": 1,
-                "type": "agent_preset_version",
-                "version_number": 1,
-                "name": "QA evidence child",
                 "instructions": "Collect concise evidence.",
                 "skills": [],
                 "subagents": [],
             }
         ),
         f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml": _yaml(_skill_spec(skill_files)),
-        f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/version.yml": _yaml(
-            {
-                "version": 1,
-                "type": "skill_version",
-                "version_number": 1,
-                "name": "QA enrichment skill",
-                "description": "Deterministic enrichment helper",
-                "files": [
-                    {
-                        "path": path,
-                        "sha256": hashlib.sha256(content.encode()).hexdigest(),
-                    }
-                    for path, content in sorted(skill_files.items())
-                ],
-            }
-        ),
-        f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/files/SKILL.md": skill_files[
-            "SKILL.md"
-        ],
-        f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/files/enrich.py": skill_files[
-            "enrich.py"
-        ],
+        f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md": skill_files["SKILL.md"],
+        f"{SKILL_ROOT}/qa-enrichment-skill/files/enrich.py": skill_files["enrich.py"],
         f"{TABLE_ROOT}/qa_indicators/table.yml": _yaml(
             {
                 "version": 1,
@@ -8986,15 +8745,6 @@ def _large_agent_preset_git_tree() -> dict[str, str]:
                 "id": source_id,
                 "slug": source_id,
                 "name": name,
-                "current_version": 1,
-            }
-        )
-        files[f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml"] = _yaml(
-            {
-                "version": 1,
-                "type": "agent_preset_version",
-                "version_number": 1,
-                "name": name,
                 "instructions": f"Handle generated test workload {index:02d}.",
                 "skills": [],
                 "subagents": [],
@@ -9022,13 +8772,10 @@ def _expected_full_paths() -> set[str]:
         f"{WORKFLOW_ROOT}/qa-child/definition.yml",
         f"{WORKFLOW_ROOT}/qa-orphan/definition.yml",
         f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml",
-        f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/1.yml",
         f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml",
-        f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml",
         f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml",
-        f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/version.yml",
-        f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/files/SKILL.md",
-        f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/files/enrich.py",
+        f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md",
+        f"{SKILL_ROOT}/qa-enrichment-skill/files/enrich.py",
         f"{TABLE_ROOT}/qa_indicators/table.yml",
         f"{CASE_TAG_ROOT}/qa-alert.yml",
         f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason.yml",
@@ -9095,7 +8842,13 @@ def _skill_spec(skill_files: dict[str, str]) -> dict[str, Any]:
         "slug": "qa-enrichment-skill",
         "name": "QA enrichment skill",
         "description": "Deterministic enrichment helper",
-        "current_version": 1,
+        "files": [
+            {
+                "path": path,
+                "sha256": hashlib.sha256(content.encode()).hexdigest(),
+            }
+            for path, content in sorted(skill_files.items())
+        ],
     }
 
 

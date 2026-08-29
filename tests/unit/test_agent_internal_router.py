@@ -7,7 +7,7 @@ import pytest
 from tracecat.agent.internal_router import _resolve_run_config
 from tracecat.agent.schemas import AgentConfigSchema, InternalRunAgentRequest
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.agent.subagents import AgentSubagentsConfig, AttachedSubagentRef
 
 
 @pytest.mark.anyio
@@ -17,7 +17,9 @@ async def test_resolve_run_config_rejects_subagents_on_internal_runner() -> None
         config=AgentConfigSchema(
             model_name="gpt-5",
             model_provider="openai",
-            agents=AgentSubagentsConfig(enabled=True),
+            agents=AgentSubagentsConfig(
+                subagents=[AttachedSubagentRef(preset="analyst")]
+            ),
         ),
     )
 

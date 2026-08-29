@@ -2641,9 +2641,6 @@ export const $AgentPresetRead = {
       ],
       title: "Mcp Integrations",
     },
-    agents: {
-      $ref: "#/components/schemas/AgentSubagentsConfig-Output",
-    },
     retries: {
       type: "integer",
       minimum: 0,
@@ -2713,6 +2710,9 @@ export const $AgentPresetRead = {
         },
       ],
       title: "Folder Id",
+    },
+    agents: {
+      $ref: "#/components/schemas/AgentSubagentsConfig-Output",
     },
     skills: {
       items: {
@@ -2868,70 +2868,6 @@ export const $AgentPresetSkillBindingBase = {
   description: "Shared fields for preset skill bindings.",
 } as const
 
-export const $AgentPresetSkillBindingChange = {
-  properties: {
-    skill_id: {
-      type: "string",
-      format: "uuid",
-      title: "Skill Id",
-    },
-    skill_name: {
-      type: "string",
-      title: "Skill Name",
-    },
-    old_skill_version_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Old Skill Version Id",
-    },
-    old_skill_version: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Old Skill Version",
-    },
-    new_skill_version_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "New Skill Version Id",
-    },
-    new_skill_version: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "New Skill Version",
-    },
-  },
-  type: "object",
-  required: ["skill_id", "skill_name"],
-  title: "AgentPresetSkillBindingChange",
-  description: "Diff entry for skill binding changes between preset versions.",
-} as const
-
 export const $AgentPresetSkillBindingRead = {
   properties: {
     skill_id: {
@@ -2993,7 +2929,7 @@ export const $AgentPresetSubagentEligibility = {
 
 export const $AgentPresetSubagentEligibilityReason = {
   type: "string",
-  enum: ["agents_enabled", "tool_approvals"],
+  enum: ["nested_subagents", "tool_approvals"],
 } as const
 
 export const $AgentPresetTagCreate = {
@@ -3309,13 +3245,6 @@ export const $AgentPresetVersionDiff = {
       type: "array",
       title: "Tool Approval Changes",
     },
-    skill_changes: {
-      items: {
-        $ref: "#/components/schemas/AgentPresetSkillBindingChange",
-      },
-      type: "array",
-      title: "Skill Changes",
-    },
     total_changes: {
       type: "integer",
       title: "Total Changes",
@@ -3446,9 +3375,6 @@ export const $AgentPresetVersionRead = {
       ],
       title: "Mcp Integrations",
     },
-    agents: {
-      $ref: "#/components/schemas/AgentSubagentsConfig-Output",
-    },
     retries: {
       type: "integer",
       minimum: 0,
@@ -3490,16 +3416,6 @@ export const $AgentPresetVersionRead = {
       },
       type: "array",
       title: "Capabilities",
-    },
-    subagent_eligibility: {
-      $ref: "#/components/schemas/AgentPresetSubagentEligibility",
-    },
-    skills: {
-      items: {
-        $ref: "#/components/schemas/AgentPresetSkillBindingRead",
-      },
-      type: "array",
-      title: "Skills",
     },
     created_at: {
       type: "string",
@@ -3554,9 +3470,6 @@ export const $AgentPresetVersionReadMinimal = {
       },
       type: "array",
       title: "Capabilities",
-    },
-    subagent_eligibility: {
-      $ref: "#/components/schemas/AgentPresetSubagentEligibility",
     },
     created_at: {
       type: "string",
@@ -4597,11 +4510,6 @@ export const $AgentSettingsUpdate = {
 
 export const $AgentSubagentsConfig_Input = {
   properties: {
-    enabled: {
-      type: "boolean",
-      title: "Enabled",
-      default: false,
-    },
     subagents: {
       items: {
         $ref: "#/components/schemas/AnyAttachedSubagentRef",
@@ -4613,17 +4521,11 @@ export const $AgentSubagentsConfig_Input = {
   additionalProperties: false,
   type: "object",
   title: "AgentSubagentsConfig",
-  description:
-    "User-facing agents toggle and optional preset-backed subagents.",
+  description: "User-facing preset-backed subagent attachments.",
 } as const
 
 export const $AgentSubagentsConfig_Output = {
   properties: {
-    enabled: {
-      type: "boolean",
-      title: "Enabled",
-      default: false,
-    },
     subagents: {
       items: {
         $ref: "#/components/schemas/AnyAttachedSubagentRef",
@@ -4635,8 +4537,7 @@ export const $AgentSubagentsConfig_Output = {
   additionalProperties: false,
   type: "object",
   title: "AgentSubagentsConfig",
-  description:
-    "User-facing agents toggle and optional preset-backed subagents.",
+  description: "User-facing preset-backed subagent attachments.",
 } as const
 
 export const $AgentTagRead = {
@@ -4709,7 +4610,7 @@ export const $AlertArtifact = {
 export const $AnyAttachedSubagentRef = {
   anyOf: [
     {
-      $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
+      $ref: "#/components/schemas/HeadAttachedSubagentRef",
     },
     {
       $ref: "#/components/schemas/AttachedSubagentRef",
@@ -5349,18 +5250,6 @@ export const $AttachedSubagentRef = {
       maxLength: 160,
       minLength: 1,
       title: "Preset",
-    },
-    preset_version: {
-      anyOf: [
-        {
-          type: "integer",
-          minimum: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Preset Version",
     },
     name: {
       anyOf: [
@@ -15448,6 +15337,66 @@ export const $HarnessType = {
   description: "Supported agent harnesses.",
 } as const
 
+export const $HeadAttachedSubagentRef = {
+  properties: {
+    preset: {
+      type: "string",
+      maxLength: 160,
+      minLength: 1,
+      title: "Preset",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 80,
+          minLength: 1,
+          pattern: "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    max_turns: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Turns",
+    },
+    preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Id",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["preset", "preset_id"],
+  title: "HeadAttachedSubagentRef",
+  description:
+    "Canonical head-owned subagent ref with stable child-head identity.",
+} as const
+
 export const $HealthResponse = {
   properties: {
     status: {
@@ -22213,11 +22162,6 @@ export const $RepositorySyncResult = {
 
 export const $ResolvedAgentsConfig = {
   properties: {
-    enabled: {
-      type: "boolean",
-      title: "Enabled",
-      default: false,
-    },
     subagents: {
       items: {
         $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
@@ -22229,7 +22173,7 @@ export const $ResolvedAgentsConfig = {
   additionalProperties: false,
   type: "object",
   title: "ResolvedAgentsConfig",
-  description: "Persisted agents toggle with immutable resolved child refs.",
+  description: "Immutable resolved child refs for a compiled turn.",
 } as const
 
 export const $ResolvedAttachedSubagentRef = {
@@ -22239,18 +22183,6 @@ export const $ResolvedAttachedSubagentRef = {
       maxLength: 160,
       minLength: 1,
       title: "Preset",
-    },
-    preset_version: {
-      anyOf: [
-        {
-          type: "integer",
-          minimum: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Preset Version",
     },
     name: {
       anyOf: [
@@ -22299,6 +22231,18 @@ export const $ResolvedAttachedSubagentRef = {
       type: "string",
       format: "uuid",
       title: "Preset Version Id",
+    },
+    preset_version: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preset Version",
     },
   },
   additionalProperties: false,

@@ -377,7 +377,7 @@ async def test_create_session_persists_internal_agents_binding_without_preset() 
         agents_binding=agents_binding,
     )
 
-    assert created.agents_binding == {"enabled": True, "subagents": []}
+    assert created.agents_binding == {"subagents": []}
     agents_binding_mock.assert_not_called()
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)

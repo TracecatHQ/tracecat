@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from typing import Annotated, Self
+from typing import Annotated, Any
 
 from pydantic import (
     BaseModel,
@@ -15,6 +15,7 @@ from pydantic import (
     ValidationError,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema
 
 AgentAlias = Annotated[
     str,
@@ -48,10 +49,24 @@ class AttachedSubagentRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     preset: PresetRef
-    preset_version: int | None = Field(default=None, ge=1)
     name: AgentAlias | None = Field(default=None)
     description: str | None = Field(default=None, max_length=1000)
     max_turns: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def ignore_legacy_version_selector(cls, data: object) -> object:
+        """Ignore the retired authored selector without weakening extra checks."""
+
+        if (
+            isinstance(data, Mapping)
+            and "preset_version" in data
+            and "preset_version_id" not in data
+        ):
+            normalized = dict(data)
+            normalized.pop("preset_version", None)
+            return normalized
+        return data
 
     @property
     def alias(self) -> str:
@@ -59,45 +74,56 @@ class AttachedSubagentRef(BaseModel):
         return self.name or self.preset
 
 
-class ResolvedAttachedSubagentRef(AttachedSubagentRef):
-    """Persisted subagent ref with immutable preset/version identifiers."""
+class HeadAttachedSubagentRef(AttachedSubagentRef):
+    """Canonical head-owned subagent ref with stable child-head identity."""
 
     preset_id: uuid.UUID
+
+
+class ResolvedAttachedSubagentRef(HeadAttachedSubagentRef):
+    """Persisted subagent ref with immutable preset/version identifiers."""
+
     preset_version_id: uuid.UUID
     preset_version: int | None = Field(default=None, ge=1)
 
 
-type AnyAttachedSubagentRef = ResolvedAttachedSubagentRef | AttachedSubagentRef
+type AnyAttachedSubagentRef = (
+    SkipJsonSchema[ResolvedAttachedSubagentRef]
+    | HeadAttachedSubagentRef
+    | AttachedSubagentRef
+)
 
 
 class AgentSubagentsConfig(BaseModel):
-    """User-facing agents toggle and optional preset-backed subagents."""
+    """User-facing preset-backed subagent attachments."""
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
     subagents: list[AnyAttachedSubagentRef] = Field(default_factory=list)
 
-    @model_validator(mode="after")
-    def validate_subagents_enabled(self) -> Self:
-        if not self.enabled and self.subagents:
-            raise ValueError("subagents require enabled=true")
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_enabled(cls, value: Any) -> Any:
+        """Keep old Temporal/API payloads readable; Agent is now always on."""
+        if isinstance(value, Mapping) and "enabled" in value:
+            return {key: item for key, item in value.items() if key != "enabled"}
+        return value
 
 
 class ResolvedAgentsConfig(BaseModel):
-    """Persisted agents toggle with immutable resolved child refs."""
+    """Immutable resolved child refs for a compiled turn."""
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
     subagents: list[ResolvedAttachedSubagentRef] = Field(default_factory=list)
 
-    @model_validator(mode="after")
-    def validate_subagents_enabled(self) -> Self:
-        if not self.enabled and self.subagents:
-            raise ValueError("subagents require enabled=true")
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_enabled(cls, value: Any) -> Any:
+        """Keep stored bindings replayable while ignoring the retired toggle."""
+        if isinstance(value, Mapping) and "enabled" in value:
+            return {key: item for key, item in value.items() if key != "enabled"}
+        return value
 
 
 def validate_subagent_alias(alias: str) -> None:

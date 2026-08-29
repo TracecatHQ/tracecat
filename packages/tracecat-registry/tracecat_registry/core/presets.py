@@ -107,7 +107,7 @@ async def create_preset(
     ] = None,
     agents: Annotated[
         dict[str, Any] | None,
-        Doc("Optional subagent configuration with `enabled` and `subagents` fields."),
+        Doc("Optional preset-backed subagent attachments."),
     ] = None,
     retries: Annotated[
         int | None,
@@ -284,9 +284,7 @@ async def update_preset(
     ] = None,
     agents: Annotated[
         dict[str, Any] | None,
-        Doc(
-            "The updated subagent configuration with `enabled` and `subagents` fields."
-        ),
+        Doc("The updated preset-backed subagent attachments."),
     ] = None,
     retries: Annotated[
         int | None,

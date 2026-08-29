@@ -57,7 +57,6 @@ from tracecat.workspace_sync.adapters import (
     CASE_TAG_RESOURCE_ADAPTER,
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     RESOURCE_ADAPTERS_BY_TYPE,
-    SKILL_RESOURCE_ADAPTER,
     WORKFLOW_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
     ResourceAdapter,
@@ -67,7 +66,6 @@ from tracecat.workspace_sync.adapters.base import (
     DirectoryManifestAdapter,
     ResourceDependencyRefs,
     SyncMappingService,
-    VersionedSlug,
 )
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import (
@@ -90,9 +88,7 @@ from tracecat.workspace_sync.schemas import (
     AgentPresetResourceSpec,
     AgentPresetSkillBinding,
     AgentPresetSubagentRef,
-    AgentPresetVersionResourceSpec,
     ResourceRef,
-    SkillResourceSpec,
     WorkflowResourceSpec,
     WorkspaceManifest,
     WorkspaceManifestResources,
@@ -1421,15 +1417,11 @@ class WorkspaceSyncService(SyncMappingService):
     ) -> WorkspaceResourceProjection:
         """Project non-workflow resources reached by the export dependency graph."""
         if full_workspace_export:
-            projection = await WorkspaceResourceProjector(
+            return await WorkspaceResourceProjector(
                 session=self.session,
                 role=self.role,
                 mapping_provider=self._mapping_provider,
             ).project_non_workflow_resources(resource_types=entitled_resource_types)
-            return await self._augment_full_workspace_version_closure(
-                projection,
-                workflow_specs=workflow_specs,
-            )
 
         specs_by_attr: dict[str, dict[str, BaseModel]] = {
             adapter.spec_attr: {} for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
@@ -1510,39 +1502,6 @@ class WorkspaceSyncService(SyncMappingService):
                 if resource := resources_by_source_id.get(source_id):
                     resources_by_key[key] = resource
                 if key in seen:
-                    existing = specs_by_attr[adapter.spec_attr].get(source_id)
-                    if (
-                        resource_type == SyncResourceType.AGENT_PRESET
-                        and existing is not None
-                    ):
-                        incoming_preset = cast(AgentPresetResourceSpec, spec)
-                        existing_preset = cast(AgentPresetResourceSpec, existing)
-                        missing_versions = _missing_agent_preset_versions(
-                            existing_preset, incoming_preset
-                        )
-                        if missing_versions:
-                            specs_by_attr[adapter.spec_attr][source_id] = (
-                                _merge_agent_preset_versions(
-                                    existing_preset, incoming_preset
-                                )
-                            )
-                            new_presets.append(
-                                _agent_preset_version_scan_spec(
-                                    incoming_preset, missing_versions
-                                )
-                            )
-                    elif (
-                        resource_type == SyncResourceType.SKILL and existing is not None
-                    ):
-                        incoming_skill = cast(SkillResourceSpec, spec)
-                        existing_skill = cast(SkillResourceSpec, existing)
-                        if any(
-                            version_number not in existing_skill.versions
-                            for version_number in incoming_skill.versions
-                        ):
-                            specs_by_attr[adapter.spec_attr][source_id] = (
-                                _merge_skill_versions(existing_skill, incoming_skill)
-                            )
                     continue
                 seen.add(key)
                 specs_by_attr[adapter.spec_attr][source_id] = spec
@@ -1561,13 +1520,6 @@ class WorkspaceSyncService(SyncMappingService):
                         subagent.slug
                         for preset in new_presets
                         for subagent in _agent_preset_subagent_refs(preset)
-                        if subagent.version is None
-                    },
-                    versioned_slugs={
-                        VersionedSlug(subagent.slug, subagent.version)
-                        for preset in new_presets
-                        for subagent in _agent_preset_subagent_refs(preset)
-                        if subagent.version is not None
                     },
                 ),
             )
@@ -1578,148 +1530,13 @@ class WorkspaceSyncService(SyncMappingService):
                         binding.slug
                         for preset in new_presets
                         for binding in _agent_preset_skill_refs(preset)
-                        if binding.version is None
-                    },
-                    versioned_slugs={
-                        VersionedSlug(binding.slug, binding.version)
-                        for preset in new_presets
-                        for binding in _agent_preset_skill_refs(preset)
-                        if binding.version is not None
                     },
                 ),
             )
             self._enqueue_payload_dependency_refs(
                 queue,
-                [
-                    payload
-                    for preset in new_presets
-                    for payload in (preset, *preset.versions.values())
-                ],
+                list(new_presets),
             )
-
-        return WorkspaceResourceProjection(
-            spec=workspace_spec_from_maps(specs_by_attr),
-            resources=[
-                resources_by_key[key]
-                for key in sorted(
-                    resources_by_key,
-                    key=lambda item: (item[0].value, item[1]),
-                )
-            ],
-        )
-
-    async def _augment_full_workspace_version_closure(
-        self,
-        projection: WorkspaceResourceProjection,
-        *,
-        workflow_specs: dict[str, WorkflowResourceSpec],
-    ) -> WorkspaceResourceProjection:
-        """Add workflow-pinned preset/skill versions to a full-workspace export.
-
-        A full export already includes every live resource, but versioned
-        workflow refs can point at non-current preset versions. Pull those
-        exact preset versions into the projected specs, then pull the exact
-        skill versions those preset snapshots bind.
-        """
-        projected_presets = list(projection.spec.agent_presets.values())
-        pending_preset_refs = deque(
-            sorted(
-                {
-                    ref
-                    for workflow in workflow_specs.values()
-                    for ref in workflow_references(
-                        workflow.definition
-                    ).versioned_preset_slugs
-                }
-                | {
-                    VersionedSlug(subagent.slug, subagent.version)
-                    for preset in projected_presets
-                    for subagent in _agent_preset_subagent_refs(preset)
-                    if subagent.version is not None
-                }
-            )
-        )
-        skill_refs: set[VersionedSlug] = {
-            VersionedSlug(binding.slug, binding.version)
-            for preset in projected_presets
-            for binding in _agent_preset_skill_refs(preset)
-            if binding.version is not None
-        }
-        if not pending_preset_refs and not skill_refs:
-            return projection
-
-        specs_by_attr: dict[str, dict[str, BaseModel]] = {
-            adapter.spec_attr: dict(adapter.specs(projection.spec))
-            for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
-        }
-        resources_by_key = {
-            (resource.resource_type, resource.source_id): resource
-            for resource in projection.resources
-        }
-        seen_preset_refs: set[VersionedSlug] = set()
-
-        while pending_preset_refs:
-            batch: set[VersionedSlug] = set()
-            while pending_preset_refs:
-                ref = pending_preset_refs.popleft()
-                if ref in seen_preset_refs:
-                    continue
-                seen_preset_refs.add(ref)
-                batch.add(ref)
-            if not batch:
-                continue
-
-            preset_projection = (
-                await AGENT_PRESET_RESOURCE_ADAPTER.project_dependency_refs(
-                    self,
-                    ResourceDependencyRefs(versioned_slugs=batch),
-                )
-            )
-            for resource in preset_projection.resources:
-                resources_by_key[(resource.resource_type, resource.source_id)] = (
-                    resource
-                )
-
-            for source_id, projected_spec in preset_projection.specs.items():
-                incoming = cast(AgentPresetResourceSpec, projected_spec)
-                existing = cast(
-                    AgentPresetResourceSpec | None,
-                    specs_by_attr[AGENT_PRESET_RESOURCE_ADAPTER.spec_attr].get(
-                        source_id
-                    ),
-                )
-                merged = _merge_agent_preset_versions(existing, incoming)
-                specs_by_attr[AGENT_PRESET_RESOURCE_ADAPTER.spec_attr][source_id] = (
-                    merged
-                )
-
-                for version in incoming.versions.values():
-                    for subagent in version.subagents:
-                        if subagent.version is not None:
-                            pending_preset_refs.append(
-                                VersionedSlug(subagent.slug, subagent.version)
-                            )
-                    for binding in version.skills:
-                        if binding.version is not None:
-                            skill_refs.add(VersionedSlug(binding.slug, binding.version))
-
-        if skill_refs:
-            skill_projection = await SKILL_RESOURCE_ADAPTER.project_dependency_refs(
-                self,
-                ResourceDependencyRefs(versioned_slugs=skill_refs),
-            )
-            for resource in skill_projection.resources:
-                resources_by_key[(resource.resource_type, resource.source_id)] = (
-                    resource
-                )
-            for source_id, projected_spec in skill_projection.specs.items():
-                incoming = cast(SkillResourceSpec, projected_spec)
-                existing = cast(
-                    SkillResourceSpec | None,
-                    specs_by_attr[SKILL_RESOURCE_ADAPTER.spec_attr].get(source_id),
-                )
-                merged = _merge_skill_versions(existing, incoming)
-                specs_by_attr[SKILL_RESOURCE_ADAPTER.spec_attr][source_id] = merged
 
         return WorkspaceResourceProjection(
             spec=workspace_spec_from_maps(specs_by_attr),
@@ -2165,69 +1982,15 @@ def _has_dependency_refs(refs: ResourceDependencyRefs) -> bool:
 def _agent_preset_skill_refs(
     preset: AgentPresetResourceSpec,
 ) -> list[AgentPresetSkillBinding]:
-    """Return skill refs from the head preset and any projected versions."""
-    refs = list(preset.skills)
-    for version in preset.versions.values():
-        refs.extend(version.skills)
-    return refs
+    """Return skill-head refs from a preset's desired head topology."""
+    return list(preset.skills)
 
 
 def _agent_preset_subagent_refs(
     preset: AgentPresetResourceSpec,
 ) -> list[AgentPresetSubagentRef]:
-    """Return subagent refs from the head preset and any projected versions."""
-    refs = list(preset.subagents)
-    for version in preset.versions.values():
-        refs.extend(version.subagents)
-    return refs
-
-
-def _merge_agent_preset_versions(
-    existing: AgentPresetResourceSpec | None,
-    incoming: AgentPresetResourceSpec,
-) -> AgentPresetResourceSpec:
-    """Return ``existing`` with any incoming preset versions added."""
-    if existing is None:
-        return incoming
-    versions = {**existing.versions, **incoming.versions}
-    return existing.model_copy(update={"versions": versions})
-
-
-def _missing_agent_preset_versions(
-    existing: AgentPresetResourceSpec,
-    incoming: AgentPresetResourceSpec,
-) -> dict[int, AgentPresetVersionResourceSpec]:
-    """Return preset versions carried only by ``incoming``."""
-    return {
-        version_number: version
-        for version_number, version in incoming.versions.items()
-        if version_number not in existing.versions
-    }
-
-
-def _agent_preset_version_scan_spec(
-    preset: AgentPresetResourceSpec,
-    versions: Mapping[int, AgentPresetVersionResourceSpec],
-) -> AgentPresetResourceSpec:
-    """Build a synthetic spec for scanning newly merged version payloads."""
-    return preset.model_copy(
-        update={
-            "skills": [],
-            "subagents": [],
-            "versions": dict(versions),
-        }
-    )
-
-
-def _merge_skill_versions(
-    existing: SkillResourceSpec | None,
-    incoming: SkillResourceSpec,
-) -> SkillResourceSpec:
-    """Return ``existing`` with any incoming skill versions added."""
-    if existing is None:
-        return incoming
-    versions = {**existing.versions, **incoming.versions}
-    return existing.model_copy(update={"versions": versions})
+    """Return child-head refs from a preset's desired head topology."""
+    return list(preset.subagents)
 
 
 def _preview_resources_from_spec(

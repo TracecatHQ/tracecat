@@ -176,30 +176,20 @@ class WorkflowResourceSpec(BaseModel):
 
 
 class AgentPresetSkillBinding(BaseModel):
-    """Reference from an agent preset to a skill, optionally version-pinned."""
+    """Portable head-to-head reference from an agent preset to a skill."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     slug: str = Field(min_length=1, description="Slug of the referenced skill.")
-    version: int | None = Field(
-        default=None,
-        ge=1,
-        description="Pinned skill version, or ``None`` to track the latest.",
-    )
 
 
 class AgentPresetSubagentRef(BaseModel):
     """Reference from an agent preset to another preset used as a subagent."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     slug: str = Field(
         min_length=1, description="Slug of the preset used as a subagent."
-    )
-    version: int | None = Field(
-        default=None,
-        ge=1,
-        description="Pinned child preset version, or ``None`` to track the latest.",
     )
     name: str | None = Field(
         default=None, description="Optional runtime alias for the subagent."
@@ -229,7 +219,7 @@ class McpIntegrationHint(BaseModel):
 
 
 class AgentPresetVersionResourceSpec(BaseModel):
-    """Immutable agent preset snapshot stored under a preset's versions dir."""
+    """Internal config shape used while projecting a preset head."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -345,96 +335,93 @@ class AgentPresetResourceSpec(BaseModel):
         min_length=1, description="Unique preset slug used for cross-references."
     )
     name: str = Field(min_length=1, description="Human-readable preset name.")
-    current_version: int | None = Field(
-        default=None,
-        ge=1,
-        description="Current preset version, or ``None`` if unpublished.",
-    )
     folder_path: str | None = Field(
         default=None, description="Workspace folder the preset lives under, if any."
     )
     tags: list[str] = Field(default_factory=list, description="Free-form preset tags.")
     instructions: str | None = Field(
         default=None,
-        exclude=True,
         description="System prompt / instructions for the agent.",
     )
     tool_approvals: dict[str, Any] = Field(
         default_factory=dict,
-        exclude=True,
         description="Per-tool approval policy keyed by tool name.",
     )
     actions: list[str] = Field(
         default_factory=list,
-        exclude=True,
         description="Registry action names the agent may call.",
     )
     skills: list[AgentPresetSkillBinding] = Field(
         default_factory=list,
-        exclude=True,
-        description="Skills bound to the preset, optionally version-pinned.",
+        description="Skill heads bound to this preset head.",
     )
     subagents: list[AgentPresetSubagentRef] = Field(
         default_factory=list,
-        exclude=True,
-        description="Other presets invoked as subagents.",
+        description="Preset heads invoked as subagents.",
     )
     catalog_id: uuid.UUID | None = Field(
         default=None,
-        exclude=True,
         description="Source model catalog entry id, if model is catalog-backed.",
     )
     model_name: str | None = Field(
         default=None,
-        exclude=True,
         description="Override model name, or ``None`` to inherit defaults.",
     )
     model_provider: str | None = Field(
         default=None,
-        exclude=True,
         description="Override model provider, or ``None`` to inherit defaults.",
     )
     base_url: str | None = Field(
         default=None,
-        exclude=True,
         description="Override provider base URL, if any.",
     )
     output_type: Any | None = Field(
         default=None,
-        exclude=True,
         description="Structured output schema, if the agent returns structured data.",
     )
     namespaces: list[str] = Field(
         default_factory=list,
-        exclude=True,
         description="Registry namespaces the agent's tools are drawn from.",
     )
     mcp_integrations: list[str] = Field(
         default_factory=list,
-        exclude=True,
-        description="MCP integration slugs available to the agent.",
+        description="Source MCP integration ids available to the agent.",
+    )
+    mcp_integration_hints: dict[uuid.UUID, McpIntegrationHint] = Field(
+        default_factory=dict,
+        exclude_if=lambda value: not value,
+        description="Portable identity hints keyed by source MCP integration id.",
     )
     retries: int = Field(
         default=3,
         ge=0,
-        exclude=True,
         description="Maximum agent run retries.",
     )
     enable_thinking: bool = Field(
         default=True,
-        exclude=True,
         description="Whether extended thinking is enabled.",
     )
     enable_internet_access: bool = Field(
         default=False,
-        exclude=True,
         description="Whether the agent may access the internet.",
     )
-    versions: dict[int, AgentPresetVersionResourceSpec] = Field(
-        default_factory=dict,
-        exclude=True,
-        description="In-memory preset version snapshots keyed by version number.",
-    )
+
+    @model_validator(mode="after")
+    def validate_mcp_integration_hints(self) -> AgentPresetResourceSpec:
+        """Reject hints that do not describe an integration in this head."""
+        integration_ids: set[uuid.UUID] = set()
+        for integration in self.mcp_integrations:
+            try:
+                integration_ids.add(uuid.UUID(integration))
+            except ValueError:
+                continue
+        if stale_ids := set(self.mcp_integration_hints) - integration_ids:
+            formatted_ids = ", ".join(str(source_id) for source_id in sorted(stale_ids))
+            raise ValueError(
+                "MCP integration hints must reference ids in mcp_integrations: "
+                f"{formatted_ids}"
+            )
+        return self
 
 
 class SkillFileSpec(BaseModel):
@@ -455,7 +442,7 @@ class SkillFileSpec(BaseModel):
 
 
 class SkillVersionResourceSpec(BaseModel):
-    """Immutable skill snapshot stored under a skill's versions dir."""
+    """Internal config shape used while projecting a skill head."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -501,11 +488,6 @@ class SkillResourceSpec(BaseModel):
     description: str | None = Field(
         default=None, description="Optional skill description."
     )
-    current_version: int | None = Field(
-        default=None,
-        ge=1,
-        description="Published skill version, or ``None`` if unversioned.",
-    )
     files: list[SkillFileSpec] = Field(
         default_factory=list,
         description="Manifest of the skill's files and their content hashes.",
@@ -514,11 +496,6 @@ class SkillResourceSpec(BaseModel):
         default_factory=dict,
         exclude=True,
         description="In-memory file contents keyed by path; excluded from serialization.",
-    )
-    versions: dict[int, SkillVersionResourceSpec] = Field(
-        default_factory=dict,
-        exclude=True,
-        description="In-memory skill version snapshots keyed by version number.",
     )
 
 

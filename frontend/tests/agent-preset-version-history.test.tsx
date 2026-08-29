@@ -94,7 +94,6 @@ const VERSION_READ: AgentPresetVersionRead = {
   preset_id: PRESET_ID,
   workspace_id: WORKSPACE_ID,
   version: 1,
-  skills: [],
   created_at: "2026-07-01T00:00:00Z",
   updated_at: "2026-07-01T00:00:00Z",
 }
@@ -251,11 +250,10 @@ describe("AgentPresetVersionHistory", () => {
     expect(within(tree).queryByText("Removed")).not.toBeInTheDocument()
   })
 
-  it("marks config.yaml modified when only the skill version pin differs", async () => {
+  it("keeps current head skill topology unchanged in a version diff", async () => {
     const skillId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-    // Head pins the skill at v2; the selected version pinned it at v5. The
-    // draft form tracks only the skill id, so the head bindings must supply
-    // the pin or the restore diff hides a real rollback of skill code.
+    // Versions are config-only. Both sides use the current head binding, so a
+    // restore cannot appear to roll topology backward.
     mockUseAgentPreset.mockReturnValue({
       preset: {
         name: "Triage agent",
@@ -272,22 +270,6 @@ describe("AgentPresetVersionHistory", () => {
       presetError: null,
       refetchPreset: jest.fn(),
     })
-    mockUseAgentPresetVersion.mockReturnValue({
-      presetVersion: {
-        ...VERSION_READ,
-        skills: [
-          {
-            skill_id: skillId,
-            skill_version_id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
-            skill_name: "alpha-skill",
-            skill_version: 5,
-          },
-        ],
-      },
-      presetVersionIsLoading: false,
-      presetVersionError: null,
-      refetchPresetVersion: jest.fn(),
-    })
     mockUseSkills.mockReturnValue({
       skills: [{ id: skillId, name: "alpha-skill" }],
       skillsLoading: false,
@@ -303,7 +285,7 @@ describe("AgentPresetVersionHistory", () => {
     expect(items[0]).toHaveTextContent("instructions.md")
     expect(items[0]).not.toHaveTextContent("Modified")
     expect(items[1]).toHaveTextContent("config.yaml")
-    expect(items[1]).toHaveTextContent("Modified")
+    expect(items[1]).not.toHaveTextContent("Modified")
   })
 
   it("shows the load-error state and toasts when versions fail to load", async () => {

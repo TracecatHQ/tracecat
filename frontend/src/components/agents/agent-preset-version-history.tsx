@@ -163,10 +163,15 @@ function AgentPresetVersionDiffContent({
     () =>
       presetVersion
         ? buildAgentPresetVirtualFiles(
-            agentPresetVersionToDocumentInput(presetVersion, skillNamesById)
+            agentPresetVersionToDocumentInput(
+              presetVersion,
+              draftPayload ?? { agents: undefined, skills: [] },
+              skillNamesById,
+              headSkillBindings
+            )
           )
         : null,
-    [presetVersion, skillNamesById]
+    [presetVersion, draftPayload, skillNamesById, headSkillBindings]
   )
 
   const files = useMemo(() => {

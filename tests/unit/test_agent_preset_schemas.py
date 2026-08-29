@@ -19,7 +19,7 @@ from tracecat.agent.preset.schemas import (
     build_agent_preset_read_minimal,
     build_subagent_eligibility,
 )
-from tracecat.db.models import AgentPreset
+from tracecat.db.models import AgentPreset, AgentPresetSubagent, AgentPresetVersion
 
 
 def make_agent_preset(
@@ -29,23 +29,49 @@ def make_agent_preset(
     tool_approvals: dict[str, bool] | None = None,
     agents: dict[str, object] | None = None,
     enable_internet_access: bool = False,
+    has_subagents: bool = False,
 ) -> AgentPreset:
     timestamp = datetime(2026, 3, 9, tzinfo=UTC)
-    return AgentPreset(
-        id=uuid.uuid4(),
+    preset_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    preset = AgentPreset(
+        id=preset_id,
         workspace_id=uuid.uuid4(),
         name=name,
         slug=slug,
         description=None,
         model_provider="openai",
         model_name="gpt-4o-mini",
-        current_version_id=None,
+        current_version_id=version_id,
         tool_approvals=tool_approvals,
         agents=agents or {"enabled": False},
         enable_internet_access=enable_internet_access,
         created_at=timestamp,
         updated_at=timestamp,
     )
+    preset.current_version = AgentPresetVersion(
+        id=version_id,
+        workspace_id=preset.workspace_id,
+        preset_id=preset_id,
+        version=1,
+        instructions=None,
+        model_provider="openai",
+        model_name="gpt-4o-mini",
+        tool_approvals=tool_approvals,
+        enable_internet_access=enable_internet_access,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    if has_subagents:
+        preset.subagent_bindings = [
+            AgentPresetSubagent(
+                workspace_id=preset.workspace_id,
+                parent_preset_id=preset_id,
+                child_preset_id=uuid.uuid4(),
+                alias="analyst",
+            )
+        ]
+    return preset
 
 
 def test_agent_preset_create_trims_required_fields() -> None:
@@ -250,14 +276,14 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
             name="Parent preset",
             slug="parent-preset",
             tool_approvals={"core.http_request": True},
-            agents={"enabled": True, "subagents": []},
+            has_subagents=True,
         )
     )
 
     dumped = payload.model_dump(mode="json")
     assert dumped["current_version_subagent_eligibility"] == {
         "eligible": False,
-        "reasons": ["agents_enabled", "tool_approvals"],
+        "reasons": ["nested_subagents", "tool_approvals"],
         "message": (
             "This version defines its own subagents and requires manual approvals, "
             "which are not supported for preset subagents yet."
@@ -269,7 +295,7 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
 
 def test_build_subagent_eligibility_allows_plain_versions() -> None:
     eligibility = build_subagent_eligibility(
-        agents_config={"enabled": False},
+        has_subagents=False,
         tool_approvals={"core.http_request": False},
     )
 

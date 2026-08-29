@@ -26,7 +26,8 @@ from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
-from tracecat.tiers.entitlements import Entitlement, check_entitlement
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 
 router = APIRouter(
     prefix="/internal/agent",
@@ -67,7 +68,7 @@ async def _resolve_run_config(
 
 def _reject_unsupported_agents_config(config: AgentConfig) -> None:
     """Reject subagent config on the legacy internal agent runner."""
-    if config.agents.enabled:
+    if config.agents.subagents:
         raise ValueError(
             "Subagents are not supported by the internal agent run endpoint yet. "
             "Use agent sessions for subagent-enabled runs."

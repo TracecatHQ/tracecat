@@ -95,7 +95,6 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
         preset_version_id=uuid.uuid4(),
     )
     result = ResolvedAgentsRuntimeConfig(
-        enabled=True,
         subagents=[
             ResolvedSubagentConfig(
                 binding=binding,
@@ -113,7 +112,6 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
     assert result.subagents[0].alias == "analyst"
     assert result.subagents[0].max_turns == 5
     agents_binding = result.to_agents_binding()
-    assert agents_binding.enabled is True
     assert agents_binding.subagents == [binding]
 
 
@@ -136,11 +134,11 @@ async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None
         tool_approvals={},
     )
     service.resolve_agent_preset_version = AsyncMock(return_value=version)
+    service.get_head_subagents_config = AsyncMock(return_value=AgentSubagentsConfig())
     service._lock_active_subagent_presets = AsyncMock()  # type: ignore[method-assign]
 
     result = await service._resolve_preset_subagent_configs(
         AgentSubagentsConfig(
-            enabled=True,
             subagents=[
                 ResolvedAttachedSubagentRef(
                     preset="old-analyst-slug",
@@ -187,6 +185,7 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
                 retries=3,
             )
         ),
+        get_head_subagents_config=AsyncMock(return_value=AgentSubagentsConfig()),
         use_latest_resource_versions=AsyncMock(return_value=False),
     )
     role = Role(
@@ -205,7 +204,6 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
         ResolveAgentsConfigActivityInput(
             role=role,
             agents=AgentSubagentsConfig(
-                enabled=True,
                 subagents=[
                     ResolvedAttachedSubagentRef(
                         preset="old-analyst-slug",
@@ -252,6 +250,7 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
                 retries=3,
             )
         ),
+        get_head_subagents_config=AsyncMock(return_value=AgentSubagentsConfig()),
         use_latest_resource_versions=AsyncMock(return_value=True),
     )
     role = Role(
@@ -270,7 +269,6 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
         ResolveAgentsConfigActivityInput(
             role=role,
             agents=AgentSubagentsConfig(
-                enabled=True,
                 subagents=[
                     ResolvedAttachedSubagentRef(
                         preset="old-analyst-slug",
@@ -305,6 +303,7 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
     )
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
+        get_head_subagents_config=AsyncMock(return_value=AgentSubagentsConfig()),
         use_latest_resource_versions=AsyncMock(return_value=False),
     )
     role = Role(
