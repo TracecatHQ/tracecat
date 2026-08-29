@@ -28,6 +28,13 @@ repos:
           - --verbose
       - id: ruff-format
         verbose: true
+  - repo: https://github.com/sqlfluff/sqlfluff
+    rev: 4.3.0
+    hooks:
+      - id: sqlfluff-lint
+        name: parse PostgreSQL migration assets
+        args: [--dialect, postgres, --rules, LT12]
+        files: ^alembic/sql/.*\.sql$
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.25.1
     hooks:
