@@ -135,7 +135,7 @@ async def configure_minio_for_skills(
     monkeypatch.setattr(
         config,
         "TRACECAT__BLOB_STORAGE_ENDPOINT",
-        "http://localhost:9000",
+        f"http://localhost:{os.environ.get('MINIO_PORT', '9000')}",
         raising=False,
     )
     monkeypatch.setattr(
@@ -1123,6 +1123,139 @@ class TestAgentPresetService:
             assert versions == [1, 2, 3]
             assert preset is not None
             assert preset.current_version_id is not None
+        finally:
+            await concurrent_engine.dispose()
+
+    async def test_parent_update_and_child_delete_do_not_deadlock(
+        self,
+        agent_preset_create_params: AgentPresetCreate,
+        svc_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Concurrent topology mutations lock parent and child in one UUID order."""
+
+        role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+        concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
+
+        try:
+            async with session_factory() as seed_session:
+                seed_session.add(
+                    Workspace(
+                        id=role.workspace_id,
+                        name="topology-lock-workspace",
+                        organization_id=role.organization_id,
+                    )
+                )
+                await seed_session.commit()
+                seed_service = AgentPresetService(seed_session, role=role)
+                child = await seed_service.create_preset(
+                    agent_preset_create_params.model_copy(
+                        update={"name": "Lock child", "slug": "lock-child"}
+                    )
+                )
+                parent = await seed_service.create_preset(
+                    agent_preset_create_params.model_copy(
+                        update={
+                            "name": "Lock parent",
+                            "slug": "lock-parent",
+                            "agents": AgentSubagentsConfig.model_validate(
+                                {
+                                    "enabled": True,
+                                    "subagents": [{"preset": child.slug}],
+                                }
+                            ),
+                        }
+                    )
+                )
+
+            ready = asyncio.Event()
+            ready_count = 0
+
+            async def wait_for_competing_lock() -> None:
+                nonlocal ready_count
+                ready_count += 1
+                if ready_count == 2:
+                    ready.set()
+                await ready.wait()
+
+            async def update_parent() -> None:
+                async with session_factory() as update_session:
+                    service = AgentPresetService(update_session, role=role)
+                    loaded_parent = await service.get_preset(parent.id)
+                    assert loaded_parent is not None
+                    original_lock = service._lock_preset_update_dependencies
+
+                    async def synchronized_lock(
+                        preset_id: uuid.UUID,
+                        agents: AgentSubagentsConfig | dict[str, Any] | None,
+                    ) -> None:
+                        await wait_for_competing_lock()
+                        await original_lock(preset_id, agents)
+
+                    monkeypatch.setattr(
+                        service,
+                        "_lock_preset_update_dependencies",
+                        synchronized_lock,
+                    )
+                    try:
+                        await service.update_preset(
+                            loaded_parent,
+                            AgentPresetUpdate(
+                                instructions="Concurrent parent update",
+                                agents=AgentSubagentsConfig.model_validate(
+                                    {
+                                        "enabled": True,
+                                        "subagents": [{"preset": child.slug}],
+                                    }
+                                ),
+                            ),
+                        )
+                    except (TracecatNotFoundError, TracecatValidationError):
+                        await update_session.rollback()
+
+            async def delete_child() -> None:
+                async with session_factory() as delete_session:
+                    service = AgentPresetService(delete_session, role=role)
+                    loaded_child = await service.get_preset(child.id)
+                    assert loaded_child is not None
+                    original_lock = service._lock_preset_deletion_dependencies
+
+                    async def synchronized_lock(
+                        preset: AgentPreset,
+                    ) -> list[AgentPreset]:
+                        await wait_for_competing_lock()
+                        return await original_lock(preset)
+
+                    monkeypatch.setattr(
+                        service,
+                        "_lock_preset_deletion_dependencies",
+                        synchronized_lock,
+                    )
+                    await service.delete_preset(loaded_child, confirm_unlink=True)
+
+            await asyncio.wait_for(
+                asyncio.gather(update_parent(), delete_child()),
+                timeout=10,
+            )
+
+            async with session_factory() as verification_session:
+                verification_service = AgentPresetService(
+                    verification_session,
+                    role=role,
+                )
+                assert await verification_service.get_preset(child.id) is None
+                refreshed_parent = await verification_service.get_preset(parent.id)
+                assert refreshed_parent is not None
+                assert (
+                    AgentSubagentsConfig.model_validate(
+                        refreshed_parent.agents
+                    ).subagents
+                    == []
+                )
         finally:
             await concurrent_engine.dispose()
 
@@ -2214,7 +2347,7 @@ class TestAgentPresetService:
         assert captured_for_update
         assert all(captured_for_update)
 
-    async def test_update_preset_locks_preset_before_replacing_skill_bindings(
+    async def test_update_preset_locks_skills_before_preset_and_bindings(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
@@ -2222,7 +2355,7 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Preset updates lock before reading or replacing mutable skill bindings."""
+        """Preset updates use the same skill-before-preset lock order as archival."""
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
@@ -2241,13 +2374,22 @@ class TestAgentPresetService:
         )
 
         original_lock = agent_preset_service._lock_preset_row
+        original_validate = agent_preset_service.skills.validate_binding_inputs
         original_get_specs = agent_preset_service._get_head_skill_binding_specs
         original_replace = agent_preset_service._replace_head_skill_bindings
         call_order: list[str] = []
 
         async def instrumented_lock(preset_id: uuid.UUID) -> None:
-            call_order.append("lock")
+            call_order.append("lock_preset")
             await original_lock(preset_id)
+
+        async def instrumented_validate(
+            bindings: Sequence[AgentPresetSkillBindingBase],
+            *,
+            for_update: bool = False,
+        ) -> None:
+            call_order.append("lock_skills")
+            await original_validate(bindings, for_update=for_update)
 
         async def instrumented_get_specs(
             preset_id: uuid.UUID,
@@ -2267,6 +2409,11 @@ class TestAgentPresetService:
             agent_preset_service,
             "_lock_preset_row",
             instrumented_lock,
+        )
+        monkeypatch.setattr(
+            agent_preset_service.skills,
+            "validate_binding_inputs",
+            instrumented_validate,
         )
         monkeypatch.setattr(
             agent_preset_service,
@@ -2290,8 +2437,13 @@ class TestAgentPresetService:
             ),
         )
 
-        assert call_order[:3] == ["lock", "read_specs", "replace"]
-        assert call_order.count("lock") == 1
+        assert call_order[:4] == [
+            "lock_skills",
+            "lock_preset",
+            "read_specs",
+            "replace",
+        ]
+        assert call_order.count("lock_preset") == 1
 
     async def test_restore_version_publishes_new_current_version(
         self,
@@ -2323,7 +2475,7 @@ class TestAgentPresetService:
         assert [version.version for version in versions.items] == [3, 2, 1]
         assert versions.items[0].id == restored_preset.current_version_id
 
-    async def test_restore_version_locks_preset_before_replacing_skill_bindings(
+    async def test_restore_version_locks_skills_before_preset_and_bindings(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
@@ -2331,7 +2483,7 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Preset restore locks before replacing mutable head skill bindings."""
+        """Preset restore uses the same skill-before-preset lock order as archival."""
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
@@ -2362,37 +2514,62 @@ class TestAgentPresetService:
             AgentPresetUpdate(skills=[]),
         )
 
-        original_lock = agent_preset_service._lock_preset_row
-        original_restore = (
-            agent_preset_service._restore_head_skill_bindings_from_version
-        )
+        original_skill_lock = agent_preset_service._current_skill_bindings_for_version
+        original_preset_lock = agent_preset_service._lock_preset_update_dependencies
+        original_replace = agent_preset_service._replace_head_skill_bindings
         call_order: list[str] = []
 
-        async def instrumented_lock(preset_id: uuid.UUID) -> None:
-            call_order.append("lock")
-            await original_lock(preset_id)
+        async def instrumented_skill_lock(
+            version_id: uuid.UUID,
+            *,
+            for_update: bool,
+        ) -> list[SkillBindingSpec]:
+            call_order.append("lock_skills")
+            return await original_skill_lock(version_id, for_update=for_update)
 
-        async def instrumented_restore(
-            *, preset_id: uuid.UUID, version_id: uuid.UUID
+        async def instrumented_preset_lock(
+            preset_id: uuid.UUID,
+            agents: AgentSubagentsConfig | dict[str, Any] | None,
         ) -> None:
-            call_order.append("restore_bindings")
-            await original_restore(preset_id=preset_id, version_id=version_id)
+            call_order.append("lock_presets")
+            await original_preset_lock(preset_id, agents)
+
+        async def instrumented_replace(
+            preset_id: uuid.UUID,
+            bindings: Sequence[AgentPresetSkillBindingBase] = (),
+            *,
+            binding_specs: Sequence[SkillBindingSpec] | None = None,
+        ) -> None:
+            call_order.append("replace_bindings")
+            await original_replace(
+                preset_id,
+                bindings,
+                binding_specs=binding_specs,
+            )
 
         monkeypatch.setattr(
             agent_preset_service,
-            "_lock_preset_row",
-            instrumented_lock,
+            "_current_skill_bindings_for_version",
+            instrumented_skill_lock,
         )
         monkeypatch.setattr(
             agent_preset_service,
-            "_restore_head_skill_bindings_from_version",
-            instrumented_restore,
+            "_lock_preset_update_dependencies",
+            instrumented_preset_lock,
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_replace_head_skill_bindings",
+            instrumented_replace,
         )
 
         await agent_preset_service.restore_version(created_preset, version_1)
 
-        assert call_order[:2] == ["lock", "restore_bindings"]
-        assert call_order.count("lock") == 1
+        assert call_order[:3] == [
+            "lock_skills",
+            "lock_presets",
+            "replace_bindings",
+        ]
 
     async def test_restore_version_rejects_archived_skill_bindings(
         self,
@@ -2868,43 +3045,32 @@ class TestAgentPresetService:
         with pytest.raises(TracecatNotFoundError, match="not found"):
             await agent_preset_service._create_version_from_preset(created_preset)
 
-    async def test_delete_preset_locks_target_before_subagent_reference_check(
+    async def test_delete_preset_locks_target_and_parents_together(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Preset deletion serializes with restore before checking active refs."""
+        """Preset deletion locks its complete dependency set before checking refs."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
         call_order: list[str] = []
-        original_lock = agent_preset_service._lock_preset_row
-        original_count = agent_preset_service._count_head_subagent_references
+        original_lock = agent_preset_service._lock_preset_deletion_dependencies
 
-        async def instrumented_lock(preset_id: uuid.UUID) -> None:
-            call_order.append("lock")
-            await original_lock(preset_id)
-
-        async def instrumented_count(preset: AgentPreset) -> int:
-            call_order.append("reference_check")
-            return await original_count(preset)
+        async def instrumented_lock(preset: AgentPreset) -> list[AgentPreset]:
+            call_order.append("lock_dependencies")
+            return await original_lock(preset)
 
         monkeypatch.setattr(
             agent_preset_service,
-            "_lock_preset_row",
+            "_lock_preset_deletion_dependencies",
             instrumented_lock,
-        )
-        monkeypatch.setattr(
-            agent_preset_service,
-            "_count_head_subagent_references",
-            instrumented_count,
         )
 
         await agent_preset_service.delete_preset(created_preset)
 
-        assert call_order[:2] == ["lock", "reference_check"]
-        assert call_order.count("lock") == 1
+        assert call_order == ["lock_dependencies"]
 
     async def test_delete_preset_blocks_when_referenced_as_subagent_in_head(
         self,
