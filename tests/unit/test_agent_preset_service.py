@@ -2421,7 +2421,7 @@ class TestAgentPresetService:
         )
 
         original_lock = agent_preset_service._lock_preset_row
-        original_validate = agent_preset_service.skills.validate_binding_inputs
+        original_skill_lock = agent_preset_service._current_skill_binding_specs
         original_get_specs = agent_preset_service._get_head_skill_binding_specs
         original_replace = agent_preset_service._replace_head_skill_bindings
         call_order: list[str] = []
@@ -2430,13 +2430,13 @@ class TestAgentPresetService:
             call_order.append("lock_preset")
             await original_lock(preset_id)
 
-        async def instrumented_validate(
-            bindings: Sequence[AgentPresetSkillBindingBase],
+        async def instrumented_skill_lock(
+            skill_ids: Sequence[uuid.UUID],
             *,
             for_update: bool = False,
-        ) -> None:
+        ) -> list[SkillBindingSpec]:
             call_order.append("lock_skills")
-            await original_validate(bindings, for_update=for_update)
+            return await original_skill_lock(skill_ids, for_update=for_update)
 
         async def instrumented_get_specs(
             preset_id: uuid.UUID,
@@ -2458,9 +2458,9 @@ class TestAgentPresetService:
             instrumented_lock,
         )
         monkeypatch.setattr(
-            agent_preset_service.skills,
-            "validate_binding_inputs",
-            instrumented_validate,
+            agent_preset_service,
+            "_current_skill_binding_specs",
+            instrumented_skill_lock,
         )
         monkeypatch.setattr(
             agent_preset_service,
@@ -2485,9 +2485,9 @@ class TestAgentPresetService:
         )
 
         assert call_order[:4] == [
+            "read_specs",
             "lock_skills",
             "lock_preset",
-            "read_specs",
             "replace",
         ]
         assert call_order.count("lock_preset") == 1

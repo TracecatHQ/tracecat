@@ -41,7 +41,7 @@ from tracecat.agent.preset.schemas import (
     build_subagent_eligibility,
 )
 from tracecat.agent.preset.types import SkillBindingSpec
-from tracecat.agent.skill.service import SkillService
+from tracecat.agent.skill.bindings import SkillBindingService
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAgentsConfig,
@@ -118,7 +118,7 @@ class AgentPresetService(BaseWorkspaceService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
-        self.skills = SkillService(session, role=self.role)
+        self.skills = SkillBindingService(session, role=self.role)
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
@@ -385,13 +385,26 @@ class AgentPresetService(BaseWorkspaceService):
         set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
         execution_changed = False
         requested_skills = None
+        requested_specs: list[SkillBindingSpec] | None = None
         preset_locked = True
+        current_specs = await self._get_head_skill_binding_specs(preset.id)
+        current_skill_ids = {binding.skill_id for binding in current_specs}
         if "skills" in params.model_fields_set:
             requested_skills = params.skills or []
-            await self.skills.validate_binding_inputs(
-                requested_skills,
-                for_update=True,
-            )
+            requested_skill_ids = {binding.skill_id for binding in requested_skills}
+        else:
+            requested_skill_ids = current_skill_ids
+        locked_specs = await self._current_skill_binding_specs(
+            sorted(current_skill_ids | requested_skill_ids, key=str),
+            for_update=True,
+        )
+        locked_specs_by_id = {binding.skill_id: binding for binding in locked_specs}
+        publish_specs = [
+            locked_specs_by_id[skill_id]
+            for skill_id in sorted(requested_skill_ids, key=str)
+        ]
+        if requested_skills is not None:
+            requested_specs = publish_specs
 
         if "agents" in set_fields:
             await self._lock_preset_update_dependencies(
@@ -456,11 +469,7 @@ class AgentPresetService(BaseWorkspaceService):
                 execution_changed = True
 
         if requested_skills is not None:
-            current_specs = await self._get_head_skill_binding_specs(preset.id)
-            requested_specs = await self._binding_specs_from_inputs(
-                requested_skills,
-                for_update=True,
-            )
+            assert requested_specs is not None
             if current_specs != requested_specs:
                 await self._replace_head_skill_bindings(
                     preset.id,
@@ -490,6 +499,7 @@ class AgentPresetService(BaseWorkspaceService):
             await self.publish_preset_head(
                 preset,
                 preset_locked=preset_locked,
+                binding_specs=publish_specs,
             )
         await self.session.commit()
         await self.session.refresh(preset)
@@ -553,50 +563,6 @@ class AgentPresetService(BaseWorkspaceService):
                 parent,
                 preset_locked=True,
             )
-
-    async def unlink_skill_from_active_presets(
-        self,
-        skill_id: uuid.UUID,
-        *,
-        confirm_unlink: bool,
-    ) -> int:
-        """Publish removal of a skill from every active parent preset."""
-
-        stmt = (
-            select(AgentPreset)
-            .join(AgentPresetSkill, AgentPresetSkill.preset_id == AgentPreset.id)
-            .where(
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.deleted_at.is_(None),
-                AgentPresetSkill.workspace_id == self.workspace_id,
-                AgentPresetSkill.skill_id == skill_id,
-            )
-            .order_by(AgentPreset.id)
-            .with_for_update()
-        )
-        parents = list((await self.session.execute(stmt)).scalars().unique().all())
-        if parents and not confirm_unlink:
-            raise TracecatValidationError(
-                "Deleting this skill requires confirmation because it is still "
-                "referenced by agent presets",
-                detail={
-                    "code": "skill_in_use",
-                    "head_reference_count": len(parents),
-                },
-            )
-        for parent in parents:
-            await self.session.execute(
-                sa.delete(AgentPresetSkill).where(
-                    AgentPresetSkill.workspace_id == self.workspace_id,
-                    AgentPresetSkill.preset_id == parent.id,
-                    AgentPresetSkill.skill_id == skill_id,
-                )
-            )
-            await self.publish_preset_head(
-                parent,
-                preset_locked=True,
-            )
-        return len(parents)
 
     async def _count_head_subagent_references(self, preset: AgentPreset) -> int:
         subagent_ref_exists = self._subagent_reference_exists(
@@ -1891,6 +1857,37 @@ class AgentPresetService(BaseWorkspaceService):
             preset_id=child.id,
             slug=child.slug,
         )
+        parent_ids = list(
+            (
+                await self.session.execute(
+                    select(AgentPreset.id).where(
+                        AgentPreset.workspace_id == self.workspace_id,
+                        AgentPreset.id != child.id,
+                        AgentPreset.deleted_at.is_(None),
+                        reference_exists,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if parent_ids:
+            parent_skill_ids = list(
+                (
+                    await self.session.execute(
+                        select(AgentPresetSkill.skill_id).where(
+                            AgentPresetSkill.workspace_id == self.workspace_id,
+                            AgentPresetSkill.preset_id.in_(parent_ids),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            await self._current_skill_binding_specs(
+                sorted(set(parent_skill_ids), key=str),
+                for_update=True,
+            )
         stmt = (
             select(AgentPreset)
             .where(

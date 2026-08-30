@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
+from tracecat.agent.dependencies.service import AgentDependencyService
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetSkillBindingBase,
@@ -4129,35 +4130,42 @@ class TestSkillService:
         assert full_read.deleted_at == legacy_archived_at
         assert minimal_read.deleted_at == legacy_archived_at
 
-    async def test_archive_skill_locks_skill_row(
+    async def test_archive_skill_delegates_dependency_coordination(
         self,
         skill_service: SkillService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Archiving a skill locks the row before checking preset bindings."""
+        """Archiving delegates cross-resource locking and unlink publication."""
 
         created = await skill_service.create_skill(SkillCreate(name="locked-archive"))
 
-        original_get_skill_for_update = SkillService._get_skill_for_update
-        lock_calls = 0
+        original_unlink = AgentDependencyService.unlink_skill_from_active_presets
+        coordination_calls = 0
 
-        async def instrumented_get_skill_for_update(
-            self: SkillService, skill_id: uuid.UUID
-        ):
-            nonlocal lock_calls
-            lock_calls += 1
-            return await original_get_skill_for_update(self, skill_id)
+        async def instrumented_unlink(
+            self: AgentDependencyService,
+            skill_id: uuid.UUID,
+            *,
+            confirm_unlink: bool,
+        ) -> Skill:
+            nonlocal coordination_calls
+            coordination_calls += 1
+            return await original_unlink(
+                self,
+                skill_id,
+                confirm_unlink=confirm_unlink,
+            )
 
         monkeypatch.setattr(
-            SkillService,
-            "_get_skill_for_update",
-            instrumented_get_skill_for_update,
+            AgentDependencyService,
+            "unlink_skill_from_active_presets",
+            instrumented_unlink,
         )
 
         await skill_service.archive_skill(created.id)
         archived = await skill_service.get_skill(created.id, include_archived=True)
 
-        assert lock_calls == 1
+        assert coordination_calls == 1
         assert archived is not None
         assert archived.archived_at is not None
         assert archived.deleted_at == archived.archived_at
