@@ -2163,6 +2163,37 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.flush()
         return version
 
+    async def reconcile_and_publish_head(
+        self,
+        preset: AgentPreset,
+        *,
+        binding_specs: Sequence[SkillBindingSpec],
+    ) -> AgentPresetVersion:
+        """Reconcile mutable bindings and publish the identical preset head.
+
+        The caller owns the surrounding transaction. If the selected immutable
+        version already matches the desired head, this only repairs the mutable
+        binding projection and returns that version.
+        """
+
+        await self._replace_head_skill_bindings(
+            preset.id,
+            binding_specs=binding_specs,
+        )
+        current_version = None
+        if preset.current_version_id is not None:
+            current_version = await self.get_version(preset.current_version_id)
+        if current_version is not None and await self.version_matches_preset_head(
+            current_version,
+            preset,
+            binding_specs=binding_specs,
+        ):
+            return current_version
+        return await self.publish_preset_head(
+            preset,
+            binding_specs=binding_specs,
+        )
+
     async def version_matches_preset_head(
         self,
         version: AgentPresetVersion,

@@ -1375,24 +1375,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 for skill, skill_version in skill_targets
             ]
 
-            current_version = await self._current_version_for_preset(
-                workspace_service, preset
-            )
-            await preset_service._replace_head_skill_bindings(
-                preset.id,
+            await preset_service.reconcile_and_publish_head(
+                preset,
                 binding_specs=binding_specs,
             )
-            if current_version is None or not (
-                await preset_service.version_matches_preset_head(
-                    current_version,
-                    preset,
-                    binding_specs=binding_specs,
-                )
-            ):
-                await preset_service.publish_preset_head(
-                    preset,
-                    binding_specs=binding_specs,
-                )
             imported.append(self.imported_resource(source_id, preset.id))
         return imported
 
@@ -1678,22 +1664,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         if version is None:
             return None
         return child, version
-
-    async def _current_version_for_preset(
-        self,
-        workspace_service: SyncMappingService,
-        preset: AgentPreset,
-    ) -> AgentPresetVersion | None:
-        """Return ``preset``'s current :class:`AgentPresetVersion`, if pinned."""
-        if preset.current_version_id is None:
-            return None
-        return await workspace_service.session.scalar(
-            select(AgentPresetVersion).where(
-                AgentPresetVersion.workspace_id == workspace_service.workspace_id,
-                AgentPresetVersion.preset_id == preset.id,
-                AgentPresetVersion.id == preset.current_version_id,
-            )
-        )
 
     def _version_attrs_from_spec(
         self,

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
+import sqlalchemy as sa
 from dotenv import dotenv_values
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -47,6 +48,7 @@ from tracecat.db.models import (
     AgentChannelToken,
     AgentModelAccess,
     AgentPreset,
+    AgentPresetSkill,
     AgentPresetVersion,
     AgentPresetVersionSkill,
     MCPIntegration,
@@ -2109,6 +2111,51 @@ class TestAgentPresetService:
         ]
         assert calls[0][1] is calls[1][1]
         assert calls[1][1] is calls[2][1]
+
+    async def test_reconcile_and_publish_head_repairs_mutable_bindings_atomically(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Reconciliation keeps mutable bindings and the selected snapshot aligned."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        skill = await skill_service.create_skill(SkillCreate(name="reconciled-skill"))
+        skill_version = await skill_service.publish_skill(skill.id)
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        binding_specs = [SkillBindingSpec(skill.id, skill_version.id)]
+
+        published = await agent_preset_service.reconcile_and_publish_head(
+            preset,
+            binding_specs=binding_specs,
+        )
+        await session.execute(
+            sa.delete(AgentPresetSkill).where(
+                AgentPresetSkill.workspace_id == svc_role.workspace_id,
+                AgentPresetSkill.preset_id == preset.id,
+            )
+        )
+        await session.flush()
+
+        repaired = await agent_preset_service.reconcile_and_publish_head(
+            preset,
+            binding_specs=binding_specs,
+        )
+
+        assert repaired.id == published.id
+        assert (
+            await agent_preset_service._get_head_skill_binding_specs(preset.id)
+            == binding_specs
+        )
+        version_bindings = await agent_preset_service._list_version_skill_bindings(
+            repaired.id
+        )
+        assert [
+            (binding.skill_id, binding.skill_version_id) for binding in version_bindings
+        ] == [(skill.id, skill_version.id)]
 
     async def test_resolve_agent_preset_config_rejects_duplicate_skill_names(
         self,
