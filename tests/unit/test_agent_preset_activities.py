@@ -117,7 +117,9 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
 
 
 @pytest.mark.anyio
-async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None:
+async def test_resolve_preset_subagent_allows_enabled_agent_tool_without_children() -> (
+    None
+):
     role = Role(
         type="service",
         service_id="tracecat-api",
@@ -131,7 +133,7 @@ async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None
         id=preset_version_id,
         preset_id=preset_id,
         version=8,
-        agents={"enabled": False},
+        agents={"enabled": True, "subagents": []},
         tool_approvals={},
     )
     service.resolve_agent_preset_version = AsyncMock(return_value=version)

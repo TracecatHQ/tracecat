@@ -973,7 +973,7 @@ class TestAgentPresetService:
         assert [version.version for version in page_2.items] == [1]
         assert page_2.has_more is False
 
-    async def test_list_versions_exposes_subagent_eligibility(
+    async def test_list_versions_allows_agent_tool_without_nested_subagents(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
@@ -997,9 +997,9 @@ class TestAgentPresetService:
         assert len(versions.items) == 1
         version = versions.items[0]
         assert version.capabilities == ["subagents"]
-        assert version.subagent_eligibility.eligible is False
-        assert version.subagent_eligibility.reasons == ["agents_enabled"]
-        assert version.subagent_eligibility.message is not None
+        assert version.subagent_eligibility.eligible is True
+        assert version.subagent_eligibility.reasons == []
+        assert version.subagent_eligibility.message is None
 
     async def test_list_versions_rejects_invalid_cursor(
         self,

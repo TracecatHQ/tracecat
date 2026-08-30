@@ -229,7 +229,7 @@ def build_subagent_eligibility(
 
     reasons: list[AgentPresetSubagentEligibilityReason] = []
     agents = AgentSubagentsConfig.model_validate(agents_config or {})
-    if agents.enabled:
+    if agents.subagents:
         reasons.append("agents_enabled")
     if has_manual_tool_approvals(tool_approvals):
         reasons.append("tool_approvals")
@@ -248,8 +248,8 @@ def _subagent_eligibility_message(
     reason_set = set(reasons)
     if reason_set == {"agents_enabled"}:
         return (
-            "This version defines its own subagents. Disable the Agent tool on "
-            "that version before attaching it as a subagent."
+            "This version defines its own subagents. Remove those subagents before "
+            "attaching this version as a subagent."
         )
     if reason_set == {"tool_approvals"}:
         return (

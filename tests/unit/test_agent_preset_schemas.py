@@ -257,25 +257,42 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
     dumped = payload.model_dump(mode="json")
     assert dumped["current_version_subagent_eligibility"] == {
         "eligible": False,
-        "reasons": ["agents_enabled", "tool_approvals"],
+        "reasons": ["tool_approvals"],
         "message": (
-            "This version defines its own subagents and requires manual approvals, "
-            "which are not supported for preset subagents yet."
+            "This version requires manual approvals, which are not supported for "
+            "preset subagents yet."
         ),
     }
     assert dumped["capabilities"] == ["approvals", "subagents"]
     assert "agents" not in dumped
 
 
-def test_build_subagent_eligibility_allows_plain_versions() -> None:
+def test_build_subagent_eligibility_allows_agent_tool_without_children() -> None:
     eligibility = build_subagent_eligibility(
-        agents_config={"enabled": False},
+        agents_config={"enabled": True, "subagents": []},
         tool_approvals={"core.http_request": False},
     )
 
     assert eligibility.eligible is True
     assert eligibility.reasons == []
     assert eligibility.message is None
+
+
+def test_build_subagent_eligibility_rejects_nested_subagents() -> None:
+    eligibility = build_subagent_eligibility(
+        agents_config={
+            "enabled": True,
+            "subagents": [{"preset": "nested-child"}],
+        },
+        tool_approvals={},
+    )
+
+    assert eligibility.eligible is False
+    assert eligibility.reasons == ["agents_enabled"]
+    assert eligibility.message == (
+        "This version defines its own subagents. Remove those subagents before "
+        "attaching this version as a subagent."
+    )
 
 
 def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields() -> (

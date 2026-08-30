@@ -192,7 +192,7 @@ async def resolve_agents_config(
             raise TracecatValidationError("Agent presets cannot reference themselves")
 
         child_agents = AgentSubagentsConfig.model_validate(version.agents)
-        if child_agents.enabled:
+        if child_agents.subagents:
             raise TracecatValidationError(
                 f"Subagent preset '{ref.preset}' cannot define its own agents in v1"
             )
