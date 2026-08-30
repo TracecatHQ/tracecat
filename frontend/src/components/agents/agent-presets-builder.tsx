@@ -355,9 +355,6 @@ type AgentPresetFormValues = z.infer<typeof agentPresetSchema>
 type SubagentFormValue = AgentPresetFormValues["subagents"][number]
 type SkillBindingFormValue = AgentPresetFormValues["skills"][number]
 type ToolApprovalFormValue = AgentPresetFormValues["toolApprovals"][number]
-type AuthoredAttachedSubagentRef = AttachedSubagentRef & {
-  preset_id?: string
-}
 
 const LIVE_INTERNET_ACCESS_WARNING_MESSAGE =
   "One or more selected subagents have internet access enabled, but the parent agent does not. Enable internet access on the parent agent for those subagents to use web tools."
@@ -1622,18 +1619,14 @@ function AgentPresetForm({
         }
       }
 
-      const payload = formValuesToPayload(
-        values,
-        { presetsBySlug: agentPresetsBySlug },
-        {
-          forceInternetAccess:
-            hasStdioMcp ||
-            hasSelectedStdioMcpIntegration(
-              values.mcpIntegrations,
-              mcpIntegrations
-            ),
-        }
-      )
+      const payload = formValuesToPayload(values, {
+        forceInternetAccess:
+          hasStdioMcp ||
+          hasSelectedStdioMcpIntegration(
+            values.mcpIntegrations,
+            mcpIntegrations
+          ),
+      })
       if (mode === "edit" && preset) {
         const updatePayload = buildAgentPresetUpdatePayload(payload, {
           skillsChanged: Boolean(form.formState.dirtyFields.skills),
@@ -1662,17 +1655,15 @@ function AgentPresetForm({
 
   const getDraftPayload = useCallback((): AgentPresetCreate | null => {
     try {
-      return formValuesToPayload(
-        form.getValues(),
-        { presetsBySlug: agentPresetsBySlug },
-        { forceInternetAccess: hasStdioMcp }
-      )
+      return formValuesToPayload(form.getValues(), {
+        forceInternetAccess: hasStdioMcp,
+      })
     } catch {
       // `formValuesToPayload` runs `JSON.parse` on the structured-output
       // schema, which legitimately throws while the user is mid-edit.
       return null
     }
-  }, [agentPresetsBySlug, form, hasStdioMcp])
+  }, [form, hasStdioMcp])
 
   // Wording only: the backend cuts a version only when a publishing field
   // changes, so a metadata-only edit reads as "Save changes". RHF marks array
@@ -3742,7 +3733,6 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
 
 function formValuesToPayload(
   values: AgentPresetFormValues,
-  subagentContext: SubagentResolutionContext,
   options?: { forceInternetAccess?: boolean }
 ): AgentPresetCreate {
   const outputType =
@@ -3771,7 +3761,7 @@ function formValuesToPayload(
     namespaces: values.namespaces.length > 0 ? values.namespaces : null,
     mcp_integrations:
       values.mcpIntegrations.length > 0 ? values.mcpIntegrations : null,
-    agents: formValuesToAgentsPayload(values, subagentContext),
+    agents: formValuesToAgentsPayload(values),
     skills: values.skills.map((binding) => ({
       skill_id: binding.skillId,
     })),
@@ -3783,31 +3773,24 @@ function formValuesToPayload(
   }
 }
 
-type SubagentResolutionContext = {
-  presetsBySlug: Map<string, AgentPresetReadMinimal>
-}
-
 function formValuesToAgentsPayload(
-  values: AgentPresetFormValues,
-  { presetsBySlug }: SubagentResolutionContext
+  values: AgentPresetFormValues
 ): AgentPresetCreate["agents"] {
   if (!values.agentsEnabled) {
     return { enabled: false }
   }
 
   const subagents = values.subagents
-    .map((subagent): AuthoredAttachedSubagentRef | null => {
+    .map((subagent): AttachedSubagentRef | null => {
       const preset = subagent.preset.trim()
       if (!preset) {
         return null
       }
 
-      const payload: AuthoredAttachedSubagentRef = { preset }
+      const payload: AttachedSubagentRef = { preset }
       const name = normalizeOptional(subagent.name)
       const description = normalizeOptional(subagent.description)
       const maxTurns = parseOptionalPositiveInteger(subagent.maxTurns)
-      const presetId = normalizeOptional(subagent.presetId)
-      const resolvedPresetId = presetId ?? presetsBySlug.get(preset)?.id ?? null
 
       if (name !== null) {
         payload.name = name
@@ -3818,15 +3801,9 @@ function formValuesToAgentsPayload(
       if (maxTurns !== null) {
         payload.max_turns = maxTurns
       }
-      if (resolvedPresetId !== null) {
-        payload.preset_id = resolvedPresetId
-      }
-
       return payload
     })
-    .filter(
-      (subagent): subagent is AuthoredAttachedSubagentRef => subagent !== null
-    )
+    .filter((subagent): subagent is AttachedSubagentRef => subagent !== null)
 
   return {
     enabled: true,
