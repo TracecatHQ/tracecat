@@ -2052,15 +2052,15 @@ class TestAgentPresetService:
             )
         )
 
-        original_resolve = agent_preset_service._resolve_head_skill_binding_specs
+        original_resolve = agent_preset_service._current_skill_binding_specs
         original_validate = agent_preset_service._validate_unique_skill_binding_names
         original_snapshot = agent_preset_service._snapshot_version_skill_bindings
         calls: list[tuple[str, object]] = []
 
         async def instrumented_resolve(
-            preset_id: uuid.UUID, *, for_update: bool = False
+            skill_ids: Sequence[uuid.UUID], *, for_update: bool = False
         ) -> list[SkillBindingSpec]:
-            specs = await original_resolve(preset_id, for_update=for_update)
+            specs = await original_resolve(skill_ids, for_update=for_update)
             calls.append(("resolve_locked" if for_update else "resolve", specs))
             return specs
 
@@ -2085,7 +2085,7 @@ class TestAgentPresetService:
 
         monkeypatch.setattr(
             agent_preset_service,
-            "_resolve_head_skill_binding_specs",
+            "_current_skill_binding_specs",
             instrumented_resolve,
         )
         monkeypatch.setattr(
@@ -2109,7 +2109,7 @@ class TestAgentPresetService:
             "validate",
             "snapshot",
         ]
-        assert calls[0][1] is calls[1][1]
+        assert calls[0][1] == calls[1][1]
         assert calls[1][1] is calls[2][1]
 
     async def test_reconcile_and_publish_head_repairs_mutable_bindings_atomically(
