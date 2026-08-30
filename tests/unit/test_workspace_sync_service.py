@@ -373,7 +373,7 @@ async def test_pull_dry_run_ignores_schedule_diff_when_schedule_sync_is_disabled
 
 
 @pytest.mark.anyio
-async def test_parse_files_accepts_legacy_workflow_tree_without_manifest(
+async def test_parse_files_rejects_legacy_workflow_tree_without_manifest(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
     source_id = WorkflowUUID.new_uuid4().short()
@@ -387,13 +387,14 @@ async def test_parse_files_accepts_legacy_workflow_tree_without_manifest(
         }
     )
 
-    assert diagnostics == []
-    assert list(snapshot.spec.workflows) == [source_id]
-    assert snapshot.spec.workflows[source_id].alias == "legacy-workflow"
+    assert snapshot.spec == WorkspaceSpec()
+    assert len(diagnostics) == 1
+    assert diagnostics[0].details == {"code": "workspace_format_outdated"}
+    assert "new Push" in diagnostics[0].message
 
 
 @pytest.mark.anyio
-async def test_parse_files_accepts_legacy_string_version_manifest(
+async def test_parse_files_rejects_legacy_string_version_manifest(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
     source_id = WorkflowUUID.new_uuid4().short()
@@ -408,8 +409,11 @@ async def test_parse_files_accepts_legacy_string_version_manifest(
         }
     )
 
-    assert diagnostics == []
-    assert list(snapshot.spec.workflows) == [source_id]
+    assert snapshot.spec == WorkspaceSpec()
+    assert len(diagnostics) == 1
+    assert diagnostics[0].details is not None
+    assert "outdated workspace format" in diagnostics[0].details["error"]
+    assert "new Push" in diagnostics[0].details["error"]
 
 
 @pytest.mark.anyio
