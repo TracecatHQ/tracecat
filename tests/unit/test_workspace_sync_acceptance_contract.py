@@ -9,7 +9,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import re
 import uuid
 from collections.abc import Mapping
 from copy import deepcopy
@@ -21,7 +20,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 from cryptography.fernet import Fernet
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
+from pydantic import SecretStr, ValidationError
 from pydantic_core import PydanticSerializationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,7 +59,6 @@ from tracecat.db.models import (
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
-from tracecat.identifiers.workflow import WF_ID_SHORT_PATTERN, WorkflowUUID
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.schemas import SecretKeyValue
@@ -68,7 +66,6 @@ from tracecat.secrets.service import SecretsService
 from tracecat.sync import PullOptions, PushStatus
 from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
-from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
     RESOURCE_ADAPTERS_BY_TYPE,
@@ -91,8 +88,8 @@ from tracecat.workspace_sync.schemas import (
     TABLE_ROOT,
     VARIABLE_ROOT,
     WORKFLOW_ROOT,
+    AgentPresetResourceSpec,
     AgentPresetSubagentRef,
-    AgentPresetVersionResourceSpec,
     McpIntegrationHint,
     ResourceRef,
     SkillFileSpec,
@@ -139,14 +136,6 @@ EXPECTED_RESOURCE_ROOTS = {
     "variables": f"{VARIABLE_ROOT}/",
     "secret_metadata": f"{SECRET_METADATA_ROOT}/",
 }
-
-
-class LegacyAgentPresetVersionReader(BaseModel):
-    """Pre-change reader contract used to prove rollback compatibility."""
-
-    model_config = ConfigDict(extra="allow")
-
-    mcp_integrations: list[str] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -222,11 +211,12 @@ def test_manifest_rejects_undeclared_resource_roots() -> None:
         WorkspaceManifest.model_validate(manifest_data)
 
 
-def test_agent_preset_mcp_hint_contract_is_rollback_safe() -> None:
-    """Canonical writes remain valid for the pre-hint list-of-strings reader."""
+def test_agent_preset_mcp_hint_contract_keeps_refs_as_strings() -> None:
+    """Canonical writes keep the authoritative MCP refs as plain strings."""
     source_id = uuid.uuid4()
-    spec = AgentPresetVersionResourceSpec(
-        version_number=1,
+    spec = AgentPresetResourceSpec(
+        id="qa-mcp-contract",
+        slug="qa-mcp-contract",
         name="QA MCP contract",
         mcp_integrations=[str(source_id)],
         mcp_integration_hints={
@@ -242,15 +232,14 @@ def test_agent_preset_mcp_hint_contract_is_rollback_safe() -> None:
     exported = yaml.safe_load(serialize_yaml_model(spec))
     assert exported["mcp_integrations"] == [str(source_id)]
     assert exported["mcp_integration_hints"][str(source_id)]["slug"] == "linear_mcp"
-    legacy = LegacyAgentPresetVersionReader.model_validate(exported)
-    assert legacy.mcp_integrations == [str(source_id)]
 
 
 def test_agent_preset_mcp_contract_rejects_stale_hints() -> None:
     """A hint cannot describe an integration absent from the authoritative list."""
     with pytest.raises(ValidationError, match="must reference ids"):
-        AgentPresetVersionResourceSpec(
-            version_number=1,
+        AgentPresetResourceSpec(
+            id="qa-stale-mcp-hint",
+            slug="qa-stale-mcp-hint",
             name="QA stale MCP hint",
             mcp_integration_hints={
                 uuid.uuid4(): McpIntegrationHint(
@@ -772,7 +761,7 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
     skill = await session.scalar(
         select(Skill).where(
             Skill.workspace_id == workspace_id,
-            Skill.name == "qa-enrichment-skill",
+            Skill.slug == "qa-enrichment-skill",
         )
     )
     assert skill is not None
@@ -1721,7 +1710,7 @@ async def test_round_trip_preserves_head_owned_skill_topology(
     skill = await session.scalar(
         select(Skill).where(
             Skill.workspace_id == target_workspace_id,
-            Skill.name == "skill-a",
+            Skill.slug == "skill-a",
         )
     )
     assert skill is not None
@@ -2021,85 +2010,6 @@ async def test_manifestless_legacy_repo_is_rejected_with_push_guidance(
             "code": "workspace_format_outdated"
         }
         assert "new Push" in source_legacy_pull.diagnostics[0].message
-        return
-
-        # Projecting the freshly-pulled target back to files shows what the new
-        # code canonically emits for a legacy workspace.
-        target_legacy_projection = await target_service.project_workspace(
-            create_missing_mappings=False
-        )
-        # The manifest is synthesised on projection even though the remote never
-        # had one...
-        assert MANIFEST_FILENAME in target_legacy_projection.files
-        # ...but no expanded resources (e.g. agent presets) are invented out of
-        # thin air: a legacy repo only carried workflows.
-        assert not any(
-            path.startswith(f"{AGENT_PRESET_ROOT}/")
-            for path in target_legacy_projection.files
-        )
-
-        # ==================================================================
-        # UPGRADE: source gains expanded resources and pushes the new format
-        # ==================================================================
-        # Simulate post-upgrade source-side edits. parse_files validates the new
-        # expanded tree (no diagnostics == it parsed cleanly), then the import
-        # service writes the non-workflow resources into the source DB. These rows
-        # are local database state only; the remote is still legacy until
-        # export_workspace writes the new manifest and resource dirs below.
-        expanded_snapshot, expanded_diagnostics = await source_service.parse_files(
-            _expanded_full_git_tree(include_schedules=False),
-            commit_sha="e" * 40,
-        )
-        assert expanded_diagnostics == []
-        await WorkspaceResourceImportService(
-            session=session,
-            role=svc_role,
-        ).import_non_workflow_resources(expanded_snapshot.spec)
-
-        # Export the now-expanded source workspace. This is the upgrade commit:
-        # the first push that writes the manifest + resource directories on top of
-        # the legacy workflow files.
-        upgraded_export = await source_service.export_workspace(
-            WorkspaceSyncExportRequest(
-                message="Upgrade workspace sync repository",
-                branch="sync/workspace-upgrade",
-                create_pr=False,
-            )
-        )
-        # The export must land as a real commit (not a no-op/skip) for the target
-        # to have something to pull.
-        assert upgraded_export.commit.status is PushStatus.COMMITTED
-        assert upgraded_export.commit.sha is not None
-        # The upgrade commit must now contain the manifest plus a representative
-        # resource from each new family (preset / table / case tag) — proof the
-        # legacy repo was actually expanded, not just re-pushed.
-        upgraded_remote_files = fake_vcs.repo_files(
-            git_url,
-            ref=upgraded_export.commit.sha,
-        )
-        assert MANIFEST_FILENAME in upgraded_remote_files
-        assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" in (
-            upgraded_remote_files
-        )
-        assert f"{TABLE_ROOT}/qa_indicators/table.yml" in upgraded_remote_files
-        assert f"{CASE_TAG_ROOT}/qa-alert.yml" in upgraded_remote_files
-
-        # ==================================================================
-        # POST-UPGRADE: target pulls the upgraded commit
-        # ==================================================================
-        # The destination upgrades by pulling the new commit, exactly as a real
-        # installation would after the source side ships the expanded format.
-        target_upgraded_pull = await target_service.pull(
-            options=PullOptions(commit_sha=upgraded_export.commit.sha)
-        )
-
-    assert target_upgraded_pull.success is True
-    # Parity check: after the upgrade round-trip, source and target project to an
-    # identical file set — no workflows lost, no resources dropped or duplicated.
-    await _assert_projected_workspaces_match(source_service, target_service)
-    # And the target DB actually materialised the new resource rows, not just the
-    # files — i.e. the pull imported the expanded format end to end.
-    await _assert_workspace_has_expanded_resource_rows(session, target_role)
 
 
 @pytest.mark.anyio
@@ -2158,117 +2068,6 @@ async def test_version_one_manifest_is_rejected_with_push_guidance(
         assert target_legacy_pull.success is False
         assert "versions/ repositories" in source_legacy_pull.diagnostics[0].message
         assert "new Push" in source_legacy_pull.diagnostics[0].message
-        return
-
-        # ==================================================================
-        # UPGRADE: source writes the current manifest and expanded resources
-        # ==================================================================
-        # Simulate post-upgrade source edits: write the expanded resources into
-        # the source DB only. The remote stays legacy until the export below.
-        await _import_expanded_non_workflow_resources(
-            session,
-            role=svc_role,
-            service=harness.source_service,
-        )
-        # Export is the upgrade commit; it must land as a real commit (not a
-        # no-op skip) for the target to have something to pull.
-        upgraded_export = await harness.source_service.export_workspace(
-            WorkspaceSyncExportRequest(
-                message="Upgrade legacy manifest workspace sync repository",
-                branch="sync/legacy-manifest-upgrade",
-                create_pr=False,
-            )
-        )
-        assert upgraded_export.commit.status is PushStatus.COMMITTED
-        assert upgraded_export.commit.sha is not None
-        upgraded_remote_files = harness.fake_vcs.repo_files(
-            harness.git_url,
-            ref=upgraded_export.commit.sha,
-        )
-        # The upgrade commit rewrites the old string manifest into the current
-        # numeric-version contract and adds representative new resource roots,
-        # proving the legacy repo was expanded rather than just re-pushed.
-        assert json.loads(upgraded_remote_files[MANIFEST_FILENAME])["version"] == 1
-        assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" in (
-            upgraded_remote_files
-        )
-        assert f"{VARIABLE_ROOT}/default/qa_config.yml" in upgraded_remote_files
-
-        # ==================================================================
-        # POST-UPGRADE: destination pulls the current expanded format
-        # ==================================================================
-        # The destination upgrades by pulling the new commit, exactly as a real
-        # installation would once the source side ships the expanded format.
-        target_upgraded_pull = await harness.target_service.pull(
-            options=PullOptions(commit_sha=upgraded_export.commit.sha)
-        )
-
-    assert target_upgraded_pull.success is True
-    # Parity check: source and target project to an identical file set, so no
-    # workflows were lost and no resources were dropped or duplicated.
-    await _assert_projected_workspaces_match(
-        harness.source_service,
-        harness.target_service,
-    )
-    # And the target DB materialised the new resource rows, not just the files.
-    await _assert_workspace_has_expanded_resource_rows(session, harness.target_role)
-
-
-def test_new_workflow_file_is_readable_by_legacy_remote_model() -> None:
-    """Rollback safety: new-format workflow files stay readable by old sync code.
-
-    The reverse of the legacy-upgrade tests. Those prove the new sync code reads
-    an old repo (upgrade). This proves the inverse: a deployment rolled back to
-    *before* the expanded format can still parse what the new exporter wrote,
-    using the pre-upgrade :class:`RemoteWorkflowDefinition` model, so a rollback
-    after a push does not silently break workflow pulls.
-
-    Scope: holds for the system-minted ``wf_<short>`` source id (what
-    ``WorkspaceSyncService`` assigns on first export). The new ``type``/``version``
-    wrapper is tolerated because the legacy model already declares ``type`` and
-    ignores the unknown ``version``. Slug source ids (e.g. human-authored
-    ``workflows/my-detection/``) are the documented boundary and are *not*
-    legacy-readable; that is asserted explicitly below.
-    """
-    source_id = WorkflowUUID.new(uuid.uuid4()).short()
-    spec = WorkflowResourceSpec.model_validate(
-        _workflow_spec(
-            source_id=source_id,
-            title="qa-rollback-workflow",
-            alias="qa-rollback",
-            folder_path="QA/Rollback",
-            actions=[
-                {
-                    "ref": "reshape",
-                    "action": "core.transform.reshape",
-                    "args": {"value": "${{ TRIGGER.value }}"},
-                }
-            ],
-            webhook=True,
-            case_trigger=True,
-        )
-    )
-
-    raw = yaml.safe_load(serialize_workflow_spec(spec))
-    # New-format markers the legacy model never declared a schema for.
-    assert raw["type"] == "workflow"
-    assert raw["version"] == 1
-
-    # The actual rollback parse: the old model must accept the new-format file.
-    legacy = RemoteWorkflowDefinition.model_validate(raw)
-    assert legacy.id == source_id
-    assert legacy.alias == "qa-rollback"
-    assert legacy.folder_path == "QA/Rollback"
-    assert legacy.definition.title == "qa-rollback-workflow"
-    assert legacy.webhook is not None
-    assert legacy.case_trigger is not None
-
-    # The minted source id satisfies the legacy short-id contract...
-    assert re.fullmatch(WF_ID_SHORT_PATTERN, source_id) is not None
-    # ...but a slug source id is the rollback boundary: the legacy model rejects
-    # it, so slug-keyed files would not import after a rollback.
-    with pytest.raises(ValidationError):
-        RemoteWorkflowDefinition.model_validate({**raw, "id": "qa-rollback"})
 
 
 @pytest.mark.anyio
@@ -2306,202 +2105,6 @@ async def test_legacy_upgrade_requires_new_push_before_pull(
             "code": "workspace_format_outdated"
         }
         assert "Push" in source_legacy_pull.diagnostics[0].message
-        return
-
-        # ==================================================================
-        # TARGET PRE-STATE: matching local resources exist but are not mapped
-        # ==================================================================
-        # Seed the target with resources whose natural identifiers match what
-        # the upgrade will carry, modelling a user who built these by hand
-        # before they became Git-backed. The pull must claim these rows rather
-        # than create duplicates.
-        await _import_expanded_non_workflow_resources(
-            session,
-            role=harness.target_role,
-            service=harness.target_service,
-        )
-        target_workspace_id = harness.target_role.workspace_id
-        assert target_workspace_id is not None
-        preexisting_preset = await session.scalar(
-            select(AgentPreset).where(
-                AgentPreset.workspace_id == target_workspace_id,
-                AgentPreset.slug == "qa-triage-parent",
-            )
-        )
-        preexisting_tag = await session.scalar(
-            select(CaseTag).where(
-                CaseTag.workspace_id == target_workspace_id,
-                CaseTag.ref == "qa-alert",
-            )
-        )
-        preexisting_variable = await session.scalar(
-            select(WorkspaceVariable).where(
-                WorkspaceVariable.workspace_id == target_workspace_id,
-                WorkspaceVariable.name == "qa_config",
-                WorkspaceVariable.environment == "default",
-            )
-        )
-        assert preexisting_preset is not None
-        assert preexisting_tag is not None
-        assert preexisting_variable is not None
-        preexisting_preset_id = preexisting_preset.id
-        preexisting_tag_id = preexisting_tag.id
-        preexisting_variable_id = preexisting_variable.id
-
-        # Make the target rows visibly local/stale so the pull has to update
-        # them, not merely discover identical rows.
-        preexisting_preset.name = "Local pre-upgrade triage parent"
-        preexisting_preset.instructions = "Local-only instructions before Git sync"
-        preexisting_tag.name = "Local pre-upgrade alert"
-        preexisting_variable.description = "Local pre-upgrade variable"
-        session.add_all([preexisting_preset, preexisting_tag, preexisting_variable])
-        await session.flush()
-
-        # These local rows are unmanaged: no sync mapping ties them to a Git
-        # source id yet, which is exactly the state the upgrade has to resolve.
-        assert (
-            await _mapping_for(
-                session,
-                role=harness.target_role,
-                resource_type=SyncResourceType.AGENT_PRESET,
-                source_id="qa-triage-parent",
-            )
-        ) is None
-        assert (
-            await _mapping_for(
-                session,
-                role=harness.target_role,
-                resource_type=SyncResourceType.CASE_TAG,
-                source_id="qa-alert",
-            )
-        ) is None
-        assert (
-            await _mapping_for(
-                session,
-                role=harness.target_role,
-                resource_type=SyncResourceType.VARIABLE,
-                source_id="default/qa_config",
-            )
-        ) is None
-
-        # ==================================================================
-        # UPGRADE: source pushes the expanded Git-owned workspace
-        # ==================================================================
-        # The source carries the same resources (same natural ids) the target
-        # already has locally, so the upgrade commit is what forces the target
-        # to reconcile its unmapped rows against Git ownership.
-        await _import_expanded_non_workflow_resources(
-            session,
-            role=svc_role,
-            service=harness.source_service,
-        )
-        upgraded_export = await harness.source_service.export_workspace(
-            WorkspaceSyncExportRequest(
-                message="Upgrade workspace with preexisting target resources",
-                branch="sync/local-resource-upgrade",
-                create_pr=False,
-            )
-        )
-        assert upgraded_export.commit.status is PushStatus.COMMITTED
-        assert upgraded_export.commit.sha is not None
-
-        # ==================================================================
-        # POST-UPGRADE: target pull claims and updates the existing local rows
-        # ==================================================================
-        target_upgraded_pull = await harness.target_service.pull(
-            options=PullOptions(commit_sha=upgraded_export.commit.sha)
-        )
-
-    assert target_upgraded_pull.success is True
-    await _assert_projected_workspaces_match(
-        harness.source_service,
-        harness.target_service,
-    )
-    preset_after = await session.scalar(
-        select(AgentPreset).where(
-            AgentPreset.workspace_id == target_workspace_id,
-            AgentPreset.slug == "qa-triage-parent",
-        )
-    )
-    tag_after = await session.scalar(
-        select(CaseTag).where(
-            CaseTag.workspace_id == target_workspace_id,
-            CaseTag.ref == "qa-alert",
-        )
-    )
-    variable_after = await session.scalar(
-        select(WorkspaceVariable).where(
-            WorkspaceVariable.workspace_id == target_workspace_id,
-            WorkspaceVariable.name == "qa_config",
-            WorkspaceVariable.environment == "default",
-        )
-    )
-    assert preset_after is not None
-    assert tag_after is not None
-    assert variable_after is not None
-    # Identical primary keys prove the upgrade claimed the preexisting local
-    # rows by their natural ids, and the Git-owned field values replaced the
-    # stale local edits made above instead of being skipped.
-    assert preset_after.id == preexisting_preset_id
-    assert preset_after.name == "QA triage parent"
-    assert preset_after.instructions == (
-        "Use the enrichment skill and escalate high severity."
-    )
-    assert tag_after.id == preexisting_tag_id
-    assert tag_after.name == "qa-alert"
-    assert variable_after.id == preexisting_variable_id
-    assert variable_after.description == "QA config variable"
-    # Exactly one row per natural id: the claim path updated in place rather
-    # than inserting a duplicate alongside the original.
-    assert (
-        len(
-            (
-                await session.scalars(
-                    select(AgentPreset).where(
-                        AgentPreset.workspace_id == target_workspace_id,
-                        AgentPreset.slug == "qa-triage-parent",
-                    )
-                )
-            ).all()
-        )
-        == 1
-    )
-    assert (
-        len(
-            (
-                await session.scalars(
-                    select(CaseTag).where(
-                        CaseTag.workspace_id == target_workspace_id,
-                        CaseTag.ref == "qa-alert",
-                    )
-                )
-            ).all()
-        )
-        == 1
-    )
-    # Each resource now has a sync mapping pointing back at the claimed local
-    # row, so subsequent pulls treat these as Git-managed instead of orphaned.
-    await _assert_mapping_targets(
-        session,
-        role=harness.target_role,
-        resource_type=SyncResourceType.AGENT_PRESET,
-        source_id="qa-triage-parent",
-        local_id=preexisting_preset_id,
-    )
-    await _assert_mapping_targets(
-        session,
-        role=harness.target_role,
-        resource_type=SyncResourceType.CASE_TAG,
-        source_id="qa-alert",
-        local_id=preexisting_tag_id,
-    )
-    await _assert_mapping_targets(
-        session,
-        role=harness.target_role,
-        resource_type=SyncResourceType.VARIABLE,
-        source_id="default/qa_config",
-        local_id=preexisting_variable_id,
-    )
 
 
 @pytest.mark.anyio
@@ -2539,89 +2142,6 @@ async def test_legacy_pull_rejects_before_non_workflow_import(
             "code": "workspace_format_outdated"
         }
         assert "Push" in target_legacy_pull.diagnostics[0].message
-        return
-
-        # ==================================================================
-        # UPGRADE: source publishes a valid expanded commit
-        # ==================================================================
-        # Publish a genuinely valid expanded commit so the later failure is
-        # attributable to the forced fault below, not to malformed input.
-        await _import_expanded_non_workflow_resources(
-            session,
-            role=svc_role,
-            service=harness.source_service,
-        )
-        upgraded_export = await harness.source_service.export_workspace(
-            WorkspaceSyncExportRequest(
-                message="Upgrade workspace before forced import failure",
-                branch="sync/rollback-upgrade",
-                create_pr=False,
-            )
-        )
-        assert upgraded_export.commit.status is PushStatus.COMMITTED
-        assert upgraded_export.commit.sha is not None
-
-        # ==================================================================
-        # FAILURE: the target fails after earlier non-workflow adapters flush
-        # ==================================================================
-        # Tables import after several other resource families, so failing the
-        # table adapter aborts the pull only once earlier adapters have already
-        # flushed rows — the worst case for leaving partial writes behind.
-        forced_failure = RuntimeError("forced table import failure")
-        with patch.object(
-            TABLE_RESOURCE_ADAPTER,
-            "import_specs",
-            AsyncMock(side_effect=forced_failure),
-        ):
-            failed_pull = await harness.target_service.pull(
-                options=PullOptions(commit_sha=upgraded_export.commit.sha)
-            )
-
-    # The expected rollback expires ORM instances in the shared test session.
-    # Refresh the fixture workspace so pytest cleanup can read it without
-    # triggering lazy IO outside SQLAlchemy's async greenlet context.
-    await _refresh_workspace_for_fixture_cleanup(session, role=svc_role)
-
-    # The pull reports a structured transaction failure whose diagnostic names
-    # the underlying fault, rather than a partial success.
-    assert failed_pull.success is False
-    assert failed_pull.message == "Workspace import transaction failed"
-    assert any(
-        diagnostic.error_type == "transaction"
-        and "forced table import failure" in diagnostic.message
-        for diagnostic in failed_pull.diagnostics
-    )
-    # The legacy workflow state survives the failed upgrade, so the workspace is
-    # still projectable and contains the same workflow aliases as before.
-    target_projection = await harness.target_service.project_workspace(
-        create_missing_mappings=False
-    )
-    assert f"{WORKFLOW_ROOT}/qa-root/definition.yml" in target_projection.files
-    assert not any(
-        path.startswith(f"{AGENT_PRESET_ROOT}/") for path in target_projection.files
-    )
-    # The rollback was atomic: none of the expanded rows or sync mappings from
-    # the aborted commit survived, even the ones flushed before the fault.
-    await _assert_workspace_has_no_expanded_resource_rows(
-        session,
-        role=harness.target_role,
-    )
-    assert (
-        await _mapping_for(
-            session,
-            role=harness.target_role,
-            resource_type=SyncResourceType.CASE_TAG,
-            source_id="qa-alert",
-        )
-    ) is None
-    assert (
-        await _mapping_for(
-            session,
-            role=harness.target_role,
-            resource_type=SyncResourceType.VARIABLE,
-            source_id="default/qa_config",
-        )
-    ) is None
 
 
 @pytest.mark.anyio
@@ -2730,12 +2250,12 @@ async def test_project_workspace_preserves_skill_source_id_after_rename(
     skill = await session.scalar(
         select(Skill).where(
             Skill.workspace_id == svc_role.workspace_id,
-            Skill.name == "qa-enrichment-skill",
+            Skill.slug == "qa-enrichment-skill",
         )
     )
     assert skill is not None
 
-    skill.name = "qa-enrichment-restored"
+    skill.slug = "qa-enrichment-restored"
     session.add(skill)
     await session.flush()
 
@@ -3345,7 +2865,7 @@ async def test_pull_older_skill_content_rolls_forward_a_new_version(
         skill = await session.scalar(
             select(Skill).where(
                 Skill.workspace_id == svc_role.workspace_id,
-                Skill.name == "qa-enrichment-skill",
+                Skill.slug == "qa-enrichment-skill",
             )
         )
         assert skill is not None
@@ -3359,7 +2879,7 @@ async def test_pull_older_skill_content_rolls_forward_a_new_version(
     skill = await session.scalar(
         select(Skill).where(
             Skill.workspace_id == svc_role.workspace_id,
-            Skill.name == "qa-enrichment-skill",
+            Skill.slug == "qa-enrichment-skill",
         )
     )
     assert skill is not None
@@ -3489,7 +3009,7 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
         first_skill = await session.scalar(
             select(Skill).where(
                 Skill.workspace_id == svc_role.workspace_id,
-                Skill.name == "qa-enrichment-skill",
+                Skill.slug == "qa-enrichment-skill",
             )
         )
         assert first_skill is not None
@@ -3507,7 +3027,8 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
     )
     assert len(skills) == 1
     assert skills[0].id == first_skill_id
-    assert skills[0].name == "qa-enrichment-restored"
+    assert skills[0].slug == "qa-enrichment-restored"
+    assert skills[0].name == "QA enrichment restored"
     version = await session.scalar(
         select(SkillVersion).where(
             SkillVersion.workspace_id == svc_role.workspace_id,
@@ -3661,13 +3182,13 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
         alpha_id = await session.scalar(
             select(Skill.id).where(
                 Skill.workspace_id == svc_role.workspace_id,
-                Skill.name == "alpha-skill",
+                Skill.slug == "alpha-skill",
             )
         )
         beta_id = await session.scalar(
             select(Skill.id).where(
                 Skill.workspace_id == svc_role.workspace_id,
-                Skill.name == "beta-skill",
+                Skill.slug == "beta-skill",
             )
         )
         second_result = await service.pull(options=PullOptions(commit_sha="t" * 40))
@@ -3677,7 +3198,7 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
     assert alpha_id is not None
     assert beta_id is not None
     skills = {
-        skill.name: skill.id
+        skill.slug: skill.id
         for skill in (
             await session.scalars(
                 select(Skill).where(Skill.workspace_id == svc_role.workspace_id)
@@ -5983,11 +5504,11 @@ async def test_mcp_integration_unused_selection_reports_source_not_found(
 
 
 @pytest.mark.anyio
-async def test_agent_preset_export_emits_rollback_safe_mcp_hints(
+async def test_agent_preset_export_emits_mcp_hints(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """Export keeps legacy ids and publishes hints in an ignored side field."""
+    """Export keeps authoritative ids and publishes portable identity hints."""
     local = await _create_mcp_integration(
         session,
         workspace_id=svc_role.workspace_id,
@@ -6021,9 +5542,6 @@ async def test_agent_preset_export_emits_rollback_safe_mcp_hints(
             "name": "Linear",
         }
     }
-
-    legacy = LegacyAgentPresetVersionReader.model_validate(exported)
-    assert legacy.mcp_integrations == [str(local.id)]
 
 
 @pytest.mark.anyio
@@ -6121,7 +5639,6 @@ async def test_workspace_sync_rejects_non_local_catalog_id_without_model_tuple(
     assert "non-local" in result.diagnostics[0].message
     assert result.diagnostics[0].details == {
         "preset_slug": source_id,
-        "preset_version": 1,
         "catalog_id": str(source_catalog_id),
     }
     assert (
@@ -7732,27 +7249,6 @@ async def _import_expanded_non_workflow_resources(
     ).import_non_workflow_resources(snapshot.spec)
 
 
-async def _refresh_workspace_for_fixture_cleanup(
-    session: AsyncSession,
-    *,
-    role: Role,
-) -> None:
-    """Re-load the workspace row so post-rollback fixture teardown is safe.
-
-    A rolled-back import expires the ORM instances in the shared test session.
-    Refreshing the workspace eagerly here keeps pytest's fixture cleanup from
-    triggering lazy IO outside SQLAlchemy's async greenlet context, which would
-    otherwise raise ``MissingGreenlet`` during teardown.
-    """
-    workspace_id = role.workspace_id
-    assert workspace_id is not None
-    workspace = await session.scalar(
-        select(Workspace).where(Workspace.id == workspace_id)
-    )
-    assert workspace is not None
-    await session.refresh(workspace)
-
-
 async def _assert_projected_workspaces_match(
     source_service: WorkspaceSyncService,
     target_service: WorkspaceSyncService,
@@ -7810,174 +7306,6 @@ async def _assert_mapping_targets(
     )
     assert mapping is not None
     assert mapping.local_id == local_id
-
-
-async def _assert_workspace_has_expanded_resource_rows(
-    session: AsyncSession,
-    role: Role,
-) -> None:
-    """Assert the upgraded destination contains representative new resources.
-
-    File-level parity (``_assert_projected_workspaces_match``) only proves the
-    bytes round-tripped. This helper queries the DB directly to prove the pull
-    actually *materialised* one row from every new resource family, so a silent
-    "files written but not imported" regression can't pass.
-    """
-    workspace_id = role.workspace_id
-    assert workspace_id is not None
-    # Workflow: the legacy resource family must survive the upgrade, keyed by the
-    # alias it was seeded with.
-    assert await session.scalar(
-        select(Workflow).where(
-            Workflow.workspace_id == workspace_id,
-            Workflow.alias == "qa-root",
-        )
-    )
-    # Agent preset + its skill: presets are folder-based resources, skills are
-    # nested files under them, so both confirm the nested layout imported.
-    assert await session.scalar(
-        select(AgentPreset).where(
-            AgentPreset.workspace_id == workspace_id,
-            AgentPreset.slug == "qa-triage-parent",
-        )
-    )
-    assert await session.scalar(
-        select(Skill).where(
-            Skill.workspace_id == workspace_id,
-            Skill.name == "qa-enrichment-skill",
-        )
-    )
-    # Table: schema-bearing resource.
-    assert await session.scalar(
-        select(Table).where(
-            Table.workspace_id == workspace_id,
-            Table.name == "qa_indicators",
-        )
-    )
-    # Case tag: simple single-file case resource keyed by ref.
-    assert await session.scalar(
-        select(CaseTag).where(
-            CaseTag.workspace_id == workspace_id,
-            CaseTag.ref == "qa-alert",
-        )
-    )
-    # Case dropdown + duration definitions: case configuration resources.
-    assert await session.scalar(
-        select(CaseDropdownDefinition).where(
-            CaseDropdownDefinition.workspace_id == workspace_id,
-            CaseDropdownDefinition.ref == "qa_resolution_reason",
-        )
-    )
-    assert await session.scalar(
-        select(CaseDurationDefinition).where(
-            CaseDurationDefinition.workspace_id == workspace_id,
-            CaseDurationDefinition.name == "qa_time_to_triage",
-        )
-    )
-    # Case fields: a single per-workspace row whose JSON schema must include the
-    # custom field, so check the column was merged in rather than just present.
-    case_fields = await session.scalar(
-        select(CaseFields).where(CaseFields.workspace_id == workspace_id)
-    )
-    assert case_fields is not None
-    assert "qa_external_ref" in (case_fields.schema or {})
-    # Variable + secret: environment-scoped resources, so the env discriminator is
-    # part of the lookup to prove it round-tripped too.
-    assert await session.scalar(
-        select(WorkspaceVariable).where(
-            WorkspaceVariable.workspace_id == workspace_id,
-            WorkspaceVariable.name == "qa_config",
-            WorkspaceVariable.environment == "default",
-        )
-    )
-    assert await session.scalar(
-        select(Secret).where(
-            Secret.workspace_id == workspace_id,
-            Secret.name == "qa_threatintel",
-            Secret.environment == "default",
-        )
-    )
-
-
-async def _assert_workspace_has_no_expanded_resource_rows(
-    session: AsyncSession,
-    *,
-    role: Role,
-) -> None:
-    """Assert a failed upgrade did not leave representative new resource rows."""
-    workspace_id = role.workspace_id
-    assert workspace_id is not None
-    assert (
-        await session.scalar(
-            select(AgentPreset).where(
-                AgentPreset.workspace_id == workspace_id,
-                AgentPreset.slug == "qa-triage-parent",
-            )
-        )
-    ) is None
-    assert (
-        await session.scalar(
-            select(Skill).where(
-                Skill.workspace_id == workspace_id,
-                Skill.name == "qa-enrichment-skill",
-            )
-        )
-    ) is None
-    assert (
-        await session.scalar(
-            select(Table).where(
-                Table.workspace_id == workspace_id,
-                Table.name == "qa_indicators",
-            )
-        )
-    ) is None
-    assert (
-        await session.scalar(
-            select(CaseTag).where(
-                CaseTag.workspace_id == workspace_id,
-                CaseTag.ref == "qa-alert",
-            )
-        )
-    ) is None
-    assert (
-        await session.scalar(
-            select(CaseDropdownDefinition).where(
-                CaseDropdownDefinition.workspace_id == workspace_id,
-                CaseDropdownDefinition.ref == "qa_resolution_reason",
-            )
-        )
-    ) is None
-    assert (
-        await session.scalar(
-            select(CaseDurationDefinition).where(
-                CaseDurationDefinition.workspace_id == workspace_id,
-                CaseDurationDefinition.name == "qa_time_to_triage",
-            )
-        )
-    ) is None
-    case_fields = await session.scalar(
-        select(CaseFields).where(CaseFields.workspace_id == workspace_id)
-    )
-    if case_fields is not None:
-        assert "qa_external_ref" not in (case_fields.schema or {})
-    assert (
-        await session.scalar(
-            select(WorkspaceVariable).where(
-                WorkspaceVariable.workspace_id == workspace_id,
-                WorkspaceVariable.name == "qa_config",
-                WorkspaceVariable.environment == "default",
-            )
-        )
-    ) is None
-    assert (
-        await session.scalar(
-            select(Secret).where(
-                Secret.workspace_id == workspace_id,
-                Secret.name == "qa_threatintel",
-                Secret.environment == "default",
-            )
-        )
-    ) is None
 
 
 async def _mutate_source_workspace_for_roundtrip_update(

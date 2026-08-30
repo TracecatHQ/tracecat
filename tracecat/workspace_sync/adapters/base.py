@@ -629,7 +629,7 @@ class ResourceAdapter(ABC):
         *,
         targets: Mapping[str, str],
         model: type[ModelT],
-        name_column: InstrumentedAttribute[str],
+        name_column: InstrumentedAttribute[str | None],
         noun: str,
         kind_label: str,
         owner_label: str,

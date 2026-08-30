@@ -1495,15 +1495,22 @@ class SkillService(BaseWorkspaceService):
             )
         return path_to_blob
 
-    async def _create_version_from_blob_refs(
+    async def publish_version_from_blob_refs(
         self,
         *,
         skill: Skill,
         file_refs: Sequence[tuple[str, SkillFileBlobRef]],
         validation: ManifestValidationResult,
-    ) -> SkillVersionRead:
-        """Create a new immutable version from validated skill files."""
+        skill_locked: bool = False,
+        head_name: str | None = None,
+    ) -> SkillVersion:
+        """Publish validated blobs without committing the caller's transaction."""
 
+        if not skill_locked:
+            locked_skill = await self._get_skill_for_update(skill.id)
+            if locked_skill is None:
+                raise TracecatNotFoundError(f"Skill '{skill.id}' not found")
+            skill = locked_skill
         if validation.name is None:
             self._raise_missing_draft_name(operation="publish")
         manifest_name = validation.name
@@ -1555,9 +1562,27 @@ class SkillService(BaseWorkspaceService):
                 )
             )
         skill.current_version_id = version.id
-        skill.name = manifest_name
+        skill.name = head_name or manifest_name
         skill.description = validation.description
         self.session.add(skill)
+        await self.session.flush()
+        return version
+
+    async def _create_version_from_blob_refs(
+        self,
+        *,
+        skill: Skill,
+        file_refs: Sequence[tuple[str, SkillFileBlobRef]],
+        validation: ManifestValidationResult,
+    ) -> SkillVersionRead:
+        """Publish validated blobs and commit the service transaction."""
+
+        version = await self.publish_version_from_blob_refs(
+            skill=skill,
+            file_refs=file_refs,
+            validation=validation,
+            skill_locked=True,
+        )
         await self.session.commit()
         return await self.get_version_read(skill_id=skill.id, version_id=version.id)
 

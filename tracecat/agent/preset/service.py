@@ -331,9 +331,7 @@ class AgentPresetService(BaseWorkspaceService):
                 params.skills,
                 binding_specs=binding_specs,
             )
-        version = await self._create_version_from_preset(preset)
-        preset.current_version_id = version.id
-        self.session.add(preset)
+        await self.publish_preset_head(preset)
         await self.session.commit()
         await self.session.refresh(preset)
         return preset
@@ -482,12 +480,10 @@ class AgentPresetService(BaseWorkspaceService):
 
         self.session.add(preset)
         if execution_changed:
-            version = await self._create_version_from_preset(
+            await self.publish_preset_head(
                 preset,
                 preset_locked=preset_locked,
             )
-            preset.current_version_id = version.id
-            self.session.add(preset)
         await self.session.commit()
         await self.session.refresh(preset)
         return preset
@@ -559,12 +555,10 @@ class AgentPresetService(BaseWorkspaceService):
                 enabled=agents.enabled and bool(remaining),
                 subagents=remaining,
             ).model_dump(mode="json")
-            version = await self._create_version_from_preset(
+            await self.publish_preset_head(
                 parent,
                 preset_locked=True,
             )
-            parent.current_version_id = version.id
-            self.session.add(parent)
 
     async def unlink_skill_from_active_presets(
         self,
@@ -604,12 +598,10 @@ class AgentPresetService(BaseWorkspaceService):
                     AgentPresetSkill.skill_id == skill_id,
                 )
             )
-            version = await self._create_version_from_preset(
+            await self.publish_preset_head(
                 parent,
                 preset_locked=True,
             )
-            parent.current_version_id = version.id
-            self.session.add(parent)
         return len(parents)
 
     async def _count_head_subagent_references(self, preset: AgentPreset) -> int:
@@ -1713,7 +1705,7 @@ class AgentPresetService(BaseWorkspaceService):
     async def _replace_head_skill_bindings(
         self,
         preset_id: uuid.UUID,
-        bindings: Sequence[AgentPresetSkillBindingBase],
+        bindings: Sequence[AgentPresetSkillBindingBase] = (),
         *,
         binding_specs: Sequence[SkillBindingSpec] | None = None,
     ) -> None:
@@ -1926,12 +1918,10 @@ class AgentPresetService(BaseWorkspaceService):
             preset_id=preset.id,
             version_id=version.id,
         )
-        restored_version = await self._create_version_from_preset(
+        await self.publish_preset_head(
             preset,
             preset_locked=True,
         )
-        preset.current_version_id = restored_version.id
-        self.session.add(preset)
         await self.session.commit()
         await self.session.refresh(preset)
         return preset
@@ -2108,18 +2098,74 @@ class AgentPresetService(BaseWorkspaceService):
             resolved_skills=resolved_skills,
         )
 
+    async def publish_preset_head(
+        self,
+        preset: AgentPreset,
+        *,
+        preset_locked: bool = False,
+        binding_specs: Sequence[SkillBindingSpec] | None = None,
+    ) -> AgentPresetVersion:
+        """Publish the current head without committing the caller's transaction."""
+
+        version = await self._create_version_from_preset(
+            preset,
+            preset_locked=preset_locked,
+            binding_specs=binding_specs,
+        )
+        preset.current_version_id = version.id
+        self.session.add(preset)
+        await self.session.flush()
+        return version
+
+    async def version_matches_preset_head(
+        self,
+        version: AgentPresetVersion,
+        preset: AgentPreset,
+        *,
+        binding_specs: Sequence[SkillBindingSpec],
+    ) -> bool:
+        """Return whether ``version`` captures the current publishable head."""
+
+        if any(
+            getattr(version, field) != getattr(preset, field)
+            for field in self.EXECUTION_FIELDS
+        ):
+            return False
+        stmt = select(
+            AgentPresetVersionSkill.skill_id,
+            AgentPresetVersionSkill.skill_version_id,
+        ).where(
+            AgentPresetVersionSkill.workspace_id == self.workspace_id,
+            AgentPresetVersionSkill.preset_version_id == version.id,
+        )
+        version_bindings = sorted(
+            SkillBindingSpec(skill_id, skill_version_id)
+            for skill_id, skill_version_id in (
+                await self.session.execute(stmt)
+            ).tuples()
+        )
+        return version_bindings == sorted(binding_specs)
+
     async def _create_version_from_preset(
-        self, preset: AgentPreset, *, preset_locked: bool = False
+        self,
+        preset: AgentPreset,
+        *,
+        preset_locked: bool = False,
+        binding_specs: Sequence[SkillBindingSpec] | None = None,
     ) -> AgentPresetVersion:
         """Create and flush a new immutable version from the preset head."""
         if not preset_locked:
             await self._lock_preset_row(preset.id)
-        binding_specs = await self._resolve_head_skill_binding_specs(
-            preset.id,
-            for_update=True,
+        resolved_binding_specs = (
+            list(binding_specs)
+            if binding_specs is not None
+            else await self._resolve_head_skill_binding_specs(
+                preset.id,
+                for_update=True,
+            )
         )
         await self._validate_unique_skill_binding_names(
-            binding_specs,
+            resolved_binding_specs,
             preset_id=preset.id,
         )
         stmt = (
@@ -2159,7 +2205,7 @@ class AgentPresetService(BaseWorkspaceService):
         await self._snapshot_version_skill_bindings(
             preset.id,
             version.id,
-            binding_specs=binding_specs,
+            binding_specs=resolved_binding_specs,
         )
         return version
 

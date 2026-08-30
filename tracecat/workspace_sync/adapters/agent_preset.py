@@ -14,6 +14,8 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.catalog.types import ModelKey
+from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAgentsConfig,
@@ -25,7 +27,6 @@ from tracecat.db.models import (
     AgentPreset,
     AgentPresetSkill,
     AgentPresetVersion,
-    AgentPresetVersionSkill,
     AgentTag,
     AgentTagLink,
     MCPIntegration,
@@ -62,7 +63,6 @@ from tracecat.workspace_sync.schemas import (
     AgentPresetResourceSpec,
     AgentPresetSkillBinding,
     AgentPresetSubagentRef,
-    AgentPresetVersionResourceSpec,
     McpIntegrationHint,
     WorkflowResourceSpec,
     WorkspaceManifestResources,
@@ -94,62 +94,6 @@ def _parse_uuid(value: object) -> uuid.UUID | None:
 
 
 DEFAULT_AGENT_MODEL_PROVIDER = "openai"
-
-
-def _head_version_spec(
-    spec: AgentPresetResourceSpec,
-) -> AgentPresetVersionResourceSpec:
-    """Build the internal config projection for one desired head snapshot."""
-
-    return AgentPresetVersionResourceSpec(
-        version_number=1,
-        name=spec.name,
-        instructions=spec.instructions,
-        tool_approvals=spec.tool_approvals,
-        actions=spec.actions,
-        skills=spec.skills,
-        subagents=spec.subagents,
-        catalog_id=spec.catalog_id,
-        model_name=spec.model_name,
-        model_provider=spec.model_provider,
-        base_url=spec.base_url,
-        output_type=spec.output_type,
-        namespaces=spec.namespaces,
-        mcp_integrations=spec.mcp_integrations,
-        mcp_integration_hints=spec.mcp_integration_hints,
-        retries=spec.retries,
-        enable_thinking=spec.enable_thinking,
-        enable_internet_access=spec.enable_internet_access,
-    )
-
-
-def _with_head_config(
-    spec: AgentPresetResourceSpec,
-    config: AgentPresetVersionResourceSpec,
-) -> AgentPresetResourceSpec:
-    """Return ``spec`` with its Git-owned head config replaced."""
-
-    return spec.model_copy(
-        update={
-            "name": config.name,
-            "instructions": config.instructions,
-            "tool_approvals": config.tool_approvals,
-            "actions": config.actions,
-            "skills": config.skills,
-            "subagents": config.subagents,
-            "catalog_id": config.catalog_id,
-            "model_name": config.model_name,
-            "model_provider": config.model_provider,
-            "base_url": config.base_url,
-            "output_type": config.output_type,
-            "namespaces": config.namespaces,
-            "mcp_integrations": config.mcp_integrations,
-            "mcp_integration_hints": config.mcp_integration_hints,
-            "retries": config.retries,
-            "enable_thinking": config.enable_thinking,
-            "enable_internet_access": config.enable_internet_access,
-        }
-    )
 
 
 class AgentPresetAdapter(DirectoryManifestAdapter):
@@ -272,41 +216,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         resources: list[ProjectedResource] = []
         for preset in presets:
             source_id = assigner.assign(preset.id, preset.slug)
-            current_version = preset.current_version
-            if current_version is not None:
-                version_specs = await self._version_specs_for_preset(
-                    workspace_service,
-                    preset=preset,
-                    version_numbers={current_version.version},
-                )
-                desired = version_specs[current_version.version]
-            else:
-                desired = AgentPresetVersionResourceSpec(
-                    version_number=1,
-                    name=preset.name,
-                    instructions=preset.instructions,
-                    tool_approvals=preset.tool_approvals or {},
-                    actions=sorted(preset.actions or []),
-                    catalog_id=preset.catalog_id,
-                    model_name=preset.model_name,
-                    model_provider=preset.model_provider,
-                    base_url=preset.base_url,
-                    output_type=preset.output_type,
-                    namespaces=sorted(preset.namespaces or []),
-                    mcp_integrations=sorted(preset.mcp_integrations or []),
-                    retries=preset.retries,
-                    enable_thinking=preset.enable_thinking,
-                    enable_internet_access=preset.enable_internet_access,
-                )
-            desired = desired.model_copy(
-                update={
-                    "skills": await self._head_skill_bindings(
-                        workspace_service, preset.id
-                    ),
-                    "subagents": await self._head_subagent_refs(
-                        workspace_service, preset.id
-                    ),
-                }
+            execution = preset.current_version or preset
+            mcp_integrations = sorted(execution.mcp_integrations or [])
+            mcp_integration_hints = await self._mcp_integration_hints(
+                workspace_service,
+                set(mcp_integrations),
             )
             head_spec = AgentPresetResourceSpec(
                 id=source_id,
@@ -314,22 +228,22 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 name=preset.name,
                 folder_path=preset.folder.path if preset.folder else None,
                 tags=sorted(tag.name for tag in preset.tags),
-                instructions=desired.instructions,
-                tool_approvals=desired.tool_approvals,
-                actions=desired.actions,
-                skills=desired.skills,
-                subagents=desired.subagents,
-                catalog_id=desired.catalog_id,
-                model_name=desired.model_name,
-                model_provider=desired.model_provider,
-                base_url=desired.base_url,
-                output_type=desired.output_type,
-                namespaces=desired.namespaces,
-                mcp_integrations=desired.mcp_integrations,
-                mcp_integration_hints=desired.mcp_integration_hints,
-                retries=desired.retries,
-                enable_thinking=desired.enable_thinking,
-                enable_internet_access=desired.enable_internet_access,
+                instructions=execution.instructions,
+                tool_approvals=execution.tool_approvals or {},
+                actions=sorted(execution.actions or []),
+                skills=await self._head_skill_bindings(workspace_service, preset.id),
+                subagents=await self._head_subagent_refs(workspace_service, preset.id),
+                catalog_id=execution.catalog_id,
+                model_name=execution.model_name,
+                model_provider=execution.model_provider,
+                base_url=execution.base_url,
+                output_type=execution.output_type,
+                namespaces=sorted(execution.namespaces or []),
+                mcp_integrations=mcp_integrations,
+                mcp_integration_hints=mcp_integration_hints,
+                retries=execution.retries,
+                enable_thinking=execution.enable_thinking,
+                enable_internet_access=execution.enable_internet_access,
             )
             specs[source_id] = head_spec
             resources.append(self.projected_resource(source_id, preset.id))
@@ -343,7 +257,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """Return portable Skill-head refs for a preset head."""
 
         stmt = (
-            select(Skill.name)
+            select(sa.func.coalesce(Skill.slug, Skill.name))
             .join(AgentPresetSkill, AgentPresetSkill.skill_id == Skill.id)
             .where(
                 AgentPresetSkill.workspace_id == workspace_service.workspace_id,
@@ -409,66 +323,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         ]
         return sorted(refs, key=lambda ref: ref.name or ref.slug)
 
-    async def _version_specs_for_preset(
-        self,
-        workspace_service: SyncMappingService,
-        *,
-        preset: AgentPreset,
-        version_numbers: set[int],
-    ) -> dict[int, AgentPresetVersionResourceSpec]:
-        """Build version specs for the requested preset version numbers."""
-        if not version_numbers:
-            return {}
-        stmt = (
-            select(AgentPresetVersion)
-            .where(
-                AgentPresetVersion.workspace_id == workspace_service.workspace_id,
-                AgentPresetVersion.preset_id == preset.id,
-                AgentPresetVersion.version.in_(version_numbers),
-            )
-            .order_by(AgentPresetVersion.version.asc())
-        )
-        version_rows = list((await workspace_service.session.scalars(stmt)).all())
-        mcp_hints_by_id = await self._mcp_integration_hints(
-            workspace_service,
-            {
-                ref
-                for version in version_rows
-                for ref in (version.mcp_integrations or [])
-            },
-        )
-        versions: dict[int, AgentPresetVersionResourceSpec] = {}
-        for version in version_rows:
-            mcp_integrations = sorted(version.mcp_integrations or [])
-            mcp_integration_hints: dict[uuid.UUID, McpIntegrationHint] = {}
-            for ref in mcp_integrations:
-                integration_id = _parse_uuid(ref)
-                if integration_id is None:
-                    continue
-                if hint := mcp_hints_by_id.get(integration_id):
-                    mcp_integration_hints[integration_id] = hint
-            versions[version.version] = AgentPresetVersionResourceSpec(
-                version_number=version.version,
-                name=preset.name,
-                instructions=version.instructions,
-                tool_approvals=version.tool_approvals or {},
-                actions=sorted(version.actions or []),
-                skills=[],
-                subagents=[],
-                catalog_id=version.catalog_id,
-                model_name=version.model_name,
-                model_provider=version.model_provider,
-                base_url=version.base_url,
-                output_type=version.output_type,
-                namespaces=sorted(version.namespaces or []),
-                mcp_integrations=mcp_integrations,
-                mcp_integration_hints=mcp_integration_hints,
-                retries=version.retries,
-                enable_thinking=version.enable_thinking,
-                enable_internet_access=version.enable_internet_access,
-            )
-        return versions
-
     async def _mcp_integration_hints(
         self,
         workspace_service: SyncMappingService,
@@ -524,7 +378,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         than an arbitrary UUID tie-break.
 
         When remapping a catalog UUID, clear the snapshot's deployment-local
-        ``base_url`` in both preset versions and workflow agent actions so the
+        ``base_url`` in both preset heads and workflow agent actions so the
         target's catalog credentials are never routed to the source deployment's
         endpoint. Unresolvable selections produce diagnostics before import writes
         begin instead of reaching a foreign-key violation.
@@ -539,49 +393,46 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         missing_tuple_diagnostics: list[tuple[uuid.UUID, PullDiagnostic]] = []
 
         for source_id, preset in sorted(presets.items()):
-            for version_number, version in ((1, _head_version_spec(preset)),):
-                catalog_id = version.catalog_id
-                if catalog_id is None:
-                    continue
-                present_catalog_ids.add(catalog_id)
-                if not version.model_provider or not version.model_name:
-                    # The tuple is only needed to correlate a non-local UUID.
-                    # Defer the diagnostic until local enablement is known.
-                    missing_tuple_diagnostics.append(
-                        (
-                            catalog_id,
-                            PullDiagnostic(
-                                workflow_path=self.source_path(source_id),
-                                workflow_title=preset.name,
-                                error_type="validation",
-                                message=(
-                                    f"Agent preset {preset.slug!r} version "
-                                    f"{version_number} references a non-local "
-                                    "model catalog entry but does not include "
-                                    "model_provider and model_name for "
-                                    "correlation."
-                                ),
-                                details={
-                                    "preset_slug": preset.slug,
-                                    "preset_version": version_number,
-                                    "catalog_id": str(catalog_id),
-                                },
+            catalog_id = preset.catalog_id
+            if catalog_id is None:
+                continue
+            present_catalog_ids.add(catalog_id)
+            if not preset.model_provider or not preset.model_name:
+                # The tuple is only needed to correlate a non-local UUID.
+                # Defer the diagnostic until local enablement is known.
+                missing_tuple_diagnostics.append(
+                    (
+                        catalog_id,
+                        PullDiagnostic(
+                            workflow_path=self.source_path(source_id),
+                            workflow_title=preset.name,
+                            error_type="validation",
+                            message=(
+                                f"Agent preset {preset.slug!r} references a "
+                                "non-local model catalog entry but does not "
+                                "include model_provider and model_name for "
+                                "correlation."
                             ),
-                        )
-                    )
-                    continue
-                references_by_catalog_id.setdefault(catalog_id, []).append(
-                    AgentPresetCatalogReference(
-                        path=self.source_path(source_id),
-                        preset_slug=preset.slug,
-                        preset_name=preset.name,
-                        version_number=version_number,
-                        model_key=ModelKey(
-                            version.model_provider,
-                            version.model_name,
+                            details={
+                                "preset_slug": preset.slug,
+                                "catalog_id": str(catalog_id),
+                            },
                         ),
                     )
                 )
+                continue
+            references_by_catalog_id.setdefault(catalog_id, []).append(
+                AgentPresetCatalogReference(
+                    path=self.source_path(source_id),
+                    preset_slug=preset.slug,
+                    preset_name=preset.name,
+                    version_number=1,
+                    model_key=ModelKey(
+                        preset.model_provider,
+                        preset.model_name,
+                    ),
+                )
+            )
 
         workflow_action_types = (PlatformAction.AI_AGENT, PlatformAction.AI_ACTION)
         for source_id, workflow in sorted(workflows.items()):
@@ -791,20 +642,16 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
         correlated_presets: dict[str, AgentPresetResourceSpec] = {}
         for source_id, preset in sorted(presets.items()):
-            config = _head_version_spec(preset)
             local_catalog_id = (
-                resolved_catalog_ids.get(config.catalog_id)
-                if config.catalog_id is not None
+                resolved_catalog_ids.get(preset.catalog_id)
+                if preset.catalog_id is not None
                 else None
             )
             correlated_presets[source_id] = (
                 preset
                 if local_catalog_id is None
-                else _with_head_config(
-                    preset,
-                    config.model_copy(
-                        update={"catalog_id": local_catalog_id, "base_url": None}
-                    ),
+                else preset.model_copy(
+                    update={"catalog_id": local_catalog_id, "base_url": None}
                 )
             )
 
@@ -1033,40 +880,39 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         conflicting_meta_ids: set[uuid.UUID] = set()
 
         for source_id, preset in sorted(presets.items()):
-            for version_number, version in ((1, _head_version_spec(preset)),):
-                for ref in version.mcp_integrations:
-                    integration_id = _parse_uuid(ref)
-                    if integration_id is None:
-                        continue
-                    meta = version.mcp_integration_hints.get(integration_id)
-                    if meta is not None:
-                        meta_key = McpIntegrationCorrelationKey(
-                            slug=meta.slug,
-                            server_type=meta.server_type,
-                            auth_type=meta.auth_type,
-                        )
-                        known = meta_by_source_id.get(integration_id)
-                        if known is None:
-                            meta_by_source_id[integration_id] = meta
-                        elif (
-                            McpIntegrationCorrelationKey(
-                                slug=known.slug,
-                                server_type=known.server_type,
-                                auth_type=known.auth_type,
-                            )
-                            != meta_key
-                        ):
-                            # One source UUID must identify one integration.
-                            conflicting_meta_ids.add(integration_id)
-                    references.setdefault(integration_id, []).append(
-                        AgentPresetMcpIntegrationReference(
-                            path=self.source_path(source_id),
-                            preset_slug=preset.slug,
-                            preset_name=preset.name,
-                            version_number=version_number,
-                            meta=meta,
-                        )
+            for ref in preset.mcp_integrations:
+                integration_id = _parse_uuid(ref)
+                if integration_id is None:
+                    continue
+                meta = preset.mcp_integration_hints.get(integration_id)
+                if meta is not None:
+                    meta_key = McpIntegrationCorrelationKey(
+                        slug=meta.slug,
+                        server_type=meta.server_type,
+                        auth_type=meta.auth_type,
                     )
+                    known = meta_by_source_id.get(integration_id)
+                    if known is None:
+                        meta_by_source_id[integration_id] = meta
+                    elif (
+                        McpIntegrationCorrelationKey(
+                            slug=known.slug,
+                            server_type=known.server_type,
+                            auth_type=known.auth_type,
+                        )
+                        != meta_key
+                    ):
+                        # One source UUID must identify one integration.
+                        conflicting_meta_ids.add(integration_id)
+                references.setdefault(integration_id, []).append(
+                    AgentPresetMcpIntegrationReference(
+                        path=self.source_path(source_id),
+                        preset_slug=preset.slug,
+                        preset_name=preset.name,
+                        version_number=1,
+                        meta=meta,
+                    )
+                )
 
         workflow_action_types = (PlatformAction.AI_AGENT, PlatformAction.AI_ACTION)
         for source_id, workflow in sorted(workflows.items()):
@@ -1225,12 +1071,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         }
         correlated_presets: dict[str, AgentPresetResourceSpec] = {}
         for source_id, preset in sorted(presets.items()):
-            config = _head_version_spec(preset)
             # Resolved ids and hints take the local shape so repeat previews
             # converge on the local projection.
             rewritten: list[str] = []
             rewritten_hints: dict[uuid.UUID, McpIntegrationHint] = {}
-            for ref in config.mcp_integrations:
+            for ref in preset.mcp_integrations:
                 ref_id = _parse_uuid(ref)
                 if ref_id is not None and ref_id in resolved:
                     local_id = resolved[ref_id]
@@ -1239,21 +1084,18 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 else:
                     rewritten.append(ref)
                     if ref_id is not None and (
-                        hint := config.mcp_integration_hints.get(ref_id)
+                        hint := preset.mcp_integration_hints.get(ref_id)
                     ):
                         rewritten_hints[ref_id] = hint
             correlated_presets[source_id] = (
                 preset
-                if rewritten == config.mcp_integrations
-                and rewritten_hints == config.mcp_integration_hints
-                else _with_head_config(
-                    preset,
-                    config.model_copy(
-                        update={
-                            "mcp_integrations": rewritten,
-                            "mcp_integration_hints": rewritten_hints,
-                        }
-                    ),
+                if rewritten == preset.mcp_integrations
+                and rewritten_hints == preset.mcp_integration_hints
+                else preset.model_copy(
+                    update={
+                        "mcp_integrations": rewritten,
+                        "mcp_integration_hints": rewritten_hints,
+                    }
                 )
             )
 
@@ -1473,6 +1315,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         )
         imported: list[ImportedResource] = []
         preset_by_source_id: dict[str, AgentPreset] = {}
+        preset_service = AgentPresetService(
+            workspace_service.session,
+            role=workspace_service.role,
+        )
         # Pass 1: upsert every preset's metadata, folder, and tags. Slug order
         # keeps creation deterministic; head config and versions wait for pass 2.
         for source_id, spec in sorted(presets.items()):
@@ -1511,47 +1357,42 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         for source_id in import_order:
             spec = presets[source_id]
             preset = preset_by_source_id[source_id]
-            head_spec = _head_version_spec(spec)
 
             # Apply desired config and topology after every child head exists.
-            self._apply_preset_version_spec(preset, head_spec)
+            self._apply_preset_head_spec(preset, spec)
             resolved_subagents = await self._resolved_subagents_config(
-                workspace_service, head_spec
+                workspace_service, spec
             )
-            preset.agents = {
-                "enabled": True,
-                **resolved_subagents.model_dump(mode="json"),
-            }
+            preset.agents = resolved_subagents.model_dump(mode="json")
             workspace_service.session.add(preset)
             await workspace_service.session.flush()
             skill_targets = await self._skill_binding_targets_for_spec(
                 workspace_service,
-                head_spec,
+                spec,
             )
+            binding_specs = [
+                SkillBindingSpec(skill.id, skill_version.id)
+                for skill, skill_version in skill_targets
+            ]
 
             current_version = await self._current_version_for_preset(
                 workspace_service, preset
             )
-            if current_version is None or not self._version_matches_preset(
-                current_version, preset
+            await preset_service._replace_head_skill_bindings(
+                preset.id,
+                binding_specs=binding_specs,
+            )
+            if current_version is None or not (
+                await preset_service.version_matches_preset_head(
+                    current_version,
+                    preset,
+                    binding_specs=binding_specs,
+                )
             ):
-                current_version = await self._create_agent_preset_version(
-                    workspace_service, preset
+                await preset_service.publish_preset_head(
+                    preset,
+                    binding_specs=binding_specs,
                 )
-                # Legacy topology fields are written once with a newly inserted
-                # immutable version, never updated on an existing version.
-                await self._replace_version_skill_bindings(
-                    workspace_service, current_version, skill_targets
-                )
-            await self._replace_head_skill_bindings(
-                workspace_service, preset, skill_targets
-            )
-            await self._replace_head_subagent_bindings(
-                workspace_service, preset, resolved_subagents
-            )
-            preset.current_version_id = current_version.id
-            workspace_service.session.add(preset)
-            await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, preset.id))
         return imported
 
@@ -1616,12 +1457,12 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """Copy non-versioned metadata fields onto ``preset``."""
         preset.name = spec.name
 
-    def _apply_preset_version_spec(
+    def _apply_preset_head_spec(
         self,
         preset: AgentPreset,
-        spec: AgentPresetVersionResourceSpec,
+        spec: AgentPresetResourceSpec,
     ) -> None:
-        """Copy version-owned fields from ``spec`` onto the live preset head."""
+        """Copy publishable fields from ``spec`` onto the live preset head."""
         for key, value in self._version_attrs_from_spec(spec).items():
             setattr(preset, key, value)
 
@@ -1774,7 +1615,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     async def _resolved_subagents_config(
         self,
         workspace_service: SyncMappingService,
-        spec: AgentPresetResourceSpec | AgentPresetVersionResourceSpec,
+        spec: AgentPresetResourceSpec,
     ) -> ResolvedAgentsConfig:
         """Resolve ``spec`` subagents for canonical edges and rollback shadows.
 
@@ -1854,67 +1695,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
         )
 
-    def _version_matches_preset(
-        self, version: AgentPresetVersion, preset: AgentPreset
-    ) -> bool:
-        """Return whether a version captures the head's version-owned config."""
-        for key, value in self._version_attrs_from_preset(preset).items():
-            if getattr(version, key) != value:
-                return False
-        return True
-
-    async def _create_agent_preset_version(
-        self,
-        workspace_service: SyncMappingService,
-        preset: AgentPreset,
-    ) -> AgentPresetVersion:
-        """Create the next :class:`AgentPresetVersion` snapshotting ``preset``.
-
-        Increments the version number past the preset's highest existing version
-        and copies the current preset attributes onto the new row.
-        """
-        # Find the highest existing version number for this preset.
-        current_version = await workspace_service.session.scalar(
-            select(sa.func.max(AgentPresetVersion.version)).where(
-                AgentPresetVersion.workspace_id == workspace_service.workspace_id,
-                AgentPresetVersion.preset_id == preset.id,
-            )
-        )
-        # Snapshot the preset onto the next number (1 when there is no prior).
-        version = AgentPresetVersion(
-            workspace_id=workspace_service.workspace_id,
-            preset_id=preset.id,
-            version=(current_version or 0) + 1,
-            **self._version_attrs_from_preset(preset),
-        )
-        workspace_service.session.add(version)
-        await workspace_service.session.flush()
-        return version
-
-    def _version_attrs_from_preset(self, preset: AgentPreset) -> dict[str, Any]:
-        """Return the versioned preset attributes to snapshot or compare."""
-        return {
-            "instructions": preset.instructions,
-            "model_name": preset.model_name,
-            "model_provider": preset.model_provider,
-            "catalog_id": preset.catalog_id,
-            "base_url": preset.base_url,
-            "output_type": preset.output_type,
-            "actions": preset.actions,
-            "namespaces": preset.namespaces,
-            "tool_approvals": preset.tool_approvals,
-            "mcp_integrations": preset.mcp_integrations,
-            "agents": preset.agents,
-            "retries": preset.retries,
-            "enable_thinking": preset.enable_thinking,
-            "enable_internet_access": preset.enable_internet_access,
-        }
-
     def _version_attrs_from_spec(
         self,
-        spec: AgentPresetVersionResourceSpec,
+        spec: AgentPresetResourceSpec,
     ) -> dict[str, Any]:
-        """Return version row attributes from a version spec."""
+        """Return publishable head attributes from a resource spec."""
         return {
             "instructions": spec.instructions,
             "model_name": spec.model_name or DEFAULT_AGENT_MODEL_NAME,
@@ -1931,74 +1716,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             "enable_internet_access": spec.enable_internet_access,
         }
 
-    async def _replace_head_skill_bindings(
-        self,
-        workspace_service: SyncMappingService,
-        preset: AgentPreset,
-        skill_targets: list[tuple[Skill, SkillVersion]],
-    ) -> None:
-        """Replace ``preset``'s head skill bindings with ``skill_targets``."""
-        # Delete existing head bindings, then re-insert the resolved set so the
-        # result is an exact replacement.
-        await workspace_service.session.execute(
-            sa.delete(AgentPresetSkill).where(
-                AgentPresetSkill.workspace_id == workspace_service.workspace_id,
-                AgentPresetSkill.preset_id == preset.id,
-            )
-        )
-        for skill, skill_version in skill_targets:
-            workspace_service.session.add(
-                AgentPresetSkill(
-                    workspace_id=workspace_service.workspace_id,
-                    preset_id=preset.id,
-                    skill_id=skill.id,
-                    skill_version_id=skill_version.id,
-                )
-            )
-        await workspace_service.session.flush()
-
-    async def _replace_head_subagent_bindings(
-        self,
-        workspace_service: SyncMappingService,
-        preset: AgentPreset,
-        binding: ResolvedAgentsConfig,
-    ) -> None:
-        """Persist the authored child-head membership on the mutable shadow."""
-
-        preset.agents = binding.model_dump(mode="json")
-        workspace_service.session.add(preset)
-        await workspace_service.session.flush()
-
-    async def _replace_version_skill_bindings(
-        self,
-        workspace_service: SyncMappingService,
-        version: AgentPresetVersion,
-        skill_targets: list[tuple[Skill, SkillVersion]],
-    ) -> None:
-        """Replace ``version``'s skill bindings with ``skill_targets``."""
-        # Delete then re-insert so the version's bindings exactly mirror the set
-        # captured at snapshot time.
-        await workspace_service.session.execute(
-            sa.delete(AgentPresetVersionSkill).where(
-                AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
-                AgentPresetVersionSkill.preset_version_id == version.id,
-            )
-        )
-        for skill, skill_version in skill_targets:
-            workspace_service.session.add(
-                AgentPresetVersionSkill(
-                    workspace_id=workspace_service.workspace_id,
-                    preset_version_id=version.id,
-                    skill_id=skill.id,
-                    skill_version_id=skill_version.id,
-                )
-            )
-        await workspace_service.session.flush()
-
     async def _skill_binding_targets_for_spec(
         self,
         workspace_service: SyncMappingService,
-        spec: AgentPresetResourceSpec | AgentPresetVersionResourceSpec,
+        spec: AgentPresetResourceSpec,
     ) -> list[tuple[Skill, SkillVersion]]:
         """Resolve ``spec``'s skill bindings to ``(skill, version)`` pairs.
 
@@ -2023,11 +1744,14 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         binding: AgentPresetSkillBinding,
     ) -> tuple[Skill | None, SkillVersion | None]:
         """Resolve one Skill-head binding to its current version shadow."""
-        # Resolve the skill by its slug (stored as `name`) in this workspace.
+        # Resolve by stable slug, with the expand-window name fallback.
         skill = await workspace_service.session.scalar(
             select(Skill).where(
                 Skill.workspace_id == workspace_service.workspace_id,
-                Skill.name == binding.slug,
+                sa.or_(
+                    Skill.slug == binding.slug,
+                    sa.and_(Skill.slug.is_(None), Skill.name == binding.slug),
+                ),
                 # Expand-window check: legacy writers set only archived_at; the
                 # contract release drops the archived_at leg.
                 Skill.deleted_at.is_(None),
