@@ -11,12 +11,17 @@ from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.cases.agent_invocations.completion import (
+    CaseCommentAgentInvocationCompletionService,
+)
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueInput
 from tracecat.cases.enums import (
     CaseAgentSessionInteractionOperation,
+    CaseCommentAgentInvocationStatus,
     CasePriority,
     CaseSeverity,
     CaseStatus,
+    MentionTargetType,
 )
 from tracecat.cases.schemas import (
     CaseCommentCreate,
@@ -32,6 +37,8 @@ from tracecat.db.models import (
     Case,
     CaseAgentSessionInteraction,
     CaseComment,
+    CaseCommentAgentInvocation,
+    CaseCommentMention,
     CaseDropdownDefinition,
     CaseDropdownOption,
     Workspace,
@@ -255,6 +262,85 @@ async def test_agent_case_and_comment_mutations_record_root_interactions(
             root.id,
         ),
     }
+
+
+async def test_comment_agent_reply_records_explicit_session_interaction(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A successful comment-agent reply associates its explicit session."""
+    assert svc_role.workspace_id is not None
+    case = await CasesService(session=session, role=svc_role).create_case(
+        _case_create("Comment agent case")
+    )
+    agent_session = AgentSession(
+        workspace_id=svc_role.workspace_id,
+        title="Comment agent",
+        entity_type="case",
+        entity_id=case.id,
+    )
+    source_comment = CaseComment(
+        workspace_id=svc_role.workspace_id,
+        case_id=case.id,
+        content="Investigate this case",
+        user_id=svc_role.user_id,
+    )
+    session.add_all([agent_session, source_comment])
+    await session.flush()
+    mention = CaseCommentMention(
+        workspace_id=svc_role.workspace_id,
+        case_id=case.id,
+        comment_id=source_comment.id,
+        target_type=MentionTargetType.AGENT.value,
+        target_id=uuid.uuid4(),
+        label="Comment agent",
+    )
+    session.add(mention)
+    await session.flush()
+    session.add(
+        CaseCommentAgentInvocation(
+            workspace_id=svc_role.workspace_id,
+            mention_id=mention.id,
+            session_id=agent_session.id,
+            preset_name="Comment agent",
+            preset_slug="comment-agent",
+            status=CaseCommentAgentInvocationStatus.RUNNING.value,
+        )
+    )
+    await session.commit()
+
+    completion = CaseCommentAgentInvocationCompletionService(session, svc_role)
+    reply = await completion.create_reply_and_mark_succeeded(
+        agent_session.id,
+        "Investigation complete",
+    )
+    assert reply is not None
+    assert (
+        await completion.create_reply_and_mark_succeeded(
+            agent_session.id,
+            "Ignored retry",
+        )
+        == reply
+    )
+
+    interactions = await _list_interactions(session, svc_role.workspace_id)
+    assert [
+        (interaction.case_id, interaction.operation, interaction.agent_session_id)
+        for interaction in interactions
+    ] == [
+        (
+            case.id,
+            CaseAgentSessionInteractionOperation.UPDATE,
+            agent_session.id,
+        )
+    ]
+
+    # Remove the reply before its thread root so workspace fixture cleanup does
+    # not encounter the self-referential comment foreign key.
+    await session.delete(reply)
+    await session.flush()
+    await session.delete(source_comment)
+    await session.commit()
 
 
 async def test_non_agent_case_and_comment_mutations_do_not_record(
