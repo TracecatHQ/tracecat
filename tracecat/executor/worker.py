@@ -52,10 +52,6 @@ with workflow.unsafe.imports_passed_through():
     import uvloop
 
     from tracecat import config
-    from tracecat.cases.agent_sessions.workflow import (
-        CaseAgentSessionBackfillWorkflow,
-        case_agent_session_backfill_activity,
-    )
     from tracecat.dsl.client import get_temporal_client
     from tracecat.executor.action_gateway.server import ActionGateway
     from tracecat.executor.action_runner import get_action_runner
@@ -154,14 +150,12 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
         # Collect all activities from executor and registry sync
         activities = [
-            case_agent_session_backfill_activity,
             *ExecutorActivities.get_activities(),
             *RegistrySyncActivities.get_activities(),
         ]
 
         # Collect all workflows
         workflows = [
-            CaseAgentSessionBackfillWorkflow,
             RegistrySyncWorkflow,
             RegistryArtifactsBackfillWorkflow,
         ]

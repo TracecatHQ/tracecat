@@ -86,6 +86,10 @@ async def test_case_agent_session_interaction_backfill(
         },
     }
     start_call = temporal_client.start_workflow.await_args
+    assert (
+        start_call.kwargs["task_queue"]
+        == maintenance_router_module.config.TEMPORAL__CLUSTER_QUEUE
+    )
     assert start_call.kwargs["id_reuse_policy"] == (
         WorkflowIDReusePolicy.ALLOW_DUPLICATE
     )

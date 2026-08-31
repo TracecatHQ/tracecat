@@ -38,7 +38,7 @@ async def start_case_agent_session_interaction_backfill(
     handle = await client.start_workflow(
         CaseAgentSessionBackfillWorkflow.run,
         id=_BACKFILL_WORKFLOW_ID,
-        task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+        task_queue=config.TEMPORAL__CLUSTER_QUEUE,
         execution_timeout=timedelta(days=1),
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
