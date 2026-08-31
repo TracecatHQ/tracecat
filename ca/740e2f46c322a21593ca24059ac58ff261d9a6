@@ -1,0 +1,48 @@
+frontend/src/components/icons.tsx
+  s_075855148e08d5::t_e89e061c44c503 2892-2956
+  s_075855148e08d5::t_fc5146e9db755f 664-665,1145-1154
+docs/tools/onepassword_sdk.mdx
+  s_075855148e08d5::t_d95dada2cb1c9d 1-41
+packages/tracecat-registry/tracecat_registry/integrations/onepassword_sdk.py
+  s_075855148e08d5::t_fc5146e9db755f 13,35
+  s_075855148e08d5::t_b0c445ae560e09 45,102
+  s_075855148e08d5::t_89b0f5a7137d0d 1-12,14-34,36-44,46-101,103-195
+packages/tracecat-registry/tracecat_registry/templates/tools/onepassword/events/list_sign_in_attempts.yml
+  s_075855148e08d5::t_89b0f5a7137d0d 1-40
+tests/registry/test_onepassword_sdk.py
+  s_075855148e08d5::t_fc5146e9db755f 1-18,57-152
+  s_075855148e08d5::t_007419cc63d284 19-56
+packages/tracecat-registry/tracecat_registry/templates/tools/onepassword/events/list_audit_events.yml
+  s_075855148e08d5::t_89b0f5a7137d0d 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/onepassword/events/introspect_token.yml
+  s_075855148e08d5::t_89b0f5a7137d0d 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/onepassword/events/list_item_usages.yml
+  s_075855148e08d5::t_89b0f5a7137d0d 1-40
+frontend/src/components/icons.test.tsx
+  s_075855148e08d5::t_2950ce4cf8dda2 165,214-221
+  s_075855148e08d5::t_e89e061c44c503 9,158-164,166-169,176-179,195,199-203,205-212
+docs/tools/onepassword.mdx
+  s_075855148e08d5::t_d95dada2cb1c9d 1-119
+packages/tracecat-registry/pyproject.toml
+  s_075855148e08d5::t_89b0f5a7137d0d 49
+docs/docs.json
+  s_075855148e08d5::t_d95dada2cb1c9d 250-251
+uv.lock
+  s_075855148e08d5::t_4f5176066e2b5d 3026-3046,5238,5283
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ca740e2f46c322a21593ca24059ac58ff261d9a6",
+  "prompts": {},
+  "sessions": {
+    "s_075855148e08d5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a058ad-f064-7133-a4db-fbe2bc5cb571",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
