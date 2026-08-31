@@ -1,0 +1,50 @@
+frontend/src/hooks/use-mentions.ts
+  s_f5bc3fa6cd154b::t_b1d3522d2db8bb 140-141
+  s_f5bc3fa6cd154b::t_6c8d51a7f4d290 592
+frontend/src/components/chat/chat-interface.tsx
+  s_0afebddc7f7329::t_dfd29eaaf2944f 163-166
+tracecat/agent/session/service.py
+  s_f5bc3fa6cd154b::t_f8413ae53f5f21 492,531
+  s_f5bc3fa6cd154b::t_d2e7d07e35d470 140,146,472-491,493-504,511,513-516,519-521,530,532-538
+tests/unit/test_agent_session_preset_versioning.py
+  s_f5bc3fa6cd154b::t_a4463a9becf0c7 73
+  s_f5bc3fa6cd154b::t_15d98ecc5989c6 5
+  s_f5bc3fa6cd154b::t_022b5fb0323a7f 23
+  s_f5bc3fa6cd154b::t_c7020307e6ce02 283-291,295-355,357,359-367,370-389,392-476
+  s_f5bc3fa6cd154b::t_c1d1e5cf8a2268 63-72,74-109
+frontend/src/components/chat/chat-session-pane.tsx
+  s_f5bc3fa6cd154b::t_5c6f7ac880a76b 1112-1118
+  s_f5bc3fa6cd154b::t_c9fdf2091aee07 1076-1080,1086-1093
+  s_0afebddc7f7329::t_a554bbfa462853 366-368,370-376
+  s_f5bc3fa6cd154b::t_b34bf690c5a61e 369
+  s_f5bc3fa6cd154b::t_79255784edce07 117
+  s_f5bc3fa6cd154b::t_c10d8c175fc2ea 1094-1095
+frontend/tests/chat-session-pane.test.tsx
+  s_f5bc3fa6cd154b::t_d0d11e92e677dc 1874-1893,2116-2268
+  s_f5bc3fa6cd154b::t_0028327f92182d 1537-1621
+  s_f5bc3fa6cd154b::t_97a9892c392d38 2269-2270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "68594983cb49e14f14161781c6661805b406b4f5",
+  "prompts": {},
+  "sessions": {
+    "s_0afebddc7f7329": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c8cd4429-2157-49fb-9414-9789d80c8518",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_f5bc3fa6cd154b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c131c3e2-64f7-40df-9e76-25cd84b37625",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
