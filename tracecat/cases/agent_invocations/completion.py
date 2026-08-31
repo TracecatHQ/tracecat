@@ -8,14 +8,7 @@ from sqlalchemy import select
 
 from tracecat.cases.agent_invocations.output import render_agent_output_as_comment
 from tracecat.cases.agent_invocations.service import CaseCommentAgentInvocationService
-from tracecat.cases.agent_sessions.service import (
-    CaseAgentSessionInteractionService,
-)
-from tracecat.cases.enums import (
-    CaseAgentSessionInteractionOperation,
-    CaseCommentAgentInvocationStatus,
-    MentionTargetType,
-)
+from tracecat.cases.enums import CaseCommentAgentInvocationStatus, MentionTargetType
 from tracecat.cases.events import CaseEventsService
 from tracecat.cases.schemas import CommentReplyCreatedEvent
 from tracecat.db.models import (
@@ -122,11 +115,6 @@ class CaseCommentAgentInvocationCompletionService(BaseWorkspaceService):
             raise TracecatConflictError(
                 "Comment agent invocation changed while creating its reply"
             )
-        await CaseAgentSessionInteractionService(self.session, self.role).record(
-            case_id=case.id,
-            agent_session_id=session_id,
-            operation=CaseAgentSessionInteractionOperation.UPDATE,
-        )
 
         await self.session.commit()
         return reply

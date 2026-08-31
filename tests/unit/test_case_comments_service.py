@@ -28,6 +28,7 @@ from tracecat.cases.agent_invocations.service import (
     CaseCommentAgentInvocationService,
 )
 from tracecat.cases.enums import (
+    CaseAgentSessionInteractionOperation,
     CaseCommentAgentInvocationStatus,
     CaseEventType,
     CasePriority,
@@ -47,6 +48,7 @@ from tracecat.db.models import (
     AgentPresetVersion,
     AgentSession,
     Case,
+    CaseAgentSessionInteraction,
     CaseComment,
     CaseCommentAgentInvocation,
     CaseCommentMention,
@@ -916,6 +918,14 @@ class TestCaseCommentsService:
             assert agent_session.agent_preset_version_id == version.id
             assert agent_session.title == "Thread agent"
             assert agent_session.channel_context == {"session_origin": "case_comment"}
+            interaction = await session.scalar(
+                select(CaseAgentSessionInteraction).where(
+                    CaseAgentSessionInteraction.case_id == test_case.id,
+                    CaseAgentSessionInteraction.agent_session_id == first.session_id,
+                )
+            )
+            assert interaction is not None
+            assert interaction.operation == CaseAgentSessionInteractionOperation.UPDATE
 
             session_service = AgentSessionService(session, case_comments_service.role)
             messages = await session_service.list_messages(first.session_id)
