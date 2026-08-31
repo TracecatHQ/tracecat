@@ -1,0 +1,33 @@
+tracecat/integrations/providers/google/__init__.py
+  s_bf1da2caf45751::t_45c45287131d89 5,25-26
+tracecat/integrations/providers/__init__.py
+  s_bf1da2caf45751::t_45c45287131d89 15-16,78-79
+packages/tracecat-registry/tracecat_registry/templates/tools/google_cloud_logging/entries/list_log_entries.yml
+  s_bf1da2caf45751::t_df83d6e3538881 1-14,23-27,29-71,73-81
+  s_bf1da2caf45751::t_45c45287131d89 15-22,28,72
+frontend/src/components/icons.tsx
+  s_bf1da2caf45751::t_df83d6e3538881 647
+  s_bf1da2caf45751::t_45c45287131d89 974-978
+docs/docs.json
+  s_bf1da2caf45751::t_622e6b293574bf 212
+docs/tools/google_cloud_logging.mdx
+  s_bf1da2caf45751::t_9aa5454f2e2f3e 1-62
+tracecat/integrations/providers/google/cloud_logging.py
+  s_bf1da2caf45751::t_45c45287131d89 1-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1dab2bcc22fd6348cceb859a466987246dd66216",
+  "prompts": {},
+  "sessions": {
+    "s_bf1da2caf45751": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a057ff-0310-7323-8e0c-9771d4d3f41f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
