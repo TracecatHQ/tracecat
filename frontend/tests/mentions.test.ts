@@ -3,6 +3,7 @@ import {
   applyMentionRemoval,
   buildMentionSegments,
   diffTextSplice,
+  findAgentMention,
   findMentionEndingAt,
   findWorkflowMention,
   formatAgentMentionToken,
@@ -12,7 +13,8 @@ import {
   mentionDisplayText,
   remapMentions,
   serializeMentions,
-} from "@/lib/comment-mentions"
+  shiftMentionsAfterPrefix,
+} from "@/lib/mentions"
 
 function mention(
   start: number,
@@ -122,6 +124,26 @@ describe("findWorkflowMention", () => {
       target
     )
     expect(findWorkflowMention([mention(0, "Triage agent")])).toBeUndefined()
+  })
+})
+
+describe("findAgentMention", () => {
+  it("returns the agent range, ignoring workflows", () => {
+    const target = mention(0, "Triage agent")
+    expect(findAgentMention([target, workflow(14, "Escalate case")])).toBe(
+      target
+    )
+    expect(findAgentMention([workflow(0, "Escalate case")])).toBeUndefined()
+  })
+
+  it("returns the first agent when several survive", () => {
+    const first = mention(0, "Triage agent")
+    const second = mention(20, "Malware agent")
+    expect(findAgentMention([first, second])).toBe(first)
+  })
+
+  it("returns undefined for an empty range list", () => {
+    expect(findAgentMention([])).toBeUndefined()
   })
 })
 
@@ -257,10 +279,30 @@ describe("getMentionToken", () => {
     })
   })
 
-  it("returns undefined without a trigger, after a non-space, or with whitespace", () => {
+  it("returns undefined without a trigger or after a non-space", () => {
     expect(getMentionToken("ping", 4)).toBeUndefined()
     expect(getMentionToken("email@tri", 9)).toBeUndefined()
-    expect(getMentionToken("@tri agent", 10)).toBeUndefined()
+  })
+
+  it("carries spaces so a multi-word name can be typed out", () => {
+    expect(getMentionToken("@Triage ana", 11)).toEqual({
+      start: 0,
+      end: 11,
+      query: "Triage ana",
+      kind: "agent",
+    })
+  })
+
+  it("ends the query at a leading space, a newline, or the length cap", () => {
+    expect(getMentionToken("@ triage", 8)).toBeUndefined()
+    expect(getMentionToken("@tri\nagent", 10)).toBeUndefined()
+    expect(getMentionToken(`@${"a".repeat(161)}`, 162)).toBeUndefined()
+    expect(getMentionToken(`@${"a".repeat(160)}`, 161)).toEqual({
+      start: 0,
+      end: 161,
+      query: "a".repeat(160),
+      kind: "agent",
+    })
   })
 
   it("ignores text after the caret", () => {
@@ -357,7 +399,8 @@ describe("applyMentionInsertion", () => {
       "/Escalate case hello /clo",
       [existing],
       { start: 21, end: 25, query: "clo", kind: "workflow" },
-      { kind: "workflow", label: "Close case", targetId: "workflow-2" }
+      { kind: "workflow", label: "Close case", targetId: "workflow-2" },
+      true
     )
     expect(edit.text).toBe(" hello /Close case ")
     expect(edit.mentions).toEqual([workflow(7, "Close case", "workflow-2")])
@@ -370,7 +413,8 @@ describe("applyMentionInsertion", () => {
       "/clo hello /Escalate case",
       [existing],
       { start: 0, end: 4, query: "clo", kind: "workflow" },
-      { kind: "workflow", label: "Close case", targetId: "workflow-2" }
+      { kind: "workflow", label: "Close case", targetId: "workflow-2" },
+      true
     )
     expect(edit.text).toBe("/Close case  hello ")
     expect(edit.mentions).toEqual([workflow(0, "Close case", "workflow-2")])
@@ -382,7 +426,8 @@ describe("applyMentionInsertion", () => {
       "/Escalate case @Triage agent /clo",
       [workflow(0, "Escalate case"), agent],
       { start: 29, end: 33, query: "clo", kind: "workflow" },
-      { kind: "workflow", label: "Close case", targetId: "workflow-2" }
+      { kind: "workflow", label: "Close case", targetId: "workflow-2" },
+      true
     )
     expect(edit.text).toBe(" @Triage agent /Close case ")
     expect(edit.mentions).toEqual([
@@ -400,5 +445,29 @@ describe("applyMentionRemoval", () => {
       mention(5, "Triage agent")
     )
     expect(edit).toEqual({ text: "Ping  now", mentions: [], caret: 5 })
+  })
+})
+
+describe("shiftMentionsAfterPrefix", () => {
+  const at = (start: number, end: number, targetId: string): MentionRange => ({
+    start,
+    end,
+    kind: "agent",
+    label: "Agent",
+    targetId,
+  })
+
+  it("returns the ranges untouched when nothing is cut", () => {
+    const ranges = [at(0, 5, "a")]
+    expect(shiftMentionsAfterPrefix(ranges, 0)).toBe(ranges)
+  })
+
+  it("drops ranges inside the cut and re-bases the rest", () => {
+    const ranges = [at(0, 14, "sent"), at(20, 30, "kept")]
+    expect(shiftMentionsAfterPrefix(ranges, 14)).toEqual([at(6, 16, "kept")])
+  })
+
+  it("drops everything when the cut covers the whole text", () => {
+    expect(shiftMentionsAfterPrefix([at(0, 14, "sent")], 30)).toEqual([])
   })
 })

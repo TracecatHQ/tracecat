@@ -74,13 +74,15 @@
             "icon": "ticket-check",
             "pages": [
               "automations/cases",
-              "automations/cases/agent-mentions"
+              "automations/cases/agent-mentions",
+              "automations/cases/tasks"
             ]
           },
           {
             "group": "Building agents",
             "icon": "sparkles",
             "pages": [
+              "agents/workspace-chat",
               "agents/ai-action",
               "agents/ai-agent",
               "agents/custom-llm-providers",
@@ -173,6 +175,8 @@
             "icon": "wrench",
             "pages": [
               "integrations/overview",
+              "tools/1password",
+              "tools/1password_sdk",
               "tools/abuseipdb",
               "tools/alertmedia",
               "tools/amazon_s3",
@@ -207,6 +211,7 @@
               "tools/google_alert_center",
               "tools/google_api",
               "tools/google_chronicle",
+              "tools/google_cloud_logging",
               "tools/google_directory",
               "tools/google_docs",
               "tools/google_drive",
@@ -256,6 +261,7 @@
               "tools/pipe0",
               "tools/project_discovery",
               "tools/pymongo",
+              "tools/recorded_future",
               "tools/rippling",
               "tools/rootly",
               "tools/runreveal",

@@ -6,6 +6,7 @@ import {
   MicrosoftGraphIcon,
   MicrosoftIcon,
   MicrosoftOutlookIcon,
+  OnePasswordIcon,
   providerIcons,
   SnowflakeIcon,
   secretIcons,
@@ -154,12 +155,28 @@ describe("Databricks and Snowflake brand marks", () => {
   })
 })
 
+describe("1Password brand mark", () => {
+  it("renders the official vector mark in its primary blue", () => {
+    const onepassword = renderIcon(<OnePasswordIcon />)
+
+    expect(onepassword.querySelector("svg > title")?.textContent).toBe(
+      "1Password"
+    )
+    expect(onepassword.querySelector('[stop-color="#1D48F5"]')).not.toBeNull()
+    expect(onepassword.querySelector("image")).toBeNull()
+  })
+})
+
 describe("action namespace icons", () => {
   const cases: [namespace: string, title: string][] = [
     ["tools.databricks", "Databricks"],
     ["tools.databricks.jobs.run_job", "Databricks"],
     ["tools.databricks_sdk", "Databricks"],
     ["tools.databricks_sdk.call_method", "Databricks"],
+    ["tools.1password", "1Password"],
+    ["tools.1password.list_audit_events", "1Password"],
+    ["tools.1password_sdk", "1Password"],
+    ["tools.1password_sdk.call_method", "1Password"],
     ["tools.snowflake", "Snowflake"],
     ["tools.snowflake.execute_statement", "Snowflake"],
   ]
@@ -175,20 +192,31 @@ describe("action namespace icons", () => {
 })
 
 describe("OAuth provider and credential icons", () => {
-  const cases: [providerId: string, title: string][] = [
+  const providerCases: [providerId: string, title: string][] = [
     ["databricks", "Databricks"],
     ["snowflake", "Snowflake"],
   ]
+  const secretCases: [secretName: string, title: string][] = [
+    ...providerCases,
+    ["onepassword", "1Password"],
+    ["onepassword_events", "1Password"],
+  ]
 
-  it.each(cases)("maps the %s provider to the %s mark", (providerId, title) => {
-    const Icon = providerIcons[providerId]
-    expect(Icon).toBeDefined()
-    expect(svgTitle(<Icon />)).toBe(title)
-  })
+  it.each(providerCases)(
+    "maps the %s provider to the %s mark",
+    (providerId, title) => {
+      const Icon = providerIcons[providerId]
+      expect(Icon).toBeDefined()
+      expect(svgTitle(<Icon />)).toBe(title)
+    }
+  )
 
-  it.each(cases)("maps the %s secret to the %s mark", (secretName, title) => {
-    const Icon = secretIcons[secretName]
-    expect(Icon).toBeDefined()
-    expect(svgTitle(<Icon />)).toBe(title)
-  })
+  it.each(secretCases)(
+    "maps the %s secret to the %s mark",
+    (secretName, title) => {
+      const Icon = secretIcons[secretName]
+      expect(Icon).toBeDefined()
+      expect(svgTitle(<Icon />)).toBe(title)
+    }
+  )
 })

@@ -46,6 +46,7 @@ dependencies = [
     "nh3==0.2.18",
     "orjson==3.11.7",
     "okta==3.4.3",
+    "onepassword-sdk==0.4.1",
     "paramiko==3.5.0",
     "pydantic==2.12.5",
     "pymongo==4.8.0",

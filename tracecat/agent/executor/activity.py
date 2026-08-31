@@ -18,7 +18,6 @@ from temporalio import activity
 from tracecat_ee.workspace_chat.policy import (
     is_workspace_chat_entitled,
 )
-from tracecat_ee.workspace_chat.skills import BUILTIN_SKILL_NAME_PREFIX
 
 from tracecat import config as app_config
 from tracecat.agent.artifacts.working_set import ArtifactWorkingSetInput
@@ -80,6 +79,7 @@ from tracecat.agent.sandbox.llm_proxy import (
 from tracecat.agent.sandbox.otel_relay import OTEL_SOCKET_NAME, OtelSocketReceiver
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.skill.builtin import BUILTIN_SKILL_NAME_PREFIX
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -1059,10 +1059,10 @@ class SandboxedAgentExecutor:
                 )
 
     async def _stage_builtin_skills(self, skills_dir: Path) -> None:
-        """Stage always-on built-in (EE) platform skills into the run home dir.
+        """Stage always-on built-in platform skills into the run home dir.
 
         Built-in skills are plain on-disk directories packaged inside
-        ``tracecat_ee``. They are identified by name only (resolved from the
+        ``tracecat`` package. They are identified by name only (resolved from the
         config, which set them when the org is workspace-chat entitled), so this
         method maps each reserved-prefix name to its packaged directory and
         copies it into the staged skills directory. Built-in skills own the
@@ -1076,7 +1076,7 @@ class SandboxedAgentExecutor:
         if not names:
             return
 
-        skills_root = files("tracecat_ee.workspace_chat.skills")
+        skills_root = files("tracecat.agent.skill.builtin")
         for name in dict.fromkeys(names):
             if (
                 not name.startswith(BUILTIN_SKILL_NAME_PREFIX)

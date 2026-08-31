@@ -1,4 +1,4 @@
-"""Tests for always-on built-in (EE) workspace-chat skills.
+"""Tests for always-on built-in workspace-chat skills.
 
 Covers the reserved skill-name namespace, the ``builtin_skills`` config field
 threading across the Temporal payload boundary, and the executor staging that
@@ -44,18 +44,18 @@ class TestReservedSkillNamespace:
             == f"{RESERVED_SKILL_NAME_PREFIX}legacy"
         )
 
-    def test_reserved_prefix_matches_ee_constant(self):
-        # Keep the core validator prefix in sync with the EE package constant.
-        from tracecat_ee.workspace_chat.skills import BUILTIN_SKILL_NAME_PREFIX
+    def test_reserved_prefix_matches_builtin_constant(self):
+        # Keep the core validator prefix in sync with the built-in package constant.
+        from tracecat.agent.skill.builtin import BUILTIN_SKILL_NAME_PREFIX
 
         assert RESERVED_SKILL_NAME_PREFIX == BUILTIN_SKILL_NAME_PREFIX
 
 
 class TestBuiltinSkillsConstant:
-    """The EE built-in skill catalog is well-formed and present on disk."""
+    """The built-in skill catalog is well-formed and present on disk."""
 
     def test_all_builtin_skills_use_reserved_prefix(self):
-        from tracecat_ee.workspace_chat.skills import (
+        from tracecat.agent.skill.builtin import (
             BUILTIN_SKILL_NAME_PREFIX,
             BUILTIN_WORKSPACE_CHAT_SKILLS,
         )
@@ -67,9 +67,9 @@ class TestBuiltinSkillsConstant:
     def test_each_builtin_skill_has_skill_md(self):
         from importlib.resources import files
 
-        from tracecat_ee.workspace_chat.skills import BUILTIN_WORKSPACE_CHAT_SKILLS
+        from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
 
-        root = files("tracecat_ee.workspace_chat.skills")
+        root = files("tracecat.agent.skill.builtin")
         for name in BUILTIN_WORKSPACE_CHAT_SKILLS:
             assert (root / name / "SKILL.md").is_file()
 
@@ -128,7 +128,7 @@ class TestResolveBuiltinWorkspaceChatSkills:
         # Patch the name bound in `service` (imported by value), not in `policy`.
         monkeypatch.setattr(session_service, "is_workspace_chat_entitled", _entitled)
 
-        from tracecat_ee.workspace_chat.skills import BUILTIN_WORKSPACE_CHAT_SKILLS
+        from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
 
         svc = SimpleNamespace(session=object(), role=object())
         resolve = AgentSessionService._resolve_builtin_workspace_chat_skills.__get__(

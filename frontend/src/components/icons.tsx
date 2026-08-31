@@ -644,6 +644,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.google_docs": createIconRenderer(GoogleDocsIcon),
     "tools.google_drive": createIconRenderer(GoogleDriveIcon),
     "tools.google_api": createIconRenderer(GoogleIcon),
+    "tools.google_cloud_logging": createIconRenderer(GoogleCloudLoggingIcon),
     "tools.google_scc": createIconRenderer(GoogleIcon),
     "tools.gmail": createIconRenderer(GmailIcon),
     "tools.google_slides": createIconRenderer(GoogleSlidesIcon),
@@ -661,6 +662,8 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.exa": createIconRenderer(ExaIcon),
     "tools.linear": createIconRenderer(LinearIcon),
     "tools.notion": createIconRenderer(NotionIcon),
+    "tools.1password": createIconRenderer(OnePasswordIcon),
+    "tools.1password_sdk": createIconRenderer(OnePasswordIcon),
     "tools.okta": createIconRenderer(OktaIcon),
     "tools.okta_oar": createIconRenderer(OktaIcon),
     "tools.okta_sdk": createIconRenderer(OktaIcon),
@@ -681,6 +684,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.kubernetes_sdk": createIconRenderer(KubernetesIcon),
     "tools.minio": createIconRenderer(MinioIcon),
     "tools.pymongo": createIconRenderer(MongoDbIcon),
+    "tools.recorded_future": createIconRenderer(RecordedFutureIcon),
     "tools.snowflake": createIconRenderer(SnowflakeIcon),
     "tools.zendesk": createIconRenderer(ZendeskIcon),
     // MCP catalog raster brand marks reused for tool namespaces
@@ -970,6 +974,11 @@ export const providerIcons: Record<
       <GoogleIcon {...rest} />
     </div>
   ),
+  google_cloud_logging: ({ className, ...rest }) => (
+    <div className={className}>
+      <GoogleCloudLoggingIcon {...rest} />
+    </div>
+  ),
   google_slides: ({ className, ...rest }) => (
     <div className={className}>
       <GoogleSlidesIcon {...rest} />
@@ -1138,6 +1147,16 @@ export const secretIcons: Record<
   notion: ({ className, ...rest }) => (
     <div className={className}>
       <NotionIcon {...rest} />
+    </div>
+  ),
+  onepassword: ({ className, ...rest }) => (
+    <div className={className}>
+      <OnePasswordIcon {...rest} />
+    </div>
+  ),
+  onepassword_events: ({ className, ...rest }) => (
+    <div className={className}>
+      <OnePasswordIcon {...rest} />
     </div>
   ),
   linear: ({ className, ...rest }) => (
@@ -1938,6 +1957,34 @@ export function GoogleIcon({ className, ...rest }: IconProps) {
   )
 }
 
+/**
+ * Google Cloud Logging product mark.
+ *
+ * Source: Google's official Cloud product icon library, `cloud_logging.svg`
+ * from the legacy icon pack linked at https://cloud.google.com/icons. The
+ * vector geometry and official colors are preserved; CSS classes from the
+ * source SVG are expressed as presentation attributes for React.
+ */
+export function GoogleCloudLoggingIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={className}
+      {...rest}
+    >
+      <rect fill="#4285f4" x="6" y="11" width="4" height="2" />
+      <rect fill="#4285f4" x="4" y="18" width="6" height="2" />
+      <polygon fill="#4285f4" points="4 18 6 18 6 6 4 6 4 18" />
+      <polygon fill="#669df6" points="9 7 22 7 22 3 9 3 9 7" />
+      <polygon fill="#669df6" points="9 14 22 14 22 10 9 10 9 14" />
+      <polygon fill="#669df6" points="9 21 22 21 22 17 9 17 9 21" />
+      <polygon fill="#aecbfa" points="2 8 8 8 8 2 2 2 2 8" />
+    </svg>
+  )
+}
+
 export function MicrosoftDefenderIcon({ className, ...rest }: IconProps) {
   return (
     <svg
@@ -2597,6 +2644,42 @@ export function HackerOneIcon({ className, ...rest }: IconProps) {
   )
 }
 
+export function RecordedFutureIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 45.8 43" className={className} {...rest}>
+      <title>Recorded Future</title>
+      <path
+        fill="currentColor"
+        d="M23,18.4c-1.8,0-3.3,1.5-3.3,3.3S21.2,25,23,25s3.3-1.5,3.3-3.3l0,0C26.3,19.9,24.8,18.4,23,18.4L23,18.4z"
+      />
+      <path
+        fill="currentColor"
+        d="M42.5,18.4c-1.8,0-3.3,1.5-3.3,3.3c0,1.8,1.5,3.3,3.3,3.3c1.8,0,3.3-1.5,3.3-3.3l0,0C45.8,19.9,44.3,18.4,42.5,18.4C42.5,18.4,42.5,18.4,42.5,18.4z"
+      />
+      <path
+        fill="currentColor"
+        d="M3.3,18.4c-1.8,0-3.3,1.5-3.3,3.3C0,23.5,1.5,25,3.3,25s3.3-1.5,3.3-3.3l0,0C6.6,19.9,5.1,18.4,3.3,18.4C3.3,18.4,3.3,18.4,3.3,18.4z"
+      />
+      <path
+        fill="currentColor"
+        d="M20.2,40.2L20.2,40.2v-9.7l0,0c0-1.5,1.2-2.7,2.7-2.7c1.5,0,2.7,1.2,2.7,2.7l0,0v9.7l0,0v0c0,1.5-1.2,2.7-2.7,2.7C21.4,43,20.2,41.8,20.2,40.2L20.2,40.2z"
+      />
+      <path
+        fill="currentColor"
+        d="M30,35.3L30,35.3V8.1l0,0c-0.1-1.5,1.1-2.8,2.6-2.9c1.5-0.1,2.8,1.1,2.9,2.6c0,0.1,0,0.2,0,0.3l0,0v27.1l0,0v0.1c-0.1,1.5-1.4,2.6-2.9,2.6C31.2,37.8,30.1,36.7,30,35.3L30,35.3z"
+      />
+      <path
+        fill="currentColor"
+        d="M10.4,35.3L10.4,35.3V8.1c0-1.5,1.2-2.7,2.7-2.7s2.7,1.2,2.7,2.7v27.1l0,0v0.1c0,1.5-1.2,2.7-2.7,2.7S10.4,36.8,10.4,35.3L10.4,35.3z"
+      />
+      <path
+        fill="currentColor"
+        d="M20.2,12.4L20.2,12.4V2.7l0,0c0-1.5,1.2-2.7,2.7-2.7c1.5,0,2.7,1.2,2.7,2.7l0,0v9.7l0,0v0.1c0,1.5-1.2,2.7-2.7,2.7C21.4,15.2,20.2,14,20.2,12.4L20.2,12.4z"
+      />
+    </svg>
+  )
+}
+
 export function HaveIBeenPwnedIcon({ className, ...rest }: IconProps) {
   return (
     <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
@@ -2873,6 +2956,71 @@ export function GophishIcon({ className, ...rest }: IconProps) {
           />
         </g>
       </g>
+    </svg>
+  )
+}
+
+export function OnePasswordIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      role="img"
+      viewBox="0 0 60 60"
+      className={className}
+      fillRule="evenodd"
+      clipRule="evenodd"
+      strokeLinejoin="round"
+      strokeMiterlimit="2"
+      {...rest}
+    >
+      <title>1Password</title>
+      <g transform="matrix(-0.495868,0,0,0.495868,59.5041,-0.0218678)">
+        <circle cx="60" cy="60.044" r="60" fill="white" />
+      </g>
+      <g transform="matrix(-48.8784,0,0,48.8784,54.1919,29.7525)">
+        <circle
+          cx="0.5"
+          cy="0"
+          r="0.5"
+          fill="url(#tracecat-onepassword-blue-gradient)"
+        />
+      </g>
+      <g transform="matrix(-0.495868,0,0,0.495868,59.5041,-0.0213719)">
+        <circle cx="60" cy="60.044" r="36.429" fill="white" />
+        <circle cx="60" cy="60.044" r="19.286" fill="#DCE4FA" />
+      </g>
+      <g transform="matrix(0,27.6269,27.6269,0,29.7517,15.9385)">
+        <path
+          d="M0.142,-0.154C0.092,-0.154 0.067,-0.154 0.048,-0.144C0.032,-0.136 0.018,-0.122 0.01,-0.106C0,-0.087 0,-0.062 0,-0.012L0,0.012C0,0.062 0,0.087 0.01,0.106C0.018,0.122 0.032,0.136 0.048,0.144C0.067,0.154 0.092,0.154 0.142,0.154L0.525,0.154C0.53,0.154 0.532,0.154 0.535,0.153C0.537,0.153 0.539,0.152 0.541,0.151C0.543,0.149 0.545,0.148 0.548,0.144L0.592,0.101C0.6,0.092 0.604,0.088 0.609,0.087C0.613,0.085 0.618,0.085 0.622,0.087C0.627,0.088 0.631,0.092 0.639,0.101L0.683,0.144C0.686,0.148 0.688,0.149 0.69,0.151C0.692,0.152 0.694,0.153 0.696,0.153C0.698,0.154 0.701,0.154 0.706,0.154L0.858,0.154C0.908,0.154 0.933,0.154 0.952,0.144C0.968,0.136 0.982,0.122 0.99,0.106C1,0.087 1,0.062 1,0.012L1,-0.012C1,-0.062 1,-0.087 0.99,-0.106C0.982,-0.122 0.968,-0.136 0.952,-0.144C0.933,-0.154 0.908,-0.154 0.858,-0.154L0.475,-0.154C0.47,-0.154 0.468,-0.154 0.465,-0.153C0.463,-0.153 0.461,-0.152 0.459,-0.151C0.457,-0.149 0.455,-0.148 0.452,-0.144L0.408,-0.1C0.4,-0.092 0.396,-0.088 0.391,-0.087C0.387,-0.085 0.382,-0.085 0.378,-0.087C0.373,-0.088 0.369,-0.092 0.361,-0.1L0.317,-0.144C0.314,-0.148 0.312,-0.149 0.31,-0.151C0.308,-0.152 0.306,-0.153 0.304,-0.153C0.302,-0.154 0.299,-0.154 0.294,-0.154L0.142,-0.154Z"
+          fill="url(#tracecat-onepassword-keyhole-gradient)"
+          fillRule="nonzero"
+        />
+      </g>
+      <defs>
+        <linearGradient
+          id="tracecat-onepassword-blue-gradient"
+          x1="0"
+          y1="0"
+          x2="1"
+          y2="0"
+          gradientUnits="userSpaceOnUse"
+          gradientTransform="matrix(6.12323e-17,1,-1,6.12323e-17,0.50001,-0.50001)"
+        >
+          <stop offset="0" stopColor="#1D48F5" />
+          <stop offset="1" stopColor="#499FF5" />
+        </linearGradient>
+        <linearGradient
+          id="tracecat-onepassword-keyhole-gradient"
+          x1="0"
+          y1="0"
+          x2="1"
+          y2="0"
+          gradientUnits="userSpaceOnUse"
+          gradientTransform="matrix(1,0,0,1,0,3.41026e-05)"
+        >
+          <stop offset="0" stopColor="#151729" />
+          <stop offset="1" stopColor="#1B1C33" />
+        </linearGradient>
+      </defs>
     </svg>
   )
 }

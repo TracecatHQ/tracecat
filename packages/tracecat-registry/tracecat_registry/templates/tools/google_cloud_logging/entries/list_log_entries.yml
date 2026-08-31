@@ -1,0 +1,83 @@
+type: action
+definition:
+  title: List log entries
+  description: >-
+    Lists Cloud Logging entries from projects, folders, organizations, billing accounts, or
+    specific log views. Use `log_id()` filters for the `cloudaudit.googleapis.com` `activity`,
+    `data_access`, `system_event`, and `policy` audit log IDs. Reading Data Access audit logs
+    requires the `logging.privateLogEntries.list` IAM permission.
+  display_group: Google Cloud Logging
+  doc_url: https://cloud.google.com/logging/docs/reference/v2/rest/v2/entries/list
+  namespace: tools.google_cloud_logging
+  name: list_log_entries
+  secrets:
+    - type: oauth
+      provider_id: google_cloud_logging
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_cloud_logging
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: google
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    resourceNames:
+      type: list[str]
+      description: >-
+        Names of one or more parent resources from which to retrieve log entries. Supported values
+        include `projects/PROJECT_ID`, `organizations/ORGANIZATION_ID`,
+        `billingAccounts/BILLING_ACCOUNT_ID`, `folders/FOLDER_ID`, and full log-view resource
+        names. A request can specify at most 100 resources.
+    filter:
+      type: str | None
+      description: >-
+        A Logging query-language filter that chooses which log entries to return. An empty filter
+        matches all log entries in `resourceNames`. The maximum filter length is 20,000 characters.
+        To select Admin Activity audit logs, use
+        `log_id("cloudaudit.googleapis.com/activity")`; use the corresponding `data_access`,
+        `system_event`, or `policy` log ID for the other audit-log types. Include a `timestamp`
+        range to improve query performance.
+      default: null
+    orderBy:
+      type: str | None
+      description: >-
+        Result order. The permitted values are `timestamp asc` and `timestamp desc`. Google
+        recommends `timestamp desc` when listing recently ingested entries.
+      default: null
+    pageSize:
+      type: int | None
+      description: >-
+        Maximum number of results to return from this request. The default is 50. A negative value
+        is rejected.
+      default: null
+    pageToken:
+      type: str | None
+      description: >-
+        `nextPageToken` from the preceding response. Keep every other request field identical when
+        retrieving the next page.
+      default: null
+  steps:
+    - ref: list_log_entries
+      action: tools.google_api.call_api
+      args:
+        service_name: logging
+        version: v2
+        resource: entries
+        method_name: list
+        access_token: ${{ SECRETS.google_cloud_logging_oauth.GOOGLE_CLOUD_LOGGING_USER_TOKEN || SECRETS.google_cloud_logging_oauth.GOOGLE_CLOUD_LOGGING_SERVICE_TOKEN || SECRETS.google_oauth.GOOGLE_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/logging.read"]
+        params:
+          body:
+            resourceNames: ${{ inputs.resourceNames }}
+            filter: ${{ inputs.filter }}
+            orderBy: ${{ inputs.orderBy }}
+            pageSize: ${{ inputs.pageSize }}
+            pageToken: ${{ inputs.pageToken }}
+  returns: ${{ steps.list_log_entries.result }}
