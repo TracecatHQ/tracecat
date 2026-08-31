@@ -294,9 +294,12 @@ locals {
     for k, v in merge(
       {
         LOG_LEVEL               = var.log_level
+        TRACECAT__APP_ENV       = var.tracecat_app_env
         TRACECAT__DB_SSLMODE    = "require"
         TRACECAT__DB_ENDPOINT   = local.core_db_hostname
         TRACECAT__FEATURE_FLAGS = var.feature_flags
+        TRACECAT__LOG_FORMAT    = var.log_format
+        TRACECAT__SERVICE_NAME  = "migrations"
       },
       local.tracecat_db_configs
     ) :
