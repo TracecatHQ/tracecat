@@ -269,34 +269,35 @@ class SkillAdapter(DirectoryManifestAdapter):
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         for skill in skills:
+            version = skill.current_version
+            if version is None:
+                continue
             skill_slug = skill.slug or skill.name
             source_id = assigner.assign(skill.id, skill_slug)
-            version = skill.current_version
             files: list[SkillFileSpec] = []
             file_contents: dict[str, str] = {}
-            if version is not None:
-                for version_file, blob_row in await self._skill_version_rows(
-                    workspace_service,
-                    version.id,
-                ):
-                    content = await blob.download_file(
-                        key=blob_row.key,
-                        bucket=blob_row.bucket,
+            for version_file, blob_row in await self._skill_version_rows(
+                workspace_service,
+                version.id,
+            ):
+                content = await blob.download_file(
+                    key=blob_row.key,
+                    bucket=blob_row.bucket,
+                )
+                content_text, encoding = _skill_file_content_for_git(content)
+                files.append(
+                    SkillFileSpec(
+                        path=version_file.path,
+                        sha256=blob_row.sha256,
+                        encoding=encoding,
                     )
-                    content_text, encoding = _skill_file_content_for_git(content)
-                    files.append(
-                        SkillFileSpec(
-                            path=version_file.path,
-                            sha256=blob_row.sha256,
-                            encoding=encoding,
-                        )
-                    )
-                    file_contents[version_file.path] = content_text
+                )
+                file_contents[version_file.path] = content_text
 
             specs[source_id] = SkillResourceSpec(
                 id=source_id,
                 slug=skill_slug,
-                name=version.name if version is not None else skill.name,
+                name=version.name,
                 description=skill.description,
                 files=files,
                 file_contents=file_contents,

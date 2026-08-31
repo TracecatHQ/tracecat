@@ -1015,6 +1015,37 @@ async def test_skill_projection_exports_only_desired_head_content(
 
 
 @pytest.mark.anyio
+async def test_skill_projection_omits_unpublished_skills(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Draft-only Skills do not enter the exported or mapped sync surface."""
+
+    draft_only = Skill(
+        workspace_id=svc_role.workspace_id,
+        name="draft-only-skill",
+        slug="draft-only-skill",
+    )
+    session.add(draft_only)
+    await session.flush()
+
+    projection = await WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+    ).project_workspace()
+    mapping = await session.scalar(
+        select(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id,
+            WorkspaceSyncResourceMapping.local_id == draft_only.id,
+        )
+    )
+
+    assert f"{SKILL_ROOT}/draft-only-skill/skill.yml" not in projection.files
+    assert mapping is None
+    assert draft_only.current_version_id is None
+
+
+@pytest.mark.anyio
 async def test_agent_preset_import_ignores_soft_deleted_source_id_mapping(
     session: AsyncSession,
     svc_role: Role,
