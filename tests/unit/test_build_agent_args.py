@@ -15,9 +15,11 @@ Both build activities are async and can be called directly from async tests.
 from __future__ import annotations
 
 import uuid
+from typing import cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPStdioServerConfig
@@ -27,7 +29,9 @@ from tracecat.dsl.action import (
     DSLActivities,
 )
 from tracecat.dsl.schemas import ExecutionContext, TaskResult
-from tracecat.storage.object import InlineObject
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
+from tracecat.storage.object import InlineObject, StoredObject
+from tracecat.temporal.errors import extract_error_classification
 
 
 @pytest.fixture
@@ -54,6 +58,44 @@ def _make_context(
         ACTIONS=actions or {},
         TRIGGER=_inline({}),
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("preset", [False, True], ids=["agent", "preset-agent"])
+async def test_agent_materialization_failure_keeps_platform_attribution(
+    role: Role,
+    preset: bool,
+) -> None:
+    args = (
+        {"preset": "my-preset", "user_prompt": "Hello"}
+        if preset
+        else {
+            "user_prompt": "Hello",
+            "model_name": "test-model",
+            "model_provider": "test-provider",
+        }
+    )
+    input = BuildAgentArgsActivityInput(
+        args=args,
+        operand=_make_context(),
+        role=role,
+        task_environment=None,
+        default_environment="default",
+    )
+    input.operand["TRIGGER"] = cast(StoredObject, {"type": "external"})
+    build_activity = (
+        DSLActivities.build_preset_agent_args_activity
+        if preset
+        else DSLActivities.build_agent_args_activity
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await build_activity(input)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA
 
 
 class TestBuildAgentArgsActivity:
