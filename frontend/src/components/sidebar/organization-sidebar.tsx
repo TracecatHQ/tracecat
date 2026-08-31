@@ -2,7 +2,6 @@
 
 import {
   ChevronLeftIcon,
-  ChevronRightIcon,
   GitBranchIcon,
   GlobeIcon,
   HistoryIcon,
@@ -11,6 +10,7 @@ import {
   LogInIcon,
   LogsIcon,
   MousePointerClickIcon,
+  RadioTowerIcon,
   Settings2,
   UsersIcon,
 } from "lucide-react"
@@ -18,11 +18,6 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import {
   Sidebar,
   SidebarContent,
@@ -34,9 +29,6 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
@@ -83,7 +75,6 @@ export function OrganizationSidebar({
     isActive: boolean | undefined
     visible: boolean
     locked: boolean
-    items?: { title: string; url: string; isActive: boolean | undefined }[]
   }
 
   const navSettings: OrgSettingsNavItem[] = [
@@ -120,30 +111,6 @@ export function OrganizationSidebar({
       locked: false,
     },
     {
-      title: "Agent",
-      url: "/organization/settings/agent",
-      icon: MousePointerClickIcon,
-      isActive:
-        pathname === "/organization/settings/agent" ||
-        pathname?.startsWith("/organization/settings/agent/"),
-      visible: canViewSettings === true,
-      locked: false,
-      items: [
-        {
-          title: "Configuration",
-          url: "/organization/settings/agent",
-          isActive: pathname === "/organization/settings/agent",
-        },
-        {
-          title: "Telemetry",
-          url: "/organization/settings/agent/telemetry",
-          isActive: pathname?.startsWith(
-            "/organization/settings/agent/telemetry"
-          ),
-        },
-      ],
-    },
-    {
       title: "Git sync",
       url: "/organization/vcs",
       icon: GitBranchIcon,
@@ -158,6 +125,25 @@ export function OrganizationSidebar({
     //   icon: LinkIcon,
     //   isActive: pathname?.includes("/organization/settings/mcp"),
     // },
+  ]
+
+  const navAgent = [
+    {
+      title: "Configuration",
+      url: "/organization/settings/agent",
+      icon: MousePointerClickIcon,
+      isActive: pathname === "/organization/settings/agent",
+      visible: canViewSettings === true,
+      locked: false,
+    },
+    {
+      title: "Telemetry",
+      url: "/organization/settings/agent/telemetry",
+      icon: RadioTowerIcon,
+      isActive: pathname?.startsWith("/organization/settings/agent/telemetry"),
+      visible: canViewSettings === true,
+      locked: false,
+    },
   ]
 
   const navManage = [
@@ -207,56 +193,42 @@ export function OrganizationSidebar({
                 {navSettings
                   .filter((item) => item.visible === true)
                   .map((item) => (
-                    <Collapsible
-                      key={item.title}
-                      asChild
-                      defaultOpen={item.isActive === true}
-                      className="group/collapsible"
-                    >
-                      <SidebarMenuItem>
-                        {item.items ? (
-                          <CollapsibleTrigger asChild>
-                            <SidebarMenuButton isActive={item.isActive}>
-                              <item.icon />
-                              <span>{item.title}</span>
-                              <ChevronRightIcon className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-90" />
-                            </SidebarMenuButton>
-                          </CollapsibleTrigger>
-                        ) : (
-                          <SidebarMenuButton asChild isActive={item.isActive}>
-                            <Link href={item.url}>
-                              <item.icon />
-                              <span>{item.title}</span>
-                            </Link>
-                          </SidebarMenuButton>
-                        )}
-                        {item.items ? (
-                          <CollapsibleContent>
-                            <SidebarMenuSub>
-                              {item.items.map((subItem) => (
-                                <SidebarMenuSubItem key={subItem.title}>
-                                  <SidebarMenuSubButton
-                                    asChild
-                                    isActive={subItem.isActive}
-                                    className="text-[13px]"
-                                  >
-                                    <Link href={subItem.url}>
-                                      <span>{subItem.title}</span>
-                                    </Link>
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                              ))}
-                            </SidebarMenuSub>
-                          </CollapsibleContent>
-                        ) : null}
-                        {item.locked ? (
-                          <SidebarMenuBadge>
-                            <LockIcon aria-hidden="true" className="size-3.5" />
-                            <span className="sr-only">Requires upgrade</span>
-                          </SidebarMenuBadge>
-                        ) : null}
-                      </SidebarMenuItem>
-                    </Collapsible>
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild isActive={item.isActive}>
+                        <Link href={item.url}>
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                      {item.locked ? (
+                        <SidebarMenuBadge>
+                          <LockIcon aria-hidden="true" className="size-3.5" />
+                          <span className="sr-only">Requires upgrade</span>
+                        </SidebarMenuBadge>
+                      ) : null}
+                    </SidebarMenuItem>
+                  ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {navAgent.some((item) => item.visible === true) && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Agent</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {navAgent
+                  .filter((item) => item.visible === true)
+                  .map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild isActive={item.isActive}>
+                        <Link href={item.url}>
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
                   ))}
               </SidebarMenu>
             </SidebarGroupContent>
