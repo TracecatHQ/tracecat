@@ -54,6 +54,7 @@ import {
   Plug2,
   Radar,
   RefreshCcw,
+  Satellite,
   ScanSearch,
   Search,
   SendIcon,
@@ -792,6 +793,10 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.project_discovery": createColoredLucideRenderer(
       Crosshair,
       "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+    ),
+    "tools.recorded_future": createColoredLucideRenderer(
+      Satellite,
+      "bg-orange-500/10 text-orange-600 dark:text-orange-400"
     ),
     "tools.rippling": createColoredLucideRenderer(
       BriefcaseBusiness,

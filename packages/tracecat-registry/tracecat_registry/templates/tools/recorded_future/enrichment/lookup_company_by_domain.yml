@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Lookup company by domain
+  description: Retrieve a company by a domain it owns. Calls GET /v2/company/by_domain/{domain} directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/company-lookup-by-domain
+  namespace: tools.recorded_future
+  name: lookup_company_by_domain
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    domain:
+      type: str
+      description: Domain owned by Company.
+    fields:
+      type: str | None
+      description: The enrichment fields requested for the entities returned. Several fields can be given as a comma separated string. See https://docs.recordedfuture.com/reference/enrichment-field-attributes for a list of values.
+      default: null
+    metadata:
+      type: bool | None
+      description: Annotates the response with additional metadata explaining the response data elements.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/v2/company/by_domain/${{ FN.url_encode(inputs.domain) }}
+        method: GET
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+        params:
+          fields: ${{ inputs.fields }}
+          metadata: ${{ inputs.metadata }}
+  returns: ${{ steps.request.result }}

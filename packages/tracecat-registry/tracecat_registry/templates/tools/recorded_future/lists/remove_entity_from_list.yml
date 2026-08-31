@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Remove entity from list
+  description: Remove an entity from the list listId. Calls POST /list/{listId}/entity/remove directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/lists-remove-entity
+  namespace: tools.recorded_future
+  name: remove_entity_from_list
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    listId:
+      type: str
+      description: Id of list or named watch list.
+    entity:
+      # Generic: Recorded Future documents this field as a union of either
+      # {id} or {type, name}, so there is no single field set to name.
+      type: dict[str, Any]
+      description: >-
+        Entity to remove, given either as {"id": "<entity id>"} or as {"type": "<entity type>", "name": "<entity name>"}.
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/list/${{ FN.url_encode(inputs.listId) }}/entity/remove
+        method: POST
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+          Content-Type: application/json
+        payload:
+          entity: ${{ inputs.entity }}
+  returns: ${{ steps.request.result }}
