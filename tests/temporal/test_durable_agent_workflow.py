@@ -53,6 +53,7 @@ from tracecat_ee.agent.approvals.service import (
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import (
     APPROVAL_STREAM_V2_PATCH,
+    PRESERVE_RESUMED_AGENT_BINDINGS_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
     WorkflowApprovalSubmission,
@@ -1397,12 +1398,13 @@ async def test_approval_wait_cancellation_defers_end_until_marker_and_finalize(
 
 @pytest.mark.anyio
 @pytest.mark.integration
-async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
+async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_resume(
     svc_role: Role,
     temporal_client: Client,
     agent_worker_factory,
     mock_session_id: uuid.UUID,
 ) -> None:
+    """A resumed history keeps its exact subagent binding across replay."""
     queue = f"test-agent-queue-{mock_session_id}"
     child_preset_id = uuid.uuid4()
     stored_version_id = uuid.uuid4()
@@ -1514,13 +1516,23 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
     async with agent_worker_factory(
         temporal_client, task_queue=queue, custom_activities=activities
     ):
-        result = await temporal_client.execute_workflow(
+        handle = await temporal_client.start_workflow(
             DurableAgentWorkflow.run,
             workflow_args,
             id=AgentWorkflowID(mock_session_id),
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             execution_timeout=timedelta(seconds=30),
+        )
+        result = await handle.result()
+        completed_history = await handle.fetch_history()
+        assert PRESERVE_RESUMED_AGENT_BINDINGS_PATCH in await recorded_patch_ids(
+            temporal_client,
+            completed_history,
+        )
+        await replay_durable_agent_workflow_history(
+            temporal_client,
+            completed_history,
         )
 
     assert result.session_id == mock_session_id
