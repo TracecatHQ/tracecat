@@ -1,24 +1,27 @@
 """Privacy-bounded Sentry configuration for explicit platform error capture."""
 
 from collections.abc import MutableMapping
+from enum import StrEnum
 from typing import Any, cast
 
 import sentry_sdk
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
 
-_OWNER_TAG = "tracecat.error.owner"
-_ALLOWED_TAGS = frozenset(
-    {
-        _OWNER_TAG,
-        "tracecat.error.kind",
-        "tracecat.error.retry_disposition",
-        "tracecat.error.cause_type",
-        "temporal.workflow.type",
-        "temporal.workflow.attempt",
-        "tracecat.trigger_type",
-    }
-)
+
+class SentryTag(StrEnum):
+    """Stable, privacy-reviewed tag keys for workflow failure events."""
+
+    ERROR_OWNER = "tracecat.error.owner"
+    ERROR_KIND = "tracecat.error.kind"
+    ERROR_RETRY_DISPOSITION = "tracecat.error.retry_disposition"
+    ERROR_CAUSE_TYPE = "tracecat.error.cause_type"
+    WORKFLOW_TYPE = "temporal.workflow.type"
+    WORKFLOW_ATTEMPT = "temporal.workflow.attempt"
+    TRIGGER_TYPE = "tracecat.trigger_type"
+
+
+_ALLOWED_TAGS = frozenset(SentryTag)
 _ALLOWED_CONTEXTS = frozenset({"runtime", "tracecat_workflow"})
 
 
@@ -28,7 +31,7 @@ def _sanitize_platform_event(event: Event, hint: Hint) -> Event | None:
     # mappings retain Any while we reduce them to a fixed allowlist.
     del hint
     tags = cast(MutableMapping[str, Any], event.get("tags") or {})
-    if tags.get(_OWNER_TAG) != "platform":
+    if tags.get(SentryTag.ERROR_OWNER) != "platform":
         return None
 
     event["tags"] = {key: value for key, value in tags.items() if key in _ALLOWED_TAGS}
@@ -41,7 +44,7 @@ def _sanitize_platform_event(event: Event, hint: Hint) -> Event | None:
 
     safe_value = (
         "Tracecat platform runtime failure "
-        f"({tags.get('tracecat.error.kind', 'unclassified')})"
+        f"({tags.get(SentryTag.ERROR_KIND, 'unclassified')})"
     )
     exception = cast(MutableMapping[str, Any], event.get("exception") or {})
     values = exception.get("values")

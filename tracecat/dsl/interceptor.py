@@ -20,6 +20,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat.dsl.common import get_trigger_type
     from tracecat.logger import logger
+    from tracecat.observability.sentry import SentryTag
     from tracecat.runtime.errors import (
         RetryDisposition,
         RuntimeErrorClassification,
@@ -69,18 +70,19 @@ def _capture_platform_failure(
             classification.kind.value,
             "{{ default }}",
         ]
-        scope.set_tag("tracecat.error.owner", classification.owner.value)
-        scope.set_tag("tracecat.error.kind", classification.kind.value)
+        scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
+        scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
         scope.set_tag(
-            "tracecat.error.retry_disposition",
+            SentryTag.ERROR_RETRY_DISPOSITION.value,
             classification.retry_disposition.value,
         )
         scope.set_tag(
-            "tracecat.error.cause_type", classification.cause_type or "unknown"
+            SentryTag.ERROR_CAUSE_TYPE.value,
+            classification.cause_type or "unknown",
         )
-        scope.set_tag("temporal.workflow.type", info.workflow_type)
-        scope.set_tag("temporal.workflow.attempt", str(info.attempt))
-        scope.set_tag("tracecat.trigger_type", trigger_type.value)
+        scope.set_tag(SentryTag.WORKFLOW_TYPE.value, info.workflow_type)
+        scope.set_tag(SentryTag.WORKFLOW_ATTEMPT.value, str(info.attempt))
+        scope.set_tag(SentryTag.TRIGGER_TYPE.value, trigger_type.value)
         scope.set_context(
             "tracecat_workflow",
             {

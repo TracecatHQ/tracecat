@@ -23,7 +23,7 @@ from tracecat.dsl.interceptor import (
     build_workflow_interceptors,
 )
 from tracecat.logger import logger
-from tracecat.observability.sentry import initialize_sentry
+from tracecat.observability.sentry import SentryTag, initialize_sentry
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
@@ -152,13 +152,13 @@ async def test_unclassified_platform_failure_is_attributed_then_captured_once(
     ]
     assert "tags" in event
     assert event["tags"] == {
-        "temporal.workflow.attempt": "1",
-        "temporal.workflow.type": "DSLWorkflow",
-        "tracecat.error.cause_type": "RuntimeError",
-        "tracecat.error.kind": RuntimeErrorKind.RUNTIME_UNCLASSIFIED.value,
-        "tracecat.error.owner": "platform",
-        "tracecat.error.retry_disposition": "non_retryable",
-        "tracecat.trigger_type": "manual",
+        SentryTag.WORKFLOW_ATTEMPT.value: "1",
+        SentryTag.WORKFLOW_TYPE.value: "DSLWorkflow",
+        SentryTag.ERROR_CAUSE_TYPE.value: "RuntimeError",
+        SentryTag.ERROR_KIND.value: RuntimeErrorKind.RUNTIME_UNCLASSIFIED.value,
+        SentryTag.ERROR_OWNER.value: "platform",
+        SentryTag.ERROR_RETRY_DISPOSITION.value: "non_retryable",
+        SentryTag.TRIGGER_TYPE.value: "manual",
     }
     assert "contexts" in event
     assert event["contexts"]["tracecat_workflow"] == {
