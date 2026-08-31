@@ -258,6 +258,7 @@
               "tools/pipe0",
               "tools/project_discovery",
               "tools/pymongo",
+              "tools/recorded_future",
               "tools/rippling",
               "tools/rootly",
               "tools/runreveal",

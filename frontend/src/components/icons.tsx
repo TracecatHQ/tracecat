@@ -681,6 +681,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.kubernetes_sdk": createIconRenderer(KubernetesIcon),
     "tools.minio": createIconRenderer(MinioIcon),
     "tools.pymongo": createIconRenderer(MongoDbIcon),
+    "tools.recorded_future": createIconRenderer(RecordedFutureIcon),
     "tools.snowflake": createIconRenderer(SnowflakeIcon),
     "tools.zendesk": createIconRenderer(ZendeskIcon),
     // MCP catalog raster brand marks reused for tool namespaces
@@ -2592,6 +2593,42 @@ export function HackerOneIcon({ className, ...rest }: IconProps) {
       <path
         fill="currentColor"
         d="M7.207 0c-.4836 0-.8774.1018-1.1823.3002-.3044.2003-.4592.4627-.4592.7798v21.809c0 .2766.1581.5277.4752.7609.315.2335.7031.3501 1.1664.3501.4427 0 .8306-.1166 1.1678-.3501.3352-.231.5058-.4843.5058-.761V1.0815c0-.319-.1623-.5769-.4893-.7813C8.0644.1018 7.6702 0 7.207 0zm9.5234 8.662c-.4836 0-.8717.0981-1.1683.3007l-4.439 2.7822c-.1988.1861-.2841.4687-.2473.855.0342.3826.2108.747.5238 1.0907.3145.346.6662.5626 1.0684.6547.3963.0899.6973.041.8962-.143l1.7551-1.0951v9.7817c0 .2767.1522.5278.4607.761.3007.2335.6873.3501 1.1504.3501.463 0 .863-.1166 1.1983-.3501.3371-.2332.5058-.4843.5058-.761V9.7381c0-.3193-.165-.577-.4898-.7754-.3252-.2026-.7288-.3007-1.2143-.3007z"
+      />
+    </svg>
+  )
+}
+
+export function RecordedFutureIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 45.8 43" className={className} {...rest}>
+      <title>Recorded Future</title>
+      <path
+        fill="currentColor"
+        d="M23,18.4c-1.8,0-3.3,1.5-3.3,3.3S21.2,25,23,25s3.3-1.5,3.3-3.3l0,0C26.3,19.9,24.8,18.4,23,18.4L23,18.4z"
+      />
+      <path
+        fill="currentColor"
+        d="M42.5,18.4c-1.8,0-3.3,1.5-3.3,3.3c0,1.8,1.5,3.3,3.3,3.3c1.8,0,3.3-1.5,3.3-3.3l0,0C45.8,19.9,44.3,18.4,42.5,18.4C42.5,18.4,42.5,18.4,42.5,18.4z"
+      />
+      <path
+        fill="currentColor"
+        d="M3.3,18.4c-1.8,0-3.3,1.5-3.3,3.3C0,23.5,1.5,25,3.3,25s3.3-1.5,3.3-3.3l0,0C6.6,19.9,5.1,18.4,3.3,18.4C3.3,18.4,3.3,18.4,3.3,18.4z"
+      />
+      <path
+        fill="currentColor"
+        d="M20.2,40.2L20.2,40.2v-9.7l0,0c0-1.5,1.2-2.7,2.7-2.7c1.5,0,2.7,1.2,2.7,2.7l0,0v9.7l0,0v0c0,1.5-1.2,2.7-2.7,2.7C21.4,43,20.2,41.8,20.2,40.2L20.2,40.2z"
+      />
+      <path
+        fill="currentColor"
+        d="M30,35.3L30,35.3V8.1l0,0c-0.1-1.5,1.1-2.8,2.6-2.9c1.5-0.1,2.8,1.1,2.9,2.6c0,0.1,0,0.2,0,0.3l0,0v27.1l0,0v0.1c-0.1,1.5-1.4,2.6-2.9,2.6C31.2,37.8,30.1,36.7,30,35.3L30,35.3z"
+      />
+      <path
+        fill="currentColor"
+        d="M10.4,35.3L10.4,35.3V8.1c0-1.5,1.2-2.7,2.7-2.7s2.7,1.2,2.7,2.7v27.1l0,0v0.1c0,1.5-1.2,2.7-2.7,2.7S10.4,36.8,10.4,35.3L10.4,35.3z"
+      />
+      <path
+        fill="currentColor"
+        d="M20.2,12.4L20.2,12.4V2.7l0,0c0-1.5,1.2-2.7,2.7-2.7c1.5,0,2.7,1.2,2.7,2.7l0,0v9.7l0,0v0.1c0,1.5-1.2,2.7-2.7,2.7C21.4,15.2,20.2,14,20.2,12.4L20.2,12.4z"
       />
     </svg>
   )

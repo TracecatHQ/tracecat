@@ -1,0 +1,75 @@
+type: action
+definition:
+  title: Search links
+  description: Search for links related to one or more entities. The Entity Match API may be used to determine the ID for a certain entity. Calls POST /links/search directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/links-search
+  namespace: tools.recorded_future
+  name: search_links
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    entities:
+      type: list[str]
+      description: IDs of entities to return links for. If more than one ID is provided, it is equivalent of calling this endpoint once for each, condensed into one call.
+    sections:
+      type: list[str] | None
+      description: Only return links categorized under these sections. Possible values are listed by the links metadata endpoint. Sent as filters.sections.
+      default: null
+    entity_types:
+      type: list[str] | None
+      description: Only return these types of entities. Possible values are listed by the links metadata endpoint. Sent as filters.entity_types.
+      default: null
+    sources:
+      type: list[str] | None
+      description: Types of sources to use. Allowed values are technical and insikt. Sent as filters.sources.
+      default: null
+    timeframe:
+      type: str | None
+      description: Time range for links from technical sources. As an ISO Date (2022-01-01) or relative to today (-7d). Maximum of 1825 days from today. Sent as filters.technical.timeframe.
+      default: null
+    events:
+      type: list[str] | None
+      description: Filter on specific types of technical sources. Sent as filters.technical.events.
+      default: null
+    connected_entities:
+      type: list[str] | None
+      description: Filter on entities linked to a link. Sent as filters.technical.connected_entities.
+      default: null
+    search_scope:
+      type: str | None
+      description: Predefined levels of search depth. A larger scope may yield more linked entities, at the cost of increased latency. Allowed values are small, medium and large. Sent as limits.search_scope.
+      default: null
+    per_entity_type:
+      type: int | None
+      description: The maximum number of returned entities per type. Indicators are sorted by risk prior to filtering. Sent as limits.per_entity_type.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/links/search
+        method: POST
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+          Content-Type: application/json
+        payload:
+          entities: ${{ inputs.entities }}
+          filters:
+            sections: ${{ inputs.sections }}
+            entity_types: ${{ inputs.entity_types }}
+            sources: ${{ inputs.sources }}
+            technical:
+              timeframe: ${{ inputs.timeframe }}
+              events: ${{ inputs.events }}
+              connected_entities: ${{ inputs.connected_entities }}
+          limits:
+            search_scope: ${{ inputs.search_scope }}
+            per_entity_type: ${{ inputs.per_entity_type }}
+  returns: ${{ steps.request.result }}
