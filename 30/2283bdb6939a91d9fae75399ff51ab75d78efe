@@ -1,0 +1,27 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/onepassword/events/list_audit_events.yml
+  s_075855148e08d5::t_aa7dc576b87bfc 9
+packages/tracecat-registry/tracecat_registry/templates/tools/onepassword/events/list_item_usages.yml
+  s_075855148e08d5::t_aa7dc576b87bfc 10
+packages/tracecat-registry/tracecat_registry/templates/tools/onepassword/events/introspect_token.yml
+  s_075855148e08d5::t_aa7dc576b87bfc 8
+packages/tracecat-registry/tracecat_registry/templates/tools/onepassword/events/list_sign_in_attempts.yml
+  s_075855148e08d5::t_aa7dc576b87bfc 10
+docs/tools/onepassword.mdx
+  s_075855148e08d5::t_dccf2312bda090 13,37,67,97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "302283bdb6939a91d9fae75399ff51ab75d78efe",
+  "prompts": {},
+  "sessions": {
+    "s_075855148e08d5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a058ad-f064-7133-a4db-fbe2bc5cb571",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
