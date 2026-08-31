@@ -387,24 +387,18 @@ class AgentPresetService(BaseWorkspaceService):
         requested_skills = None
         requested_specs: list[SkillBindingSpec] | None = None
         preset_locked = True
-        current_specs = await self._get_head_skill_binding_specs(preset.id)
-        current_skill_ids = {binding.skill_id for binding in current_specs}
+        observed_specs = await self._get_head_skill_binding_specs(preset.id)
+        observed_skill_ids = {binding.skill_id for binding in observed_specs}
         if "skills" in params.model_fields_set:
             requested_skills = params.skills or []
             requested_skill_ids = {binding.skill_id for binding in requested_skills}
         else:
-            requested_skill_ids = current_skill_ids
+            requested_skill_ids = observed_skill_ids
         locked_specs = await self._current_skill_binding_specs(
-            sorted(current_skill_ids | requested_skill_ids, key=str),
+            sorted(observed_skill_ids | requested_skill_ids, key=str),
             for_update=True,
         )
         locked_specs_by_id = {binding.skill_id: binding for binding in locked_specs}
-        publish_specs = [
-            locked_specs_by_id[skill_id]
-            for skill_id in sorted(requested_skill_ids, key=str)
-        ]
-        if requested_skills is not None:
-            requested_specs = publish_specs
 
         if "agents" in set_fields:
             await self._lock_preset_update_dependencies(
@@ -413,6 +407,24 @@ class AgentPresetService(BaseWorkspaceService):
             )
         else:
             await self._lock_preset_row(preset.id)
+
+        # The caller's entity and Skill membership may have become stale while
+        # waiting for the serialization lock. Merge this PATCH into the locked
+        # head and publish from the membership that actually won the race.
+        await self.session.refresh(preset)
+        current_specs = await self._get_head_skill_binding_specs(preset.id)
+        current_specs_by_id = {binding.skill_id: binding for binding in current_specs}
+        if requested_skills is not None:
+            requested_specs = [
+                locked_specs_by_id[skill_id]
+                for skill_id in sorted(requested_skill_ids, key=str)
+            ]
+            publish_specs = requested_specs
+        else:
+            publish_specs = [
+                locked_specs_by_id.get(skill_id, current_specs_by_id[skill_id])
+                for skill_id in sorted(current_specs_by_id, key=str)
+            ]
 
         # Handle name first as it may be needed for slug fallback
         if "name" in set_fields:

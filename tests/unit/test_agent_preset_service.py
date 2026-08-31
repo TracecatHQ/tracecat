@@ -1128,6 +1128,132 @@ class TestAgentPresetService:
         finally:
             await concurrent_engine.dispose()
 
+    async def test_non_skill_update_preserves_concurrent_skill_replacement(
+        self,
+        configure_minio_for_skills,
+        agent_preset_create_params: AgentPresetCreate,
+        svc_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A stale PATCH publishes the binding membership serialized ahead of it."""
+
+        role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+        concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
+
+        try:
+            async with session_factory() as seed_session:
+                seed_session.add(
+                    Workspace(
+                        id=role.workspace_id,
+                        name="binding-race-workspace",
+                        organization_id=role.organization_id,
+                    )
+                )
+                await seed_session.commit()
+                skill_service = SkillService(seed_session, role=role)
+                skill_a = await skill_service.create_skill(SkillCreate(name="skill-a"))
+                await skill_service.publish_skill(skill_a.id)
+                skill_b = await skill_service.create_skill(SkillCreate(name="skill-b"))
+                await skill_service.publish_skill(skill_b.id)
+                seed_service = AgentPresetService(seed_session, role=role)
+                preset = await seed_service.create_preset(
+                    agent_preset_create_params.model_copy(
+                        update={
+                            "name": "Binding race preset",
+                            "slug": "binding-race-preset",
+                            "skills": [
+                                AgentPresetSkillBindingBase(skill_id=skill_a.id)
+                            ],
+                        }
+                    )
+                )
+
+            observed_stale_membership = asyncio.Event()
+            replacement_committed = asyncio.Event()
+
+            async def update_instructions() -> None:
+                async with session_factory() as update_session:
+                    service = AgentPresetService(update_session, role=role)
+                    loaded = await service.get_preset(preset.id)
+                    assert loaded is not None
+                    original_resolve = service._current_skill_binding_specs
+                    first_call = True
+
+                    async def pause_after_membership_read(
+                        skill_ids: Sequence[uuid.UUID], *, for_update: bool = False
+                    ) -> list[SkillBindingSpec]:
+                        nonlocal first_call
+                        if first_call:
+                            first_call = False
+                            observed_stale_membership.set()
+                            await replacement_committed.wait()
+                        return await original_resolve(
+                            skill_ids,
+                            for_update=for_update,
+                        )
+
+                    monkeypatch.setattr(
+                        service,
+                        "_current_skill_binding_specs",
+                        pause_after_membership_read,
+                    )
+                    await service.update_preset(
+                        loaded,
+                        AgentPresetUpdate(instructions="Keep the replacement"),
+                    )
+
+            async def replace_skill() -> None:
+                await observed_stale_membership.wait()
+                try:
+                    async with session_factory() as replace_session:
+                        service = AgentPresetService(replace_session, role=role)
+                        loaded = await service.get_preset(preset.id)
+                        assert loaded is not None
+                        await service.update_preset(
+                            loaded,
+                            AgentPresetUpdate(
+                                skills=[
+                                    AgentPresetSkillBindingBase(skill_id=skill_b.id)
+                                ]
+                            ),
+                        )
+                finally:
+                    replacement_committed.set()
+
+            await asyncio.gather(update_instructions(), replace_skill())
+
+            async with session_factory() as verification_session:
+                current = await verification_session.scalar(
+                    select(AgentPreset).where(AgentPreset.id == preset.id)
+                )
+                head_skill_id = await verification_session.scalar(
+                    select(AgentPresetSkill.skill_id).where(
+                        AgentPresetSkill.preset_id == preset.id
+                    )
+                )
+                latest_version_id = await verification_session.scalar(
+                    select(AgentPresetVersion.id)
+                    .where(AgentPresetVersion.preset_id == preset.id)
+                    .order_by(AgentPresetVersion.version.desc())
+                    .limit(1)
+                )
+                version_skill_id = await verification_session.scalar(
+                    select(AgentPresetVersionSkill.skill_id).where(
+                        AgentPresetVersionSkill.preset_version_id == latest_version_id
+                    )
+                )
+
+            assert current is not None
+            assert current.instructions == "Keep the replacement"
+            assert head_skill_id == skill_b.id
+            assert version_skill_id == skill_b.id
+        finally:
+            await concurrent_engine.dispose()
+
     async def test_parent_update_and_child_delete_do_not_deadlock(
         self,
         agent_preset_create_params: AgentPresetCreate,
@@ -2484,10 +2610,11 @@ class TestAgentPresetService:
             ),
         )
 
-        assert call_order[:4] == [
+        assert call_order[:5] == [
             "read_specs",
             "lock_skills",
             "lock_preset",
+            "read_specs",
             "replace",
         ]
         assert call_order.count("lock_preset") == 1
