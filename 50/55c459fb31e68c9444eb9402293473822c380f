@@ -1,0 +1,38 @@
+tracecat/agent/executor/activity.py
+  s_1c96839fbdd739::t_e614434ebc1a4f 83,1065
+  s_1c96839fbdd739::t_b2fe2939259e85 1068,1082
+tests/unit/test_builtin_skills.py
+  s_1c96839fbdd739::t_b2fe2939259e85 1,47-49,55,58,70,72,131
+tracecat/agent/skill/schemas.py
+  s_1c96839fbdd739::t_b2fe2939259e85 24
+tracecat/agent/session/service.py
+  s_0afebddc7f7329::t_60ff1e8b24f30d 98
+pyproject.toml
+  s_1c96839fbdd739::t_b2fe2939259e85 148-155
+tracecat/agent/skill/builtin/__init__.py
+  s_1c96839fbdd739::t_b2fe2939259e85 1-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5055c459fb31e68c9444eb9402293473822c380f",
+  "prompts": {},
+  "sessions": {
+    "s_0afebddc7f7329": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c8cd4429-2157-49fb-9414-9789d80c8518",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_1c96839fbdd739": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05822-169b-75e2-8317-d6c6a0087dc4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
