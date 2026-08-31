@@ -11,12 +11,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from botocore.exceptions import HTTPClientError
+from temporalio import workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     WorkflowFailureError,
     WorkflowHandle,
 )
 from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import Replayer
 
 from tracecat import config
 from tracecat.auth.types import Role
@@ -38,12 +40,14 @@ from tracecat.dsl.init_activities import (
     resolve_time_anchor_activity,
     resolve_workflow_concurrency_limits_enabled_activity,
 )
+from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.schemas import (
     ActionRetryPolicy,
     ActionStatement,
     DSLConfig,
     RunActionInput,
 )
+from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.exceptions import EntitlementRequired, ExecutionError, LoopExecutionError
 from tracecat.executor.activities import ExecutorActivities
@@ -66,6 +70,15 @@ type ExecutorBoundaryFaultPoint = Literal[
     "loop_platform",
     "entitlement",
 ]
+
+
+@workflow.defn
+class UnclassifiedFailureWorkflow:
+    """Probe the always-on final attribution interceptor."""
+
+    @workflow.run
+    async def run(self) -> None:
+        raise RuntimeError("raw interceptor diagnostic must not enter history")
 
 
 @pytest.fixture(autouse=True)
@@ -857,3 +870,37 @@ async def run_user_action_failure_sets_user_owner(
         failure=exc_info.value,
         attempts=fault.attempts,
     )
+
+
+async def run_unclassified_failure_sets_platform_owner(
+    env: WorkflowEnvironment,
+    test_worker_factory,
+) -> ScenarioObservation:
+    """An unknown escaping error is visible as a missing-classifier signal."""
+    diagnostic = "raw interceptor diagnostic must not enter history"
+    task_queue = f"runtime-error-attribution-{uuid.uuid4()}"
+
+    async with test_worker_factory(
+        env.client,
+        activities=[],
+        workflows=[UnclassifiedFailureWorkflow],
+        task_queue=task_queue,
+    ):
+        handle = await env.client.start_workflow(
+            UnclassifiedFailureWorkflow.run,
+            id=f"unclassified-{uuid.uuid4()}",
+            task_queue=task_queue,
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await handle.result()
+
+    history = await handle.fetch_history()
+    assert diagnostic not in history.to_json()
+    replay_result = await Replayer(
+        workflows=[UnclassifiedFailureWorkflow],
+        workflow_runner=new_sandbox_runner(),
+        data_converter=env.client.data_converter,
+        interceptors=[RuntimeErrorAttributionInterceptor()],
+    ).replay_workflow(history, raise_on_replay_failure=False)
+    assert replay_result.replay_failure is None
+    return ScenarioObservation(root=handle, failure=exc_info.value)

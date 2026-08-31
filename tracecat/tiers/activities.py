@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from typing import Never
+
 from pydantic import BaseModel
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+)
+from tracecat.temporal.errors import raise_application_error_from_classification
 from tracecat.tiers.exceptions import InvalidOrganizationConcurrencyCapError
 from tracecat.tiers.permits import TierPermitService
 from tracecat.tiers.schemas import EffectiveLimits
@@ -80,6 +87,26 @@ class HeartbeatActionPermitInput(BaseModel):
     """Action execution ID."""
 
 
+def _raise_permit_resolution_error(error: Exception) -> Never:
+    """Raise a history-safe classification for a permit service failure."""
+    invalid_cap = isinstance(error, InvalidOrganizationConcurrencyCapError)
+    classification = RuntimeErrorClassification.platform(
+        kind=(
+            RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA
+            if invalid_cap
+            else RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE
+        ),
+        message="Tracecat could not resolve a workflow concurrency permit",
+        retry_disposition=(
+            RetryDisposition.NON_RETRYABLE
+            if invalid_cap
+            else RetryDisposition.RETRYABLE
+        ),
+        cause=error,
+    )
+    raise_application_error_from_classification(classification)
+
+
 @activity.defn
 async def acquire_workflow_permit_activity(
     input: AcquireWorkflowPermitInput,
@@ -91,18 +118,14 @@ async def acquire_workflow_permit_activity(
     Returns:
         AcquireResult with acquired status and current count.
     """
-    permit_svc = await TierPermitService.create()
     try:
+        permit_svc = await TierPermitService.create()
         outcome = await permit_svc.acquire_workflow_permit(
             org_id=input.org_id,
             workflow_id=input.workflow_id,
         )
-    except InvalidOrganizationConcurrencyCapError as e:
-        raise ApplicationError(
-            str(e),
-            non_retryable=True,
-            type="InvalidOrganizationConcurrencyCap",
-        ) from e
+    except Exception as e:
+        _raise_permit_resolution_error(e)
 
     logger.info(
         "Workflow permit acquire attempt",
@@ -164,18 +187,14 @@ async def acquire_action_permit_activity(
     input: AcquireActionPermitInput,
 ) -> AcquireResult:
     """Try to acquire an action execution permit."""
-    permit_svc = await TierPermitService.create()
     try:
+        permit_svc = await TierPermitService.create()
         outcome = await permit_svc.acquire_action_permit(
             org_id=input.org_id,
             action_id=input.action_id,
         )
-    except InvalidOrganizationConcurrencyCapError as e:
-        raise ApplicationError(
-            str(e),
-            non_retryable=True,
-            type="InvalidOrganizationConcurrencyCap",
-        ) from e
+    except Exception as e:
+        _raise_permit_resolution_error(e)
 
     logger.info(
         "Action permit acquire attempt",
@@ -232,8 +251,17 @@ async def get_tier_limits_activity(
     Returns:
         EffectiveLimits with the organization's effective limits.
     """
-    async with TierService.with_session() as service:
-        limits = await service.get_effective_limits(input.org_id)
+    try:
+        async with TierService.with_session() as service:
+            limits = await service.get_effective_limits(input.org_id)
+    except Exception as e:
+        classification = RuntimeErrorClassification.platform(
+            kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
+            message="Tracecat could not resolve workflow tier limits",
+            retry_disposition=RetryDisposition.RETRYABLE,
+            cause=e,
+        )
+        raise_application_error_from_classification(classification)
 
     logger.debug(
         "Fetched tier limits",

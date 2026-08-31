@@ -118,7 +118,11 @@ async def test_resolve_registry_lock_activity_maps_entitlement_error(
             await resolve_registry_lock_activity(inputs)
 
     app_error = exc_info.value
-    assert app_error.type == "EntitlementRequired"
+    classification = extract_error_classification(app_error)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
     assert app_error.non_retryable is True
     assert len(app_error.details) > 0
     detail = app_error.details[0]
@@ -152,9 +156,42 @@ async def test_resolve_registry_lock_activity_maps_builtin_sync_pending_as_retry
             await resolve_registry_lock_activity(inputs)
 
     app_error = exc_info.value
-    assert app_error.type == "BuiltinRegistryHasNoSelectionError"
+    classification = extract_error_classification(app_error)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
     assert app_error.non_retryable is False
     assert len(app_error.details) > 0
     detail = app_error.details[0]
     assert isinstance(detail, dict)
     assert detail["origin"] == "tracecat_registry"
+
+
+@pytest.mark.anyio
+async def test_resolve_registry_lock_activity_classifies_unexpected_failure(
+    mock_role: Role,
+) -> None:
+    diagnostic = "registry diagnostic must not enter history"
+    inputs = ResolveRegistryLockActivityInputs(
+        role=mock_role,
+        action_names={"tools.custom.only_action"},
+    )
+    mock_service = AsyncMock()
+    mock_service.resolve_lock_with_bindings.side_effect = RuntimeError(diagnostic)
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_service
+
+    with patch(
+        "tracecat.workflow.management.definitions.RegistryLockService.with_session",
+        return_value=mock_ctx,
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            await resolve_registry_lock_activity(inputs)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert diagnostic not in str(exc_info.value)

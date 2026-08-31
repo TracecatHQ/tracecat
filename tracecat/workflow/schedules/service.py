@@ -16,8 +16,14 @@ from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage.object import InlineObject
+from tracecat.temporal.errors import raise_application_error_from_classification
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.schemas import (
     GetScheduleActivityInputs,
@@ -454,11 +460,27 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         TracecatNotFoundError
             If the schedule is not found.
         """
-        async with WorkflowSchedulesService.with_session(role=input.role) as service:
-            try:
+        try:
+            async with WorkflowSchedulesService.with_session(
+                role=input.role
+            ) as service:
                 schedule = await service.get_schedule(input.schedule_id)
                 if schedule.inputs is None:
                     return None
                 return InlineObject(data=schedule.inputs)
-            except TracecatNotFoundError:
-                raise
+        except TracecatNotFoundError as e:
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
+                message="Tracecat could not load the scheduled workflow trigger",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                cause=e,
+            )
+            raise_application_error_from_classification(classification)
+        except Exception as e:
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
+                message="Tracecat could not load the scheduled workflow trigger",
+                retry_disposition=RetryDisposition.RETRYABLE,
+                cause=e,
+            )
+            raise_application_error_from_classification(classification)

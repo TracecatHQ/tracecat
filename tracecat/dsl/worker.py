@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from temporalio import workflow
-from temporalio.worker import Worker
+from temporalio.worker import Interceptor, Worker
 from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
     SandboxRestrictions,
@@ -31,7 +31,10 @@ with workflow.unsafe.imports_passed_through():
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
-    from tracecat.dsl.interceptor import SentryInterceptor
+    from tracecat.dsl.interceptor import (
+        RuntimeErrorAttributionInterceptor,
+        SentryInterceptor,
+    )
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
@@ -116,7 +119,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     client = await get_temporal_client()
 
-    interceptors = []
+    interceptors: list[Interceptor] = [RuntimeErrorAttributionInterceptor()]
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
         logger.info("Initializing Sentry interceptor")
         app_env = config.TRACECAT__APP_ENV

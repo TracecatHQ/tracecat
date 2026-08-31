@@ -21,6 +21,7 @@ from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.init_activities import (
     resolve_workflow_concurrency_limits_enabled_activity,
 )
+from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.types import TaskExceptionInfo
 from tracecat.dsl.worker import new_sandbox_runner
@@ -168,5 +169,6 @@ async def test_dsl_workflow_replays_legacy_subflow_failure_history(
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
         data_converter=temporal_client.data_converter,
+        interceptors=[RuntimeErrorAttributionInterceptor()],
     ).replay_workflow(history, raise_on_replay_failure=False)
     assert replay_result.replay_failure is None

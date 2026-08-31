@@ -69,6 +69,12 @@ class RuntimeErrorKind(StrEnum):
     WORKFLOW_TRIGGER_INPUT_INVALID = "workflow.trigger.input_invalid"
     WORKFLOW_SUBFLOW_INPUT_INVALID = "workflow.subflow.input_invalid"
     WORKFLOW_SUBFLOW_PREPARATION_FAILED = "workflow.subflow.preparation_failed"
+    WORKFLOW_BOOTSTRAP_INVALID_DATA = "workflow.bootstrap.invalid_data"
+    WORKFLOW_BOOTSTRAP_UNAVAILABLE = "workflow.bootstrap.unavailable"
+    WORKFLOW_EXPRESSION_INVALID = "workflow.expression.invalid"
+    WORKFLOW_RUNTIME_INVARIANT_VIOLATION = "workflow.runtime.invariant_violation"
+    WORKFLOW_AGENT_INPUT_INVALID = "workflow.agent.input_invalid"
+    WORKFLOW_AGENT_PREPARATION_FAILED = "workflow.agent.preparation_failed"
 
 
 class RuntimeErrorClassification(BaseModel):

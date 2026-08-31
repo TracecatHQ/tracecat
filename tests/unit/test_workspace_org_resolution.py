@@ -12,6 +12,12 @@ from tracecat.auth.types import Role
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.temporal.errors import extract_error_classification
 from tracecat.workspaces.activities import get_workspace_organization_id_activity
 
 
@@ -59,8 +65,43 @@ async def test_get_workspace_organization_id_activity_raises_when_missing(
         fake_session_manager,
     )
 
-    with pytest.raises(ApplicationError, match="not found or has no organization"):
+    with pytest.raises(ApplicationError) as exc_info:
         await get_workspace_organization_id_activity(workspace_id)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert str(workspace_id) not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_get_workspace_organization_id_activity_classifies_query_failure(
+    monkeypatch,
+):
+    diagnostic = "database diagnostic must not enter history"
+    mock_session = AsyncMock()
+    mock_session.execute.side_effect = RuntimeError(diagnostic)
+
+    @asynccontextmanager
+    async def fake_session_manager():
+        yield mock_session
+
+    monkeypatch.setattr(
+        "tracecat.workspaces.activities.get_async_session_bypass_rls_context_manager",
+        fake_session_manager,
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await get_workspace_organization_id_activity(uuid.uuid4())
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert diagnostic not in str(exc_info.value)
 
 
 @pytest.mark.anyio
@@ -93,13 +134,14 @@ async def test_dsl_workflow_auto_heals_missing_organization_id():
         ),
     ):
         dsl_workflow = DSLWorkflow(args)
+        dsl_workflow._initialize_run(args)
         await dsl_workflow._resolve_organization_id()
 
     assert dsl_workflow.role.organization_id == organization_id
 
 
 @pytest.mark.anyio
-async def test_dsl_workflow_init_raises_when_workspace_missing():
+async def test_dsl_workflow_defers_and_classifies_missing_workspace():
     role = Role(type="service", service_id="tracecat-schedule-runner")
     args = DSLRunArgs(role=role, wf_id=WorkflowUUID.new_uuid4())
 
@@ -114,8 +156,15 @@ async def test_dsl_workflow_init_raises_when_workspace_missing():
         get_current_history_size=lambda: 0,
     )
 
-    with (
-        patch("tracecat.dsl.workflow.workflow.info", return_value=fake_wf_info),
-        pytest.raises(ApplicationError, match="Workspace ID is required"),
-    ):
-        DSLWorkflow(args)
+    dsl_workflow = DSLWorkflow(args)
+    with patch("tracecat.dsl.workflow.workflow.info", return_value=fake_wf_info):
+        dsl_workflow._initialize_run(args)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        _ = dsl_workflow.workspace_id
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE

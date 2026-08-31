@@ -2,7 +2,12 @@ from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from temporalio import activity, workflow
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import (
+    ApplicationError,
+    TerminatedError,
+    is_cancelled_exception,
+)
+from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 from temporalio.worker import (
     ExecuteWorkflowInput,
     Interceptor,
@@ -17,7 +22,22 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import DSLRunArgs, get_trigger_type
     from tracecat.logger import logger
-    from tracecat.workflow.executions.enums import TriggerType
+    from tracecat.runtime.errors import (
+        RetryDisposition,
+        RuntimeErrorClassification,
+        RuntimeErrorKind,
+        select_error_classification,
+    )
+    from tracecat.temporal.errors import (
+        application_error_from_classification,
+        extract_error_classifications,
+    )
+    from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
+
+
+_RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR_PATCH = (
+    "runtime-error-attribution-interceptor-v1"
+)
 
 
 def _set_common_workflow_tags(info: workflow.Info | activity.Info) -> None:
@@ -107,6 +127,11 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                         logger.info("Not a scheduled workflow, skipping reporting")
                 raise e
             except Exception as e:
+                if extract_error_classifications(
+                    e,
+                    include_implicit_context=False,
+                ):
+                    raise
                 logger.warning("Caught platform level workflow error", error=str(e))
                 if len(input.args) >= 1:
                     arg = input.args[0]
@@ -129,6 +154,62 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise ApplicationError(str(e)) from e
 
 
+class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
+    """Guarantee that every escaping application failure has an owner.
+
+    Specific runtime boundaries remain responsible for assigning precise kinds,
+    messages, and retry dispositions. This interceptor is the last-resort signal
+    that one of those classifiers is missing: an unknown terminal failure is
+    intentionally surfaced as ``platform/runtime.unclassified``.
+    """
+
+    async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
+        try:
+            return await super().execute_workflow(input)
+        except Exception as error:
+            if is_cancelled_exception(error) or isinstance(
+                error, (TerminatedError, TemporalTimeoutError)
+            ):
+                raise
+
+            # Old histories must retain their original terminal command. The
+            # interceptor only owns failures from executions that record this
+            # patch marker.
+            if not workflow.patched(_RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR_PATCH):
+                raise
+
+            classifications = extract_error_classifications(
+                error,
+                include_implicit_context=False,
+            )
+            if classifications:
+                classification = select_error_classification(classifications)
+                self._stamp_owner(classification)
+                raise
+
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+                message="Tracecat encountered an unclassified runtime failure",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                cause=error,
+            )
+            self._stamp_owner(classification)
+            if not workflow.unsafe.is_replaying():
+                logger.error(
+                    "Terminal workflow failure reached the attribution fallback",
+                    workflow_type=workflow.info().workflow_type,
+                    error_type=type(error).__name__,
+                    error_kind=classification.kind.value,
+                )
+            raise application_error_from_classification(classification) from None
+
+    @staticmethod
+    def _stamp_owner(classification: RuntimeErrorClassification) -> None:
+        workflow.upsert_search_attributes(
+            [TemporalSearchAttr.ERROR_OWNER.key.value_set(classification.owner.value)]
+        )
+
+
 class SentryInterceptor(Interceptor):
     """Temporal Interceptor class which will report workflow & activity exceptions to Sentry"""
 
@@ -136,3 +217,12 @@ class SentryInterceptor(Interceptor):
         self, input: WorkflowInterceptorClassInput
     ) -> type[WorkflowInboundInterceptor] | None:
         return _SentryWorkflowInterceptor
+
+
+class RuntimeErrorAttributionInterceptor(Interceptor):
+    """Always-on terminal workflow attribution backstop."""
+
+    def workflow_interceptor_class(
+        self, input: WorkflowInterceptorClassInput
+    ) -> type[WorkflowInboundInterceptor] | None:
+        return _RuntimeErrorAttributionWorkflowInterceptor

@@ -31,7 +31,9 @@ from tracecat.dsl.workflow import ERROR_OWNER_CONTROL_FLOW_PATCH, DSLWorkflow
 from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.storage.object import InlineObject
+from tracecat.temporal.errors import extract_error_classification
 from tracecat.temporal.exceptions import UserError
 from tracecat.tiers.schemas import EffectiveLimits
 from tracecat.workflow.executions.enums import ExecutionType
@@ -203,12 +205,12 @@ async def test_retry_until_enforces_action_execution_limit() -> None:
             new=AsyncMock(side_effect=[False, False, True]),
         ),
     ):
-        with pytest.raises(
-            ApplicationError,
-            match="Action execution limit exceeded",
-        ):
+        with pytest.raises(ApplicationError) as exc_info:
             await workflow.execute_task(task)
 
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.kind is RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED
     assert execute_task_mock.await_count == 2
     assert workflow._action_execution_count == 3
 
@@ -572,6 +574,7 @@ async def test_run_skips_tier_limit_enforcement_when_flag_disabled() -> None:
     acquire_permit_mock = AsyncMock()
 
     with (
+        patch.object(workflow, "_initialize_run", return_value=None),
         patch.object(
             workflow,
             "_resolve_organization_id",

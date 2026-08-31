@@ -58,6 +58,7 @@ class _FaultPoint(StrEnum):
     CHILD_EXECUTION = "child_dispatch"
     SUBFLOW_PREPARATION = "prepare_subflow"
     TEMPORAL_CONTROL = "temporal_control"
+    FINAL_INTERCEPTOR = "final_interceptor"
 
 
 type _TerminalOperation = Literal["cancel", "terminate", "timeout"]
@@ -499,6 +500,17 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         runner=_basic_runner(
             engine_harness.run_handled_platform_activity_failure_uses_authored_error_edge
         ),
+    ),
+    _AttributionScenario(
+        id="runtime.unclassified.final_interceptor",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.FINAL_INTERCEPTOR,
+        fault="RuntimeError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        runner=_basic_runner(harness.run_unclassified_failure_sets_platform_owner),
     ),
     _AttributionScenario(
         id="engine.cancel",

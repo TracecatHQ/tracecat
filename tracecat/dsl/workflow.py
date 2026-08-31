@@ -121,7 +121,13 @@ with workflow.unsafe.imports_passed_through():
         exec_id_to_parts,
     )
     from tracecat.registry.lock.types import RegistryLock
-    from tracecat.runtime.errors import RuntimeErrorOwner, select_error_classification
+    from tracecat.runtime.errors import (
+        RetryDisposition,
+        RuntimeErrorClassification,
+        RuntimeErrorKind,
+        RuntimeErrorOwner,
+        select_error_classification,
+    )
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -136,6 +142,8 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.temporal.errors import (
         extract_error_classification,
         extract_error_classifications,
+        raise_application_error_from_classification,
+        raise_wrapped_application_error,
     )
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
@@ -258,6 +266,7 @@ class DSLWorkflow:
     organization_id: identifiers.OrganizationID
     dep_list: dict[str, list[str]]
     scheduler: DSLScheduler
+    _workspace_id: identifiers.WorkspaceID | None
 
     # Tier limit tracking
     _tier_limits: EffectiveLimits | None = None
@@ -268,19 +277,23 @@ class DSLWorkflow:
 
     @workflow.init
     def __init__(self, args: DSLRunArgs) -> None:
+        # Keep workflow construction assignment-only. The inbound interceptor
+        # does not wrap @workflow.init, so fallible bootstrap work belongs at
+        # the start of run(), inside the terminal attribution boundary.
         self.role = args.role
         self.start_to_close_timeout = args.timeout
         """The activity execution timeout."""
         self.execution_type = args.execution_type
         """Execution type (draft or published). Draft executions use draft aliases for child workflows."""
+        self._workspace_id = self.role.workspace_id
+
+    def _initialize_run(self, args: DSLRunArgs) -> None:
+        """Initialize fallible workflow runtime state inside the interceptor."""
         wf_info = workflow.info()
         # Tracecat wf exec id == Temporal wf exec id
         self.wf_exec_id = wf_info.workflow_id
         # Tracecat wf run id == Temporal wf run id
         self.wf_run_id = wf_info.run_id
-        if self.role.workspace_id is None:
-            raise ApplicationError("Workspace ID is required", non_retryable=True)
-        self.workspace_id = self.role.workspace_id
         self.logger = get_workflow_logger(
             wf_id=args.wf_id,
             wf_exec_id=self.wf_exec_id,
@@ -308,6 +321,23 @@ class DSLWorkflow:
             self.logger.error("Failed to show workflow info", error=e)
 
         self.interactions = InteractionManager(self)
+
+    @property
+    def workspace_id(self) -> identifiers.WorkspaceID:
+        """Return the required workspace ID or raise a classified bootstrap error."""
+        if self._workspace_id is None:
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
+                message="Tracecat could not initialize the workflow workspace",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+            )
+            raise_application_error_from_classification(classification)
+        return self._workspace_id
+
+    @workspace_id.setter
+    def workspace_id(self, value: identifiers.WorkspaceID) -> None:
+        """Allow runtime setup and tests to replace the resolved workspace ID."""
+        self._workspace_id = value
 
     @workflow.update
     async def interaction_handler(self, input: InteractionInput) -> InteractionResult:
@@ -350,6 +380,7 @@ class DSLWorkflow:
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> StoredObject:
+        self._initialize_run(args)
         self.organization_id = await self._resolve_organization_id()
 
         # Set DSL and registry_lock
@@ -644,10 +675,17 @@ class DSLWorkflow:
         try:
             task_exceptions = await self.scheduler.start()
         except Exception as e:
-            msg = f"DSL scheduler failed with unexpected error: {e}"
-            raise ApplicationError(
-                msg, non_retryable=True, type=e.__class__.__name__
-            ) from e
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
+                message="Tracecat could not complete workflow scheduling",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                cause=e,
+            )
+            raise_wrapped_application_error(
+                e,
+                fallback_classification=classification,
+                include_implicit_context=False,
+            )
 
         if task_exceptions:
             # NOTE: This error is shown in the final activity in the workflow history
@@ -656,18 +694,33 @@ class DSLWorkflow:
         try:
             self.logger.info("DSL workflow completed")
             return await self._handle_return()
-        except TracecatExpressionError as e:
-            raise ApplicationError(
-                f"Couldn't parse return value expression: {e}",
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
         except Exception as e:
-            raise ApplicationError(
-                f"Unexpected error handling return value: {e}",
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
+            if classification := extract_error_classification(e):
+                raise_wrapped_application_error(
+                    e,
+                    fallback_classification=classification,
+                    include_implicit_context=False,
+                )
+            classification = (
+                RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID,
+                    message="The workflow return expression could not be evaluated",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                    cause=e,
+                )
+                if isinstance(e, TracecatExpressionError)
+                else RuntimeErrorClassification.platform(
+                    kind=RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
+                    message="Tracecat could not finalize the workflow return value",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                    cause=e,
+                )
+            )
+            raise_wrapped_application_error(
+                e,
+                fallback_classification=classification,
+                include_implicit_context=False,
+            )
 
     async def _handle_timers(self, task: ActionStatement) -> None:
         """Perform any timing control flow logic (start_delay, wait_until).
@@ -2325,14 +2378,12 @@ class DSLWorkflow:
             elapsed_seconds = (workflow.now() - started_at).total_seconds()
             max_wait_seconds = config.TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS
             if elapsed_seconds >= max_wait_seconds:
-                raise ApplicationError(
-                    (
-                        "Timed out waiting for workflow concurrency permit "
-                        f"({elapsed_seconds:.1f}s/{max_wait_seconds}s)"
-                    ),
-                    non_retryable=True,
-                    type="WorkflowPermitTimeoutExceeded",
+                classification = RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED,
+                    message="The workflow concurrency limit is currently exhausted",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
                 )
+                raise_application_error_from_classification(classification)
 
             sleep_duration = min(
                 self._next_permit_backoff_seconds(attempt=attempt),
@@ -2382,14 +2433,12 @@ class DSLWorkflow:
             elapsed_seconds = (workflow.now() - started_at).total_seconds()
             max_wait_seconds = config.TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS
             if elapsed_seconds >= max_wait_seconds:
-                raise ApplicationError(
-                    (
-                        "Timed out waiting for action concurrency permit "
-                        f"({elapsed_seconds:.1f}s/{max_wait_seconds}s)"
-                    ),
-                    non_retryable=True,
-                    type="ActionPermitTimeoutExceeded",
+                classification = RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED,
+                    message="The action concurrency limit is currently exhausted",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
                 )
+                raise_application_error_from_classification(classification)
 
             sleep_duration = min(
                 self._next_permit_backoff_seconds(attempt=attempt),
@@ -2470,8 +2519,9 @@ class DSLWorkflow:
         self._action_execution_count += 1
 
         if self._action_execution_count > max_actions:
-            raise ApplicationError(
-                f"Action execution limit exceeded ({self._action_execution_count}/{max_actions})",
-                non_retryable=True,
-                type="ActionExecutionLimitExceeded",
+            classification = RuntimeErrorClassification.user(
+                kind=RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED,
+                message="The workflow action execution limit was exceeded",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
             )
+            raise_application_error_from_classification(classification)

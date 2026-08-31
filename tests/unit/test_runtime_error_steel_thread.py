@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,11 +19,16 @@ from tests.shared import capture_application_error as _capture_application_error
 from tracecat.auth.types import Role
 from tracecat.dsl.action import (
     DSLActivities,
+    EvaluateLoopedSubflowInputActivityInput,
     NormalizeTriggerInputsActivityInputs,
     PrepareSubflowActivityInput,
     SubflowDefinitionNotFoundError,
+    _agent_preparation_error_classification,
+    _expression_error_classification,
+    _materialization_error_classification,
+    _result_persistence_error_classification,
 )
-from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.error_transport import (
     ActionErrorTransportDetail,
@@ -38,6 +45,7 @@ from tracecat.dsl.workflow import (
     ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
     DSLWorkflow,
 )
+from tracecat.exceptions import TracecatExpressionError, TracecatValidationError
 from tracecat.expressions.schemas import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.runtime.errors import (
@@ -54,6 +62,139 @@ from tracecat.temporal.errors import (
 )
 from tracecat.temporal.exceptions import UserError
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
+
+
+@dataclass(frozen=True, slots=True)
+class _BoundaryPolicyExpectation:
+    boundary: str
+    classify: Callable[[Exception], RuntimeErrorClassification]
+    error_factory: Callable[[], Exception]
+    owner: RuntimeErrorOwner
+    kind: RuntimeErrorKind
+    retry_disposition: RetryDisposition
+    retry_policy: str
+
+
+def _transport_error() -> HTTPClientError:
+    return HTTPClientError(error=RuntimeError("transport diagnostic"))
+
+
+_REMAINING_BOUNDARY_POLICIES: tuple[_BoundaryPolicyExpectation, ...] = (
+    _BoundaryPolicyExpectation(
+        "return.materialization",
+        _materialization_error_classification,
+        _transport_error,
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+        RetryDisposition.RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "return.expression",
+        _expression_error_classification,
+        lambda: TracecatExpressionError("invalid return expression"),
+        RuntimeErrorOwner.USER,
+        RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID,
+        RetryDisposition.NON_RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "return.persistence",
+        _result_persistence_error_classification,
+        _transport_error,
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        RetryDisposition.RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "child_result.materialization",
+        _materialization_error_classification,
+        lambda: ValueError("invalid stored child result"),
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA,
+        RetryDisposition.NON_RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "child_result.persistence",
+        _result_persistence_error_classification,
+        _transport_error,
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        RetryDisposition.RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "gather.materialization",
+        _materialization_error_classification,
+        _transport_error,
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+        RetryDisposition.RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "gather.persistence",
+        _result_persistence_error_classification,
+        lambda: ValueError("invalid gather result"),
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
+        RetryDisposition.NON_RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "agent.input",
+        _agent_preparation_error_classification,
+        lambda: TracecatValidationError("invalid agent input"),
+        RuntimeErrorOwner.USER,
+        RuntimeErrorKind.WORKFLOW_AGENT_INPUT_INVALID,
+        RetryDisposition.NON_RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "agent.preparation",
+        _agent_preparation_error_classification,
+        lambda: RuntimeError("agent dependency unavailable"),
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.WORKFLOW_AGENT_PREPARATION_FAILED,
+        RetryDisposition.RETRYABLE,
+        "activity:fail_fast",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "expectation",
+    _REMAINING_BOUNDARY_POLICIES,
+    ids=lambda expectation: expectation.boundary,
+)
+def test_remaining_runtime_boundary_policy_inventory(
+    expectation: _BoundaryPolicyExpectation,
+) -> None:
+    """Keep owner, kind, retryability, and attempt budget reviewable together."""
+    classification = expectation.classify(expectation.error_factory())
+
+    assert classification.owner is expectation.owner
+    assert classification.kind is expectation.kind
+    assert classification.retry_disposition is expectation.retry_disposition
+    assert RETRY_POLICIES[expectation.retry_policy].maximum_attempts == 1
+
+
+def test_invalid_loop_expression_is_user_attributed() -> None:
+    with pytest.raises(ApplicationError) as exc_info:
+        DSLActivities.handle_looped_subflow_input_activity(
+            EvaluateLoopedSubflowInputActivityInput(
+                for_each="not-an-iterable-expression",
+                operand=ExecutionContext(ACTIONS={}, TRIGGER=None),
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
 
 
 def _prepare_subflow_input() -> PrepareSubflowActivityInput:
