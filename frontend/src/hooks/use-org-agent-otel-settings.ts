@@ -7,7 +7,7 @@ import {
   settingsUpdateAgentOtelSettings,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
-import type { TracecatApiError } from "@/lib/errors"
+import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 /** Load and update organization-scoped Agent OTel settings. */
@@ -51,11 +51,11 @@ export function useOrgAgentOtelSettings() {
         default:
           console.error("Failed to update agent OTel settings", {
             status: error.status,
-            detail: error.body?.detail,
+            detail: getApiErrorDetail(error),
           })
           toast({
             title: "Failed to update agent telemetry",
-            description: `An error occurred while updating agent OTel settings: ${error.body.detail}`,
+            description: `An error occurred while updating agent OTel settings: ${getApiErrorDetail(error) ?? "unknown error"}`,
           })
       }
     },

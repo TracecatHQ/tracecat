@@ -108,6 +108,7 @@ export function OrgAgentOtelSettings() {
   const [rawEnv, setRawEnv] = useState("")
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([])
   const [clearSavedHeaders, setClearSavedHeaders] = useState(false)
+  const [dirty, setDirty] = useState(false)
   const settingsLoadFailed =
     Boolean(agentOtelSettingsError) ||
     (!agentOtelSettingsIsLoading && agentOtelSettings === undefined)
@@ -119,26 +120,32 @@ export function OrgAgentOtelSettings() {
     settingsLoadFailed ||
     updateAgentOtelSettingsIsPending
   const fieldsDisabled = !enabled || editingDisabled
+  // Signature of the last server config folded into local state.
+  const lastServerSig = useRef<string | undefined>(undefined)
 
   function seedFromServer(settings: AgentOtelSettingsRead | undefined) {
+    lastServerSig.current = JSON.stringify(settings?.agent_otel_config ?? null)
     setEnabled(settings?.agent_otel_config?.enabled ?? false)
     setForm(envMapToForm(agentOtelConfigToEnvMap(settings?.agent_otel_config)))
     setMode("form")
     setRawEnv("")
     setHeaderRows([])
     setClearSavedHeaders(false)
+    setDirty(false)
   }
 
-  // Seed once on first load. Later refetches (refocus, another admin's save)
-  // must not clobber unsaved edits; save and reset rehydrate explicitly.
-  const seeded = useRef(false)
+  // Re-seed whenever the server config changes, but never over unsaved edits;
+  // a dirty form is rehydrated only by an explicit save or reset.
   useEffect(() => {
-    if (!agentOtelSettings || seeded.current) {
+    if (!agentOtelSettings) {
       return
     }
-    seeded.current = true
+    const sig = JSON.stringify(agentOtelSettings.agent_otel_config ?? null)
+    if (sig === lastServerSig.current || dirty) {
+      return
+    }
     seedFromServer(agentOtelSettings)
-  }, [agentOtelSettings])
+  }, [agentOtelSettings, dirty])
 
   const envExtensions = useMemo(
     () => envLintExtensions({ requireOtlpEndpoint: enabled }),
@@ -146,7 +153,18 @@ export function OrgAgentOtelSettings() {
   )
 
   function updateForm(patch: Partial<AgentOtelForm>) {
+    setDirty(true)
     setForm((prev) => ({ ...prev, ...patch }))
+  }
+
+  function handleEnabledChange(next: boolean) {
+    setDirty(true)
+    setEnabled(next)
+  }
+
+  function handleRawEnvChange(next: string) {
+    setDirty(true)
+    setRawEnv(next)
   }
 
   // Switch editing surface, folding the current representation into the other.
@@ -157,6 +175,7 @@ export function OrgAgentOtelSettings() {
       return
     }
     if (next === "raw") {
+      setDirty(true)
       setRawEnv(formToEnvText(form))
       setMode("raw")
       return
@@ -173,11 +192,13 @@ export function OrgAgentOtelSettings() {
       })
       return
     }
+    setDirty(true)
     setForm(envTextToForm(rawEnv))
     setMode("form")
   }
 
   function toggleSignal(key: keyof AgentOtelSignals, checked: boolean) {
+    setDirty(true)
     setForm((prev) => ({
       ...prev,
       signals: { ...prev.signals, [key]: checked },
@@ -185,6 +206,7 @@ export function OrgAgentOtelSettings() {
   }
 
   function handleHeaderRowChange(id: string, patch: Partial<HeaderRow>): void {
+    setDirty(true)
     setClearSavedHeaders(false)
     setHeaderRows((prev) =>
       prev.map((row) => (row.id === id ? { ...row, ...patch } : row))
@@ -192,15 +214,18 @@ export function OrgAgentOtelSettings() {
   }
 
   function handleAddHeaderRow() {
+    setDirty(true)
     setClearSavedHeaders(false)
     setHeaderRows((prev) => [...prev, newHeaderRow()])
   }
 
   function handleRemoveHeaderRow(id: string) {
+    setDirty(true)
     setHeaderRows((prev) => prev.filter((row) => row.id !== id))
   }
 
   function handleClearSavedHeaders() {
+    setDirty(true)
     setHeaderRows([])
     setClearSavedHeaders(true)
   }
@@ -327,7 +352,7 @@ export function OrgAgentOtelSettings() {
         </div>
         <Switch
           checked={enabled}
-          onCheckedChange={setEnabled}
+          onCheckedChange={handleEnabledChange}
           disabled={editingDisabled}
         />
       </div>
@@ -435,7 +460,7 @@ export function OrgAgentOtelSettings() {
           <div className="space-y-3 p-4">
             <CodeEditor
               value={rawEnv}
-              onChange={setRawEnv}
+              onChange={handleRawEnvChange}
               language="text"
               wrapLongLines
               readOnly={fieldsDisabled}
@@ -538,7 +563,7 @@ export function OrgAgentOtelSettings() {
           type="button"
           variant="outline"
           onClick={handleReset}
-          disabled={editingDisabled}
+          disabled={editingDisabled || !dirty}
         >
           Reset
         </Button>
