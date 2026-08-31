@@ -444,7 +444,7 @@ class TestCaseCommentsService:
         assert invocation_data.session_id == agent_session.id
         assert invocation_data.error is None
 
-    async def test_invocation_failure_is_structured(
+    async def test_invocation_failure_is_persisted_on_linked_session(
         self,
         case_comments_service: CaseCommentsService,
         session: AsyncSession,
@@ -460,6 +460,15 @@ class TestCaseCommentsService:
             CaseCommentCreate(content=_mention_token("Failing agent", preset.id)),
         )
         [invocation] = await _load_comment_invocations(session, comment.id)
+        agent_session = AgentSession(
+            workspace_id=case_comments_service.workspace_id,
+            entity_type="case",
+            entity_id=test_case.id,
+            agent_preset_id=preset.id,
+        )
+        session.add(agent_session)
+        await session.flush()
+        invocation.session_id = agent_session.id
         invocation_service = CaseCommentAgentInvocationService(
             session,
             case_comments_service.role,
@@ -467,12 +476,16 @@ class TestCaseCommentsService:
         assert await invocation_service.claim_pending(invocation.id) is not None
         failed = await invocation_service.mark_failed(
             invocation.id,
-            {"kind": "agent_turn", "message": "model failed"},
+            {"kind": "preparation", "message": "configuration failed"},
         )
         await session.commit()
 
         assert failed is not None
-        assert failed.error == {"kind": "agent_turn", "message": "model failed"}
+        assert failed.error == {
+            "kind": "preparation",
+            "message": "configuration failed",
+        }
+        assert agent_session.last_error == "configuration failed"
 
     async def test_create_comment_agent_mention_is_inert_without_execute_scope(
         self,
