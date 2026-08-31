@@ -1,0 +1,25 @@
+frontend/src/components/icons.tsx
+  s_bf1da2caf45751::t_df83d6e3538881 647
+packages/tracecat-registry/tracecat_registry/templates/tools/google_cloud_logging/entries/list_log_entries.yml
+  s_bf1da2caf45751::t_df83d6e3538881 1-72
+docs/docs.json
+  s_bf1da2caf45751::t_622e6b293574bf 212
+docs/tools/google_cloud_logging.mdx
+  s_bf1da2caf45751::t_9aa5454f2e2f3e 1-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0be7fddf275e08a767e306b6ff888cd9ff5b2903",
+  "prompts": {},
+  "sessions": {
+    "s_bf1da2caf45751": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a057ff-0310-7323-8e0c-9771d4d3f41f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
