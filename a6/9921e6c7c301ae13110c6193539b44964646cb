@@ -1,0 +1,38 @@
+tracecat/integrations/providers/__init__.py
+  s_bf1da2caf45751::t_45c45287131d89 15-16,78-79
+packages/tracecat-registry/tracecat_registry/templates/tools/google_cloud_logging/entries/list_log_entries.yml
+  s_bf1da2caf45751::t_df83d6e3538881 1-5,9-14,23-27,29-42,47-73,75-83
+  s_bf1da2caf45751::t_680367f1e06968 43-46
+  s_bf1da2caf45751::t_e82f4ace9f3eb7 6-8
+  s_bf1da2caf45751::t_45c45287131d89 15-22,28,74
+docs/tools/google_cloud_logging.mdx
+  s_bf1da2caf45751::t_9aa5454f2e2f3e 1-62
+tracecat/integrations/providers/google/cloud_logging.py
+  s_bf1da2caf45751::t_680367f1e06968 20-25,42,60
+  s_bf1da2caf45751::t_45c45287131d89 1-19,26-41,43-59,61-62
+frontend/src/components/icons.tsx
+  s_bf1da2caf45751::t_680367f1e06968 647,976,1947-1970
+  s_bf1da2caf45751::t_45c45287131d89 974-975,977-978
+  s_bf1da2caf45751::t_9d669b5bff1ddc 1971-1973
+  s_bf1da2caf45751::t_274c6be2fa1636 1974
+docs/docs.json
+  s_bf1da2caf45751::t_622e6b293574bf 212
+tracecat/integrations/providers/google/__init__.py
+  s_bf1da2caf45751::t_45c45287131d89 5,25-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a69921e6c7c301ae13110c6193539b44964646cb",
+  "prompts": {},
+  "sessions": {
+    "s_bf1da2caf45751": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a057ff-0310-7323-8e0c-9771d4d3f41f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
