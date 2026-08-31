@@ -7,7 +7,7 @@ definition:
     token's itemusages feature. The response cursor is a persistent checkpoint
     for the next call.
   display_group: 1Password Events
-  doc_url: https://www.1password.dev/events-api/reference
+  doc_url: https://www.1password.dev/events-api/reference/items-usage
   namespace: tools.onepassword
   name: list_item_usages
   secrets:
