@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: List sign-in attempts
+  description: >-
+    Retrieve successful and failed 1Password account sign-in attempts. Calls
+    POST /api/v2/signinattempts directly and requires the token's
+    signinattempts feature. The response cursor is a persistent checkpoint for
+    the next call.
+  display_group: 1Password Events
+  doc_url: https://www.1password.dev/events-api/reference
+  namespace: tools.onepassword
+  name: list_sign_in_attempts
+  secrets:
+    - name: onepassword_events
+      keys: ["OP_EVENTS_API_TOKEN"]
+  expects:
+    payload:
+      # Generic: the Events API body is a oneOf union between a ResetCursor and
+      # a continuing Cursor, so there is no single field set to enumerate.
+      type: dict[str, Any]
+      description: >-
+        API-native cursor request body. For a first or reset request, pass any
+        combination of limit (1-1000, default 100), start_time (RFC 3339), and
+        end_time (RFC 3339), or pass an empty object. For a continuing request,
+        pass only cursor from the previous response.
+    base_url:
+      type: str | None
+      description: 1Password Events API base URL for the account.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.onepassword.base_url || "https://events.1password.com" }}/api/v2/signinattempts
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.onepassword_events.OP_EVENTS_API_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,27 @@
+type: action
+definition:
+  title: Introspect Events API token
+  description: >-
+    Return the event features and 1Password account authorized for an Events
+    Reporting bearer token. Calls GET /api/v2/auth/introspect directly.
+  display_group: 1Password Events
+  doc_url: https://www.1password.dev/events-api/reference
+  namespace: tools.onepassword
+  name: introspect_events_token
+  secrets:
+    - name: onepassword_events
+      keys: ["OP_EVENTS_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: 1Password Events API base URL for the account.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.onepassword.base_url || "https://events.1password.com" }}/api/v2/auth/introspect
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.onepassword_events.OP_EVENTS_API_TOKEN }}
+  returns: ${{ steps.request.result }}

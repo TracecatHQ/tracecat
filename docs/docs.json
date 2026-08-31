@@ -247,6 +247,8 @@
               "tools/okta",
               "tools/okta_oar",
               "tools/okta_sdk",
+              "tools/onepassword",
+              "tools/onepassword_sdk",
               "tools/openphish",
               "tools/opensearch",
               "tools/osv",

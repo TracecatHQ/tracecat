@@ -3024,6 +3024,27 @@ wheels = [
 ]
 
 [[package]]
+name = "onepassword-sdk"
+version = "0.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/df/06/989f5b40e802e11e37c44bc72faabcdd362dcba3392fbfc48be6da49e147/onepassword_sdk-0.4.1.tar.gz", hash = "sha256:4b9224208aa6e35e13bad8534e6521d3abf5ba166ea4efd370fcdc918c4a4d26", size = 34561961, upload-time = "2026-07-30T13:56:12.309Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f0/68/04e9006ecf2ef99e084042671d5fd28540a8199e7d8d4dac948581ebd152/onepassword_sdk-0.4.1-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:20ce4798e4f67e25564df947f1b45dac050b4c1b3c19305533346af5b5833d25", size = 7310376, upload-time = "2026-07-30T13:55:48.58Z" },
+    { url = "https://files.pythonhosted.org/packages/df/21/6c893de3c8cf51732ec240b87d6298cd1a130af2d5c917eb6a48076d3d63/onepassword_sdk-0.4.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:f4469602291a82a8b5ea019ed6cab142852ef3d09eceee94d21f6c67f8a478a9", size = 7030316, upload-time = "2026-07-30T13:55:50.618Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/fa/5d19c0f1dea47ed5fdc3b96760629b92b0785e75ab981993545806edcde6/onepassword_sdk-0.4.1-cp312-cp312-manylinux_2_32_aarch64.whl", hash = "sha256:59945589f2c816357322d3c8801efe66d8e6842dfba9740787979996b8467815", size = 7098626, upload-time = "2026-07-30T13:55:52.052Z" },
+    { url = "https://files.pythonhosted.org/packages/22/7c/ca1529a3732605caad337b0f989c894ddfdf94995545393aa029d2fcc0b2/onepassword_sdk-0.4.1-cp312-cp312-manylinux_2_32_x86_64.whl", hash = "sha256:070541f5d007f8bfa63ffd937e4717e4d3d04100096e807a05028a8a62d49b94", size = 7298314, upload-time = "2026-07-30T13:55:53.75Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/20/420f0fb8075fb13a76dacc1215a177062374e195117af2843a8df7fc482a/onepassword_sdk-0.4.1-cp312-cp312-win_amd64.whl", hash = "sha256:47492c131ae74280f2d98e8ba708bab7339001c30f57d96d65fadacdd6a152a0", size = 6140434, upload-time = "2026-07-30T13:55:55.404Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/1d/fec27ec00105ada1baa0ed529925e213c87261da9e4bda8997ecb80f4361/onepassword_sdk-0.4.1-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:3ab99159b0680781c29103e8a481487a7cbe307d80ca82d1ebe1696482717dbf", size = 7310375, upload-time = "2026-07-30T13:55:56.692Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/22/aa06e570c0477a5ab05635f3f216158012bcb6a2a77a85da97d6e598fc0f/onepassword_sdk-0.4.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:e08741964f94b257ac843b01fbb260fa1ecea1da33e33132c27c33a001d1f750", size = 7030317, upload-time = "2026-07-30T13:55:58.142Z" },
+    { url = "https://files.pythonhosted.org/packages/34/23/d7e0adf4e619904e3be43084ba6bd607ce33dc46798f7c2a52c8d99af3a1/onepassword_sdk-0.4.1-cp313-cp313-manylinux_2_32_aarch64.whl", hash = "sha256:55426aa708316698739babd87693d99312eeb3fbf45a429f467014b4c171d578", size = 7098627, upload-time = "2026-07-30T13:55:59.638Z" },
+    { url = "https://files.pythonhosted.org/packages/71/be/2b669a038881f98512587c512821a50d78b4eae8aa380253d35808643852/onepassword_sdk-0.4.1-cp313-cp313-manylinux_2_32_x86_64.whl", hash = "sha256:438f3d11cc8ce74fb8fa06d6fe8ecb9c8f72ee1490a0ebd2e3f6029d61c3157c", size = 7298314, upload-time = "2026-07-30T13:56:01.194Z" },
+    { url = "https://files.pythonhosted.org/packages/00/e6/c795eebd51be8cf70f61577d44eccb345df012d1bd036e7545dace0f944d/onepassword_sdk-0.4.1-cp313-cp313-win_amd64.whl", hash = "sha256:45c2a2751017bd43697f949aea74efcd3058b2395dfa5d94c33adfb7ef96a60a", size = 6140433, upload-time = "2026-07-30T13:56:02.558Z" },
+]
+
+[[package]]
 name = "openai"
 version = "2.24.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5214,6 +5235,7 @@ dependencies = [
     { name = "msgraph-core" },
     { name = "nh3" },
     { name = "okta" },
+    { name = "onepassword-sdk" },
     { name = "orjson" },
     { name = "paramiko" },
     { name = "pydantic" },
@@ -5258,6 +5280,7 @@ requires-dist = [
     { name = "msgraph-core", specifier = "==1.5.1" },
     { name = "nh3", specifier = "==0.2.18" },
     { name = "okta", specifier = "==3.4.3" },
+    { name = "onepassword-sdk", specifier = "==0.4.1" },
     { name = "orjson", specifier = "==3.11.7" },
     { name = "paramiko", specifier = "==3.5.0" },
     { name = "pydantic", specifier = "==2.12.5" },
