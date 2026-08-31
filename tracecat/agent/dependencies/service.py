@@ -23,7 +23,7 @@ class AgentDependencyService(BaseWorkspaceService):
         self,
         skill_id: uuid.UUID,
         *,
-        confirm_unlink: bool,
+        unlink_from_presets: bool,
     ) -> Skill:
         """Lock a Skill graph, unlink active parents, and return the target row."""
 
@@ -62,9 +62,9 @@ class AgentDependencyService(BaseWorkspaceService):
             .with_for_update()
         )
         parents = list((await self.session.execute(stmt)).scalars().unique().all())
-        if parents and not confirm_unlink:
+        if parents and not unlink_from_presets:
             raise TracecatValidationError(
-                "Deleting this skill requires confirmation because it is still "
+                "Deleting this skill requires unlinking because it is still "
                 "referenced by agent presets",
                 detail={
                     "code": "skill_in_use",

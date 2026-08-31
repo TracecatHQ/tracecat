@@ -3917,13 +3917,13 @@ class TestSkillService:
         ):
             await skill_service.archive_skill(created.id)
 
-    async def test_archive_with_confirmation_unlinks_and_publishes_parent(
+    async def test_archive_with_unlink_option_publishes_parent(
         self,
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
     ) -> None:
-        """Confirmed skill deletion publishes parent membership removal."""
+        """Explicit unlinking publishes parent membership removal."""
 
         created = await skill_service.create_skill(SkillCreate(name="unlink-skill"))
         await skill_service.publish_skill(created.id)
@@ -3940,7 +3940,7 @@ class TestSkillService:
         )
         original_version_id = preset.current_version_id
 
-        await skill_service.archive_skill(created.id, confirm_unlink=True)
+        await skill_service.archive_skill(created.id, unlink_from_presets=True)
 
         refreshed = await preset_service.get_preset(preset.id)
         assert refreshed is not None
@@ -4146,14 +4146,14 @@ class TestSkillService:
             self: AgentDependencyService,
             skill_id: uuid.UUID,
             *,
-            confirm_unlink: bool,
+            unlink_from_presets: bool,
         ) -> Skill:
             nonlocal coordination_calls
             coordination_calls += 1
             return await original_unlink(
                 self,
                 skill_id,
-                confirm_unlink=confirm_unlink,
+                unlink_from_presets=unlink_from_presets,
             )
 
         monkeypatch.setattr(

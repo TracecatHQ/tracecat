@@ -6324,7 +6324,7 @@ export const agentSkillsGetSkill = (
  * @param data The data for the request.
  * @param data.skillId
  * @param data.workspaceId
- * @param data.confirmUnlink Confirm unlinking this skill from active agent presets.
+ * @param data.unlinkFromPresets Unlink this skill from active agent presets before archiving.
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -6339,7 +6339,7 @@ export const agentSkillsArchiveSkill = (
       workspace_id: data.workspaceId,
     },
     query: {
-      confirm_unlink: data.confirmUnlink,
+      unlink_from_presets: data.unlinkFromPresets,
     },
     errors: {
       422: "Validation Error",

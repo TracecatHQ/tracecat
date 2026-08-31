@@ -301,14 +301,17 @@ async def archive_skill(
     skill_id: str,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    confirm_unlink: bool = Query(default=False),
+    unlink_from_presets: bool = Query(
+        default=False,
+        description="Unlink this skill from active agent presets before archiving.",
+    ),
 ) -> None:
     service = SkillService(session, role=role)
     resolved_skill_id = await _resolve_skill_id(service, skill_id)
     try:
         await service.archive_skill(
             resolved_skill_id,
-            confirm_unlink=confirm_unlink,
+            unlink_from_presets=unlink_from_presets,
         )
     except TracecatValidationError as exc:
         _raise_skill_validation_error(exc)

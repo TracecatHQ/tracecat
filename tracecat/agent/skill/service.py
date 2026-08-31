@@ -3129,14 +3129,14 @@ class SkillService(SkillBindingService):
         self,
         skill_id: uuid.UUID,
         *,
-        confirm_unlink: bool = False,
+        unlink_from_presets: bool = False,
     ) -> None:
         """Archive a skill, publishing removals from active presets first."""
 
         dependency_service = AgentDependencyService(self.session, role=self.role)
         skill = await dependency_service.unlink_skill_from_active_presets(
             skill_id,
-            confirm_unlink=confirm_unlink,
+            unlink_from_presets=unlink_from_presets,
         )
         archived_at = datetime.now(UTC)
         skill.archived_at = archived_at

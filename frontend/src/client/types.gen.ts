@@ -12021,11 +12021,11 @@ export type AgentSkillsGetSkillData = {
 export type AgentSkillsGetSkillResponse = SkillRead
 
 export type AgentSkillsArchiveSkillData = {
-  /**
-   * Confirm unlinking this skill from active agent presets.
-   */
-  confirmUnlink?: boolean
   skillId: string
+  /**
+   * Unlink this skill from active agent presets before archiving.
+   */
+  unlinkFromPresets?: boolean
   workspaceId: string
 }
 

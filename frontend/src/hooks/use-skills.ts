@@ -547,10 +547,14 @@ export function useDeleteSkill(workspaceId: string) {
   const mutation = useMutation<
     void,
     TracecatApiError,
-    { skillId: string; confirmUnlink?: boolean }
+    { skillId: string; unlinkFromPresets?: boolean }
   >({
-    mutationFn: async ({ skillId, confirmUnlink }) =>
-      await agentSkillsArchiveSkill({ workspaceId, skillId, confirmUnlink }),
+    mutationFn: async ({ skillId, unlinkFromPresets }) =>
+      await agentSkillsArchiveSkill({
+        workspaceId,
+        skillId,
+        unlinkFromPresets,
+      }),
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["skills", workspaceId] })
       queryClient.removeQueries({
