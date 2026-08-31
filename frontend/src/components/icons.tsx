@@ -644,6 +644,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.google_docs": createIconRenderer(GoogleDocsIcon),
     "tools.google_drive": createIconRenderer(GoogleDriveIcon),
     "tools.google_api": createIconRenderer(GoogleIcon),
+    "tools.google_cloud_logging": createIconRenderer(GoogleCloudLoggingIcon),
     "tools.google_scc": createIconRenderer(GoogleIcon),
     "tools.gmail": createIconRenderer(GmailIcon),
     "tools.google_slides": createIconRenderer(GoogleSlidesIcon),
@@ -969,6 +970,11 @@ export const providerIcons: Record<
   google_admin: ({ className, ...rest }) => (
     <div className={className}>
       <GoogleIcon {...rest} />
+    </div>
+  ),
+  google_cloud_logging: ({ className, ...rest }) => (
+    <div className={className}>
+      <GoogleCloudLoggingIcon {...rest} />
     </div>
   ),
   google_slides: ({ className, ...rest }) => (
@@ -1935,6 +1941,34 @@ export function GoogleIcon({ className, ...rest }: IconProps) {
         fill="#EA4335"
       />
       <path d="M1 1h22v22H1z" fill="none" />
+    </svg>
+  )
+}
+
+/**
+ * Google Cloud Logging product mark.
+ *
+ * Source: Google's official Cloud product icon library, `cloud_logging.svg`
+ * from the legacy icon pack linked at https://cloud.google.com/icons. The
+ * vector geometry and official colors are preserved; CSS classes from the
+ * source SVG are expressed as presentation attributes for React.
+ */
+export function GoogleCloudLoggingIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={className}
+      {...rest}
+    >
+      <rect fill="#4285f4" x="6" y="11" width="4" height="2" />
+      <rect fill="#4285f4" x="4" y="18" width="6" height="2" />
+      <polygon fill="#4285f4" points="4 18 6 18 6 6 4 6 4 18" />
+      <polygon fill="#669df6" points="9 7 22 7 22 3 9 3 9 7" />
+      <polygon fill="#669df6" points="9 14 22 14 22 10 9 10 9 14" />
+      <polygon fill="#669df6" points="9 21 22 21 22 17 9 17 9 21" />
+      <polygon fill="#aecbfa" points="2 8 8 8 8 2 2 2 2 8" />
     </svg>
   )
 }

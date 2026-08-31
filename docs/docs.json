@@ -209,6 +209,7 @@
               "tools/google_alert_center",
               "tools/google_api",
               "tools/google_chronicle",
+              "tools/google_cloud_logging",
               "tools/google_directory",
               "tools/google_docs",
               "tools/google_drive",
