@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
@@ -159,6 +160,37 @@ class _ChildDispatch:
         raise ExecutionError(info=info) from cause
 
 
+@dataclass(slots=True)
+class _ConcurrentChildDispatch:
+    """Fail one child only after its cancellable sibling has started."""
+
+    user_diagnostic: str
+    calls: list[str]
+    slow_started: asyncio.Event
+
+    async def dispatch(self, *, backend: object, input: RunActionInput) -> object:
+        del backend
+        trigger = input.exec_context.get("TRIGGER")
+        mode = trigger.get("mode") if isinstance(trigger, dict) else None
+        self.calls.append(mode if isinstance(mode, str) else "success")
+        if mode == "slow":
+            self.slow_started.set()
+            await asyncio.Event().wait()
+            return {"ok": True}  # pragma: no cover - cancelled by Temporal
+        if mode == "user":
+            await self.slow_started.wait()
+            cause = ValueError(self.user_diagnostic)
+            info = ExecutorActionErrorInfo(
+                type=type(cause).__name__,
+                message="masked child action failure",
+                action_name="core.noop",
+                filename="<executor>",
+                function="dispatch",
+            )
+            raise ExecutionError(info=info) from cause
+        return {"ok": True}
+
+
 @dataclass(frozen=True, slots=True)
 class ScenarioObservation:
     """Execution handles and outcomes consumed by the shared matrix assertion."""
@@ -243,19 +275,113 @@ async def child_workflow_ids(handle: WorkflowHandle[Any, Any]) -> list[str]:
     ]
 
 
-def _child_dsl() -> DSLInput:
+async def wait_for_child_workflow_ids(
+    handle: WorkflowHandle[Any, Any],
+    *,
+    count: int,
+    attempts: int = 200,
+) -> list[str]:
+    """Wait until a running topology has started the requested child count."""
+    for _ in range(attempts):
+        child_ids = await child_workflow_ids(handle)
+        if len(child_ids) >= count:
+            return child_ids
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"Expected {count} child workflows to start")
+
+
+def child_dsl(
+    *,
+    title: str = "Attribution child",
+    description: str = "Exercise attribution across a real child workflow",
+    action_ref: str = "child_action",
+    start_delay: float = 0,
+) -> DSLInput:
+    """Build a one-action child definition for real-Worker topology tests."""
     return DSLInput(
-        title="Attribution child",
-        description="Exercise attribution across a real child workflow",
-        entrypoint=DSLEntrypoint(ref="child_action"),
+        title=title,
+        description=description,
+        entrypoint=DSLEntrypoint(ref=action_ref),
         actions=[
             ActionStatement(
-                ref="child_action",
+                ref=action_ref,
                 action="core.noop",
                 args={},
+                start_delay=start_delay,
                 retry_policy=ActionRetryPolicy(max_attempts=1, timeout=10),
             )
         ],
+    )
+
+
+def prepared_child(
+    *,
+    child_wf_id: WorkflowUUID,
+    dsl: DSLInput,
+    registry_lock: RegistryLock,
+) -> PreparedSubflowResult:
+    """Build one prepared child result for a patched preparation activity."""
+    return PreparedSubflowResult(
+        wf_id=child_wf_id,
+        dsl=dsl,
+        registry_lock=registry_lock,
+    )
+
+
+def child_workflow_action(
+    *,
+    ref: str,
+    child_wf_id: WorkflowUUID,
+    trigger_inputs: dict[str, object],
+) -> ActionStatement:
+    """Build one waiting child-workflow action for a topology test."""
+    return ActionStatement(
+        ref=ref,
+        action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+        args={
+            "workflow_id": child_wf_id.short(),
+            "trigger_inputs": trigger_inputs,
+            "wait_strategy": WaitStrategy.WAIT.value,
+        },
+    )
+
+
+def subflow_dsl(
+    *,
+    title: str,
+    description: str,
+    actions: list[ActionStatement],
+) -> DSLInput:
+    """Build a parent definition from concurrent child-workflow actions."""
+    return DSLInput(
+        title=title,
+        description=description,
+        entrypoint=DSLEntrypoint(ref=actions[0].ref),
+        actions=actions,
+    )
+
+
+def subflow_run_args(
+    *,
+    wf_id: WorkflowUUID,
+    title: str,
+    description: str,
+    actions: list[ActionStatement],
+) -> DSLRunArgs:
+    """Build run arguments for a parent composed only of subflows."""
+    return DSLRunArgs(
+        role=_role(),
+        wf_id=wf_id,
+        dsl=subflow_dsl(
+            title=title,
+            description=description,
+            actions=actions,
+        ),
+        trigger_inputs=InlineObject(data={}),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test"},
+            actions={},
+        ),
     )
 
 
@@ -264,7 +390,7 @@ def prepared_fanout(
 ) -> PreparedSubflowResult:
     return PreparedSubflowResult(
         wf_id=child_wf_id,
-        dsl=_child_dsl(),
+        dsl=child_dsl(),
         registry_lock=RegistryLock(
             origins={"tracecat_registry": "test"},
             actions={"core.noop": "tracecat_registry"},
@@ -277,29 +403,37 @@ def prepared_fanout(
     )
 
 
+def fanout_dsl(*, child_wf_id: WorkflowUUID, fail_strategy: FailStrategy) -> DSLInput:
+    """Build a parent definition that fans out over trigger input items."""
+    return DSLInput(
+        title="Attribution fanout parent",
+        description="Exercise real child terminal attribution",
+        entrypoint=DSLEntrypoint(ref="fanout"),
+        actions=[
+            ActionStatement(
+                ref="fanout",
+                action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+                for_each="${{ for var.item in TRIGGER.items }}",
+                args={
+                    "workflow_id": child_wf_id.short(),
+                    "trigger_inputs": "${{ var.item }}",
+                    "wait_strategy": WaitStrategy.WAIT.value,
+                    "fail_strategy": fail_strategy.value,
+                },
+            )
+        ],
+    )
+
+
 def fanout_run_args(
     *, child_wf_id: WorkflowUUID, modes: list[str], fail_strategy: FailStrategy
 ) -> DSLRunArgs:
     return DSLRunArgs(
         role=_role(),
         wf_id=WorkflowUUID.new_uuid4(),
-        dsl=DSLInput(
-            title="Attribution fanout parent",
-            description="Exercise real child terminal attribution",
-            entrypoint=DSLEntrypoint(ref="fanout"),
-            actions=[
-                ActionStatement(
-                    ref="fanout",
-                    action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
-                    for_each="${{ for var.item in TRIGGER.items }}",
-                    args={
-                        "workflow_id": child_wf_id.short(),
-                        "trigger_inputs": "${{ var.item }}",
-                        "wait_strategy": WaitStrategy.WAIT.value,
-                        "fail_strategy": fail_strategy.value,
-                    },
-                )
-            ],
+        dsl=fanout_dsl(
+            child_wf_id=child_wf_id,
+            fail_strategy=fail_strategy,
         ),
         trigger_inputs=InlineObject(data={"items": modes}),
         registry_lock=RegistryLock(

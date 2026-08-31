@@ -380,6 +380,37 @@ def _materialization_error_classification(
     )
 
 
+def _trigger_input_storage_initialization_error_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify failure to initialize trigger-input object storage."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not initialize workflow input storage",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def _trigger_input_persistence_error_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify one normalized trigger-input persistence failure."""
+    retryable = is_retryable_storage_transport_error(error)
+    return RuntimeErrorClassification.platform(
+        kind=(
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE
+            if retryable
+            else RuntimeErrorKind.RUNTIME_UNCLASSIFIED
+        ),
+        message="Tracecat could not persist normalized workflow inputs",
+        retry_disposition=(
+            RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
+        ),
+        cause=error,
+    )
+
+
 async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionContext:
     """Retrieve StoredObjects and replace with raw values in context copy.
 
@@ -740,14 +771,18 @@ class DSLActivities:
         inputs: NormalizeTriggerInputsActivityInputs,
     ) -> StoredObject:
         """Return trigger inputs with defaults applied according to DSL expects."""
-        try:
-            value = {}
+        with activity_error_boundary(
+            _trigger_input_storage_initialization_error_classification
+        ):
             storage = get_object_storage()
-            if inputs.trigger_inputs is not None:
+
+        value = {}
+        if inputs.trigger_inputs is not None:
+            with activity_error_boundary(_materialization_error_classification):
                 value = run_sync(storage.retrieve(inputs.trigger_inputs))
+
+        try:
             normalized = normalize_trigger_inputs(inputs.input_schema, value)
-            stored = run_sync(storage.store(inputs.key, normalized))
-            return stored
         except ValidationError as e:
             details = ValidationDetail.list_from_pydantic(e)
             message = format_input_schema_validation_error(details)
@@ -776,16 +811,9 @@ class DSLActivities:
                     ).model_dump(mode="json")
                 },
             )
-        except Exception as e:
-            logger.warning(
-                "Unexpected error cause when normalizing trigger inputs",
-                error=e,
-            )
-            raise ApplicationError(
-                "Unexpected error when normalizing trigger inputs",
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
+
+        with activity_error_boundary(_trigger_input_persistence_error_classification):
+            return run_sync(storage.store(inputs.key, normalized))
 
     @staticmethod
     @activity.defn

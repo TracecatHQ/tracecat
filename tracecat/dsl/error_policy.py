@@ -28,6 +28,7 @@ def raise_child_failures_application_error(
     """Raise child failures without letting cancellation erase their cause."""
     child_details: list[ActionErrorInfo] = []
     child_classifications: list[RuntimeErrorClassification | None] = []
+    has_unclassified_non_cancellation = False
     for child_index, failure in failures:
         classifications = extract_error_classifications(failure)
         if classifications:
@@ -36,6 +37,7 @@ def raise_child_failures_application_error(
             child_type = classification.cause_type or type(failure).__name__
         else:
             classification = None
+            has_unclassified_non_cancellation |= not is_cancelled_exception(failure)
             child_message = str(failure)
             child_type = type(failure).__name__
         child_classifications.append(classification)
@@ -59,16 +61,7 @@ def raise_child_failures_application_error(
         for classification in child_classifications
         if classification is not None
     ]
-    unclassified_failures = [
-        failure
-        for (_, failure), classification in zip(
-            failures, child_classifications, strict=True
-        )
-        if classification is None
-    ]
-    if not classified_failures or any(
-        not is_cancelled_exception(failure) for failure in unclassified_failures
-    ):
+    if not classified_failures or has_unclassified_non_cancellation:
         raise ApplicationError(
             message,
             {task_ref: aggregate},
@@ -103,21 +96,23 @@ def build_terminal_application_error(
     """Build the terminal error, treating concurrent cancellation as fallout."""
     n_exceptions = len(task_exceptions)
     task_classifications: dict[str, RuntimeErrorClassification] = {}
-    unclassified_task_exceptions: list[BaseException] = []
+    has_unclassified = False
+    has_unclassified_non_cancellation = False
     for ref, info in task_exceptions.items():
         classifications = extract_error_classifications(info.exception)
         if not classifications:
-            unclassified_task_exceptions.append(info.exception)
+            has_unclassified = True
+            has_unclassified_non_cancellation |= not is_cancelled_exception(
+                info.exception
+            )
             continue
         task_classifications[ref] = select_error_classification(classifications)
 
-    if task_classifications and all(
-        is_cancelled_exception(error) for error in unclassified_task_exceptions
-    ):
+    if task_classifications and not has_unclassified_non_cancellation:
         terminal_classification = select_error_classification(
             task_classifications.values()
         )
-        if not unclassified_task_exceptions:
+        if not has_unclassified:
             error_details = {
                 ref: build_error_transport_detail(
                     task_classifications[ref],
