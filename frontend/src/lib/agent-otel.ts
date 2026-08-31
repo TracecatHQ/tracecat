@@ -1,6 +1,3 @@
-import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
-import type { Extension } from "@codemirror/state"
-import type { EditorView } from "@codemirror/view"
 import type { AgentOtelConfig } from "@/client"
 
 /**
@@ -26,8 +23,8 @@ interface OTelEnvSpec {
 }
 
 /**
- * Environment variables represented by the typed Agent OTel API. Raw mode is
- * an alternate editor for these fields, not an escape hatch around the API.
+ * Environment variables represented by the typed agent telemetry API. Every
+ * key here has a dedicated form control; pasted env text maps onto them.
  */
 const OTEL_ENV_SPECS: readonly OTelEnvSpec[] = [
   {
@@ -113,41 +110,40 @@ const SIGNAL_EXPORTER_KEYS = [
   "OTEL_TRACES_EXPORTER",
 ] as const
 
-/** A validation issue tied to a 1-indexed line in the env editor. */
-export interface EnvIssue {
-  lineNumber: number
-  message: string
-}
-
 /** Options controlling context-dependent environment validation. */
 export interface EnvValidationOptions {
   /** Require an endpoint for each signal configured with the OTLP exporter. */
   requireOtlpEndpoint?: boolean
 }
 
-/**
- * First-class OTel env keys surfaced as dedicated form fields. Every other
- * allowlisted key stays reachable through the Advanced env editor.
- */
-const FIRST_CLASS_ENDPOINT_KEY = "OTEL_EXPORTER_OTLP_ENDPOINT"
-const FIRST_CLASS_METRIC_INTERVAL_KEY = "OTEL_METRIC_EXPORT_INTERVAL"
+const ENDPOINT_KEY = "OTEL_EXPORTER_OTLP_ENDPOINT"
+const METRIC_INTERVAL_KEY = "OTEL_METRIC_EXPORT_INTERVAL"
+const LOGS_INTERVAL_KEY = "OTEL_LOGS_EXPORT_INTERVAL"
+const TEMPORALITY_KEY = "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE"
+const RESOURCE_ATTRIBUTES_KEY = "OTEL_RESOURCE_ATTRIBUTES"
 
 /**
  * Signal toggle key -> exporter env key. The relay supports only OTLP export,
  * so each typed toggle maps to either `otlp` or no raw value.
  */
-const FIRST_CLASS_SIGNAL_KEYS = {
+const SIGNAL_KEYS = {
   traces: "OTEL_TRACES_EXPORTER",
   metrics: "OTEL_METRICS_EXPORTER",
   logs: "OTEL_LOGS_EXPORTER",
 } as const
 
-/** The set of env keys owned by first-class form fields. */
-const FIRST_CLASS_KEYS: ReadonlySet<string> = new Set<string>([
-  FIRST_CLASS_ENDPOINT_KEY,
-  FIRST_CLASS_METRIC_INTERVAL_KEY,
-  ...Object.values(FIRST_CLASS_SIGNAL_KEYS),
-])
+/**
+ * Privacy/cardinality flag field -> env key. Each is tri-state: unset leaves
+ * the backend default in place.
+ */
+const PRIVACY_FLAG_KEYS = {
+  metricsIncludeSessionId: "OTEL_METRICS_INCLUDE_SESSION_ID",
+  metricsIncludeVersion: "OTEL_METRICS_INCLUDE_VERSION",
+  metricsIncludeAccountUuid: "OTEL_METRICS_INCLUDE_ACCOUNT_UUID",
+  logUserPrompts: "OTEL_LOG_USER_PROMPTS",
+  logToolDetails: "OTEL_LOG_TOOL_DETAILS",
+  logToolContent: "OTEL_LOG_TOOL_CONTENT",
+} as const
 
 /** Which OTel signals are exported as `otlp`. */
 export interface AgentOtelSignals {
@@ -156,113 +152,195 @@ export interface AgentOtelSignals {
   logs: boolean
 }
 
+/** Metric temporality selection; empty string leaves the key unset. */
+export type AgentOtelTemporality = "" | "delta" | "cumulative"
+
+/** Explicit privacy and cardinality flags, keyed by form field name. */
+export type AgentOtelPrivacyFlags = Record<
+  keyof typeof PRIVACY_FLAG_KEYS,
+  boolean
+>
+
+/** Runtime defaults per https://code.claude.com/docs/en/monitoring-usage. */
+export const PRIVACY_FLAG_DEFAULTS: AgentOtelPrivacyFlags = {
+  metricsIncludeSessionId: true,
+  metricsIncludeVersion: false,
+  metricsIncludeAccountUuid: true,
+  logUserPrompts: false,
+  logToolDetails: false,
+  logToolContent: false,
+}
+
+/** Field name for each tri-state privacy flag. */
+export type AgentOtelPrivacyFlagKey = keyof typeof PRIVACY_FLAG_KEYS
+
+/** A resource attribute row in the key/value editor. */
+export interface AgentOtelResourceAttribute {
+  id: string
+  name: string
+  value: string
+}
+
 /**
- * Structured presentation of the flat OTel `env` map. First-class fields are
- * pulled out into dedicated inputs; everything else lives in `advancedEnv` as
- * raw `KEY=value` text. This env map is a presentation layer over the typed API
- * contract and is converted at the request boundary.
+ * Structured presentation of the flat OTel `env` map. Every allowlisted env key
+ * maps onto a dedicated field. This env map is a presentation layer over the
+ * typed API contract and is converted at the request boundary.
  */
 export interface AgentOtelForm {
   /** OTEL_EXPORTER_OTLP_ENDPOINT value (empty string when unset). */
   endpoint: string
   /** OTEL_METRIC_EXPORT_INTERVAL value, kept as a string for the input. */
   metricIntervalMs: string
+  /** OTEL_LOGS_EXPORT_INTERVAL value, kept as a string for the input. */
+  logsIntervalMs: string
+  /** Metrics temporality preference; empty leaves the key unset. */
+  temporality: AgentOtelTemporality
   /** Per-signal `otlp` exporter toggles. */
   signals: AgentOtelSignals
-  /** Raw `KEY=value` text for all non-first-class env keys. */
-  advancedEnv: string
+  /** Privacy and cardinality flags, prefilled with the runtime defaults. */
+  flags: AgentOtelPrivacyFlags
+  /** OTEL_RESOURCE_ATTRIBUTES rows, serialized on submit. */
+  resourceAttributes: AgentOtelResourceAttribute[]
+}
+
+function emptyFlags(): AgentOtelPrivacyFlags {
+  return { ...PRIVACY_FLAG_DEFAULTS }
+}
+
+/** An empty form with every field unset and no signals exported. */
+export function emptyAgentOtelForm(): AgentOtelForm {
+  return {
+    endpoint: "",
+    metricIntervalMs: "",
+    logsIntervalMs: "",
+    temporality: "",
+    signals: { traces: false, metrics: false, logs: false },
+    flags: emptyFlags(),
+    resourceAttributes: [],
+  }
+}
+
+/** Generate a stable client-side id for a resource attribute row. */
+export function newResourceAttributeRow(): AgentOtelResourceAttribute {
+  return { id: crypto.randomUUID(), name: "", value: "" }
+}
+
+/** Parse a boolean env value, falling back to the flag's runtime default. */
+function parseFlagValue(value: string | undefined, fallback: boolean): boolean {
+  const normalized = value?.trim().toLowerCase()
+  if (normalized === "true" || normalized === "1") {
+    return true
+  }
+  if (normalized === "false" || normalized === "0") {
+    return false
+  }
+  return fallback
 }
 
 /**
- * Split a flat OTel `env` map into the structured form shape. First-class keys
- * become dedicated fields; the remaining keys are serialized into
- * `advancedEnv` via {@link envMapToText}. A signal toggle is ON iff its
- * exporter value is `otlp`.
+ * Split a flat OTel `env` map into the structured form shape. Unrecognized and
+ * unparseable values fall back to unset. A signal toggle is ON iff its exporter
+ * value is `otlp`.
  */
 export function envMapToForm(env: Record<string, string>): AgentOtelForm {
-  const advanced: Record<string, string> = Object.create(null)
-  const signals: AgentOtelSignals = {
-    traces: false,
-    metrics: false,
-    logs: false,
+  const form = emptyAgentOtelForm()
+
+  form.endpoint = env[ENDPOINT_KEY] ?? ""
+  form.metricIntervalMs = env[METRIC_INTERVAL_KEY] ?? ""
+  form.logsIntervalMs = env[LOGS_INTERVAL_KEY] ?? ""
+
+  const temporality = env[TEMPORALITY_KEY]?.trim().toLowerCase()
+  if (temporality === "delta" || temporality === "cumulative") {
+    form.temporality = temporality
   }
 
-  for (const [key, value] of Object.entries(env)) {
-    const signalEntry = Object.entries(FIRST_CLASS_SIGNAL_KEYS).find(
-      ([, exporterKey]) => exporterKey === key
-    )
-    if (signalEntry) {
-      const signalName = signalEntry[0] as keyof AgentOtelSignals
-      signals[signalName] = value.trim().toLowerCase() === "otlp"
-      continue
-    }
-    if (!FIRST_CLASS_KEYS.has(key)) {
-      advanced[key] = value
+  for (const [signalName, exporterKey] of Object.entries(SIGNAL_KEYS)) {
+    form.signals[signalName as keyof AgentOtelSignals] =
+      env[exporterKey]?.trim().toLowerCase() === "otlp"
+  }
+
+  for (const [field, envKey] of Object.entries(PRIVACY_FLAG_KEYS)) {
+    const key = field as AgentOtelPrivacyFlagKey
+    form.flags[key] = parseFlagValue(env[envKey], PRIVACY_FLAG_DEFAULTS[key])
+  }
+
+  const rawAttributes = env[RESOURCE_ATTRIBUTES_KEY]
+  if (rawAttributes !== undefined && rawAttributes.trim() !== "") {
+    try {
+      form.resourceAttributes = Object.entries(
+        parseResourceAttributes(rawAttributes)
+      ).map(([name, value]) => ({ id: crypto.randomUUID(), name, value }))
+    } catch {
+      // Malformed saved text still needs an editable surface; surface it as a
+      // single row so validation reports the failure instead of dropping it.
+      form.resourceAttributes = [
+        { id: crypto.randomUUID(), name: rawAttributes, value: "" },
+      ]
     }
   }
 
-  return {
-    endpoint: env[FIRST_CLASS_ENDPOINT_KEY] ?? "",
-    metricIntervalMs: env[FIRST_CLASS_METRIC_INTERVAL_KEY] ?? "",
-    signals,
-    advancedEnv: envMapToText(advanced),
-  }
+  return form
 }
 
 /**
- * Inverse of {@link envMapToForm}. Starts from the parsed `advancedEnv` tail
- * and overlays the first-class fields on top, so first-class fields win on key
- * collision. Non-empty first-class text fields are written trimmed; empty ones
- * are omitted entirely (no `KEY=`). Each signal toggle writes `otlp` when on
- * and removes the exporter key when off.
+ * Inverse of {@link envMapToForm}. Non-empty text fields are written trimmed;
+ * empty ones are omitted entirely (no `KEY=`). Each signal toggle writes `otlp`
+ * when on and omits the exporter key when off.
  */
 export function formToEnvMap(form: AgentOtelForm): Record<string, string> {
-  const env: Record<string, string> = parseEnvText(form.advancedEnv)
+  const env: Record<string, string> = Object.create(null)
 
   const endpoint = form.endpoint.trim()
   if (endpoint) {
-    env[FIRST_CLASS_ENDPOINT_KEY] = endpoint
-  } else {
-    delete env[FIRST_CLASS_ENDPOINT_KEY]
+    env[ENDPOINT_KEY] = endpoint
   }
-
   const metricInterval = form.metricIntervalMs.trim()
   if (metricInterval) {
-    env[FIRST_CLASS_METRIC_INTERVAL_KEY] = metricInterval
-  } else {
-    delete env[FIRST_CLASS_METRIC_INTERVAL_KEY]
+    env[METRIC_INTERVAL_KEY] = metricInterval
+  }
+  const logsInterval = form.logsIntervalMs.trim()
+  if (logsInterval) {
+    env[LOGS_INTERVAL_KEY] = logsInterval
+  }
+  if (form.temporality) {
+    env[TEMPORALITY_KEY] = form.temporality
   }
 
-  for (const [signalName, exporterKey] of Object.entries(
-    FIRST_CLASS_SIGNAL_KEYS
-  )) {
+  for (const [signalName, exporterKey] of Object.entries(SIGNAL_KEYS)) {
     if (form.signals[signalName as keyof AgentOtelSignals]) {
       env[exporterKey] = "otlp"
-    } else {
-      delete env[exporterKey]
     }
+  }
+
+  // Flags are always written explicitly so saved configs don't shift if the
+  // runtime's defaults change.
+  for (const [field, envKey] of Object.entries(PRIVACY_FLAG_KEYS)) {
+    env[envKey] = String(form.flags[field as AgentOtelPrivacyFlagKey])
+  }
+
+  const attributes = resourceAttributeRowsToText(form.resourceAttributes)
+  if (attributes) {
+    env[RESOURCE_ATTRIBUTES_KEY] = attributes
   }
 
   return env
 }
 
 /**
- * Serialize the whole form (first-class fields merged with the advanced tail)
- * into raw `KEY=value` editor text, sorted by key. This is the text shown by
- * the Raw editing mode, so it must round-trip with {@link parseEnvText} +
- * {@link envMapToForm}.
+ * Serialize resource attribute rows into the `OTEL_RESOURCE_ATTRIBUTES` value.
+ * Blank rows are skipped; a row with only one side filled is kept so
+ * validation reports it rather than silently dropping the edit.
  */
-export function formToEnvText(form: AgentOtelForm): string {
-  return envMapToText(formToEnvMap(form))
-}
-
-/**
- * Parse raw `KEY=value` editor text back into the structured form. Inverse of
- * {@link formToEnvText}; used when leaving Raw mode so edits made as text are
- * reflected in the first-class fields.
- */
-export function envTextToForm(text: string): AgentOtelForm {
-  return envMapToForm(parseEnvText(text))
+export function resourceAttributeRowsToText(
+  rows: readonly AgentOtelResourceAttribute[]
+): string {
+  return rows
+    .filter((row) => row.name.trim() !== "" || row.value.trim() !== "")
+    .map(
+      (row) =>
+        `${encodeURIComponent(row.name.trim())}=${encodeURIComponent(row.value.trim())}`
+    )
+    .join(",")
 }
 
 function setOptionalBooleanEnv(
@@ -477,7 +555,7 @@ function envValueIssues(spec: OTelEnvSpec, value: string): string[] {
       issues.push(`${spec.key} must be at most ${Number.MAX_SAFE_INTEGER}.`)
     }
   }
-  if (spec.key === FIRST_CLASS_ENDPOINT_KEY) {
+  if (spec.key === ENDPOINT_KEY) {
     let endpoint: URL
     try {
       endpoint = new URL(value)
@@ -518,10 +596,7 @@ function envValueIssues(spec: OTelEnvSpec, value: string): string[] {
  * (enum/positive-int), and the OTLP-endpoint-required-when-exporter=otlp
  * cross-check. Returns human-readable messages; empty list means acceptable.
  *
- * This is the shared validator behind both {@link validateEnvText} (the raw
- * editor) and {@link validateForm} (the structured form). It cannot detect
- * duplicate keys or empty values because a map has already collapsed those;
- * the text path handles those line-oriented checks separately.
+ * This is the validator behind {@link validateForm}.
  */
 export function validateEnvMap(
   env: Record<string, string>,
@@ -549,12 +624,12 @@ export function validateEnvMap(
   }
 
   if (requireOtlpEndpoint) {
-    const generic = env[FIRST_CLASS_ENDPOINT_KEY]
+    const generic = env[ENDPOINT_KEY]
     for (const exporterKey of SIGNAL_EXPORTER_KEYS) {
       const value = env[exporterKey]
       if (value === undefined) continue
       if (value.trim().toLowerCase() === "otlp" && !generic) {
-        issues.push(`${exporterKey}=otlp needs ${FIRST_CLASS_ENDPOINT_KEY}.`)
+        issues.push(`${exporterKey}=otlp needs ${ENDPOINT_KEY}.`)
       }
     }
   }
@@ -569,78 +644,18 @@ export function validateEnvMap(
  */
 export function validateForm(
   form: AgentOtelForm,
-  options?: EnvValidationOptions
-): string[] {
-  return validateEnvMap(formToEnvMap(form), options)
-}
-
-/**
- * Validate the env editor text against the same rules the backend enforces.
- * Returns a list of issues with their 1-indexed line numbers. Empty list
- * means the input is acceptable.
- */
-export function validateEnvText(
-  text: string,
   { requireOtlpEndpoint = true }: EnvValidationOptions = {}
-): EnvIssue[] {
-  const issues: EnvIssue[] = []
-  const seen: Record<string, { lineNumber: number; value: string }> =
-    Object.create(null)
-  const lines = text.split("\n")
-
-  lines.forEach((rawLine, idx) => {
-    const lineNumber = idx + 1
-    const line = rawLine.trim()
-    if (!line || line.startsWith("#")) {
-      return
-    }
-
-    const sep = line.indexOf("=")
-    if (sep <= 0) {
-      issues.push({ lineNumber, message: "Expected KEY=value." })
-      return
-    }
-
-    const key = line.slice(0, sep).trim()
-    const value = line.slice(sep + 1).trim()
-    const spec = OTEL_ENV_SPEC_BY_KEY.get(key)
-
-    if (RESERVED_ENV_VARS.has(key)) {
-      issues.push({ lineNumber, message: `${key} is managed by Tracecat.` })
-      return
-    }
-    if (!spec) {
-      issues.push({ lineNumber, message: `${key} is not supported.` })
-      return
-    }
-    if (value === "") {
-      issues.push({ lineNumber, message: `${key} needs a value.` })
-      return
-    }
-    if (seen[key] !== undefined) {
-      issues.push({ lineNumber, message: `${key} is duplicated.` })
-      return
-    }
-    for (const message of envValueIssues(spec, value)) {
-      issues.push({ lineNumber, message })
-    }
-    seen[key] = { lineNumber, value }
+): string[] {
+  // The env-key phrasing of the endpoint rule fits pasted text, not the form;
+  // surface it here as a plain instruction instead.
+  const issues = validateEnvMap(formToEnvMap(form), {
+    requireOtlpEndpoint: false,
   })
-
-  if (requireOtlpEndpoint) {
-    const generic = seen.OTEL_EXPORTER_OTLP_ENDPOINT
-    for (const exporterKey of SIGNAL_EXPORTER_KEYS) {
-      const entry = seen[exporterKey]
-      if (!entry) continue
-      if (entry.value.trim().toLowerCase() === "otlp" && !generic) {
-        issues.push({
-          lineNumber: entry.lineNumber,
-          message: `${exporterKey}=otlp needs OTEL_EXPORTER_OTLP_ENDPOINT.`,
-        })
-      }
-    }
+  const signalOn =
+    form.signals.traces || form.signals.metrics || form.signals.logs
+  if (requireOtlpEndpoint && signalOn && form.endpoint.trim() === "") {
+    issues.push("Add a collector endpoint to export the selected signals.")
   }
-
   return issues
 }
 
@@ -667,66 +682,4 @@ export function validateAgentOtelHeaderEntries(
     seenNames.add(normalizedName)
   }
   return []
-}
-
-function lineDiagnostic(
-  view: EditorView,
-  lineNumber: number,
-  message: string
-): Diagnostic {
-  const line = view.state.doc.line(lineNumber)
-  const from = line.from
-  const to = Math.max(from + 1, line.to)
-  return { from, to, severity: "error", message }
-}
-
-function envCodeMirrorLinter(options: EnvValidationOptions) {
-  return (view: EditorView): Diagnostic[] => {
-    const text = view.state.doc.toString()
-    return validateEnvText(text, options).map(({ lineNumber, message }) =>
-      lineDiagnostic(view, lineNumber, message)
-    )
-  }
-}
-
-/**
- * CodeMirror extensions for the agent OTel env editor. Takes the same options
- * as {@link validateEnvText} so gutter diagnostics match the form's rules.
- */
-export function envLintExtensions(
-  options: EnvValidationOptions = {}
-): Extension[] {
-  return [lintGutter(), linter(envCodeMirrorLinter(options))]
-}
-
-/**
- * Parse the env editor text into a `KEY -> value` map. Skips blank lines and
- * `#` comments. The backend re-validates, so this is naive on purpose.
- */
-export function parseEnvText(text: string): Record<string, string> {
-  const out: Record<string, string> = Object.create(null)
-  for (const rawLine of text.split("\n")) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith("#")) {
-      continue
-    }
-    const idx = line.indexOf("=")
-    if (idx <= 0) {
-      continue
-    }
-    const key = line.slice(0, idx).trim()
-    const value = line.slice(idx + 1).trim()
-    if (key && value) {
-      out[key] = value
-    }
-  }
-  return out
-}
-
-/** Serialize a `KEY -> value` map back into editor text, sorted by key. */
-export function envMapToText(env: Record<string, string>): string {
-  return Object.keys(env)
-    .sort()
-    .map((key) => `${key}=${env[key]}`)
-    .join("\n")
 }

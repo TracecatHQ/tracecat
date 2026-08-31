@@ -9,14 +9,15 @@ export default function AgentSettingsPage() {
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">
-              Agent configuration
+              Configuration
             </h2>
-            <p className="text-md text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Configure AI models and credentials for your organization's agent
               operations.
             </p>
           </div>
         </div>
+
         <OrgSettingsAgentForm />
       </div>
     </div>

@@ -1,63 +1,42 @@
 "use client"
 
-import { Code2, SlidersHorizontal, Trash2 } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { Trash2 } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 import type { AgentOtelSettingsRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { type ToggleTabOption, ToggleTabs } from "@/components/ui/toggle-tabs"
 import { toast } from "@/components/ui/use-toast"
 import { useOrgAgentOtelSettings } from "@/hooks/use-org-agent-otel-settings"
 import {
   type AgentOtelForm,
+  type AgentOtelPrivacyFlagKey,
   type AgentOtelSignals,
+  type AgentOtelTemporality,
   agentOtelConfigToEnvMap,
-  envLintExtensions,
+  emptyAgentOtelForm,
   envMapToAgentOtelConfig,
   envMapToForm,
-  envTextToForm,
   formToEnvMap,
-  formToEnvText,
+  newResourceAttributeRow,
   validateAgentOtelHeaderEntries,
-  validateEnvText,
   validateForm,
 } from "@/lib/agent-otel"
 import { cn } from "@/lib/utils"
 
-/** Which editing surface the env config is shown in. */
-type EditMode = "form" | "raw"
-
-const MODE_OPTIONS: ToggleTabOption<EditMode>[] = [
-  {
-    value: "form",
-    content: (
-      <div className="flex items-center gap-1">
-        <SlidersHorizontal className="size-3" />
-        <span className="text-xs">Form</span>
-      </div>
-    ),
-    tooltip: "Edit with form fields",
-    ariaLabel: "Form mode",
-  },
-  {
-    value: "raw",
-    content: (
-      <div className="flex items-center gap-1">
-        <Code2 className="size-3" />
-        <span className="text-xs">Raw</span>
-      </div>
-    ),
-    tooltip: "Edit every variable as text",
-    ariaLabel: "Raw mode",
-  },
-]
+/** Radix Select forbids an empty item value, so unset is a named sentinel. */
+const UNSET_OPTION = "default"
 
 const SIGNAL_LABELS: { key: keyof AgentOtelSignals; label: string }[] = [
   { key: "traces", label: "Traces" },
@@ -65,12 +44,14 @@ const SIGNAL_LABELS: { key: keyof AgentOtelSignals; label: string }[] = [
   { key: "logs", label: "Logs" },
 ]
 
-const EMPTY_FORM: AgentOtelForm = {
-  endpoint: "",
-  metricIntervalMs: "",
-  signals: { traces: false, metrics: false, logs: false },
-  advancedEnv: "",
-}
+const PRIVACY_FLAG_LABELS: { key: AgentOtelPrivacyFlagKey; label: string }[] = [
+  { key: "metricsIncludeSessionId", label: "Include session ID in metrics" },
+  { key: "metricsIncludeVersion", label: "Include version in metrics" },
+  { key: "metricsIncludeAccountUuid", label: "Include account ID in metrics" },
+  { key: "logUserPrompts", label: "Log user prompts" },
+  { key: "logToolDetails", label: "Log tool details" },
+  { key: "logToolContent", label: "Log tool content" },
+]
 
 /** A structured, write-only collector header row. */
 interface HeaderRow {
@@ -85,9 +66,10 @@ function newHeaderRow(): HeaderRow {
 }
 
 /**
- * Organization-level Agent OTel settings form. Presents the flat OTel `env`
- * map as first-class connection fields with a raw Advanced escape hatch, and
- * exposes write-only collector headers as structured name/value rows.
+ * Organization-level agent telemetry settings form. Presents the flat OTel
+ * `env` map as dedicated form controls, offers a one-shot paste import for
+ * `KEY=value` text, and exposes write-only collector headers as structured
+ * name/value rows.
  */
 export function OrgAgentOtelSettings() {
   const canUpdateSettings = useScopeCheck("org:settings:update")
@@ -100,12 +82,7 @@ export function OrgAgentOtelSettings() {
     getLatestAgentOtelSettings,
   } = useOrgAgentOtelSettings()
   const [enabled, setEnabled] = useState(false)
-  const [form, setForm] = useState<AgentOtelForm>(EMPTY_FORM)
-  // The env config has a single source of truth: `form`. Raw mode edits its own
-  // text buffer (seeded on entry, folded back into `form` on exit/save) so
-  // typing isn't fought by a re-parse on every keystroke.
-  const [mode, setMode] = useState<EditMode>("form")
-  const [rawEnv, setRawEnv] = useState("")
+  const [form, setForm] = useState<AgentOtelForm>(emptyAgentOtelForm)
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([])
   const [clearSavedHeaders, setClearSavedHeaders] = useState(false)
   const [dirty, setDirty] = useState(false)
@@ -127,8 +104,6 @@ export function OrgAgentOtelSettings() {
     lastServerSig.current = JSON.stringify(settings?.agent_otel_config ?? null)
     setEnabled(settings?.agent_otel_config?.enabled ?? false)
     setForm(envMapToForm(agentOtelConfigToEnvMap(settings?.agent_otel_config)))
-    setMode("form")
-    setRawEnv("")
     setHeaderRows([])
     setClearSavedHeaders(false)
     setDirty(false)
@@ -147,11 +122,6 @@ export function OrgAgentOtelSettings() {
     seedFromServer(agentOtelSettings)
   }, [agentOtelSettings, dirty])
 
-  const envExtensions = useMemo(
-    () => envLintExtensions({ requireOtlpEndpoint: enabled }),
-    [enabled]
-  )
-
   function updateForm(patch: Partial<AgentOtelForm>) {
     setDirty(true)
     setForm((prev) => ({ ...prev, ...patch }))
@@ -162,46 +132,58 @@ export function OrgAgentOtelSettings() {
     setEnabled(next)
   }
 
-  function handleRawEnvChange(next: string) {
-    setDirty(true)
-    setRawEnv(next)
-  }
-
-  // Switch editing surface, folding the current representation into the other.
-  // `form` stays the source of truth; the raw buffer is derived on entry and
-  // parsed back on exit.
-  function syncMode(next: EditMode) {
-    if (next === mode) {
-      return
-    }
-    if (next === "raw") {
-      setDirty(true)
-      setRawEnv(formToEnvText(form))
-      setMode("raw")
-      return
-    }
-    // Leaving raw: parse the buffer back into structured fields.
-    const issues = validateEnvText(rawEnv, {
-      requireOtlpEndpoint: enabled,
-    })
-    if (issues.length > 0) {
-      const first = issues[0]
-      toast({
-        title: "Invalid environment",
-        description: `Line ${first.lineNumber}: ${first.message}`,
-      })
-      return
-    }
-    setDirty(true)
-    setForm(envTextToForm(rawEnv))
-    setMode("form")
-  }
-
   function toggleSignal(key: keyof AgentOtelSignals, checked: boolean) {
     setDirty(true)
     setForm((prev) => ({
       ...prev,
       signals: { ...prev.signals, [key]: checked },
+    }))
+  }
+
+  function handleFlagChange(key: AgentOtelPrivacyFlagKey, checked: boolean) {
+    setDirty(true)
+    setForm((prev) => ({ ...prev, flags: { ...prev.flags, [key]: checked } }))
+  }
+
+  function handleTemporalityChange(next: string) {
+    let value: AgentOtelTemporality = ""
+    if (next === "delta" || next === "cumulative") {
+      value = next
+    }
+    updateForm({ temporality: value })
+  }
+
+  function handleAttributeChange(
+    id: string,
+    patch: { name?: string; value?: string }
+  ) {
+    setDirty(true)
+    setForm((prev) => ({
+      ...prev,
+      resourceAttributes: prev.resourceAttributes.map((row) =>
+        row.id === id ? { ...row, ...patch } : row
+      ),
+    }))
+  }
+
+  function handleAddAttribute() {
+    setDirty(true)
+    setForm((prev) => ({
+      ...prev,
+      resourceAttributes: [
+        ...prev.resourceAttributes,
+        newResourceAttributeRow(),
+      ],
+    }))
+  }
+
+  function handleRemoveAttribute(id: string) {
+    setDirty(true)
+    setForm((prev) => ({
+      ...prev,
+      resourceAttributes: prev.resourceAttributes.filter(
+        (row) => row.id !== id
+      ),
     }))
   }
 
@@ -245,44 +227,15 @@ export function OrgAgentOtelSettings() {
     return map
   }
 
-  // Env validation is mode-aware. In Raw mode the buffer is the source of truth,
-  // so we run the line-oriented `validateEnvText` over it (catches malformed
-  // lines and duplicate keys that a collapsed map cannot). In Form mode we run
-  // the merged-map rules via `validateForm`, and additionally line-validate the
-  // Advanced tail so dupes/malformed lines there are blocked client-side instead
-  // of being silently dropped on save (the backend would reject them anyway).
-  const rawIssues =
-    mode === "raw"
-      ? validateEnvText(rawEnv, { requireOtlpEndpoint: enabled })
-      : []
-  const advancedIssues =
-    mode === "form"
-      ? validateEnvText(form.advancedEnv, { requireOtlpEndpoint: enabled })
-      : []
-  const formIssues =
-    mode === "form" ? validateForm(form, { requireOtlpEndpoint: enabled }) : []
+  const formIssues = validateForm(form, { requireOtlpEndpoint: enabled })
   const nonEmptyHeaderRows = headerRows.filter(
     (row) => row.name.trim() !== "" || row.value.trim() !== ""
   )
   const headersDirty = nonEmptyHeaderRows.length > 0
   const headerIssues = validateAgentOtelHeaderEntries(nonEmptyHeaderRows)
-  const hasIssues =
-    rawIssues.length > 0 ||
-    advancedIssues.length > 0 ||
-    formIssues.length > 0 ||
-    headerIssues.length > 0
+  const hasIssues = formIssues.length > 0 || headerIssues.length > 0
 
   async function handleSave() {
-    // Raw mode saves the buffer; Form mode saves the structured fields.
-    const lineIssues = mode === "raw" ? rawIssues : advancedIssues
-    if (lineIssues.length > 0) {
-      const first = lineIssues[0]
-      toast({
-        title: "Invalid environment",
-        description: `Line ${first.lineNumber}: ${first.message}`,
-      })
-      return
-    }
     if (formIssues.length > 0) {
       toast({ title: "Invalid environment", description: formIssues[0] })
       return
@@ -291,9 +244,6 @@ export function OrgAgentOtelSettings() {
       toast({ title: "Invalid headers", description: headerIssues[0] })
       return
     }
-
-    const env =
-      mode === "raw" ? formToEnvMap(envTextToForm(rawEnv)) : formToEnvMap(form)
 
     // Headers are write-only: non-blank draft rows replace the entire saved
     // map, an explicit clear sends {}, and blank rows leave it unchanged.
@@ -306,7 +256,7 @@ export function OrgAgentOtelSettings() {
 
     await updateAgentOtelSettings({
       requestBody: {
-        agent_otel_config: envMapToAgentOtelConfig(enabled, env),
+        agent_otel_config: envMapToAgentOtelConfig(enabled, formToEnvMap(form)),
         agent_otel_headers: headersField,
       },
     })
@@ -318,17 +268,7 @@ export function OrgAgentOtelSettings() {
     editingDisabled || updateAgentOtelSettingsIsPending || hasIssues
 
   return (
-    <section className="space-y-4">
-      <div className="space-y-1">
-        <h3 className="text-lg font-semibold tracking-tight">
-          Agent telemetry
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          Export agent runtime telemetry with OTel-compatible environment
-          variables.
-        </p>
-      </div>
-
+    <section className="space-y-8">
       {settingsLoadFailed && (
         <AlertNotification
           level="error"
@@ -351,6 +291,7 @@ export function OrgAgentOtelSettings() {
           </p>
         </div>
         <Switch
+          aria-label="Enable agent telemetry"
           checked={enabled}
           onCheckedChange={handleEnabledChange}
           disabled={editingDisabled}
@@ -360,56 +301,35 @@ export function OrgAgentOtelSettings() {
       <div
         aria-disabled={fieldsDisabled}
         className={cn(
-          "rounded-lg border transition-opacity",
+          "space-y-4 transition-opacity",
           fieldsDisabled && "pointer-events-none opacity-50"
         )}
       >
-        <div className="flex items-start justify-between gap-4 p-4">
-          <div className="space-y-1">
-            <p className="text-sm font-medium">Connection</p>
-            <p className="text-xs text-muted-foreground">
-              Point the agent at your OTLP collector and choose which signals to
-              export. Switch to Raw to edit every variable as text. See the{" "}
-              <a
-                className="underline underline-offset-2"
-                href="https://code.claude.com/docs/en/monitoring-usage"
-                rel="noreferrer"
-                target="_blank"
-              >
-                Claude Code monitoring docs
-              </a>
-              .
-            </p>
-          </div>
-          <ToggleTabs
-            options={MODE_OPTIONS}
-            value={mode}
-            onValueChange={syncMode}
-            disabled={editingDisabled}
-            size="sm"
-            className="shrink-0"
-          />
+        <div className="space-y-1">
+          <h3 className="text-lg font-semibold tracking-tight">Connection</h3>
+          <p className="text-sm text-muted-foreground">
+            Every agent run in this organization exports to this collector.
+          </p>
         </div>
-        <Separator />
-        {mode === "form" ? (
-          <div className="space-y-4 p-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="otel-endpoint" className="text-xs">
-                Collector endpoint
-              </Label>
-              <Input
-                id="otel-endpoint"
-                value={form.endpoint}
-                onChange={(e) => updateForm({ endpoint: e.target.value })}
-                disabled={fieldsDisabled}
-                placeholder="https://collector.example.com"
-                className="text-xs"
-              />
-            </div>
+        <div className="space-y-4 rounded-lg border p-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="otel-endpoint" className="text-xs">
+              Collector endpoint
+            </Label>
+            <Input
+              id="otel-endpoint"
+              value={form.endpoint}
+              onChange={(e) => updateForm({ endpoint: e.target.value })}
+              disabled={fieldsDisabled}
+              placeholder="https://collector.example.com"
+              className="text-xs"
+            />
+          </div>
 
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="otel-metric-interval" className="text-xs">
-                Export interval (ms)
+                Metric export interval (ms)
               </Label>
               <Input
                 id="otel-metric-interval"
@@ -426,135 +346,245 @@ export function OrgAgentOtelSettings() {
                 className="text-xs"
               />
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="otel-logs-interval" className="text-xs">
+                Logs export interval (ms)
+              </Label>
+              <Input
+                id="otel-logs-interval"
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                value={form.logsIntervalMs}
+                onChange={(e) => updateForm({ logsIntervalMs: e.target.value })}
+                disabled={fieldsDisabled}
+                placeholder="5000"
+                className="text-xs"
+              />
+            </div>
+          </div>
 
-            <div className="space-y-2">
-              <Label className="text-xs">Signals</Label>
-              <div className="flex flex-col gap-2.5 sm:flex-row sm:gap-6">
-                {SIGNAL_LABELS.map(({ key, label }) => (
-                  <div key={key} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`otel-signal-${key}`}
-                      checked={form.signals[key]}
-                      onCheckedChange={(checked) =>
-                        toggleSignal(key, checked === true)
+          <div className="space-y-1.5">
+            <Label htmlFor="otel-temporality" className="text-xs">
+              Metrics temporality
+            </Label>
+            <Select
+              value={form.temporality || UNSET_OPTION}
+              onValueChange={handleTemporalityChange}
+              disabled={fieldsDisabled}
+            >
+              <SelectTrigger id="otel-temporality" className="text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNSET_OPTION}>Default</SelectItem>
+                <SelectItem value="delta">Delta</SelectItem>
+                <SelectItem value="cumulative">Cumulative</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Signals</Label>
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:gap-6">
+              {SIGNAL_LABELS.map(({ key, label }) => (
+                <div key={key} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`otel-signal-${key}`}
+                    checked={form.signals[key]}
+                    onCheckedChange={(checked) =>
+                      toggleSignal(key, checked === true)
+                    }
+                    disabled={fieldsDisabled}
+                  />
+                  <Label
+                    htmlFor={`otel-signal-${key}`}
+                    className="text-xs font-normal"
+                  >
+                    {label}
+                  </Label>
+                </div>
+              ))}
+            </div>
+          </div>
+          {formIssues.length > 0 && (
+            <p className="text-xs text-muted-foreground">{formIssues[0]}</p>
+          )}
+          <div className="space-y-3 border-t pt-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Headers</p>
+              <p className="text-xs text-muted-foreground">
+                Encrypted, write-only collector headers. Saved values are not
+                shown again, and saving new headers replaces all previously
+                saved headers.
+              </p>
+            </div>
+            {headerRows.length > 0 && (
+              <div className="space-y-2">
+                {headerRows.map((row) => (
+                  <div key={row.id} className="flex items-center gap-2">
+                    <Input
+                      value={row.name}
+                      onChange={(e) =>
+                        handleHeaderRowChange(row.id, { name: e.target.value })
                       }
                       disabled={fieldsDisabled}
+                      placeholder="Header name"
+                      className="text-xs"
                     />
-                    <Label
-                      htmlFor={`otel-signal-${key}`}
-                      className="text-xs font-normal"
+                    <Input
+                      type="password"
+                      value={row.value}
+                      onChange={(e) =>
+                        handleHeaderRowChange(row.id, { value: e.target.value })
+                      }
+                      disabled={fieldsDisabled}
+                      placeholder="Header value"
+                      className="text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleRemoveHeaderRow(row.id)}
+                      disabled={fieldsDisabled}
+                      aria-label="Remove header"
                     >
-                      {label}
-                    </Label>
+                      <Trash2 className="size-4" />
+                    </Button>
                   </div>
                 ))}
               </div>
-            </div>
-            {formIssues.length > 0 && (
+            )}
+            {headerIssues.length > 0 && (
               <p className="text-xs text-destructive" role="alert">
-                {formIssues[0]}
+                {headerIssues[0]}
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAddHeaderRow}
+                disabled={fieldsDisabled}
+              >
+                Add header
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleClearSavedHeaders}
+                disabled={fieldsDisabled || clearSavedHeaders}
+                className="text-destructive hover:text-destructive"
+              >
+                Clear saved headers
+              </Button>
+            </div>
+            {clearSavedHeaders && (
+              <p className="text-xs text-muted-foreground">
+                Saved headers will be cleared when you save.
               </p>
             )}
           </div>
-        ) : (
-          <div className="space-y-3 p-4">
-            <CodeEditor
-              value={rawEnv}
-              onChange={handleRawEnvChange}
-              language="text"
-              wrapLongLines
-              readOnly={fieldsDisabled}
-              extensions={envExtensions}
-              className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[240px]"
-            />
-          </div>
-        )}
+        </div>
       </div>
 
       <div
         aria-disabled={fieldsDisabled}
         className={cn(
-          "rounded-lg border transition-opacity",
+          "space-y-4 transition-opacity",
           fieldsDisabled && "pointer-events-none opacity-50"
         )}
       >
-        <div className="space-y-1 p-4">
-          <p className="text-sm font-medium">Headers</p>
-          <p className="text-xs text-muted-foreground">
-            Encrypted, write-only collector headers. Saved values are not shown
-            again, and saving new headers replaces all previously saved headers.
+        <div className="space-y-1">
+          <h3 className="text-lg font-semibold tracking-tight">
+            Exported data
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Prompt and tool content stay out of exported telemetry unless
+            enabled here.
           </p>
         </div>
-        <Separator />
-        <div className="space-y-3 p-4">
-          {headerRows.length > 0 && (
-            <div className="space-y-2">
-              {headerRows.map((row) => (
-                <div key={row.id} className="flex items-center gap-2">
-                  <Input
-                    value={row.name}
-                    onChange={(e) =>
-                      handleHeaderRowChange(row.id, { name: e.target.value })
+        <div className="space-y-4 rounded-lg border p-4">
+          <div className="space-y-3">
+            <p className="text-sm font-medium">Privacy and cardinality</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {PRIVACY_FLAG_LABELS.map(({ key, label }) => (
+                <div key={key} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`otel-flag-${key}`}
+                    checked={form.flags[key]}
+                    onCheckedChange={(checked) =>
+                      handleFlagChange(key, checked === true)
                     }
                     disabled={fieldsDisabled}
-                    placeholder="Header name"
-                    className="text-xs"
                   />
-                  <Input
-                    type="password"
-                    value={row.value}
-                    onChange={(e) =>
-                      handleHeaderRowChange(row.id, { value: e.target.value })
-                    }
-                    disabled={fieldsDisabled}
-                    placeholder="Header value"
-                    className="text-xs"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleRemoveHeaderRow(row.id)}
-                    disabled={fieldsDisabled}
-                    aria-label="Remove header"
+                  <Label
+                    htmlFor={`otel-flag-${key}`}
+                    className="text-xs font-normal"
                   >
-                    <Trash2 className="size-4" />
-                  </Button>
+                    {label}
+                  </Label>
                 </div>
               ))}
             </div>
-          )}
-          {headerIssues.length > 0 && (
-            <p className="text-xs text-destructive" role="alert">
-              {headerIssues[0]}
-            </p>
-          )}
-          <div className="flex items-center gap-2">
+          </div>
+          <div className="space-y-3 border-t pt-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Resource attributes</p>
+              <p className="text-xs text-muted-foreground">
+                Attached to every exported signal, for example service.name.
+              </p>
+            </div>
+            {form.resourceAttributes.length > 0 && (
+              <div className="space-y-2">
+                {form.resourceAttributes.map((row) => (
+                  <div key={row.id} className="flex items-center gap-2">
+                    <Input
+                      value={row.name}
+                      onChange={(e) =>
+                        handleAttributeChange(row.id, { name: e.target.value })
+                      }
+                      disabled={fieldsDisabled}
+                      placeholder="Attribute name"
+                      className="text-xs"
+                    />
+                    <Input
+                      value={row.value}
+                      onChange={(e) =>
+                        handleAttributeChange(row.id, { value: e.target.value })
+                      }
+                      disabled={fieldsDisabled}
+                      placeholder="Attribute value"
+                      className="text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleRemoveAttribute(row.id)}
+                      disabled={fieldsDisabled}
+                      aria-label="Remove attribute"
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={handleAddHeaderRow}
+              onClick={handleAddAttribute}
               disabled={fieldsDisabled}
             >
-              Add header
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={handleClearSavedHeaders}
-              disabled={fieldsDisabled || clearSavedHeaders}
-              className="text-destructive hover:text-destructive"
-            >
-              Clear saved headers
+              Add attribute
             </Button>
           </div>
-          {clearSavedHeaders && (
-            <p className="text-xs text-muted-foreground">
-              Saved headers will be cleared when you save.
-            </p>
-          )}
         </div>
       </div>
 

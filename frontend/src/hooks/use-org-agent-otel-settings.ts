@@ -10,7 +10,7 @@ import { toast } from "@/components/ui/use-toast"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
-/** Load and update organization-scoped Agent OTel settings. */
+/** Load and update organization-scoped agent telemetry settings. */
 export function useOrgAgentOtelSettings() {
   const queryClient = useQueryClient()
   const {
@@ -37,7 +37,7 @@ export function useOrgAgentOtelSettings() {
       })
       toast({
         title: "Updated agent telemetry",
-        description: "Agent OTel settings updated successfully.",
+        description: "Agent telemetry settings updated successfully.",
       })
     },
     onError: (error: TracecatApiError) => {
@@ -49,13 +49,13 @@ export function useOrgAgentOtelSettings() {
           })
           break
         default:
-          console.error("Failed to update agent OTel settings", {
+          console.error("Failed to update agent telemetry settings", {
             status: error.status,
             detail: getApiErrorDetail(error),
           })
           toast({
             title: "Failed to update agent telemetry",
-            description: `An error occurred while updating agent OTel settings: ${getApiErrorDetail(error) ?? "unknown error"}`,
+            description: `An error occurred while updating agent telemetry settings: ${getApiErrorDetail(error) ?? "unknown error"}`,
           })
       }
     },

@@ -1,45 +1,70 @@
 import {
   type AgentOtelForm,
   agentOtelConfigToEnvMap,
+  emptyAgentOtelForm,
   envMapToAgentOtelConfig,
   envMapToForm,
-  envTextToForm,
   formToEnvMap,
-  formToEnvText,
-  parseEnvText,
+  resourceAttributeRowsToText,
   validateAgentOtelHeaderEntries,
   validateEnvMap,
-  validateEnvText,
   validateForm,
 } from "@/lib/agent-otel"
 
 describe("envMapToForm", () => {
-  it("pulls first-class keys into dedicated fields", () => {
+  it("pulls connection keys into dedicated fields", () => {
     const form = envMapToForm({
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.example.com",
       OTEL_METRIC_EXPORT_INTERVAL: "60000",
+      OTEL_LOGS_EXPORT_INTERVAL: "5000",
       OTEL_TRACES_EXPORTER: "otlp",
       OTEL_METRICS_EXPORTER: "otlp",
     })
 
     expect(form.endpoint).toBe("https://collector.example.com")
     expect(form.metricIntervalMs).toBe("60000")
+    expect(form.logsIntervalMs).toBe("5000")
     expect(form.signals).toEqual({ traces: true, metrics: true, logs: false })
-    expect(form.advancedEnv).toBe("")
   })
 
-  it("keeps non-first-class keys in the advanced editor", () => {
+  it("promotes temporality and privacy flags to typed fields", () => {
     const form = envMapToForm({
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://c.example.com",
-      OTEL_RESOURCE_ATTRIBUTES: "service.name=agent",
+      OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "DELTA",
       OTEL_LOG_USER_PROMPTS: "true",
+      OTEL_LOG_TOOL_DETAILS: "0",
     })
 
-    expect(form.endpoint).toBe("https://c.example.com")
-    // Sorted KEY=value text of the remaining keys.
-    expect(form.advancedEnv).toBe(
-      "OTEL_LOG_USER_PROMPTS=true\nOTEL_RESOURCE_ATTRIBUTES=service.name=agent"
-    )
+    expect(form.temporality).toBe("delta")
+    expect(form.flags.logUserPrompts).toBe(true)
+    expect(form.flags.logToolDetails).toBe(false)
+    // Missing keys prefill with the runtime defaults.
+    expect(form.flags.logToolContent).toBe(false)
+    expect(form.flags.metricsIncludeSessionId).toBe(true)
+  })
+
+  it("expands resource attributes into decoded key/value rows", () => {
+    const form = envMapToForm({
+      OTEL_RESOURCE_ATTRIBUTES:
+        "service.name=tracecat%20agent,key%2C1=value%3D1",
+    })
+
+    expect(
+      form.resourceAttributes.map(({ name, value }) => ({ name, value }))
+    ).toEqual([
+      { name: "service.name", value: "tracecat agent" },
+      { name: "key,1", value: "value=1" },
+    ])
+  })
+
+  it("keeps malformed saved resource attributes editable", () => {
+    const form = envMapToForm({ OTEL_RESOURCE_ATTRIBUTES: "missing-separator" })
+
+    expect(form.resourceAttributes).toHaveLength(1)
+    expect(form.resourceAttributes[0].name).toBe("missing-separator")
+    expect(validateForm(form)).toEqual([
+      "OTEL_RESOURCE_ATTRIBUTES must contain comma-separated key=value pairs.",
+    ])
   })
 
   it("maps typed exporter values to signal toggles", () => {
@@ -50,48 +75,83 @@ describe("envMapToForm", () => {
     })
 
     expect(form.signals).toEqual({ traces: false, metrics: true, logs: false })
-    expect(form.advancedEnv).toBe("")
   })
 })
 
 describe("formToEnvMap", () => {
-  const base: AgentOtelForm = {
-    endpoint: "",
-    metricIntervalMs: "",
-    signals: { traces: false, metrics: false, logs: false },
-    advancedEnv: "",
-  }
+  const base: AgentOtelForm = emptyAgentOtelForm()
 
-  it("omits empty first-class fields entirely", () => {
-    expect(formToEnvMap(base)).toEqual({})
+  it("writes only the always-explicit flags for an empty form", () => {
+    expect(formToEnvMap(base)).toEqual({
+      OTEL_METRICS_INCLUDE_SESSION_ID: "true",
+      OTEL_METRICS_INCLUDE_VERSION: "false",
+      OTEL_METRICS_INCLUDE_ACCOUNT_UUID: "true",
+      OTEL_LOG_USER_PROMPTS: "false",
+      OTEL_LOG_TOOL_DETAILS: "false",
+      OTEL_LOG_TOOL_CONTENT: "false",
+    })
   })
 
-  it("writes trimmed first-class fields and otlp exporters for on signals", () => {
+  it("writes trimmed fields and otlp exporters for on signals", () => {
     const env = formToEnvMap({
       ...base,
       endpoint: "  https://c.example.com  ",
       metricIntervalMs: " 30000 ",
+      logsIntervalMs: " 5000 ",
       signals: { traces: true, metrics: false, logs: true },
     })
 
     expect(env).toEqual({
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://c.example.com",
       OTEL_METRIC_EXPORT_INTERVAL: "30000",
+      OTEL_LOGS_EXPORT_INTERVAL: "5000",
       OTEL_TRACES_EXPORTER: "otlp",
       OTEL_LOGS_EXPORTER: "otlp",
+      OTEL_METRICS_INCLUDE_SESSION_ID: "true",
+      OTEL_METRICS_INCLUDE_VERSION: "false",
+      OTEL_METRICS_INCLUDE_ACCOUNT_UUID: "true",
+      OTEL_LOG_USER_PROMPTS: "false",
+      OTEL_LOG_TOOL_DETAILS: "false",
+      OTEL_LOG_TOOL_CONTENT: "false",
     })
   })
 
-  it("lets first-class fields win over advanced on key collision", () => {
-    const env = formToEnvMap({
-      ...base,
-      endpoint: "https://first-class.example.com",
-      advancedEnv: "OTEL_EXPORTER_OTLP_ENDPOINT=https://advanced.example.com",
+  it("omits unset temporality and writes every flag explicitly", () => {
+    expect(
+      formToEnvMap({
+        ...base,
+        temporality: "cumulative",
+        flags: { ...base.flags, logUserPrompts: true },
+      })
+    ).toEqual({
+      OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "cumulative",
+      OTEL_METRICS_INCLUDE_SESSION_ID: "true",
+      OTEL_METRICS_INCLUDE_VERSION: "false",
+      OTEL_METRICS_INCLUDE_ACCOUNT_UUID: "true",
+      OTEL_LOG_USER_PROMPTS: "true",
+      OTEL_LOG_TOOL_DETAILS: "false",
+      OTEL_LOG_TOOL_CONTENT: "false",
     })
+  })
 
-    expect(env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe(
-      "https://first-class.example.com"
-    )
+  it("serializes resource attribute rows and skips blank ones", () => {
+    expect(
+      formToEnvMap({
+        ...base,
+        resourceAttributes: [
+          { id: "a", name: "service.name", value: "tracecat agent" },
+          { id: "b", name: "  ", value: "  " },
+        ],
+      })
+    ).toEqual({
+      OTEL_METRICS_INCLUDE_SESSION_ID: "true",
+      OTEL_METRICS_INCLUDE_VERSION: "false",
+      OTEL_METRICS_INCLUDE_ACCOUNT_UUID: "true",
+      OTEL_LOG_USER_PROMPTS: "false",
+      OTEL_LOG_TOOL_DETAILS: "false",
+      OTEL_LOG_TOOL_CONTENT: "false",
+      OTEL_RESOURCE_ATTRIBUTES: "service.name=tracecat%20agent",
+    })
   })
 
   it("removes the exporter when a signal is unchecked", () => {
@@ -100,7 +160,24 @@ describe("formToEnvMap", () => {
     })
     form.signals.metrics = false
 
-    expect(formToEnvMap(form)).toEqual({})
+    expect(formToEnvMap(form)).toEqual({
+      OTEL_METRICS_INCLUDE_SESSION_ID: "true",
+      OTEL_METRICS_INCLUDE_VERSION: "false",
+      OTEL_METRICS_INCLUDE_ACCOUNT_UUID: "true",
+      OTEL_LOG_USER_PROMPTS: "false",
+      OTEL_LOG_TOOL_DETAILS: "false",
+      OTEL_LOG_TOOL_CONTENT: "false",
+    })
+  })
+})
+
+describe("resourceAttributeRowsToText", () => {
+  it("keeps half-filled rows so validation can reject them", () => {
+    expect(
+      resourceAttributeRowsToText([
+        { id: "a", name: "service.name", value: "" },
+      ])
+    ).toBe("service.name=")
   })
 })
 
@@ -113,15 +190,38 @@ describe("round-trip fidelity", () => {
       OTEL_METRICS_EXPORTER: "otlp",
       OTEL_LOGS_EXPORTER: "otlp",
       OTEL_RESOURCE_ATTRIBUTES: "service.name=agent",
+      OTEL_METRICS_INCLUDE_SESSION_ID: "true",
+      OTEL_METRICS_INCLUDE_VERSION: "false",
+      OTEL_METRICS_INCLUDE_ACCOUNT_UUID: "true",
+      OTEL_LOG_USER_PROMPTS: "false",
+      OTEL_LOG_TOOL_DETAILS: "false",
+      OTEL_LOG_TOOL_CONTENT: "false",
     },
     {
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://c.example.com",
       OTEL_TRACES_EXPORTER: "otlp",
+      OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "delta",
+      OTEL_LOGS_EXPORT_INTERVAL: "5000",
+      OTEL_METRICS_INCLUDE_SESSION_ID: "true",
+      OTEL_METRICS_INCLUDE_VERSION: "false",
+      OTEL_METRICS_INCLUDE_ACCOUNT_UUID: "true",
       OTEL_LOG_USER_PROMPTS: "true",
+      OTEL_LOG_TOOL_DETAILS: "false",
+      OTEL_LOG_TOOL_CONTENT: "false",
     },
-    {},
   ])("env -> form -> env is identity for %o", (env) => {
     expect(formToEnvMap(envMapToForm(env))).toEqual(env)
+  })
+
+  it("completes missing flags with the runtime defaults", () => {
+    expect(formToEnvMap(envMapToForm({}))).toEqual({
+      OTEL_METRICS_INCLUDE_SESSION_ID: "true",
+      OTEL_METRICS_INCLUDE_VERSION: "false",
+      OTEL_METRICS_INCLUDE_ACCOUNT_UUID: "true",
+      OTEL_LOG_USER_PROMPTS: "false",
+      OTEL_LOG_TOOL_DETAILS: "false",
+      OTEL_LOG_TOOL_CONTENT: "false",
+    })
   })
 })
 
@@ -162,35 +262,6 @@ describe("typed API adapters", () => {
   })
 })
 
-describe("Raw mode helpers", () => {
-  it("formToEnvText serializes the whole form as sorted KEY=value text", () => {
-    const text = formToEnvText({
-      endpoint: "https://c.example.com",
-      metricIntervalMs: "",
-      signals: { traces: true, metrics: false, logs: false },
-      advancedEnv: "OTEL_RESOURCE_ATTRIBUTES=service.name=agent",
-    })
-
-    expect(text).toBe(
-      [
-        "OTEL_EXPORTER_OTLP_ENDPOINT=https://c.example.com",
-        "OTEL_RESOURCE_ATTRIBUTES=service.name=agent",
-        "OTEL_TRACES_EXPORTER=otlp",
-      ].join("\n")
-    )
-  })
-
-  it("form -> text -> form is identity through the Raw round-trip", () => {
-    const form: AgentOtelForm = {
-      endpoint: "https://c.example.com",
-      metricIntervalMs: "60000",
-      signals: { traces: true, metrics: true, logs: false },
-      advancedEnv: "OTEL_RESOURCE_ATTRIBUTES=service.name=agent",
-    }
-    expect(envTextToForm(formToEnvText(form))).toEqual(form)
-  })
-})
-
 describe("validateForm / validateEnvMap", () => {
   it("accepts a well-formed config", () => {
     const form = envMapToForm({
@@ -202,14 +273,12 @@ describe("validateForm / validateEnvMap", () => {
 
   it("flags an otlp signal with no endpoint", () => {
     const form: AgentOtelForm = {
-      endpoint: "",
-      metricIntervalMs: "",
+      ...emptyAgentOtelForm(),
       signals: { traces: true, metrics: false, logs: false },
-      advancedEnv: "",
     }
     const issues = validateForm(form)
     expect(issues.length).toBeGreaterThan(0)
-    expect(issues[0]).toContain("OTEL_TRACES_EXPORTER=otlp needs")
+    expect(issues[0]).toContain("Add a collector endpoint")
   })
 
   it("rejects an unsupported key in the merged map", () => {
@@ -337,7 +406,6 @@ describe("validateForm / validateEnvMap", () => {
   it("skips endpoint requirements when telemetry is disabled", () => {
     const options = { requireOtlpEndpoint: false }
     expect(validateEnvMap({ OTEL_LOGS_EXPORTER: "otlp" }, options)).toEqual([])
-    expect(validateEnvText("OTEL_LOGS_EXPORTER=otlp", options)).toEqual([])
   })
   it.each([
     "OTEL_EXPORTER_OTLP_PROTOCOL",
@@ -368,13 +436,5 @@ describe("validateAgentOtelHeaderEntries", () => {
         { name: "X-Tenant", value: "tenant" },
       ])
     ).toEqual([])
-  })
-})
-
-describe("prototype-named keys", () => {
-  it("parseEnvText keeps __proto__ as an own enumerable key", () => {
-    const env = parseEnvText("__proto__=x\nconstructor=y")
-    expect(Object.keys(env).sort()).toEqual(["__proto__", "constructor"])
-    expect(env.constructor).toBe("y")
   })
 })

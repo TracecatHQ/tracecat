@@ -55,7 +55,7 @@ describe("useOrgAgentOtelSettings", () => {
       expect(toast).toHaveBeenCalledWith({
         title: "Failed to update agent telemetry",
         description:
-          "An error occurred while updating agent OTel settings: Network Error",
+          "An error occurred while updating agent telemetry settings: Network Error",
       })
     )
   })

@@ -1,10 +1,10 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Agent OTel | Organization",
+  title: "Telemetry | Organization",
 }
 
-export default function AgentOtelLayout({
+export default function AgentTelemetryLayout({
   children,
 }: {
   children: React.ReactNode

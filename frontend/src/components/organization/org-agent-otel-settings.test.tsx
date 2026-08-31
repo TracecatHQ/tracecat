@@ -80,17 +80,28 @@ describe("OrgAgentOtelSettings edit gating", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "you do not have permission to update them"
     )
-    await waitFor(() => expect(screen.getByRole("switch")).toBeChecked())
-    expect(screen.getByRole("switch")).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Raw mode" })).toBeDisabled()
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Enable agent telemetry" })
+      ).toBeChecked()
+    )
+    expect(
+      screen.getByRole("switch", { name: "Enable agent telemetry" })
+    ).toBeDisabled()
     expect(screen.getByRole("button", { name: "Save config" })).toBeDisabled()
   })
 
   it("keeps controls editable with loaded settings and the update scope", async () => {
     render(<OrgAgentOtelSettings />)
 
-    await waitFor(() => expect(screen.getByRole("switch")).toBeChecked())
-    expect(screen.getByRole("switch")).toBeEnabled()
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Enable agent telemetry" })
+      ).toBeChecked()
+    )
+    expect(
+      screen.getByRole("switch", { name: "Enable agent telemetry" })
+    ).toBeEnabled()
     expect(screen.getByRole("button", { name: "Save config" })).toBeEnabled()
   })
 })
