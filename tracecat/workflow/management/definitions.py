@@ -17,7 +17,16 @@ from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+)
 from tracecat.service import BaseWorkspaceService
+from tracecat.temporal.errors import (
+    activity_error_boundary,
+    raise_application_error_from_classification,
+)
 from tracecat.workflow.management.schemas import (
     GetWorkflowDefinitionActivityInputs,
     ResolveRegistryLockActivityInputs,
@@ -171,20 +180,56 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
 async def get_workflow_definition_activity(
     input: GetWorkflowDefinitionActivityInputs,
 ) -> WorkflowDefinitionActivityResult:
-    async with WorkflowDefinitionsService.with_session(role=input.role) as service:
-        defn = await service.get_definition_by_workflow_id(
-            input.workflow_id, version=input.version
+    with activity_error_boundary(_workflow_definition_lookup_error_classification):
+        async with WorkflowDefinitionsService.with_session(role=input.role) as service:
+            defn = await service.get_definition_by_workflow_id(
+                input.workflow_id, version=input.version
+            )
+    if not defn:
+        logger.error(
+            "Workflow definition not found",
+            workflow_id=input.workflow_id,
+            version=input.version,
         )
-        if not defn:
-            msg = f"Workflow definition not found for {input.workflow_id.short()}, version={input.version}"
-            logger.error(msg)
-            raise ApplicationError(msg, non_retryable=True)
-        dsl = DSLInput(**defn.content)
-    # Convert from DB dict type to RegistryLock (JSONB deserializes to dict)
-    registry_lock = (
-        RegistryLock.model_validate(defn.registry_lock) if defn.registry_lock else None
-    )
+        classification = RuntimeErrorClassification.platform(
+            kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
+            message="Tracecat could not load a published workflow definition",
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+        )
+        raise_application_error_from_classification(classification)
+    with activity_error_boundary(_workflow_definition_invalid_data_classification):
+        dsl = DSLInput.model_validate(defn.content)
+        # Convert from DB dict type to RegistryLock (JSONB deserializes to dict)
+        registry_lock = (
+            RegistryLock.model_validate(defn.registry_lock)
+            if defn.registry_lock is not None
+            else None
+        )
     return WorkflowDefinitionActivityResult(dsl=dsl, registry_lock=registry_lock)
+
+
+def _workflow_definition_lookup_error_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify a platform failure while loading a workflow definition."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.WORKFLOW_DEFINITION_LOOKUP_UNAVAILABLE,
+        message="Tracecat could not query the published workflow definition",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
+def _workflow_definition_invalid_data_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify malformed data in a persisted workflow definition."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.WORKFLOW_DEFINITION_INVALID_DATA,
+        message="Tracecat could not load the published workflow definition",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
 
 
 @activity.defn

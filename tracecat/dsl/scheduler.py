@@ -200,7 +200,7 @@ class LoopRegion:
 
 
 class PlatformExecutionError(Exception):
-    """Marks platform work that should fail the workflow, even inside a stream."""
+    """Marks legacy platform work that must bypass stream error handling."""
 
     def __init__(self, error: Exception) -> None:
         super().__init__(str(error))
@@ -521,7 +521,7 @@ class DSLScheduler:
         else:
             if fail_workflow:
                 self.logger.warning(
-                    "Task failed with platform error, bypassing stream handling",
+                    "Task failed through the replay-compatible platform path",
                     task=task,
                     error=exc,
                 )

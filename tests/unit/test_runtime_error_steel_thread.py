@@ -25,17 +25,16 @@ from tracecat.dsl.error_transport import (
     ActionErrorTransportDetail,
     parse_classified_action_error_payload,
 )
-from tracecat.dsl.schemas import ActionStatement, ExecutionContext
+from tracecat.dsl.scheduler import _classified_action_error_info
+from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, ExecutionContext
 from tracecat.dsl.types import (
     ActionErrorInfo,
-    TaskExceptionInfo,
 )
 from tracecat.dsl.workflow import (
     ERROR_OWNER_AFTER_HANDLER_PATCH,
     ERROR_OWNER_CONTROL_FLOW_PATCH,
     ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
     DSLWorkflow,
-    _raise_workflow_application_error,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.runtime.errors import (
@@ -47,7 +46,6 @@ from tracecat.runtime.errors import (
 from tracecat.temporal.errors import (
     build_error_transport_detail,
     extract_error_classification,
-    extract_error_classifications,
 )
 from tracecat.temporal.exceptions import UserError
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
@@ -91,14 +89,6 @@ def _error_transport_detail(
     ).model_dump(mode="json")
 
 
-def _capture_workflow_application_error(
-    task_exceptions: dict[str, TaskExceptionInfo],
-) -> ApplicationError:
-    with pytest.raises(ApplicationError) as exc_info:
-        _raise_workflow_application_error(task_exceptions)
-    return exc_info.value
-
-
 def _error_handler_workflow() -> tuple[DSLWorkflow, DSLRunArgs]:
     instance = object.__new__(DSLWorkflow)
     role = _prepare_subflow_input().role
@@ -113,6 +103,29 @@ def _error_handler_workflow() -> tuple[DSLWorkflow, DSLRunArgs]:
     instance.dsl = dsl
     instance.wf_exec_id = f"{args.wf_id.short()}/exec_test"
     return instance, args
+
+
+def test_scheduler_adapts_non_action_classification_to_error_info() -> None:
+    classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+        message="Tracecat could not retrieve stored workflow data",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=RuntimeError("storage transport unavailable"),
+    )
+    error = _capture_application_error(classification)
+
+    adapted = _classified_action_error_info(
+        error,
+        ref="fetch_data",
+        stream_id=ROOT_STREAM,
+    )
+
+    assert adapted is not None
+    detail, adapted_classification = adapted
+    assert detail.ref == "fetch_data"
+    assert detail.message == classification.message
+    assert detail.type == classification.kind.value
+    assert adapted_classification == classification
 
 
 @pytest.mark.anyio
@@ -388,173 +401,6 @@ async def test_prepare_subflow_cancellation_keeps_native_semantics() -> None:
         pytest.raises(asyncio.CancelledError),
     ):
         await DSLActivities.prepare_subflow_activity(_prepare_subflow_input())
-
-
-def test_workflow_error_preserves_all_action_classifications() -> None:
-    """The terminal map wraps every task; the platform-wins selection stamps the
-    outer error's message, type, and retryability regardless of task order."""
-    user_classification = RuntimeErrorClassification.user(
-        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-        message="The action failed",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-    )
-    platform_classification = RuntimeErrorClassification.platform(
-        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
-        message="Tracecat could not execute the action",
-        retry_disposition=RetryDisposition.RETRYABLE,
-    )
-    user_detail = _action_error_info(user_classification, ref="user_action")
-    platform_detail = _action_error_info(platform_classification, ref="platform_action")
-    task_exceptions = {
-        "user_action": TaskExceptionInfo(
-            exception=_capture_application_error(
-                user_classification,
-                build_error_transport_detail(user_classification, user_detail),
-            ),
-            details=user_detail,
-        ),
-        "platform_action": TaskExceptionInfo(
-            exception=_capture_application_error(
-                platform_classification,
-                build_error_transport_detail(platform_classification, platform_detail),
-            ),
-            details=platform_detail,
-        ),
-    }
-
-    error = _capture_workflow_application_error(task_exceptions)
-
-    assert error.message == platform_classification.message
-    assert error.type == platform_classification.kind.value
-    assert error.non_retryable is False
-    assert extract_error_classifications(error) == (
-        user_classification,
-        platform_classification,
-    )
-    assert error.details[0]["user_action"][
-        "classification"
-    ] == user_classification.model_dump(mode="json")
-    assert error.details[0]["user_action"]["diagnostic"] == user_detail.model_dump(
-        mode="json"
-    )
-    assert error.details[0]["platform_action"][
-        "classification"
-    ] == platform_classification.model_dump(mode="json")
-    assert error.details[0]["platform_action"][
-        "diagnostic"
-    ] == platform_detail.model_dump(mode="json")
-
-
-def test_workflow_error_map_platform_entry_survives_terminal_aggregation() -> None:
-    """A platform-owned entry in a task's child terminal map wins re-extraction.
-
-    The scheduler selects platform-wins for mixed child maps; the terminal
-    aggregation must retain that ownership instead of collapsing to the first
-    (user) classification in transport order.
-    """
-    user_classification = RuntimeErrorClassification.user(
-        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-        message="The child action failed",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-    )
-    platform_classification = RuntimeErrorClassification.platform(
-        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
-        message="Tracecat could not execute the child action",
-        retry_disposition=RetryDisposition.RETRYABLE,
-    )
-    user_detail = _action_error_info(user_classification, ref="user_child")
-    platform_detail = _action_error_info(platform_classification, ref="platform_child")
-    child_error = _capture_application_error(
-        user_classification,
-        {
-            "user_child": build_error_transport_detail(
-                user_classification, user_detail
-            ).model_dump(mode="json"),
-            "platform_child": build_error_transport_detail(
-                platform_classification, platform_detail
-            ).model_dump(mode="json"),
-        },
-    )
-    aggregate_detail = ActionErrorInfo(
-        ref="call_child",
-        message=platform_classification.message,
-        type="ApplicationError",
-        children=[user_detail, platform_detail],
-    )
-
-    error = _capture_workflow_application_error(
-        {
-            "call_child": TaskExceptionInfo(
-                exception=child_error, details=aggregate_detail
-            )
-        }
-    )
-
-    assert error.message == platform_classification.message
-    assert error.type == platform_classification.kind.value
-    assert error.non_retryable is False
-    assert extract_error_classifications(error) == (platform_classification,)
-    assert error.details[0]["call_child"][
-        "classification"
-    ] == platform_classification.model_dump(mode="json")
-    assert error.details[0]["call_child"]["diagnostic"] == aggregate_detail.model_dump(
-        mode="json"
-    )
-
-
-def test_legacy_workflow_error_shape_is_unchanged() -> None:
-    detail = ActionErrorInfo(ref="action", message="Failed", type="ValueError")
-    error = _capture_workflow_application_error(
-        {
-            "action": TaskExceptionInfo(
-                exception=ApplicationError("Failed", non_retryable=True),
-                details=detail,
-            )
-        }
-    )
-
-    assert error.non_retryable is True
-    assert error.details == ({"action": detail},)
-    assert extract_error_classification(error) is None
-
-
-def test_mixed_workflow_errors_use_the_unclassified_terminal_raise() -> None:
-    """One unclassified task keeps the whole terminal raise on the legacy shape."""
-    user_classification = RuntimeErrorClassification.user(
-        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-        message="The action failed",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-    )
-    user_detail = _action_error_info(user_classification, ref="user_action")
-    legacy_detail = ActionErrorInfo(
-        ref="legacy_action",
-        message="Legacy failure",
-        type="RuntimeError",
-    )
-    error = _capture_workflow_application_error(
-        {
-            "user_action": TaskExceptionInfo(
-                exception=_capture_application_error(
-                    user_classification,
-                    build_error_transport_detail(user_classification, user_detail),
-                ),
-                details=user_detail,
-            ),
-            "legacy_action": TaskExceptionInfo(
-                exception=ApplicationError("Legacy failure", non_retryable=True),
-                details=legacy_detail,
-            ),
-        }
-    )
-
-    assert error.message.startswith("Workflow failed with 2 error(s)")
-    assert error.details == (
-        {"user_action": user_detail, "legacy_action": legacy_detail},
-    )
-    assert extract_error_classifications(error) == ()
-    with patch("tracecat.dsl.workflow.workflow.patched") as patched_mock:
-        assert DSLWorkflow._has_user_error_cause(error) is False
-    patched_mock.assert_not_called()
 
 
 @pytest.mark.anyio
