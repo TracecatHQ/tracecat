@@ -175,6 +175,8 @@
             "icon": "wrench",
             "pages": [
               "integrations/overview",
+              "tools/1password",
+              "tools/1password_sdk",
               "tools/abuseipdb",
               "tools/alertmedia",
               "tools/amazon_s3",
