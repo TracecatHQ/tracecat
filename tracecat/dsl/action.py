@@ -750,10 +750,26 @@ class DSLActivities:
         # Guard CollectionObject: only use chunked storage when externalization
         # is enabled. Fall back to inline list for non-externalized deployments.
         storage = get_object_storage()
+        if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+            refs: list[dict[str, Any]] = []
+            for i, obj in enumerate(input.collection):
+                with activity_error_boundary(_materialization_error_classification):
+                    value = await storage.retrieve(obj)
+                with activity_error_boundary(_result_persistence_error_classification):
+                    stored = await storage.store(
+                        collection_item_key(input.key, i), value
+                    )
+                refs.append(stored.model_dump())
+            with activity_error_boundary(_result_persistence_error_classification):
+                return await store_collection(
+                    input.key,
+                    refs,
+                    element_kind="stored_object",
+                )
+
         with activity_error_boundary(_materialization_error_classification):
             values = [await storage.retrieve(obj) for obj in input.collection]
-        with activity_error_boundary(_result_persistence_error_classification):
-            return await _store_list_result(input.key, values)
+        return InlineObject(data=values, typename="list")
 
     @staticmethod
     @activity.defn

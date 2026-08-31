@@ -16,6 +16,7 @@ from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 
 from tests.shared import capture_application_error as _capture_application_error
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.action import (
     DSLActivities,
@@ -23,6 +24,7 @@ from tracecat.dsl.action import (
     NormalizeTriggerInputsActivityInputs,
     PrepareSubflowActivityInput,
     SubflowDefinitionNotFoundError,
+    SynchronizeCollectionObjectActivityInput,
     _agent_preparation_error_classification,
     _expression_error_classification,
     _materialization_error_classification,
@@ -55,7 +57,12 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
 )
 from tracecat.storage.backends.inline import InlineObjectStorage
-from tracecat.storage.object import InlineObject
+from tracecat.storage.object import (
+    CollectionObject,
+    InlineObject,
+    ObjectRef,
+    StoredObject,
+)
 from tracecat.temporal.errors import (
     build_error_transport_detail,
     extract_error_classification,
@@ -195,6 +202,75 @@ def test_invalid_loop_expression_is_user_attributed() -> None:
     assert classification.owner is RuntimeErrorOwner.USER
     assert classification.kind is RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID
     assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_synchronize_collection_streams_externalized_child_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", True)
+    events: list[tuple[str, object]] = []
+    inputs: list[StoredObject] = [
+        InlineObject(data="first"),
+        InlineObject(data="second"),
+    ]
+    result = CollectionObject(
+        manifest_ref=ObjectRef(
+            bucket="test-bucket",
+            key="test/synchronized/manifest.json",
+            size_bytes=1,
+            sha256="manifest-hash",
+        ),
+        count=2,
+        chunk_size=2,
+        element_kind="stored_object",
+    )
+
+    async def retrieve(obj: InlineObject) -> object:
+        events.append(("retrieve", obj.data))
+        return obj.data
+
+    async def store(key: str, value: object) -> InlineObject:
+        events.append(("store", value))
+        return InlineObject(data=value)
+
+    async def store_manifest(
+        prefix: str,
+        refs: list[dict[str, Any]],
+        *,
+        element_kind: Literal["value", "stored_object"],
+    ) -> CollectionObject:
+        assert prefix == "test/synchronized"
+        assert len(refs) == 2
+        assert element_kind == "stored_object"
+        events.append(("manifest", len(refs)))
+        return result
+
+    storage = MagicMock()
+    storage.retrieve = AsyncMock(side_effect=retrieve)
+    storage.store = AsyncMock(side_effect=store)
+    with (
+        patch("tracecat.dsl.action.get_object_storage", return_value=storage),
+        patch(
+            "tracecat.dsl.action.store_collection",
+            new=AsyncMock(side_effect=store_manifest),
+        ),
+    ):
+        actual = await DSLActivities.synchronize_collection_object_activity(
+            SynchronizeCollectionObjectActivityInput(
+                collection=inputs,
+                key="test/synchronized",
+            )
+        )
+
+    assert actual == result
+    assert events == [
+        ("retrieve", "first"),
+        ("store", "first"),
+        ("retrieve", "second"),
+        ("store", "second"),
+        ("manifest", 2),
+    ]
 
 
 def _prepare_subflow_input() -> PrepareSubflowActivityInput:
