@@ -120,14 +120,25 @@ def build_terminal_application_error(
                 ).model_dump(mode="json")
                 for ref, info in task_exceptions.items()
             }
-        else:
-            # A concurrent cancellation is diagnostic fallout, not a competing
-            # causal classification. Keep the complete legacy map for the error
-            # handler and append only the selected causal classification.
-            error_details = {ref: info.details for ref, info in task_exceptions.items()}
+            return application_error_from_classification(
+                terminal_classification,
+                error_details,
+            )
+
+        # A concurrent cancellation is diagnostic fallout, not a competing
+        # causal classification. Keep the complete legacy map for the error
+        # handler and append every causal task classification.
         return application_error_from_classification(
             terminal_classification,
-            error_details,
+            {ref: info.details for ref, info in task_exceptions.items()},
+            *(
+                build_error_transport_detail(
+                    task_classifications[ref],
+                    info.details,
+                )
+                for ref, info in task_exceptions.items()
+                if ref in task_classifications
+            ),
         )
 
     formatted_exceptions = "\n".join(

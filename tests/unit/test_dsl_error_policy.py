@@ -431,3 +431,56 @@ def test_terminal_cancellation_does_not_erase_classified_causal_failure() -> Non
         "cancelled_action": cancelled_detail,
     }
     assert len(error.details) == 2
+
+
+def test_terminal_cancellation_preserves_every_causal_classification() -> None:
+    user_classification = RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    platform_classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    user_detail = _action_error_info(user_classification, ref="user_action")
+    platform_detail = _action_error_info(
+        platform_classification,
+        ref="platform_action",
+    )
+    cancelled_detail = ActionErrorInfo(
+        ref="cancelled_action",
+        message="Cancelled",
+        type="CancelledError",
+    )
+
+    error = _capture_workflow_application_error(
+        {
+            "user_action": TaskExceptionInfo(
+                exception=_capture_application_error(user_classification),
+                details=user_detail,
+            ),
+            "platform_action": TaskExceptionInfo(
+                exception=_capture_application_error(platform_classification),
+                details=platform_detail,
+            ),
+            "cancelled_action": TaskExceptionInfo(
+                exception=CancelledError(),
+                details=cancelled_detail,
+            ),
+        }
+    )
+
+    assert error.message == platform_classification.message
+    assert error.type == platform_classification.kind.value
+    assert error.details[0] == {
+        "user_action": user_detail,
+        "platform_action": platform_detail,
+        "cancelled_action": cancelled_detail,
+    }
+    assert extract_error_classifications(error) == (
+        user_classification,
+        platform_classification,
+    )
+    assert len(error.details) == 3
