@@ -347,6 +347,10 @@ describe("validateForm / validateEnvMap", () => {
       "https://collector.example.com/v1/traces?token=secret",
       "OTEL_EXPORTER_OTLP_ENDPOINT must not include a query string.",
     ],
+    [
+      "https://collector.example.com/base#fragment",
+      "OTEL_EXPORTER_OTLP_ENDPOINT must not include a fragment.",
+    ],
   ])("rejects invalid collector endpoint %s", (endpoint, expected) => {
     expect(validateEnvMap({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint })).toEqual([
       expected,
@@ -436,5 +440,35 @@ describe("validateAgentOtelHeaderEntries", () => {
         { name: "X-Tenant", value: "tenant" },
       ])
     ).toEqual([])
+  })
+
+  it("rejects header names that are not HTTP tokens", () => {
+    expect(
+      validateAgentOtelHeaderEntries([{ name: "Bad Header", value: "x" }])
+    ).toEqual([
+      "Header name Bad Header is not a valid HTTP header name (letters, digits, and !#$%&'*+-.^_`|~).",
+    ])
+  })
+
+  it.each([["bad\nvalue"], ["café"]])(
+    "rejects unsendable header value %j",
+    (value) => {
+      expect(
+        validateAgentOtelHeaderEntries([{ name: "Authorization", value }])
+      ).toEqual([
+        "Header Authorization value must contain only printable ASCII characters.",
+      ])
+    }
+  )
+})
+
+describe("endpoint delimiters", () => {
+  it.each([
+    ["https://c.example.com/base?", "must not include a query string."],
+    ["https://c.example.com/base#", "must not include a fragment."],
+  ])("rejects a bare delimiter in %s", (endpoint, message) => {
+    expect(validateEnvMap({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint })).toEqual([
+      `OTEL_EXPORTER_OTLP_ENDPOINT ${message}`,
+    ])
   })
 })

@@ -76,10 +76,8 @@ export function OrgAgentOtelSettings() {
   const {
     agentOtelSettings,
     agentOtelSettingsIsLoading,
-    agentOtelSettingsError,
     updateAgentOtelSettings,
     updateAgentOtelSettingsIsPending,
-    getLatestAgentOtelSettings,
   } = useOrgAgentOtelSettings()
   const [enabled, setEnabled] = useState(false)
   const [form, setForm] = useState<AgentOtelForm>(emptyAgentOtelForm)
@@ -87,8 +85,7 @@ export function OrgAgentOtelSettings() {
   const [clearSavedHeaders, setClearSavedHeaders] = useState(false)
   const [dirty, setDirty] = useState(false)
   const settingsLoadFailed =
-    Boolean(agentOtelSettingsError) ||
-    (!agentOtelSettingsIsLoading && agentOtelSettings === undefined)
+    !agentOtelSettingsIsLoading && agentOtelSettings === undefined
   // Pending covers the PATCH plus the refetch it awaits, so the seeding
   // effect can't clobber edits made while a save is in flight.
   const editingDisabled =
@@ -221,7 +218,8 @@ export function OrgAgentOtelSettings() {
     const map: Record<string, string> = Object.create(null)
     for (const row of headerRows) {
       if (row.name.trim() !== "") {
-        map[row.name.trim()] = row.value
+        // Trimmed: edge whitespace is an unsendable HTTP header value.
+        map[row.name.trim()] = row.value.trim()
       }
     }
     return map
@@ -260,8 +258,12 @@ export function OrgAgentOtelSettings() {
         agent_otel_headers: headersField,
       },
     })
-    // The mutation awaits the refetch, so the cache holds the saved state.
-    seedFromServer(getLatestAgentOtelSettings())
+    // The form now shows the saved values; mark it clean and let the pristine
+    // resync effect adopt the canonical read when the refetch lands. A stale
+    // cache read matches the pre-save baseline sig, so it cannot reseed.
+    setHeaderRows([])
+    setClearSavedHeaders(false)
+    setDirty(false)
   }
 
   const saveDisabled =

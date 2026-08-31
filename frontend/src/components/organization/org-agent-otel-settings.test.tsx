@@ -34,7 +34,6 @@ function mockSettingsHook(
     agentOtelSettingsIsLoading: false,
     agentOtelSettingsError: null,
     updateAgentOtelSettings,
-    getLatestAgentOtelSettings: jest.fn(() => undefined),
     updateAgentOtelSettingsIsPending: false,
     updateAgentOtelSettingsError: null,
     ...overrides,
@@ -59,6 +58,19 @@ describe("OrgAgentOtelSettings edit gating", () => {
       "Editing is disabled to protect the saved configuration."
     )
     expect(screen.getByRole("button", { name: "Save config" })).toBeDisabled()
+  })
+
+  it("stays editable when a background refetch fails with retained data", async () => {
+    mockSettingsHook({
+      agentOtelSettingsError: new Error("Request failed"),
+    })
+
+    render(<OrgAgentOtelSettings />)
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save config" })).toBeEnabled()
+    )
   })
 
   it("disables saving when settings return no data", () => {
@@ -158,5 +170,46 @@ describe("OrgAgentOtelSettings server resync", () => {
       .setup()
       .type(screen.getByLabelText("Collector endpoint"), "x")
     expect(reset).toBeEnabled()
+  })
+})
+describe("OrgAgentOtelSettings save reseed guard", () => {
+  beforeEach(() => {
+    jest.mocked(useScopeCheck).mockReturnValue(true)
+  })
+
+  it("keeps submitted values pristine when the post-save refetch fails", async () => {
+    // A failed refetch leaves pre-save data in the cache; its sig matches the
+    // pre-save baseline, so the resync effect must not reseed over the save.
+    const user = userEvent.setup()
+    render(<OrgAgentOtelSettings />)
+
+    const endpoint = screen.getByLabelText("Collector endpoint")
+    await user.clear(endpoint)
+    await user.type(endpoint, "https://new.example.com")
+    await user.click(screen.getByRole("button", { name: "Save config" }))
+
+    await waitFor(() => expect(updateAgentOtelSettings).toHaveBeenCalled())
+    expect(endpoint).toHaveValue("https://new.example.com")
+    expect(screen.getByRole("button", { name: "Reset" })).toBeDisabled()
+  })
+
+  it("adopts the canonical post-save read when the refetch lands", async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<OrgAgentOtelSettings />)
+
+    const endpoint = screen.getByLabelText("Collector endpoint")
+    await user.clear(endpoint)
+    await user.type(endpoint, "https://new.example.com")
+    await user.click(screen.getByRole("button", { name: "Save config" }))
+    await waitFor(() => expect(updateAgentOtelSettings).toHaveBeenCalled())
+
+    mockSettingsHook({
+      agentOtelSettings: settingsWithEndpoint("https://new.example.com/"),
+    })
+    rerender(<OrgAgentOtelSettings />)
+
+    await waitFor(() =>
+      expect(endpoint).toHaveValue("https://new.example.com/")
+    )
   })
 })

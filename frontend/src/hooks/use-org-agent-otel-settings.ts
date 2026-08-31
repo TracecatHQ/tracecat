@@ -61,16 +61,8 @@ export function useOrgAgentOtelSettings() {
     },
   })
 
-  /** Latest cached settings; current after `updateAgentOtelSettings` resolves. */
-  function getLatestAgentOtelSettings(): AgentOtelSettingsRead | undefined {
-    return queryClient.getQueryData<AgentOtelSettingsRead>([
-      "org-agent-otel-settings",
-    ])
-  }
-
   return {
     agentOtelSettings,
-    getLatestAgentOtelSettings,
     agentOtelSettingsIsLoading,
     agentOtelSettingsError,
     updateAgentOtelSettings,

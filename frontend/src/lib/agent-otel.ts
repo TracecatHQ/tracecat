@@ -572,8 +572,13 @@ function envValueIssues(spec: OTelEnvSpec, value: string): string[] {
     if (endpoint.username || endpoint.password) {
       issues.push(`${spec.key} must not include credentials.`)
     }
-    if (endpoint.search) {
+    // Check the raw string: URL.search/hash are "" for a bare "?" or "#",
+    // after which the relay would append the OTLP path past the delimiter.
+    if (value.includes("?")) {
       issues.push(`${spec.key} must not include a query string.`)
+    }
+    if (value.includes("#")) {
+      issues.push(`${spec.key} must not include a fragment.`)
     }
   }
   if (spec.key === "OTEL_RESOURCE_ATTRIBUTES") {
@@ -665,7 +670,15 @@ export interface AgentOtelHeaderEntry {
   value: string
 }
 
-/** Validate non-empty collector header rows before object serialization. */
+// RFC 7230 token: the only characters legal in an HTTP header name.
+const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_\x60|~0-9A-Za-z]+$/
+
+// Control bytes make the exporter reject the request before it is sent.
+// Control bytes and non-ASCII are unsendable: httpx ASCII-encodes header
+// values, so the relay's request construction would fail client-side.
+const HEADER_VALUE_INVALID_PATTERN = /[^\x20-\x7e]/
+
+/** Validate collector header rows against what HTTP can actually send. */
 export function validateAgentOtelHeaderEntries(
   entries: readonly AgentOtelHeaderEntry[]
 ): string[] {
@@ -674,6 +687,16 @@ export function validateAgentOtelHeaderEntries(
     const name = entry.name.trim()
     if (!name || !entry.value.trim()) {
       return ["Headers must map non-empty names to non-empty string values."]
+    }
+    if (!HEADER_NAME_PATTERN.test(name)) {
+      return [
+        `Header name ${name} is not a valid HTTP header name (letters, digits, and !#$%&'*+-.^_\x60|~).`,
+      ]
+    }
+    if (HEADER_VALUE_INVALID_PATTERN.test(entry.value)) {
+      return [
+        `Header ${name} value must contain only printable ASCII characters.`,
+      ]
     }
     const normalizedName = name.toLowerCase()
     if (seenNames.has(normalizedName)) {
