@@ -1,0 +1,24 @@
+packages/tracecat-registry/tracecat_registry/integrations/onepassword_sdk.py
+  s_075855148e08d5::t_4634a09e705971 7,47-68,70-76,80-87
+tests/registry/test_onepassword_sdk.py
+  s_075855148e08d5::t_4634a09e705971 5,76,79-93,113-122
+  s_075855148e08d5::t_a1606d860c913e 123-124
+frontend/src/components/icons.test.tsx
+  s_075855148e08d5::t_4634a09e705971 177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "23a64e7e77f0e986932ec4a228d1bfe593420620",
+  "prompts": {},
+  "sessions": {
+    "s_075855148e08d5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a058ad-f064-7133-a4db-fbe2bc5cb571",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
