@@ -19,6 +19,7 @@ import {
   type MentionRange,
   remapMentions,
   serializeMentions,
+  shiftMentionsAfterPrefix,
   type TextSplice,
 } from "@/lib/mentions"
 import {
@@ -140,6 +141,12 @@ export interface Mentions {
   serialize: (text: string) => string
   /** Clear all mention state, e.g. after a successful submit. */
   reset: () => void
+  /**
+   * Close the session and re-base ranges past `cut` characters removed from the
+   * front of the text. Ranges inside the cut go with it; the rest keep their
+   * bindings. A cut covering the whole text is equivalent to `reset`.
+   */
+  dropPrefix: (cut: number) => void
 }
 
 type ActiveSession = {
@@ -535,6 +542,20 @@ export function useMentions({
     setSession(undefined)
   }, [])
 
+  /**
+   * Close the session and re-base ranges past a prefix the caller has removed.
+   *
+   * Takes the functional form on purpose: a caller's `ranges` snapshot can be a
+   * render behind, which it will be whenever the user picks a mention while the
+   * submit that is now cutting the prefix was still in flight. Reading the
+   * snapshot there would drop that binding and leave the surviving draft naming
+   * an agent it no longer routes to.
+   */
+  const dropPrefix = useCallback((cut: number) => {
+    setSession(undefined)
+    setRanges((current) => shiftMentionsAfterPrefix(current, cut))
+  }, [])
+
   return {
     ranges,
     agents,
@@ -557,5 +578,6 @@ export function useMentions({
     applySplice,
     serialize,
     reset,
+    dropPrefix,
   }
 }

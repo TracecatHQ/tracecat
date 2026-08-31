@@ -1959,6 +1959,55 @@ describe("ChatSessionPane", () => {
       expect(textarea).toHaveValue("@Triage agent ")
     })
 
+    it("keeps a mention bound when it is picked during a pending write", async () => {
+      mockPresets([TRIAGE_PRESET, MALWARE_PRESET])
+      let resolvePreset: (applied: boolean) => void = () => {}
+      const onSelect = jest.fn().mockReturnValue(
+        new Promise<boolean>((resolve) => {
+          resolvePreset = resolve
+        })
+      )
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect,
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@tri", selectionStart: 4 },
+      })
+      await screen.findByText("Triage agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(textarea).toHaveValue("@Triage agent "))
+
+      // Submit; the preset write hangs.
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1))
+
+      // Mid-write, the user picks a different agent for the follow-up.
+      fireEvent.change(textarea, {
+        target: { value: "@Triage agent @mal", selectionStart: 18 },
+      })
+      await screen.findByText("Malware agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(textarea).toHaveValue(" @Malware agent "))
+
+      resolvePreset(true)
+      await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1))
+      // The first turn went out; the follow-up survives, still naming Malware.
+      expect(textarea).toHaveValue(" @Malware agent ")
+
+      // So submitting it has to route there. The binding surviving the cut is
+      // the whole point: without it this sends under Triage.
+      onSelect.mockResolvedValue(true)
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(onSelect).toHaveBeenCalledWith("preset-2"))
+    })
+
     it("replaces the first agent when a second one is picked", async () => {
       // A chat session owns one preset, so a stale name left in the text would
       // quietly win at submit.

@@ -348,7 +348,7 @@ export function ChatSessionPane({
     handleTextChange: handleMentionTextChange,
     handleKeyDown: handleMentionKeyDown,
     dismiss: dismissMentions,
-    reset: resetMentions,
+    dropPrefix: dropMentionPrefix,
   } = mentions
   const [selectedTools, setSelectedTools] = useState<string[]>([])
   const [selectedMcpIntegrations, setSelectedMcpIntegrations] = useState<
@@ -1052,11 +1052,17 @@ export function ChatSessionPane({
         ? live.slice(messageText.length)
         : live
     }
-    // The submitted text held the mention ranges and leaves the box either way,
-    // so whatever remains starts unbound.
+    // Ranges follow the text they describe: the ones inside the prefix go with
+    // it, the rest keep their bindings at their new offsets. Clearing them all
+    // would unbind a mention picked while this submit was in flight, leaving
+    // the surviving draft naming an agent that its own submit would not route
+    // to. `dropPrefix` re-reads the ranges, since this closure's copy predates
+    // any such pick.
     const clearSubmittedDraft = () => {
-      setInput(remainingDraft())
-      resetMentions()
+      const live = promptTextareaRef.current?.value ?? ""
+      const remaining = remainingDraft()
+      setInput(remaining)
+      dropMentionPrefix(live.length - remaining.length)
     }
 
     if (onBeforeSend) {

@@ -228,6 +228,29 @@ export function findAgentMention(
   return mentions.find((mention) => mention.kind === "agent")
 }
 
+/**
+ * Re-base mentions onto text with `cut` characters removed from the front.
+ *
+ * A mention lying inside the cut goes with the text it described; the rest keep
+ * their bindings at their new offsets. Used when a sent message is taken off
+ * the front of a composer the user has carried on typing into.
+ */
+export function shiftMentionsAfterPrefix(
+  mentions: MentionRange[],
+  cut: number
+): MentionRange[] {
+  if (cut <= 0) {
+    return mentions
+  }
+  return mentions
+    .filter((mention) => mention.start >= cut)
+    .map((mention) => ({
+      ...mention,
+      start: mention.start - cut,
+      end: mention.end - cut,
+    }))
+}
+
 /** Caret-anchored `@query` or `/query` span that drives the mention popover. */
 export interface MentionToken {
   start: number

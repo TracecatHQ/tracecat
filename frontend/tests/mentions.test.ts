@@ -13,6 +13,7 @@ import {
   mentionDisplayText,
   remapMentions,
   serializeMentions,
+  shiftMentionsAfterPrefix,
 } from "@/lib/mentions"
 
 function mention(
@@ -444,5 +445,29 @@ describe("applyMentionRemoval", () => {
       mention(5, "Triage agent")
     )
     expect(edit).toEqual({ text: "Ping  now", mentions: [], caret: 5 })
+  })
+})
+
+describe("shiftMentionsAfterPrefix", () => {
+  const at = (start: number, end: number, targetId: string): MentionRange => ({
+    start,
+    end,
+    kind: "agent",
+    label: "Agent",
+    targetId,
+  })
+
+  it("returns the ranges untouched when nothing is cut", () => {
+    const ranges = [at(0, 5, "a")]
+    expect(shiftMentionsAfterPrefix(ranges, 0)).toBe(ranges)
+  })
+
+  it("drops ranges inside the cut and re-bases the rest", () => {
+    const ranges = [at(0, 14, "sent"), at(20, 30, "kept")]
+    expect(shiftMentionsAfterPrefix(ranges, 14)).toEqual([at(6, 16, "kept")])
+  })
+
+  it("drops everything when the cut covers the whole text", () => {
+    expect(shiftMentionsAfterPrefix([at(0, 14, "sent")], 30)).toEqual([])
   })
 })
