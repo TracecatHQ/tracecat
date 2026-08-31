@@ -331,7 +331,7 @@ class TestBuildAgentArgsActivity:
         assert result.model_settings == {"reasoning_effort": "medium"}
 
     @pytest.mark.anyio
-    async def test_preserves_agents_config(self, role: Role):
+    async def test_ignores_legacy_enabled_in_agents_config(self, role: Role):
         args = {
             "user_prompt": "Hello",
             "model_name": "claude-sonnet-4-5-20250929",
@@ -359,10 +359,12 @@ class TestBuildAgentArgsActivity:
 
         result = await DSLActivities.build_agent_args_activity(input)
 
-        assert result.agents.model_dump(mode="json") == args["agents"]
+        assert result.agents.model_dump(mode="json") == {
+            "subagents": args["agents"]["subagents"],
+        }
 
     @pytest.mark.anyio
-    async def test_null_agents_config_normalizes_to_disabled(self, role: Role):
+    async def test_null_agents_config_normalizes_to_empty(self, role: Role):
         args = {
             "user_prompt": "Hello",
             "model_name": "claude-sonnet-4-5-20250929",
@@ -380,7 +382,6 @@ class TestBuildAgentArgsActivity:
         result = await DSLActivities.build_agent_args_activity(input)
 
         assert result.agents.model_dump(mode="json") == {
-            "enabled": False,
             "subagents": [],
         }
 
