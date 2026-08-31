@@ -543,6 +543,8 @@ class DSLWorkflow:
                 )
             except ActivityError as e:
                 match cause := e.cause:
+                    case ApplicationError() if extract_error_classification(cause):
+                        raise cause from None
                     case ApplicationError(type=t, details=details) if (
                         t == ValidationError.__name__
                     ):

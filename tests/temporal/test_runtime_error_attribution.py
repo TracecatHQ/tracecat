@@ -428,6 +428,23 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         ),
     ),
     _AttributionScenario(
+        id="error_handler.invalid_child_input",
+        topology=_Topology.ERROR_HANDLER,
+        fault_point=_FaultPoint.CHILD_EXECUTION,
+        fault="invalid child trigger input + successful handler",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+        children=(
+            _ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+            _ExecutionExpectation(_COMPLETED, None),
+        ),
+        envelope_owners=frozenset({RuntimeErrorOwner.USER}),
+        kind=RuntimeErrorKind.WORKFLOW_TRIGGER_INPUT_INVALID,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        runner=_monkeypatch_runner(
+            child_harness.run_invalid_child_input_with_successful_error_handler_sets_user_owner
+        ),
+    ),
+    _AttributionScenario(
         id="subflow_preparation.unhandled_platform_failure",
         topology=_Topology.SINGLE_ACTION,
         fault_point=_FaultPoint.SUBFLOW_PREPARATION,

@@ -22,10 +22,17 @@ from tests.temporal.runtime_error_attribution_harness import (
 )
 from tracecat import config
 from tracecat.dsl import action as action_module
-from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.common import (
+    DSLEntrypoint,
+    DSLInput,
+    DSLRunArgs,
+    PreparedSubflowResult,
+)
 from tracecat.dsl.enums import (
     FailStrategy,
+    PlatformAction,
     StreamErrorHandlingStrategy,
+    WaitStrategy,
 )
 from tracecat.dsl.init_activities import (
     resolve_time_anchor_activity,
@@ -39,6 +46,7 @@ from tracecat.dsl.schemas import (
 )
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.executor.activities import ExecutorActivities
+from tracecat.expressions.schemas import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import InlineObject
@@ -579,4 +587,153 @@ async def run_successful_error_handler_does_not_inherit_terminal_owner(
         root=parent_handle,
         failure=exc_info.value,
         children=(handler_handle,),
+    )
+
+
+async def run_invalid_child_input_with_successful_error_handler_sets_user_owner(
+    env: WorkflowEnvironment,
+    test_worker_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> ScenarioObservation:
+    """Invalid child input attributes both failed child and terminal parent."""
+    handler_wf_id = WorkflowUUID.new_uuid4()
+    handler_dsl = DSLInput(
+        title="Trigger validation error handler",
+        description="Complete successfully after invalid child input",
+        entrypoint=DSLEntrypoint(ref="handle"),
+        actions=[
+            ActionStatement(
+                ref="handle",
+                action="core.noop",
+                args={},
+                retry_policy=ActionRetryPolicy(max_attempts=1, timeout=10),
+            )
+        ],
+    )
+    handler_lock = RegistryLock(
+        origins={"tracecat_registry": "test"},
+        actions={"core.noop": "tracecat_registry"},
+    )
+    handler_definition = AsyncMock(
+        return_value=SimpleNamespace(
+            content=handler_dsl.model_dump(),
+            registry_lock=handler_lock.model_dump(),
+        )
+    )
+    monkeypatch.setattr(
+        WorkflowDefinitionsService,
+        "get_definition_by_workflow_id",
+        handler_definition,
+    )
+
+    child_wf_id = WorkflowUUID.new_uuid4()
+    child_dsl = DSLInput(
+        title="Validated child",
+        description="Reject invalid trigger input before action execution",
+        entrypoint=DSLEntrypoint(
+            ref="child_action",
+            expects={"number": ExpectedField(type="int")},
+        ),
+        actions=[
+            ActionStatement(
+                ref="child_action",
+                action="core.noop",
+                args={},
+                retry_policy=ActionRetryPolicy(max_attempts=1, timeout=10),
+            )
+        ],
+    )
+    prepared = PreparedSubflowResult(
+        wf_id=child_wf_id,
+        dsl=child_dsl,
+        registry_lock=handler_lock,
+    )
+    prepare_subflow = AsyncMock(return_value=prepared)
+
+    parent_wf_id = WorkflowUUID.new_uuid4()
+    run_args = DSLRunArgs(
+        role=_role(),
+        wf_id=parent_wf_id,
+        dsl=DSLInput(
+            title="Invalid child input parent",
+            description="Run a successful handler after child validation fails",
+            entrypoint=DSLEntrypoint(ref="call_child"),
+            actions=[
+                ActionStatement(
+                    ref="call_child",
+                    action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+                    args={
+                        "workflow_id": child_wf_id.short(),
+                        "trigger_inputs": {"number": "not-an-int"},
+                        "wait_strategy": WaitStrategy.WAIT.value,
+                    },
+                )
+            ],
+            error_handler=handler_wf_id.short(),
+        ),
+        trigger_inputs=InlineObject(data={}),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test"},
+            actions={},
+        ),
+    )
+    dispatch = _ChildDispatch(
+        user_diagnostic="unused user diagnostic",
+        platform_diagnostic="unused platform diagnostic",
+        calls=[],
+    )
+    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
+
+    with (
+        patch("tracecat.dsl.action._prepare_subflow", new=prepare_subflow),
+        patch(
+            "tracecat.executor.activities.get_executor_backend",
+            return_value=object(),
+        ),
+        patch(
+            "tracecat.executor.activities.dispatch_action",
+            new=dispatch.dispatch,
+        ),
+    ):
+        async with (
+            test_worker_factory(
+                env.client,
+                activities=[
+                    resolve_time_anchor_activity,
+                    resolve_workflow_concurrency_limits_enabled_activity,
+                    WorkflowsManagementService.get_error_handler_workflow_id,
+                    get_workflow_definition_activity,
+                    action_module.DSLActivities.prepare_subflow_activity,
+                    action_module.DSLActivities.evaluate_templated_object_activity,
+                    action_module.DSLActivities.normalize_trigger_inputs_activity,
+                ],
+                task_queue=dsl_queue,
+            ),
+            test_worker_factory(
+                env.client,
+                activities=[ExecutorActivities.execute_action_activity],
+                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            ),
+        ):
+            parent_handle = await env.client.start_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=generate_exec_id(parent_wf_id),
+                task_queue=dsl_queue,
+            )
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await parent_handle.result()
+
+    child_handles = [
+        env.client.get_workflow_handle(child_id)
+        for child_id in await child_workflow_ids(parent_handle)
+    ]
+    assert len(child_handles) == 2
+    assert handler_definition.await_count == 1
+    assert prepare_subflow.await_count == 1
+    assert dispatch.calls == ["success"]
+    return ScenarioObservation(
+        root=parent_handle,
+        failure=exc_info.value,
+        children=tuple(child_handles),
     )
