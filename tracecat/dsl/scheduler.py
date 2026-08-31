@@ -106,6 +106,17 @@ def _get_collection_size(stored: StoredObject) -> int:
             )
 
 
+def _loop_limit_error(message: str) -> ApplicationError:
+    """Build a user-attributed failure for a workflow loop safety limit."""
+    return application_error_from_classification(
+        RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.WORKFLOW_LOOP_LIMIT_EXCEEDED,
+            message=message,
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+        )
+    )
+
+
 def _classified_action_error_info(
     error: ApplicationError,
     *,
@@ -1143,12 +1154,9 @@ class DSLScheduler:
             isinstance(raw_max_iterations, int)
             and raw_max_iterations > MAX_DO_WHILE_ITERATIONS
         ):
-            raise ApplicationError(
-                (
-                    "Loop max_iterations exceeds platform cap: "
-                    f"{raw_max_iterations} > {MAX_DO_WHILE_ITERATIONS}."
-                ),
-                non_retryable=True,
+            raise _loop_limit_error(
+                "Loop max_iterations exceeds platform cap: "
+                f"{raw_max_iterations} > {MAX_DO_WHILE_ITERATIONS}."
             )
         args = LoopEndArgs(**stmt.args)
         loop_key = (region.start_ref, task.stream_id)
@@ -1184,12 +1192,9 @@ class DSLScheduler:
         if should_continue:
             next_index = current_index + 1
             if next_index >= args.max_iterations:
-                raise ApplicationError(
-                    (
-                        f"Loop '{task.ref}' exceeded max_iterations={args.max_iterations}. "
-                        "Update `condition` or increase `max_iterations`."
-                    ),
-                    non_retryable=True,
+                raise _loop_limit_error(
+                    f"Loop '{task.ref}' exceeded max_iterations={args.max_iterations}. "
+                    "Update `condition` or increase `max_iterations`."
                 )
             self._reset_loop_iteration_state(region, task.stream_id)
             self.loop_indices[loop_key] = next_index
