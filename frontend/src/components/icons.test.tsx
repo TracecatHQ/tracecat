@@ -174,7 +174,7 @@ describe("action namespace icons", () => {
     ["tools.databricks_sdk", "Databricks"],
     ["tools.databricks_sdk.call_method", "Databricks"],
     ["tools.onepassword", "1Password"],
-    ["tools.onepassword.events.list_audit_events", "1Password"],
+    ["tools.onepassword.list_audit_events", "1Password"],
     ["tools.onepassword_sdk", "1Password"],
     ["tools.onepassword_sdk.call_method", "1Password"],
     ["tools.snowflake", "Snowflake"],

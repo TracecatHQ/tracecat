@@ -2,6 +2,7 @@
 
 import pytest
 from onepassword import Client
+from onepassword.core import InnerClient, UniffiCore
 from onepassword.items import Items
 from onepassword.types import (
     ItemListFilterByState,
@@ -72,9 +73,24 @@ def test_onepassword_dispatch_rejects_private_attributes(
 
 def test_onepassword_dispatch_resolves_public_sdk_methods() -> None:
     client = Client()
-    client.items = object.__new__(Items)
+    client.items = Items(object.__new__(InnerClient))
 
     assert _get_sdk_method(client, "items", "list").__name__ == "list"
+    assert _get_sdk_method(client, "items.files", "read").__name__ == "read"
+
+
+def test_onepassword_dispatch_rejects_internal_module_traversal() -> None:
+    inner_client = object.__new__(InnerClient)
+    inner_client.core = UniffiCore()
+    client = Client()
+    client.items = Items(inner_client)
+
+    with pytest.raises(AttributeError, match="Unknown 1Password SDK method"):
+        _get_sdk_method(
+            client,
+            "items.inner_client.core.core.os",
+            "system",
+        )
 
 
 def test_onepassword_prepares_generated_pydantic_parameters() -> None:
@@ -92,6 +108,18 @@ def test_onepassword_prepares_generated_pydantic_parameters() -> None:
             allowAdminsAccess=True,
         )
     }
+
+
+def test_onepassword_preserves_primitive_and_null_parameters() -> None:
+    method = object.__new__(Items).get
+
+    args, kwargs = _prepare_call(
+        method,
+        {"vault_id": None, "item_id": "item-123"},
+    )
+
+    assert args == []
+    assert kwargs == {"vault_id": None, "item_id": "item-123"}
 
 
 def test_onepassword_prepares_variadic_sdk_filters() -> None:

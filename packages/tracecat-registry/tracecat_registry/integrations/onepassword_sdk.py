@@ -4,7 +4,7 @@ import base64
 import inspect
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from enum import Enum
-from typing import Annotated, Any, get_type_hints
+from typing import Annotated, Any, get_args, get_type_hints
 
 from onepassword import Client
 from pydantic import BaseModel, Field, TypeAdapter
@@ -44,21 +44,47 @@ def _get_sdk_method(client: Client, service: str, method_name: str) -> Any:
     ):
         raise AttributeError(f"Unknown 1Password SDK method: {service}.{method_name}")
 
-    sdk_service: Any = client
-    for part in service_parts:
-        if nested_service := getattr(sdk_service, part, None):
-            sdk_service = nested_service
-        else:
-            raise AttributeError(
-                f"Unknown 1Password SDK method: {service}.{method_name}"
-            )
-    if method := getattr(sdk_service, method_name, None):
+    error = AttributeError(f"Unknown 1Password SDK method: {service}.{method_name}")
+    top_level_service, *nested_parts = service_parts
+    expected_type = get_type_hints(Client).get(top_level_service)
+    sdk_service: Any = getattr(client, top_level_service, None)
+    if expected_type is None or not isinstance(sdk_service, expected_type):
+        raise error
+
+    service_module = type(sdk_service).__module__
+    for part in nested_parts:
+        if not (nested_service := getattr(sdk_service, part, None)):
+            raise error
+        nested_module = type(nested_service).__module__
+        if not nested_module.startswith(f"{service_module}_"):
+            raise error
+        sdk_service = nested_service
+        service_module = nested_module
+
+    if (
+        (method := getattr(sdk_service, method_name, None))
+        and callable(method)
+        and getattr(method, "__module__", None) == service_module
+    ):
         return method
-    raise AttributeError(f"Unknown 1Password SDK method: {service}.{method_name}")
+    raise error
+
+
+def _contains_pydantic_model(annotation: Any) -> bool:
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return True
+    return any(_contains_pydantic_model(arg) for arg in get_args(annotation))
 
 
 def _coerce_value(annotation: Any, value: Any) -> Any:
-    if annotation is inspect.Parameter.empty:
+    if (
+        annotation is inspect.Parameter.empty
+        or value is None
+        or isinstance(value, BaseModel)
+        or not _contains_pydantic_model(annotation)
+        or not isinstance(value, Mapping | Sequence)
+        or isinstance(value, str | bytes | bytearray)
+    ):
         return value
     return TypeAdapter(annotation).validate_python(value)
 
