@@ -31,6 +31,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.temporal.errors import (
         application_error_from_classification,
         extract_error_classifications,
+        iter_error_chain,
     )
     from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
 
@@ -38,6 +39,18 @@ with workflow.unsafe.imports_passed_through():
 _RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR_PATCH = (
     "runtime-error-attribution-interceptor-v1"
 )
+
+
+def _unclassified_retry_disposition(error: BaseException) -> RetryDisposition:
+    """Preserve explicit Temporal retryability without guessing for raw errors."""
+    for current in iter_error_chain(error, include_implicit_context=False):
+        if isinstance(current, ApplicationError):
+            return (
+                RetryDisposition.NON_RETRYABLE
+                if current.non_retryable
+                else RetryDisposition.RETRYABLE
+            )
+    return RetryDisposition.NON_RETRYABLE
 
 
 def _set_common_workflow_tags(info: workflow.Info | activity.Info) -> None:
@@ -190,7 +203,7 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
             classification = RuntimeErrorClassification.platform(
                 kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
                 message="Tracecat encountered an unclassified runtime failure",
-                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                retry_disposition=_unclassified_retry_disposition(error),
                 cause=error,
             )
             self._stamp_owner(classification)
