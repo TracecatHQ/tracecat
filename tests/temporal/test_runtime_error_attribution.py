@@ -414,6 +414,24 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         ),
     ),
     _AttributionScenario(
+        id="subflows.concurrent_cancellation.preserves_causal_owner",
+        topology=_Topology.FANOUT,
+        fault_point=_FaultPoint.CHILD_EXECUTION,
+        fault="user leaf failure + cancelled sibling",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+        children=(
+            _ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+            _ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+            _ExecutionExpectation(_CANCELED, None),
+        ),
+        envelope_owners=frozenset({RuntimeErrorOwner.USER}),
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        runner=_monkeypatch_runner(
+            child_harness.run_concurrent_sibling_cancellation_preserves_causal_owner
+        ),
+    ),
+    _AttributionScenario(
         id="error_handler.successful_child",
         topology=_Topology.ERROR_HANDLER,
         fault_point=_FaultPoint.CHILD_EXECUTION,
@@ -425,6 +443,23 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         retry_disposition=RetryDisposition.RETRYABLE,
         runner=_monkeypatch_runner(
             child_harness.run_successful_error_handler_does_not_inherit_terminal_owner
+        ),
+    ),
+    _AttributionScenario(
+        id="error_handler.invalid_child_input",
+        topology=_Topology.ERROR_HANDLER,
+        fault_point=_FaultPoint.CHILD_EXECUTION,
+        fault="invalid child trigger input + successful handler",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+        children=(
+            _ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+            _ExecutionExpectation(_COMPLETED, None),
+        ),
+        envelope_owners=frozenset({RuntimeErrorOwner.USER}),
+        kind=RuntimeErrorKind.WORKFLOW_TRIGGER_INPUT_INVALID,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        runner=_monkeypatch_runner(
+            child_harness.run_invalid_child_input_with_successful_error_handler_sets_user_owner
         ),
     ),
     _AttributionScenario(

@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from botocore.exceptions import HTTPClientError
 from pydantic import ValidationError
 from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
@@ -16,6 +17,7 @@ from tests.shared import capture_application_error as _capture_application_error
 from tracecat.auth.types import Role
 from tracecat.dsl.action import (
     DSLActivities,
+    NormalizeTriggerInputsActivityInputs,
     PrepareSubflowActivityInput,
     SubflowDefinitionNotFoundError,
 )
@@ -36,6 +38,7 @@ from tracecat.dsl.workflow import (
     ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
     DSLWorkflow,
 )
+from tracecat.expressions.schemas import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -43,6 +46,8 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
+from tracecat.storage.backends.inline import InlineObjectStorage
+from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import (
     build_error_transport_detail,
     extract_error_classification,
@@ -126,6 +131,103 @@ def test_scheduler_adapts_non_action_classification_to_error_info() -> None:
     assert detail.message == classification.message
     assert detail.type == classification.kind.value
     assert adapted_classification == classification
+
+
+def test_trigger_input_validation_is_classified_and_history_safe() -> None:
+    sensitive = "rejected-value-must-not-enter-history"
+
+    with (
+        patch(
+            "tracecat.dsl.action.get_object_storage",
+            return_value=InlineObjectStorage(),
+        ),
+        patch("tracecat.dsl.action.logger.info") as logger_info_mock,
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        DSLActivities.normalize_trigger_inputs_activity(
+            NormalizeTriggerInputsActivityInputs(
+                input_schema={"number": ExpectedField(type="int")},
+                trigger_inputs=InlineObject(data={"number": sensitive}),
+                key="test/normalized-trigger",
+            )
+        )
+
+    error = exc_info.value
+    classification = extract_error_classification(error)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_TRIGGER_INPUT_INVALID
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert classification.cause_type == ValidationError.__name__
+    assert error.non_retryable is True
+
+    payload = parse_classified_action_error_payload(error.details[0])
+    assert isinstance(payload, dict)
+    detail = payload["__workflow_trigger__"]
+    assert detail.classification == classification
+    assert detail.diagnostic is not None
+    assert detail.diagnostic.ref == "__workflow_trigger__"
+
+    failure = Failure()
+    asyncio.run(DataConverter.default.encode_failure(error, failure))
+    assert sensitive not in str(failure)
+    logger_info_mock.assert_called_once()
+    assert "error" not in logger_info_mock.call_args.kwargs
+    assert sensitive not in str(logger_info_mock.call_args)
+
+
+@pytest.mark.parametrize(
+    ("fault_point", "expected_kind"),
+    [
+        (
+            "retrieve",
+            RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+        ),
+        (
+            "store",
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        ),
+    ],
+)
+def test_trigger_input_storage_failure_is_platform_owned_and_history_safe(
+    fault_point: Literal["retrieve", "store"],
+    expected_kind: RuntimeErrorKind,
+) -> None:
+    sensitive = "trigger storage diagnostic must not enter history"
+    transport_error = HTTPClientError(error=RuntimeError(sensitive))
+    storage = MagicMock()
+    storage.retrieve = AsyncMock(return_value={"number": 1})
+    storage.store = AsyncMock(return_value=InlineObject(data={"number": 1}))
+    match fault_point:
+        case "retrieve":
+            storage.retrieve.side_effect = transport_error
+        case "store":
+            storage.store.side_effect = transport_error
+
+    with (
+        patch("tracecat.dsl.action.get_object_storage", return_value=storage),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        DSLActivities.normalize_trigger_inputs_activity(
+            NormalizeTriggerInputsActivityInputs(
+                input_schema={"number": ExpectedField(type="int")},
+                trigger_inputs=InlineObject(data={"number": 1}),
+                key="test/normalized-trigger",
+            )
+        )
+
+    error = exc_info.value
+    classification = extract_error_classification(error)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is expected_kind
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert classification.cause_type == HTTPClientError.__name__
+    assert error.non_retryable is False
+
+    failure = Failure()
+    asyncio.run(DataConverter.default.encode_failure(error, failure))
+    assert sensitive not in str(failure)
 
 
 @pytest.mark.anyio

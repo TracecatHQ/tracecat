@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, CancelledError
 
 from tests.shared import capture_application_error as _capture_application_error
 from tracecat.dsl.error_policy import raise_child_failures_application_error
@@ -314,6 +314,36 @@ def test_mixed_child_failures_use_unclassified_aggregate_with_every_child() -> N
     patched_mock.assert_not_called()
 
 
+def test_child_cancellation_does_not_erase_classified_causal_failure() -> None:
+    user_classification = RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The child action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+    error = _capture_child_failures_application_error(
+        task_ref="fanout",
+        failures=[
+            (3, _capture_application_error(user_classification)),
+            (4, CancelledError()),
+        ],
+    )
+
+    classification = extract_error_classification(error)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.cause_type == "ChildWorkflowAggregateError"
+    aggregate_transport = parse_classified_action_error_payload(error.details[0])
+    assert isinstance(aggregate_transport, ActionErrorTransportDetail)
+    assert aggregate_transport.diagnostic is not None
+    assert aggregate_transport.diagnostic.children is not None
+    assert [child.ref for child in aggregate_transport.diagnostic.children] == [
+        "fanout[3]",
+        "fanout[4]",
+    ]
+    assert aggregate_transport.diagnostic.children[1].type == "CancelledError"
+
+
 def test_legacy_workflow_error_shape_is_unchanged() -> None:
     detail = ActionErrorInfo(ref="action", message="Failed", type="ValueError")
     error = _capture_workflow_application_error(
@@ -367,3 +397,90 @@ def test_mixed_workflow_errors_use_the_unclassified_terminal_raise() -> None:
     with patch("tracecat.dsl.workflow.workflow.patched") as patched_mock:
         assert DSLWorkflow._has_user_error_cause(error) is False
     patched_mock.assert_not_called()
+
+
+def test_terminal_cancellation_does_not_erase_classified_causal_failure() -> None:
+    user_classification = RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    user_detail = _action_error_info(user_classification, ref="user_action")
+    cancelled_detail = ActionErrorInfo(
+        ref="cancelled_action",
+        message="Cancelled",
+        type="CancelledError",
+    )
+
+    error = _capture_workflow_application_error(
+        {
+            "user_action": TaskExceptionInfo(
+                exception=_capture_application_error(user_classification),
+                details=user_detail,
+            ),
+            "cancelled_action": TaskExceptionInfo(
+                exception=CancelledError(),
+                details=cancelled_detail,
+            ),
+        }
+    )
+
+    assert extract_error_classification(error) == user_classification
+    assert error.details[0] == {
+        "user_action": user_detail,
+        "cancelled_action": cancelled_detail,
+    }
+    assert len(error.details) == 2
+
+
+def test_terminal_cancellation_preserves_every_causal_classification() -> None:
+    user_classification = RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    platform_classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not execute the action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    user_detail = _action_error_info(user_classification, ref="user_action")
+    platform_detail = _action_error_info(
+        platform_classification,
+        ref="platform_action",
+    )
+    cancelled_detail = ActionErrorInfo(
+        ref="cancelled_action",
+        message="Cancelled",
+        type="CancelledError",
+    )
+
+    error = _capture_workflow_application_error(
+        {
+            "user_action": TaskExceptionInfo(
+                exception=_capture_application_error(user_classification),
+                details=user_detail,
+            ),
+            "platform_action": TaskExceptionInfo(
+                exception=_capture_application_error(platform_classification),
+                details=platform_detail,
+            ),
+            "cancelled_action": TaskExceptionInfo(
+                exception=CancelledError(),
+                details=cancelled_detail,
+            ),
+        }
+    )
+
+    assert error.message == platform_classification.message
+    assert error.type == platform_classification.kind.value
+    assert error.details[0] == {
+        "user_action": user_detail,
+        "platform_action": platform_detail,
+        "cancelled_action": cancelled_detail,
+    }
+    assert extract_error_classifications(error) == (
+        user_classification,
+        platform_classification,
+    )
+    assert len(error.details) == 3

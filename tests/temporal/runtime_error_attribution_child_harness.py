@@ -2,31 +2,47 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 
 from tests.temporal.runtime_error_attribution_harness import (
     ScenarioObservation,
     _ChildDispatch,
+    _ConcurrentChildDispatch,
     _inline_run_args,
     _role,
+    child_workflow_action,
     child_workflow_ids,
     describe_status,
+    fanout_dsl,
     fanout_run_args,
+    prepared_child,
     prepared_fanout,
+    subflow_run_args,
+    wait_for_child_workflow_ids,
 )
 from tracecat import config
 from tracecat.dsl import action as action_module
-from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.common import (
+    DSLEntrypoint,
+    DSLInput,
+    DSLRunArgs,
+    PreparedSubflowResult,
+)
 from tracecat.dsl.enums import (
     FailStrategy,
+    PlatformAction,
     StreamErrorHandlingStrategy,
+    WaitStrategy,
 )
+from tracecat.dsl.error_transport import parse_classified_action_error_payload
 from tracecat.dsl.init_activities import (
     resolve_time_anchor_activity,
     resolve_workflow_concurrency_limits_enabled_activity,
@@ -39,9 +55,13 @@ from tracecat.dsl.schemas import (
 )
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.executor.activities import ExecutorActivities
+from tracecat.expressions.schemas import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import InlineObject
+from tracecat.temporal.errors import (
+    iter_error_chain,
+)
 from tracecat.workflow.management.definitions import (
     WorkflowDefinitionsService,
     get_workflow_definition_activity,
@@ -460,6 +480,159 @@ async def run_fail_all_preserves_mixed_child_attribution(
     )
 
 
+async def run_concurrent_sibling_cancellation_preserves_causal_owner(
+    env: WorkflowEnvironment,
+    test_worker_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> ScenarioObservation:
+    """A fanout aggregates a causal leaf failure with a cancelled sibling."""
+    leaf_wf_id = WorkflowUUID.new_uuid4()
+    intermediary_wf_id = WorkflowUUID.new_uuid4()
+    intermediary_dsl = fanout_dsl(
+        child_wf_id=leaf_wf_id,
+        fail_strategy=FailStrategy.ALL,
+    )
+    intermediary_lock = RegistryLock(
+        origins={"tracecat_registry": "test"},
+        actions={},
+    )
+
+    async def prepare_subflow(
+        input: action_module.PrepareSubflowActivityInput,
+    ) -> PreparedSubflowResult:
+        match input.task.ref:
+            case "run_intermediary":
+                return prepared_child(
+                    child_wf_id=intermediary_wf_id,
+                    dsl=intermediary_dsl,
+                    registry_lock=intermediary_lock,
+                )
+            case "fanout":
+                return prepared_fanout(
+                    child_wf_id=leaf_wf_id,
+                    modes=["user", "slow"],
+                )
+            case _:
+                raise AssertionError(f"Unexpected subflow task: {input.task.ref}")
+
+    root_wf_id = WorkflowUUID.new_uuid4()
+    run_args = subflow_run_args(
+        wf_id=root_wf_id,
+        title="Concurrent attribution root",
+        description="Propagate causal attribution through an intermediary",
+        actions=[
+            child_workflow_action(
+                ref="run_intermediary",
+                child_wf_id=intermediary_wf_id,
+                trigger_inputs={"items": ["user", "slow"]},
+            )
+        ],
+    )
+    prepare_subflow_mock = AsyncMock(side_effect=prepare_subflow)
+    dispatch = _ConcurrentChildDispatch(
+        user_diagnostic="causal leaf diagnostic must not enter history",
+        calls=[],
+        slow_started=asyncio.Event(),
+    )
+    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
+    monkeypatch.setattr(config, "TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL", 1)
+
+    with (
+        patch("tracecat.dsl.action._prepare_subflow", new=prepare_subflow_mock),
+        patch(
+            "tracecat.executor.activities.get_executor_backend",
+            return_value=object(),
+        ),
+        patch(
+            "tracecat.executor.activities.dispatch_action",
+            new=dispatch.dispatch,
+        ),
+    ):
+        async with (
+            test_worker_factory(
+                env.client,
+                activities=[
+                    resolve_time_anchor_activity,
+                    resolve_workflow_concurrency_limits_enabled_activity,
+                    WorkflowsManagementService.get_error_handler_workflow_id,
+                    action_module.DSLActivities.prepare_subflow_activity,
+                    action_module.DSLActivities.evaluate_templated_object_activity,
+                ],
+                task_queue=dsl_queue,
+            ),
+            test_worker_factory(
+                env.client,
+                activities=[ExecutorActivities.execute_action_activity],
+                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            ),
+        ):
+            root_handle = await env.client.start_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=generate_exec_id(root_wf_id),
+                task_queue=dsl_queue,
+            )
+            [intermediary_id] = await wait_for_child_workflow_ids(
+                root_handle,
+                count=1,
+            )
+            intermediary_handle = env.client.get_workflow_handle(intermediary_id)
+            leaf_ids = await wait_for_child_workflow_ids(
+                intermediary_handle,
+                count=2,
+            )
+            leaf_handles = [
+                env.client.get_workflow_handle(child_id) for child_id in leaf_ids
+            ]
+            for _ in range(200):
+                statuses = [await describe_status(child) for child in leaf_handles]
+                if WorkflowExecutionStatus.FAILED in statuses:
+                    break
+                await asyncio.sleep(0.05)
+            else:
+                raise AssertionError("Expected the causal leaf workflow to fail")
+
+            [slow_leaf_handle] = [
+                child
+                for child, status in zip(leaf_handles, statuses, strict=True)
+                if status == WorkflowExecutionStatus.RUNNING
+            ]
+            await slow_leaf_handle.cancel()
+            with pytest.raises(WorkflowFailureError) as root_exc_info:
+                await root_handle.result()
+
+    with pytest.raises(WorkflowFailureError) as intermediary_exc_info:
+        await intermediary_handle.result()
+    terminal_error = next(
+        error
+        for error in iter_error_chain(intermediary_exc_info.value)
+        if isinstance(error, ApplicationError)
+    )
+    payload = parse_classified_action_error_payload(terminal_error.details[0])
+    assert isinstance(payload, dict)
+    assert set(payload) == {"fanout"}
+    aggregate = payload["fanout"].diagnostic
+    assert aggregate is not None
+    assert aggregate.children is not None
+    assert {child.ref for child in aggregate.children} == {"fanout[0]", "fanout[1]"}
+    assert {child.type for child in aggregate.children} >= {"ChildWorkflowError"}
+
+    histories = [
+        (await root_handle.fetch_history()).to_json(),
+        (await intermediary_handle.fetch_history()).to_json(),
+    ]
+    for child in leaf_handles:
+        histories.append((await child.fetch_history()).to_json())
+    assert dispatch.user_diagnostic not in "\n".join(histories)
+    assert sorted(dispatch.calls) == ["slow", "user"]
+    assert prepare_subflow_mock.await_count == 2
+    return ScenarioObservation(
+        root=root_handle,
+        failure=root_exc_info.value,
+        children=(intermediary_handle, *leaf_handles),
+    )
+
+
 async def run_successful_error_handler_does_not_inherit_terminal_owner(
     env: WorkflowEnvironment,
     test_worker_factory,
@@ -579,4 +752,153 @@ async def run_successful_error_handler_does_not_inherit_terminal_owner(
         root=parent_handle,
         failure=exc_info.value,
         children=(handler_handle,),
+    )
+
+
+async def run_invalid_child_input_with_successful_error_handler_sets_user_owner(
+    env: WorkflowEnvironment,
+    test_worker_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> ScenarioObservation:
+    """Invalid child input attributes both failed child and terminal parent."""
+    handler_wf_id = WorkflowUUID.new_uuid4()
+    handler_dsl = DSLInput(
+        title="Trigger validation error handler",
+        description="Complete successfully after invalid child input",
+        entrypoint=DSLEntrypoint(ref="handle"),
+        actions=[
+            ActionStatement(
+                ref="handle",
+                action="core.noop",
+                args={},
+                retry_policy=ActionRetryPolicy(max_attempts=1, timeout=10),
+            )
+        ],
+    )
+    handler_lock = RegistryLock(
+        origins={"tracecat_registry": "test"},
+        actions={"core.noop": "tracecat_registry"},
+    )
+    handler_definition = AsyncMock(
+        return_value=SimpleNamespace(
+            content=handler_dsl.model_dump(),
+            registry_lock=handler_lock.model_dump(),
+        )
+    )
+    monkeypatch.setattr(
+        WorkflowDefinitionsService,
+        "get_definition_by_workflow_id",
+        handler_definition,
+    )
+
+    child_wf_id = WorkflowUUID.new_uuid4()
+    child_dsl = DSLInput(
+        title="Validated child",
+        description="Reject invalid trigger input before action execution",
+        entrypoint=DSLEntrypoint(
+            ref="child_action",
+            expects={"number": ExpectedField(type="int")},
+        ),
+        actions=[
+            ActionStatement(
+                ref="child_action",
+                action="core.noop",
+                args={},
+                retry_policy=ActionRetryPolicy(max_attempts=1, timeout=10),
+            )
+        ],
+    )
+    prepared = PreparedSubflowResult(
+        wf_id=child_wf_id,
+        dsl=child_dsl,
+        registry_lock=handler_lock,
+    )
+    prepare_subflow = AsyncMock(return_value=prepared)
+
+    parent_wf_id = WorkflowUUID.new_uuid4()
+    run_args = DSLRunArgs(
+        role=_role(),
+        wf_id=parent_wf_id,
+        dsl=DSLInput(
+            title="Invalid child input parent",
+            description="Run a successful handler after child validation fails",
+            entrypoint=DSLEntrypoint(ref="call_child"),
+            actions=[
+                ActionStatement(
+                    ref="call_child",
+                    action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+                    args={
+                        "workflow_id": child_wf_id.short(),
+                        "trigger_inputs": {"number": "not-an-int"},
+                        "wait_strategy": WaitStrategy.WAIT.value,
+                    },
+                )
+            ],
+            error_handler=handler_wf_id.short(),
+        ),
+        trigger_inputs=InlineObject(data={}),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test"},
+            actions={},
+        ),
+    )
+    dispatch = _ChildDispatch(
+        user_diagnostic="unused user diagnostic",
+        platform_diagnostic="unused platform diagnostic",
+        calls=[],
+    )
+    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
+
+    with (
+        patch("tracecat.dsl.action._prepare_subflow", new=prepare_subflow),
+        patch(
+            "tracecat.executor.activities.get_executor_backend",
+            return_value=object(),
+        ),
+        patch(
+            "tracecat.executor.activities.dispatch_action",
+            new=dispatch.dispatch,
+        ),
+    ):
+        async with (
+            test_worker_factory(
+                env.client,
+                activities=[
+                    resolve_time_anchor_activity,
+                    resolve_workflow_concurrency_limits_enabled_activity,
+                    WorkflowsManagementService.get_error_handler_workflow_id,
+                    get_workflow_definition_activity,
+                    action_module.DSLActivities.prepare_subflow_activity,
+                    action_module.DSLActivities.evaluate_templated_object_activity,
+                    action_module.DSLActivities.normalize_trigger_inputs_activity,
+                ],
+                task_queue=dsl_queue,
+            ),
+            test_worker_factory(
+                env.client,
+                activities=[ExecutorActivities.execute_action_activity],
+                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            ),
+        ):
+            parent_handle = await env.client.start_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=generate_exec_id(parent_wf_id),
+                task_queue=dsl_queue,
+            )
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await parent_handle.result()
+
+    child_handles = [
+        env.client.get_workflow_handle(child_id)
+        for child_id in await child_workflow_ids(parent_handle)
+    ]
+    assert len(child_handles) == 2
+    assert handler_definition.await_count == 1
+    assert prepare_subflow.await_count == 1
+    assert dispatch.calls == ["success"]
+    return ScenarioObservation(
+        root=parent_handle,
+        failure=exc_info.value,
+        children=tuple(child_handles),
     )

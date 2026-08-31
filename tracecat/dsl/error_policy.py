@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, Never
 
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, is_cancelled_exception
 
 from tracecat.dsl.error_transport import parse_classified_action_error_payload
 from tracecat.dsl.types import ActionErrorInfo, TaskExceptionInfo
@@ -25,9 +25,10 @@ from tracecat.temporal.errors import (
 def raise_child_failures_application_error(
     *, task_ref: str, failures: list[tuple[int, BaseException]]
 ) -> Never:
-    """Raise child failures, classifying the aggregate only when all qualify."""
+    """Raise child failures without letting cancellation erase their cause."""
     child_details: list[ActionErrorInfo] = []
     child_classifications: list[RuntimeErrorClassification | None] = []
+    has_unclassified_non_cancellation = False
     for child_index, failure in failures:
         classifications = extract_error_classifications(failure)
         if classifications:
@@ -36,6 +37,7 @@ def raise_child_failures_application_error(
             child_type = classification.cause_type or type(failure).__name__
         else:
             classification = None
+            has_unclassified_non_cancellation |= not is_cancelled_exception(failure)
             child_message = str(failure)
             child_type = type(failure).__name__
         child_classifications.append(classification)
@@ -54,7 +56,12 @@ def raise_child_failures_application_error(
         type="ChildWorkflowAggregateError",
         children=child_details,
     )
-    if not all(classification is not None for classification in child_classifications):
+    classified_failures = [
+        classification
+        for classification in child_classifications
+        if classification is not None
+    ]
+    if not classified_failures or has_unclassified_non_cancellation:
         raise ApplicationError(
             message,
             {task_ref: aggregate},
@@ -62,11 +69,7 @@ def raise_child_failures_application_error(
             type=ApplicationError.__name__,
         )
 
-    primary_classification = select_error_classification(
-        classification
-        for classification in child_classifications
-        if classification is not None
-    )
+    primary_classification = select_error_classification(classified_failures)
     aggregate_classification = primary_classification.model_copy(
         update={
             "message": message,
@@ -90,19 +93,26 @@ def raise_child_failures_application_error(
 def build_terminal_application_error(
     task_exceptions: Mapping[str, TaskExceptionInfo],
 ) -> ApplicationError:
-    """Build the terminal workflow error without changing legacy payloads."""
+    """Build the terminal error, treating concurrent cancellation as fallout."""
     n_exceptions = len(task_exceptions)
     task_classifications: dict[str, RuntimeErrorClassification] = {}
+    has_unclassified = False
+    has_unclassified_non_cancellation = False
     for ref, info in task_exceptions.items():
         classifications = extract_error_classifications(info.exception)
         if not classifications:
-            break
-        task_classifications[ref] = select_error_classification(classifications)
-    else:
-        if task_classifications:
-            terminal_classification = select_error_classification(
-                task_classifications.values()
+            has_unclassified = True
+            has_unclassified_non_cancellation |= not is_cancelled_exception(
+                info.exception
             )
+            continue
+        task_classifications[ref] = select_error_classification(classifications)
+
+    if task_classifications and not has_unclassified_non_cancellation:
+        terminal_classification = select_error_classification(
+            task_classifications.values()
+        )
+        if not has_unclassified:
             error_details = {
                 ref: build_error_transport_detail(
                     task_classifications[ref],
@@ -114,6 +124,22 @@ def build_terminal_application_error(
                 terminal_classification,
                 error_details,
             )
+
+        # A concurrent cancellation is diagnostic fallout, not a competing
+        # causal classification. Keep the complete legacy map for the error
+        # handler and append every causal task classification.
+        return application_error_from_classification(
+            terminal_classification,
+            {ref: info.details for ref, info in task_exceptions.items()},
+            *(
+                build_error_transport_detail(
+                    task_classifications[ref],
+                    info.details,
+                )
+                for ref, info in task_exceptions.items()
+                if ref in task_classifications
+            ),
+        )
 
     formatted_exceptions = "\n".join(
         f"{'=' * 10} ({i + 1}/{n_exceptions}) {details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"

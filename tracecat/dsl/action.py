@@ -38,7 +38,10 @@ from tracecat.dsl.schemas import (
     TaskResult,
 )
 from tracecat.dsl.types import ActionErrorInfo
-from tracecat.dsl.validation import normalize_trigger_inputs
+from tracecat.dsl.validation import (
+    format_input_schema_validation_error,
+    normalize_trigger_inputs,
+)
 from tracecat.exceptions import TracecatExpressionError, TracecatValidationError
 from tracecat.executor.service import get_workspace_variables
 from tracecat.expressions.common import ExprContext
@@ -79,6 +82,7 @@ from tracecat.temporal.errors import (
     activity_error_boundary,
     build_error_transport_detail,
     extract_error_classification,
+    raise_application_error_from_classification,
     raise_wrapped_application_error,
 )
 from tracecat.temporal.exceptions import UserError
@@ -369,6 +373,37 @@ def _materialization_error_classification(
             else RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA
         ),
         message="Tracecat could not retrieve stored workflow data",
+        retry_disposition=(
+            RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
+        ),
+        cause=error,
+    )
+
+
+def _trigger_input_storage_initialization_error_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify failure to initialize trigger-input object storage."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat could not initialize workflow input storage",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def _trigger_input_persistence_error_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify one normalized trigger-input persistence failure."""
+    retryable = is_retryable_storage_transport_error(error)
+    return RuntimeErrorClassification.platform(
+        kind=(
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE
+            if retryable
+            else RuntimeErrorKind.RUNTIME_UNCLASSIFIED
+        ),
+        message="Tracecat could not persist normalized workflow inputs",
         retry_disposition=(
             RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
         ),
@@ -736,32 +771,49 @@ class DSLActivities:
         inputs: NormalizeTriggerInputsActivityInputs,
     ) -> StoredObject:
         """Return trigger inputs with defaults applied according to DSL expects."""
-        try:
-            value = {}
+        with activity_error_boundary(
+            _trigger_input_storage_initialization_error_classification
+        ):
             storage = get_object_storage()
-            if inputs.trigger_inputs is not None:
+
+        value = {}
+        if inputs.trigger_inputs is not None:
+            with activity_error_boundary(_materialization_error_classification):
                 value = run_sync(storage.retrieve(inputs.trigger_inputs))
+
+        try:
             normalized = normalize_trigger_inputs(inputs.input_schema, value)
-            stored = run_sync(storage.store(inputs.key, normalized))
-            return stored
         except ValidationError as e:
-            logger.info("Validation error when normalizing trigger inputs", error=e)
-            raise ApplicationError(
-                "Failed to validate trigger inputs",
-                ValidationDetail.list_from_pydantic(e),
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
-        except Exception as e:
-            logger.warning(
-                "Unexpected error cause when normalizing trigger inputs",
-                error=e,
+            details = ValidationDetail.list_from_pydantic(e)
+            message = format_input_schema_validation_error(details)
+            classification = RuntimeErrorClassification.user(
+                kind=RuntimeErrorKind.WORKFLOW_TRIGGER_INPUT_INVALID,
+                message=message,
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                cause=e,
             )
-            raise ApplicationError(
-                "Unexpected error when normalizing trigger inputs",
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
+            diagnostic = ActionErrorInfo(
+                ref="__workflow_trigger__",
+                message=message,
+                type=type(e).__name__,
+            )
+            logger.info(
+                "Validation error when normalizing trigger inputs",
+                error_type=type(e).__name__,
+                error_count=len(details),
+            )
+            raise_application_error_from_classification(
+                classification,
+                {
+                    diagnostic.ref: build_error_transport_detail(
+                        classification,
+                        diagnostic,
+                    ).model_dump(mode="json")
+                },
+            )
+
+        with activity_error_boundary(_trigger_input_persistence_error_classification):
+            return run_sync(storage.store(inputs.key, normalized))
 
     @staticmethod
     @activity.defn
