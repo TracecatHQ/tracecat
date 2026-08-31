@@ -1,4 +1,4 @@
-"""Built-in workspace-chat copilot skills (Enterprise Edition).
+"""Built-in workspace-chat copilot skills.
 
 These skills are plain on-disk skill directories (``<name>/SKILL.md`` plus
 optional ``references/*.md``) that the agent executor stages into the copilot's

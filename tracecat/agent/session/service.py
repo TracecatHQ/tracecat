@@ -41,9 +41,6 @@ from temporalio.client import (
 from temporalio.common import Priority, TypedSearchAttributes
 from temporalio.service import RPCError
 from tracecat_ee.workspace_chat.policy import is_workspace_chat_entitled
-from tracecat_ee.workspace_chat.skills import (
-    BUILTIN_WORKSPACE_CHAT_SKILLS,
-)
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.agent.adapter.vercel
@@ -98,6 +95,7 @@ from tracecat.agent.session.types import (
     TurnLifecycleResult,
     is_session_readonly,
 )
+from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,

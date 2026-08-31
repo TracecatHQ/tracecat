@@ -21,7 +21,7 @@ from tracecat.identifiers import WorkspaceID
 # Reserved name prefix for built-in/platform skills. User- and preset-authored
 # skills may not use it, so platform skills (staged into the same on-disk skills
 # directory) can never collide with a user skill of the same name. Kept in sync
-# with ``tracecat_ee.workspace_chat.skills.BUILTIN_SKILL_NAME_PREFIX``.
+# with ``tracecat.agent.skill.builtin.BUILTIN_SKILL_NAME_PREFIX``.
 RESERVED_SKILL_NAME_PREFIX = "tracecat-"
 
 
