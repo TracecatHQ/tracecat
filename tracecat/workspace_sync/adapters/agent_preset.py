@@ -65,7 +65,6 @@ from tracecat.workspace_sync.schemas import (
     AgentPresetSubagentRef,
     McpIntegrationHint,
     WorkflowResourceSpec,
-    WorkspaceManifestResources,
     WorkspaceSpec,
 )
 from tracecat.workspace_sync.types import (
@@ -109,31 +108,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     filename = AGENT_PRESET_FILENAME
     import_identity_attrs = ("slug",)
     import_identity_noun = "slug"
-
-    def extra_path_from_path(
-        self,
-        path: str,
-        roots: WorkspaceManifestResources,
-    ) -> tuple[str, str] | None:
-        """Agent preset desired state has no companion history files."""
-        return None
-
-    def serialize_extra_files(
-        self,
-        source_id: str,
-        spec: BaseModel,
-    ) -> dict[str, str]:
-        """Agent preset desired state is fully contained in ``preset.yml``."""
-        return {}
-
-    def attach_extra_files(
-        self,
-        specs: dict[str, BaseModel],
-        extra_files: Mapping[tuple[str, str], str],
-        diagnostics: list[PullDiagnostic],
-    ) -> dict[str, BaseModel]:
-        """Return head specs unchanged; they have no companion history files."""
-        return specs
 
     async def project(
         self, workspace_service: SyncMappingService
