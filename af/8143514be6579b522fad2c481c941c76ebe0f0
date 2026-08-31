@@ -1,0 +1,37 @@
+frontend/src/components/icons.tsx
+  s_075855148e08d5::t_990ff4ad704e63 664-665
+frontend/src/components/icons.test.tsx
+  s_075855148e08d5::t_990ff4ad704e63 176-179
+docs/tools/1password.mdx
+  s_075855148e08d5::t_bfef6e45bba6c9 1-119
+packages/tracecat-registry/tracecat_registry/templates/tools/onepassword/events/list_sign_in_attempts.yml
+  s_075855148e08d5::t_990ff4ad704e63 11
+packages/tracecat-registry/tracecat_registry/templates/tools/onepassword/events/introspect_token.yml
+  s_075855148e08d5::t_990ff4ad704e63 9
+packages/tracecat-registry/tracecat_registry/templates/tools/onepassword/events/list_audit_events.yml
+  s_075855148e08d5::t_990ff4ad704e63 10
+docs/docs.json
+  s_075855148e08d5::t_bfef6e45bba6c9 176-177
+packages/tracecat-registry/tracecat_registry/templates/tools/onepassword/events/list_item_usages.yml
+  s_075855148e08d5::t_990ff4ad704e63 11
+docs/tools/1password_sdk.mdx
+  s_075855148e08d5::t_bfef6e45bba6c9 1-41
+packages/tracecat-registry/tracecat_registry/integrations/onepassword_sdk.py
+  s_075855148e08d5::t_990ff4ad704e63 185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "af8143514be6579b522fad2c481c941c76ebe0f0",
+  "prompts": {},
+  "sessions": {
+    "s_075855148e08d5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a058ad-f064-7133-a4db-fbe2bc5cb571",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
