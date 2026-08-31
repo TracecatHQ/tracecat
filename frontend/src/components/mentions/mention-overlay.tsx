@@ -1,6 +1,6 @@
 "use client"
 
-import { buildMentionSegments, type MentionRange } from "@/lib/comment-mentions"
+import { buildMentionSegments, type MentionRange } from "@/lib/mentions"
 import { cn } from "@/lib/utils"
 
 /**
@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils"
  * The composer auto-grows and pins `overflow-y: hidden`, so the textarea never
  * scrolls and this layer needs no scroll synchronisation.
  */
-export function CommentMentionOverlay({
+export function MentionOverlay({
   text,
   mentions,
   className,
@@ -36,7 +36,7 @@ export function CommentMentionOverlay({
   return (
     <div
       aria-hidden
-      data-testid="comment-mention-overlay"
+      data-testid="mention-overlay"
       className={cn(
         "pointer-events-none absolute inset-0 whitespace-pre-wrap break-words text-foreground",
         className

@@ -73,6 +73,24 @@ jest.mock("@/lib/hooks", () => ({
     mcpIntegrationsError: null,
   }),
 }))
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: jest.fn(() => true),
+}))
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: jest.fn(() => ({
+    hasEntitlement: () => false,
+    isLoading: false,
+    hasEntitlementData: true,
+  })),
+}))
+jest.mock("@/hooks/use-agent-presets", () => ({
+  useAgentPresets: jest.fn(() => ({
+    presets: [],
+    presetsIsLoading: false,
+    presetsError: null,
+    refetchPresets: jest.fn(),
+  })),
+}))
 
 function renderChatSessionPane(
   props: Partial<Parameters<typeof ChatSessionPane>[0]> = {}

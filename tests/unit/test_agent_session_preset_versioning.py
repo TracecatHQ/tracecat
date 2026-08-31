@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import uuid
+from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
@@ -19,7 +20,7 @@ from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.tools import WORKSPACE_CHAT_DEFAULT_TOOLS, get_default_tools
 from tracecat.db.models import AgentSession
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 from tracecat.tiers.enums import Entitlement
 
 
@@ -57,6 +58,53 @@ def _build_service() -> tuple[_TestAgentSessionService, SimpleNamespace, Role]:
     )
     service = _TestAgentSessionService(cast(Any, session), role)
     return service, session, role
+
+
+@contextlib.contextmanager
+def _workspace_owned_mcp_servers(*mcp_ids: uuid.UUID) -> Iterator[AsyncMock]:
+    """Declare which MCP servers the workspace configured itself.
+
+    ``list_mcp_integrations(source="workspace")`` is the canonical answer to
+    "did this workspace set up the server, or did it come from the Tracecat
+    catalog?", so each test states that answer directly instead of standing up
+    integration rows. Yields the patched listing so a test can assert it was
+    (or was not) consulted.
+    """
+    listing = AsyncMock(return_value=[SimpleNamespace(id=mcp_id) for mcp_id in mcp_ids])
+    with patch(
+        "tracecat.integrations.service.IntegrationService.list_mcp_integrations",
+        listing,
+    ):
+        yield listing
+
+
+def _workspace_chat_session(
+    workspace_id: uuid.UUID, mcp_integrations: list[str]
+) -> AgentSession:
+    """A workspace-chat session with MCP servers attached."""
+    return AgentSession(
+        workspace_id=workspace_id,
+        entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+        entity_id=workspace_id,
+        mcp_integrations=mcp_integrations,
+    )
+
+
+def _mcp_resolver() -> tuple[AsyncMock, SimpleNamespace]:
+    """An agent service whose preset resolver returns one server ref."""
+    resolver = AsyncMock(
+        return_value=[
+            {
+                "type": "http",
+                "name": "RunReveal",
+                "url": "https://mcp.example.test",
+            }
+        ]
+    )
+    agent_svc = SimpleNamespace(
+        presets=SimpleNamespace(resolve_mcp_integration_refs=resolver)
+    )
+    return resolver, agent_svc
 
 
 def test_execution_role_adds_only_agent_runtime_scopes() -> None:
@@ -232,38 +280,200 @@ async def test_update_session_validates_mcp_integrations_before_persisting() -> 
 
 
 @pytest.mark.anyio
-async def test_resolve_session_mcp_servers_requires_agent_addons_entitlement() -> None:
+async def test_resolve_session_mcp_servers_drops_platform_connectors_without_addons() -> (
+    None
+):
+    """Only the Tracecat-managed catalog is gated behind the add-on.
+
+    A connector the workspace did not configure itself is a platform catalog
+    connector, so an un-entitled org gets no server at all rather than a
+    catalog connector it has not paid for.
+    """
     service, _session, role = _build_service()
     service.agent_addons_enabled = False
     assert role.workspace_id is not None
-    mcp_id = uuid.uuid4()
-    agent_session = AgentSession(
-        workspace_id=role.workspace_id,
-        entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
-        entity_id=role.workspace_id,
-        mcp_integrations=[str(mcp_id)],
-    )
-    resolver = AsyncMock(
-        return_value=[
-            {
-                "type": "http",
-                "name": "RunReveal",
-                "url": "https://mcp.example.test",
-            }
-        ]
-    )
-    agent_svc = SimpleNamespace(
-        presets=SimpleNamespace(resolve_mcp_integration_refs=resolver)
-    )
+    platform_mcp_id = uuid.uuid4()
+    agent_session = _workspace_chat_session(role.workspace_id, [str(platform_mcp_id)])
+    resolver, agent_svc = _mcp_resolver()
 
-    result = await service._resolve_session_mcp_servers(
-        agent_session,
-        cast(Any, agent_svc),
-    )
+    # The workspace owns a different server, so the attached id is platform-managed.
+    with _workspace_owned_mcp_servers(uuid.uuid4()):
+        result = await service._resolve_session_mcp_servers(
+            agent_session,
+            cast(Any, agent_svc),
+        )
 
     assert result is None
     resolver.assert_not_awaited()
     assert Entitlement.AGENT_ADDONS in service.entitlement_checks
+
+
+@pytest.mark.anyio
+async def test_resolve_session_mcp_servers_keeps_workspace_servers_without_addons() -> (
+    None
+):
+    """A workspace always gets to use the MCP servers it configured itself.
+
+    The add-on sells the Tracecat catalog, not the ability to attach your own
+    server, so a self-configured connector resolves on any plan.
+    """
+    service, _session, role = _build_service()
+    service.agent_addons_enabled = False
+    assert role.workspace_id is not None
+    workspace_mcp_id = uuid.uuid4()
+    agent_session = _workspace_chat_session(role.workspace_id, [str(workspace_mcp_id)])
+    resolver, agent_svc = _mcp_resolver()
+
+    with _workspace_owned_mcp_servers(workspace_mcp_id) as listing:
+        result = await service._resolve_session_mcp_servers(
+            agent_session,
+            cast(Any, agent_svc),
+        )
+
+    assert result == resolver.return_value
+    resolver.assert_awaited_once_with([str(workspace_mcp_id)])
+    listing.assert_awaited_once_with(source="workspace")
+
+
+@pytest.mark.anyio
+async def test_resolve_session_mcp_servers_keeps_only_workspace_ids_from_mixed_list() -> (
+    None
+):
+    """A mixed selection degrades to the workspace's own servers.
+
+    One un-entitled catalog connector must not take the whole session's MCP
+    config down with it; the servers the workspace owns still reach the agent.
+    """
+    service, _session, role = _build_service()
+    service.agent_addons_enabled = False
+    assert role.workspace_id is not None
+    workspace_mcp_id = uuid.uuid4()
+    other_workspace_mcp_id = uuid.uuid4()
+    platform_mcp_id = uuid.uuid4()
+    agent_session = _workspace_chat_session(
+        role.workspace_id,
+        [str(workspace_mcp_id), str(platform_mcp_id), str(other_workspace_mcp_id)],
+    )
+    resolver, agent_svc = _mcp_resolver()
+
+    with _workspace_owned_mcp_servers(workspace_mcp_id, other_workspace_mcp_id):
+        result = await service._resolve_session_mcp_servers(
+            agent_session,
+            cast(Any, agent_svc),
+        )
+
+    assert result == resolver.return_value
+    resolver.assert_awaited_once_with(
+        [str(workspace_mcp_id), str(other_workspace_mcp_id)]
+    )
+
+
+@pytest.mark.anyio
+async def test_resolve_session_mcp_servers_drops_malformed_ids_without_addons() -> None:
+    """A malformed id is dropped, not raised on.
+
+    Resolution happens on the run path, so a junk id stored on a session must
+    degrade to "no such server" instead of failing the turn.
+    """
+    service, _session, role = _build_service()
+    service.agent_addons_enabled = False
+    assert role.workspace_id is not None
+    agent_session = _workspace_chat_session(role.workspace_id, ["not-a-uuid"])
+    resolver, agent_svc = _mcp_resolver()
+
+    with _workspace_owned_mcp_servers(uuid.uuid4()):
+        result = await service._resolve_session_mcp_servers(
+            agent_session,
+            cast(Any, agent_svc),
+        )
+
+    assert result is None
+    resolver.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_resolve_session_mcp_servers_passes_ids_through_with_addons() -> None:
+    """With add-ons there is nothing to split, so nothing is looked up.
+
+    Every attached id is allowed, and the workspace/platform listing is not
+    queried at all -- the entitled path costs no extra database round trip.
+    """
+    service, _session, role = _build_service()
+    assert service.agent_addons_enabled is True
+    assert role.workspace_id is not None
+    mcp_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    agent_session = _workspace_chat_session(role.workspace_id, mcp_ids)
+    resolver, agent_svc = _mcp_resolver()
+
+    with _workspace_owned_mcp_servers() as listing:
+        result = await service._resolve_session_mcp_servers(
+            agent_session,
+            cast(Any, agent_svc),
+        )
+
+    assert result == resolver.return_value
+    resolver.assert_awaited_once_with(mcp_ids)
+    listing.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_validate_session_mcp_integrations_rejects_platform_without_addons() -> (
+    None
+):
+    """Selecting a catalog connector without the add-on fails at write time.
+
+    The user gets a 403 while saving instead of a session that silently loses
+    the server on its next turn.
+    """
+    service, _session, _role = _build_service()
+    service.agent_addons_enabled = False
+    platform_mcp_id = uuid.uuid4()
+    preset_service = Mock()
+    preset_service.load_selected_mcp_integrations = AsyncMock(
+        return_value=[SimpleNamespace(id=platform_mcp_id)]
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.service.AgentPresetService",
+            Mock(return_value=preset_service),
+        ),
+        _workspace_owned_mcp_servers(uuid.uuid4()),
+        pytest.raises(EntitlementRequired),
+    ):
+        await service._validate_session_mcp_integrations([str(platform_mcp_id)])
+
+    preset_service.load_selected_mcp_integrations.assert_awaited_once_with(
+        [str(platform_mcp_id)]
+    )
+
+
+@pytest.mark.anyio
+async def test_validate_session_mcp_integrations_allows_workspace_without_addons() -> (
+    None
+):
+    """Attaching a self-configured MCP server needs no entitlement."""
+    service, _session, _role = _build_service()
+    service.agent_addons_enabled = False
+    workspace_mcp_id = uuid.uuid4()
+    preset_service = Mock()
+    preset_service.load_selected_mcp_integrations = AsyncMock(
+        return_value=[SimpleNamespace(id=workspace_mcp_id)]
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.service.AgentPresetService",
+            Mock(return_value=preset_service),
+        ),
+        _workspace_owned_mcp_servers(workspace_mcp_id) as listing,
+    ):
+        await service._validate_session_mcp_integrations([str(workspace_mcp_id)])
+
+    preset_service.load_selected_mcp_integrations.assert_awaited_once_with(
+        [str(workspace_mcp_id)]
+    )
+    listing.assert_awaited_once_with(source="workspace")
 
 
 @pytest.mark.anyio
