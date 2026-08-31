@@ -50,6 +50,18 @@ const EMPTY_PAGE: InboxListItemsResponse = {
   has_more: false,
   next_cursor: null,
 }
+const CASE_ITEM: InboxListItemsResponse["items"][number] = {
+  id: "inbox-item-1",
+  type: "agent_run",
+  title: "Case run",
+  preview: "",
+  status: "completed",
+  unread: false,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+  source_id: "agent-session-1",
+  source_type: "agent_session",
+}
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -85,11 +97,21 @@ describe("Inbox case filtering", () => {
   it("filters every group and starts fresh cursor streams when the case changes", async () => {
     const mockListItems = jest.mocked(inboxListItems)
     mockListItems.mockImplementation((data) => {
+      if (data.caseId === OTHER_CASE_ID) {
+        return new Promise(() => {}) as unknown as ReturnType<
+          typeof inboxListItems
+        >
+      }
       const response =
         data.caseId === CASE_ID &&
         data.group === "review_required" &&
         data.cursor === null
-          ? { ...EMPTY_PAGE, has_more: true, next_cursor: "old-cursor" }
+          ? {
+              ...EMPTY_PAGE,
+              items: [CASE_ITEM],
+              has_more: true,
+              next_cursor: "old-cursor",
+            }
           : EMPTY_PAGE
       return Promise.resolve(response) as unknown as ReturnType<
         typeof inboxListItems
@@ -138,6 +160,8 @@ describe("Inbox case filtering", () => {
       )
       expect(nextGroups.every((data) => data.cursor === null)).toBe(true)
     })
+    expect(result.current.sessions).toEqual([])
+    expect(result.current.isLoading).toBe(true)
 
     rerender({ caseId: null })
 

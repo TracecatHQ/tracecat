@@ -20,7 +20,6 @@ import {
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import {
   type InfiniteData,
-  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQueryClient,
@@ -318,7 +317,10 @@ function useInboxGroupQuery({
       }
       return pollMs
     },
-    placeholderData: keepPreviousData,
+    // Keep rows stable for ordinary filter changes, but never show rows from a
+    // different case while a case-scoped query is loading.
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[3] === caseId ? previousData : undefined,
   })
 }
 
