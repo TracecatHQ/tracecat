@@ -71,7 +71,13 @@ def test_active_trace_context_is_added_to_log_records(
         "tracecat-api", exporter=InMemorySpanExporter()
     )
     assert runtime is not None
-    record: Any = {"extra": {}}
+    record: Any = {
+        "extra": {
+            "trace_id": "spoofed-trace-id",
+            "span_id": "spoofed-span-id",
+            "trace_sampled": False,
+        }
+    }
 
     with runtime.tracer("test.logging").start_as_current_span("request"):
         _add_trace_context(record)

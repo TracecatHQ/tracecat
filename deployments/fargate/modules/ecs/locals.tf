@@ -52,6 +52,7 @@ locals {
     TEMPORAL__CLUSTER_NAMESPACE                      = local.temporal_namespace
     TEMPORAL__CLUSTER_URL                            = local.temporal_cluster_url
     TRACECAT__APP_ENV                                = var.tracecat_app_env
+    TRACECAT__LOG_FORMAT                             = var.log_format
     TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID             = data.aws_caller_identity.current.account_id
     TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN          = aws_iam_role.executor_task.arn
     TRACECAT__FEATURE_FLAGS                          = var.feature_flags # Requires Tracecat Enterprise license to modify.
