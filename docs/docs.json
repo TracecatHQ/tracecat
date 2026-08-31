@@ -173,6 +173,8 @@
             "icon": "wrench",
             "pages": [
               "integrations/overview",
+              "tools/1password",
+              "tools/1password_sdk",
               "tools/abuseipdb",
               "tools/alertmedia",
               "tools/amazon_s3",
@@ -247,8 +249,6 @@
               "tools/okta",
               "tools/okta_oar",
               "tools/okta_sdk",
-              "tools/onepassword",
-              "tools/onepassword_sdk",
               "tools/openphish",
               "tools/opensearch",
               "tools/osv",

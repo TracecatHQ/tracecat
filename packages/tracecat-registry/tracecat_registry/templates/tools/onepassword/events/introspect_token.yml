@@ -6,7 +6,7 @@ definition:
     Reporting bearer token. Calls GET /api/v2/auth/introspect directly.
   display_group: 1Password Events
   doc_url: https://www.1password.dev/events-api/reference/introspect
-  namespace: tools.onepassword
+  namespace: tools.1password
   name: introspect_events_token
   secrets:
     - name: onepassword_events

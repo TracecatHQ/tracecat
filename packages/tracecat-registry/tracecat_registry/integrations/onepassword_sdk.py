@@ -182,7 +182,7 @@ def _serialize(value: Any) -> Any:
     ),
     display_group="1Password SDK",
     doc_url="https://github.com/1Password/onepassword-sdk-python",
-    namespace="tools.onepassword_sdk",
+    namespace="tools.1password_sdk",
     secrets=[onepassword_secret],
 )
 async def call_method(

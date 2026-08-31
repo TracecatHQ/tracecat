@@ -8,7 +8,7 @@ definition:
     for the next call.
   display_group: 1Password Events
   doc_url: https://www.1password.dev/events-api/reference/items-usage
-  namespace: tools.onepassword
+  namespace: tools.1password
   name: list_item_usages
   secrets:
     - name: onepassword_events

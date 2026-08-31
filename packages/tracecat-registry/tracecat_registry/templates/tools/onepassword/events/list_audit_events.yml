@@ -7,7 +7,7 @@ definition:
     feature. The response cursor is a persistent checkpoint for the next call.
   display_group: 1Password Events
   doc_url: https://www.1password.dev/events-api/reference/audit-events
-  namespace: tools.onepassword
+  namespace: tools.1password
   name: list_audit_events
   secrets:
     - name: onepassword_events
