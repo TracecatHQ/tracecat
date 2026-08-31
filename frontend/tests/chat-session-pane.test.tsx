@@ -1534,6 +1534,91 @@ describe("ChatSessionPane", () => {
     )
   })
 
+  // A workspace without agent add-ons may only run the MCP servers it
+  // configured itself, so the picker must never offer a Tracecat-managed
+  // catalog connector -- the run would drop it and the write would 403.
+  it("offers only workspace-owned MCP servers without agent add-ons", () => {
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({
+              entity_type: "copilot",
+              entity_id: "workspace-1",
+            })}
+            workspaceId="workspace-1"
+            entityType="copilot"
+            entityId="workspace-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            surface="workspace-chat"
+            toolsEnabled
+            mcpEnabled
+            agentAddonsEnabled={false}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(mockUseListMcpIntegrations).toHaveBeenCalledWith(
+      "workspace-1",
+      "workspace",
+      { enabled: true }
+    )
+  })
+
+  // An entitled workspace can run the platform catalog too, so narrowing the
+  // list here would hide connectors the run would happily have accepted.
+  it("offers the whole MCP catalog with agent add-ons", () => {
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({
+              entity_type: "copilot",
+              entity_id: "workspace-1",
+            })}
+            workspaceId="workspace-1"
+            entityType="copilot"
+            entityId="workspace-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            surface="workspace-chat"
+            toolsEnabled
+            mcpEnabled
+            agentAddonsEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(mockUseListMcpIntegrations).toHaveBeenCalledWith(
+      "workspace-1",
+      undefined,
+      { enabled: true }
+    )
+  })
+
   it("does not persist tool selection twice in StrictMode", async () => {
     const action = {
       id: "action-1",
@@ -1786,6 +1871,26 @@ describe("ChatSessionPane", () => {
       mockPresets([TRIAGE_PRESET])
     })
 
+    /**
+     * Put a sent message in the stream, the way the created session does. The
+     * optimistic placeholder retires on it, which is what hands the composer
+     * back to the user after a draft send.
+     */
+    function landUserMessage(text: string) {
+      mockUseVercelChat.mockReturnValue({
+        sendMessage,
+        setMessages: jest.fn(),
+        regenerate: jest.fn(),
+        messages: [
+          { id: "landed-1", role: "user", parts: [{ type: "text", text }] },
+        ],
+        status: "ready",
+        lastError: null,
+        clearError: jest.fn(),
+        // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+      } as any)
+    }
+
     it("ignores a second Enter while the preset write is still in flight", async () => {
       // The optimistic selectedPresetId flips before updateChat resolves, so a
       // second Enter used to skip the write it was still waiting on and send
@@ -2006,6 +2111,161 @@ describe("ChatSessionPane", () => {
       onSelect.mockResolvedValue(true)
       fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
       await waitFor(() => expect(onSelect).toHaveBeenCalledWith("preset-2"))
+    })
+
+    it("does not route the next message to the agent the last one named", async () => {
+      // The first send empties the composer while the session is still being
+      // created. If the mention outlives the text it described, the message
+      // after it -- ordinary prose with no agent named anywhere in it -- is
+      // quietly routed to the agent the user mentioned once and already sent.
+      const created = createDeferred<string>()
+      const onBeforeSend = jest.fn().mockReturnValue(created.promise)
+      const onSelect = jest.fn().mockResolvedValue(true)
+      const presetSelector = {
+        label: "No preset",
+        selectedPresetId: null,
+        onSelect,
+      }
+      const { rerenderPane } = renderPane({
+        chat: undefined,
+        agentMentionsSupported: true,
+        onBeforeSend,
+        optimisticBeforeSend: true,
+        presetSelector,
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@tri", selectionStart: 4 },
+      })
+      await screen.findByText("Triage agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(textarea).toHaveValue("@Triage agent "))
+
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(onBeforeSend).toHaveBeenCalledTimes(1))
+      // The composer is blank well before the create comes back, which is the
+      // window the mention has to be taken off in.
+      await waitFor(() => expect(textarea).toHaveValue(""))
+      expect(onSelect).toHaveBeenCalledWith("preset-1")
+      created.resolve("chat-2")
+
+      // The created session takes over in the same pane, and the message it
+      // was created for lands on its stream, handing the composer back.
+      landUserMessage("@Triage agent ")
+      rerenderPane({ agentMentionsSupported: true, presetSelector })
+      await waitFor(() => expect(textarea).not.toBeDisabled())
+
+      onSelect.mockClear()
+      fireEvent.change(textarea, {
+        target: { value: "hello", selectionStart: 5 },
+      })
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({ text: "hello" })
+      )
+      expect(onSelect).not.toHaveBeenCalled()
+    })
+
+    it("keeps the agent bound when a cancelled create restores the draft", async () => {
+      // A cancelled create hands the text back, so the bindings have to come
+      // back with it. A restored draft that still reads `@Triage agent` but no
+      // longer routes there would send the retry under nobody.
+      const onBeforeSend = jest.fn().mockResolvedValue(null)
+      const onSelect = jest.fn().mockResolvedValue(true)
+      renderPane({
+        chat: undefined,
+        agentMentionsSupported: true,
+        onBeforeSend,
+        optimisticBeforeSend: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect,
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@tri", selectionStart: 4 },
+      })
+      await screen.findByText("Triage agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(textarea).toHaveValue("@Triage agent "))
+
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(onBeforeSend).toHaveBeenCalledTimes(1))
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0))
+      })
+      expect(textarea).toHaveValue("@Triage agent ")
+
+      // The retry has to reach Triage, the agent the restored text still names.
+      onBeforeSend.mockResolvedValue("chat-2")
+      onSelect.mockClear()
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(onSelect).toHaveBeenCalledWith("preset-1"))
+    })
+
+    it("does not leave the sent mention on a draft typed while it was in flight", async () => {
+      // The composer is still the user's during the preset write, so the send
+      // has to take the mention off at the same moment it takes the text --
+      // measured while the box still holds both. Cutting the text alone leaves
+      // the mention over whatever the user has carried on typing, and that
+      // sentence then runs under an agent it never named.
+      let resolvePreset: (applied: boolean) => void = () => {}
+      const onSelect = jest.fn().mockReturnValue(
+        new Promise<boolean>((resolve) => {
+          resolvePreset = resolve
+        })
+      )
+      const created = createDeferred<string>()
+      const onBeforeSend = jest.fn().mockReturnValue(created.promise)
+      const presetSelector = {
+        label: "No preset",
+        selectedPresetId: null,
+        onSelect,
+      }
+      const { rerenderPane } = renderPane({
+        chat: undefined,
+        agentMentionsSupported: true,
+        onBeforeSend,
+        optimisticBeforeSend: true,
+        presetSelector,
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@tri", selectionStart: 4 },
+      })
+      await screen.findByText("Triage agent")
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(textarea).toHaveValue("@Triage agent "))
+
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1))
+
+      // Typed onto the end of the message being sent, while it is still going.
+      fireEvent.change(textarea, {
+        target: { value: "@Triage agent next question", selectionStart: 27 },
+      })
+      resolvePreset(true)
+
+      await waitFor(() => expect(onBeforeSend).toHaveBeenCalledTimes(1))
+      // Only the tail is a draft; the sent prefix leaves with its mention.
+      await waitFor(() => expect(textarea).toHaveValue("next question"))
+      created.resolve("chat-2")
+
+      landUserMessage("@Triage agent ")
+      rerenderPane({ agentMentionsSupported: true, presetSelector })
+      await waitFor(() => expect(textarea).not.toBeDisabled())
+
+      onSelect.mockClear()
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({ text: "next question" })
+      )
+      expect(onSelect).not.toHaveBeenCalled()
     })
 
     it("does not reopen on the trigger of a mention already bound", async () => {

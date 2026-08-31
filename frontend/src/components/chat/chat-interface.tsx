@@ -160,7 +160,10 @@ export function ChatInterface({
   // still sees the trigger, on the mention popover's lock row.
   const presetsSupported = entityType === "case" || entityType === "copilot"
   const presetsEnabled = agentAddonsEnabled && presetsSupported
-  const sessionMcpEnabled = agentAddonsEnabled && entityType === "copilot"
+  // Every workspace can attach the MCP servers it configured itself, so the
+  // entitlement is deliberately not folded in here. It only narrows what the
+  // picker lists: the Tracecat-managed catalog connectors stay entitled.
+  const sessionMcpEnabled = entityType === "copilot"
   const inWorkspaceChat = surface === "workspace-chat"
   // Surfaces that defer server-side session creation until the first message,
   // showing a draft composer instead of an eagerly-created empty session.

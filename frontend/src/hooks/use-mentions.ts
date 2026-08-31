@@ -137,6 +137,8 @@ export interface Mentions {
   handleKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean
   /** Remap ranges across a programmatic edit, e.g. an image-paste insertion. */
   applySplice: (splice: TextSplice) => void
+  /** Write text and its ranges together, e.g. restoring a cancelled draft. */
+  commitEdit: (edit: MentionEdit) => void
   /** Convert display text into the wire value sent to the API. */
   serialize: (text: string) => string
   /** Clear all mention state, e.g. after a successful submit. */
@@ -587,6 +589,7 @@ export function useMentions({
     handleSelectionChange,
     handleKeyDown,
     applySplice,
+    commitEdit,
     serialize,
     reset,
     dropPrefix,

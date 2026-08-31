@@ -114,7 +114,7 @@ import {
   transformMessages,
 } from "@/lib/chat"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
-import { findAgentMention } from "@/lib/mentions"
+import { findAgentMention, type MentionRange } from "@/lib/mentions"
 import { useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 import type { ChatSurface } from "@/types/chat-surface"
@@ -363,9 +363,17 @@ export function ChatSessionPane({
     useCancelChatTurn(workspaceId)
   const { registryActions } = useBuilderRegistryActions()
   const sessionMcpEnabled = mcpEnabled && entityType === "copilot"
-  const { mcpIntegrations } = useListMcpIntegrations(workspaceId, undefined, {
-    enabled: toolsEnabled && sessionMcpEnabled,
-  })
+  // Without agent add-ons a session may only use the servers the workspace
+  // configured itself, so ask the API for that half of the list. The picker
+  // then cannot offer a Tracecat-managed catalog connector the run would drop.
+  const mcpIntegrationsSource = agentAddonsEnabled ? undefined : "workspace"
+  const { mcpIntegrations } = useListMcpIntegrations(
+    workspaceId,
+    mcpIntegrationsSource,
+    {
+      enabled: toolsEnabled && sessionMcpEnabled,
+    }
+  )
 
   // Check if this is a legacy read-only session
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
@@ -1065,12 +1073,26 @@ export function ChatSessionPane({
       dropMentionPrefix(live.length - remaining.length)
     }
 
+    // The optimistic branch blanks the composer before `onBeforeSend` resolves,
+    // so the submitted text's bindings have to come off at the same moment.
+    // Held here so a cancelled submit can put them back with the text.
+    let submittedMentions: MentionRange[] = []
+
     if (onBeforeSend) {
       if (optimisticBeforeSend) {
         optimisticMessageKnownTextPartKeysRef.current =
           matchingUserTextPartKeys(messages, messageText)
         setOptimisticMessageText(messageText)
-        setInput(remainingDraft())
+        // Cut the prefix now, while the live value still carries it. Leaving it
+        // to the `clearSubmittedDraft` below would measure a zero cut against a
+        // composer this branch has already blanked, and the submitted mention
+        // would outlive its text as a range nothing renders -- which the next
+        // send reads back, re-applying a preset the user has since cleared.
+        // Cutting here rather than after the await is also what keeps a mention
+        // picked while the await runs: its offsets are already relative to the
+        // blanked composer, so a deferred cut would filter it out instead.
+        submittedMentions = mentions.ranges
+        clearSubmittedDraft()
       }
 
       const result = await onBeforeSend(
@@ -1087,7 +1109,13 @@ export function ChatSessionPane({
         setOptimisticMessageText(null)
         // Restoring the cancelled message would clobber a newer draft.
         if (!remainingDraft()) {
-          setInput(messageText)
+          // The bindings go back with the text: a restored draft that still
+          // reads `@Agent` has to route there when the user retries it.
+          mentions.commitEdit({
+            text: messageText,
+            mentions: submittedMentions,
+            caret: messageText.length,
+          })
         }
       }
       // Parent will handle switching sessions and sending via pendingMessage
