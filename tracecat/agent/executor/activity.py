@@ -61,7 +61,6 @@ from tracecat.agent.mcp.stdio_probe_types import (
 from tracecat.agent.otel_config import (
     AgentOtelConfig,
     ResolvedAgentOtelConfig,
-    load_agent_otel_platform_override,
     resolve_agent_otel_config,
 )
 from tracecat.agent.preset.service import AgentPresetService
@@ -445,20 +444,18 @@ class SandboxedAgentExecutor:
         )
 
     async def _resolve_agent_otel_config(self) -> ResolvedAgentOtelConfig:
-        """Resolve org + platform OTel inputs into a runtime config.
+        """Resolve org OTel inputs into a runtime config.
 
-        Header decryption and platform override loading happen here, inside
-        the activity, so secrets never round-trip through the workflow payload.
+        Header decryption happens here, inside the activity, so secrets never
+        round-trip through the workflow payload.
         Errors are non-fatal: telemetry is best-effort and must not block agent
         execution.
         """
         try:
             org_inputs = await load_org_agent_otel_inputs(role=self.input.role)
-            platform_override = load_agent_otel_platform_override()
             return resolve_agent_otel_config(
                 org_config=org_inputs.config,
                 org_headers=org_inputs.headers,
-                platform_override=platform_override,
             )
         except Exception as exc:
             # No error text: a validation error echoes the input, which can

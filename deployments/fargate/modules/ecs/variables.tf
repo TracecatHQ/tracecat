@@ -104,7 +104,6 @@ variable "enable_waf" {
   default     = true
 }
 
-
 ### DNS
 
 variable "domain_name" {
@@ -239,7 +238,6 @@ variable "temporal_namespace" {
   description = "Temporal namespace to use for client calls"
   default     = "default"
 }
-
 
 ### Container Env Vars
 # NOTE: sensitive variables are stored in secrets manager
@@ -727,18 +725,6 @@ variable "agent_executor_max_concurrent_activities" {
   type        = number
   description = "Maximum concurrent activities per agent-executor task"
   default     = 3
-}
-
-variable "agent_otel_platform_override_config" {
-  type        = string
-  description = "Typed Agent OTel configuration JSON. Unset uses org configuration; present overrides it."
-  default     = null
-}
-
-variable "agent_otel_platform_override_headers_arn" {
-  type        = string
-  description = "AWS Secrets Manager ARN containing Agent OTel platform override headers JSON."
-  default     = null
 }
 
 variable "llm_proxy_read_timeout" {
