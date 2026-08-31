@@ -1449,20 +1449,21 @@ class IntegrationService(BaseWorkspaceService):
         cls,
         *,
         params: MCPHttpIntegrationCreate,
-        catalog_spec: MCPConnectionSpec,
+        catalog_spec: MCPConnectionSpec | None,
     ) -> str | None:
         """Return the raw JSON holding a user-created OAuth client, if any.
 
         ``oauth_client_credentials`` is the dedicated field. Older API clients
         sent the client JSON in ``custom_credentials`` instead; that overload
-        is still honoured, but only on rows that declare no ``http_header``
-        credential and only when the JSON actually names a client. The
-        headers editor is shown on every OAuth row, so anything else in
-        ``custom_credentials`` stays headers.
+        is still honoured, but only on catalog rows that declare no
+        ``http_header`` credential and only when the JSON actually names a
+        client. The headers editor is shown on every OAuth row, so anything
+        else in ``custom_credentials`` stays headers, and a BYO row without a
+        recipe reads a client only from the dedicated field.
         """
         if params.oauth_client_credentials is not None:
             return params.oauth_client_credentials.get_secret_value().strip() or None
-        if params.custom_credentials is None:
+        if catalog_spec is None or params.custom_credentials is None:
             return None
         declares_headers = any(
             field.target == "http_header"
@@ -1594,16 +1595,19 @@ class IntegrationService(BaseWorkspaceService):
         params: MCPHttpIntegrationCreate,
         catalog_spec: MCPConnectionSpec | None,
     ) -> MCPOAuthRegistrationResult | None:
-        if (
-            catalog_spec is None
-            or catalog_spec.server_type != "http"
+        if catalog_spec is not None and (
+            catalog_spec.server_type != "http"
             or catalog_spec.auth_type != MCPAuthType.OAUTH2
         ):
             return None
-        if not any(
+        declares_oauth_client = catalog_spec is not None and any(
             field.target == "oauth_client"
             for field in [*catalog_spec.config_fields, *catalog_spec.credentials]
-        ):
+        )
+        # A recipe that declares an OAuth client also accepts the legacy
+        # ``custom_credentials`` overload; every other row (BYO servers and
+        # recipes with no client field) only takes the dedicated field.
+        if not declares_oauth_client and params.oauth_client_credentials is None:
             return None
 
         raw_credentials = cls._mcp_oauth_client_credentials_payload(

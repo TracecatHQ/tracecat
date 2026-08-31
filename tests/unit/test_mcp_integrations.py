@@ -7293,6 +7293,43 @@ class TestMCPProviderOAuth:
         assert legacy.client_id == "c"
         assert legacy.client_secret == "s"
 
+    def test_byo_server_reads_client_from_dedicated_field(self) -> None:
+        """A server with no catalog recipe can still bring its own OAuth client."""
+        params = MCPHttpIntegrationCreate(
+            name="Custom MCP",
+            server_uri="https://mcp.example.test/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_client_credentials=SecretStr(
+                '{"client_id": "byo-client", "client_secret": "byo-secret"}'
+            ),
+            custom_credentials=SecretStr('{"X-Trace": "abc"}'),
+        )
+        registration = (
+            IntegrationService._mcp_oauth_client_registration_from_credentials(
+                params=params, catalog_spec=None
+            )
+        )
+        assert registration is not None
+        assert registration.client_id == "byo-client"
+        assert registration.client_secret == "byo-secret"
+
+    def test_byo_server_without_dedicated_field_falls_back_to_dcr(self) -> None:
+        """Without a recipe, custom_credentials is headers and never a client."""
+        params = MCPHttpIntegrationCreate(
+            name="Custom MCP",
+            server_uri="https://mcp.example.test/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            custom_credentials=SecretStr(
+                '{"client_id": "c", "client_secret": "s"}',
+            ),
+        )
+        assert (
+            IntegrationService._mcp_oauth_client_registration_from_credentials(
+                params=params, catalog_spec=None
+            )
+            is None
+        )
+
     def test_headers_only_custom_credentials_are_never_a_client(self) -> None:
         """The headers editor is shown on every OAuth row; plain headers stay headers."""
         params = MCPHttpIntegrationCreate(

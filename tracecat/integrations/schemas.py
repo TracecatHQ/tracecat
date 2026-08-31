@@ -443,10 +443,10 @@ class MCPHttpIntegrationCreate(_MCPIntegrationCreateBase):
         default=None,
         description=(
             "OAuth client credentials as a JSON object (client_id / "
-            "client_secret) for catalog OAuth2 rows that declare an "
-            "'oauth_client' credential. Kept separate from custom_credentials "
-            "so one connect can carry both a user-created OAuth client and "
-            "extra HTTP headers."
+            "client_secret) for OAuth2 MCP servers whose provider requires a "
+            "preregistered client instead of dynamic client registration. "
+            "Kept separate from custom_credentials so one connect can carry "
+            "both a user-created OAuth client and extra HTTP headers."
         ),
     )
 

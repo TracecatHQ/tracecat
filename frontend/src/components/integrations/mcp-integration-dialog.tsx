@@ -107,6 +107,15 @@ import { isMcpProvider } from "@/lib/integrations"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+/**
+ * Starter JSON for a bring-your-own OAuth client, used when the OAuth client
+ * flow is picked on a server that ships no credential template.
+ */
+const OAUTH_CLIENT_CREDENTIALS_TEMPLATE = `{
+  "client_id": "",
+  "client_secret": ""
+}`
+
 function transportLabel(
   spec: PlatformMCPCatalogRead["connection_spec"] | null | undefined
 ) {
@@ -184,20 +193,6 @@ function catalogSpecForOption(
     (candidate) => candidate.id === optionId
   )
   return option?.connection_spec ?? entry.connection_spec ?? null
-}
-
-function hasOAuthClientConfig(spec: MCPConnectionSpec | null | undefined) {
-  if (spec?.server_type !== "http" || spec.auth_type !== "OAUTH2") {
-    return false
-  }
-  return (
-    (spec.config_fields ?? []).some(
-      (field) => field.target === "oauth_client"
-    ) ||
-    (spec.credentials ?? []).some(
-      (credential) => credential.target === "oauth_client"
-    )
-  )
 }
 
 function CatalogEntrySummary({
@@ -584,7 +579,12 @@ export function MCPIntegrationDialog({
     }
   }, [urlEnvKeysKey, form])
 
-  const hasCatalogOAuthClient = hasOAuthClientConfig(selectedCatalogSpec)
+  // A bring-your-own OAuth client is authorized through /connect, which only
+  // the create path calls: an edit saves through PUT and cannot start a new
+  // authorization redirect. Any HTTP OAuth server can use one, catalog row or
+  // not, because providers that reject dynamic client registration need a
+  // preregistered client.
+  const canUseOAuthClientSetup = !isEditMode
   // The headers editor lives inside Advanced; open it up front when the
   // catalog row cannot connect without a header value.
   const catalogRequiresHttpHeaders = (
@@ -826,16 +826,15 @@ export function MCPIntegrationDialog({
             values.auth_type === "OAUTH2" &&
             values.oauth_setup === "oauth_client"
           ) {
-            if (!catalogEntry) {
-              throw new Error(
-                "Catalog entry is required for OAuth client setup"
-              )
-            }
-            const spec = catalogSpecForOption(
-              catalogEntry,
-              values.connection_option_id
-            )
-            if (spec?.server_type !== "http" || spec.auth_type !== "OAUTH2") {
+            // BYO servers have no recipe: the JSON shape is validated by the
+            // form schema and the backend rejects a payload with no client ID.
+            const spec = catalogEntry
+              ? catalogSpecForOption(catalogEntry, values.connection_option_id)
+              : null
+            if (
+              catalogEntry &&
+              (spec?.server_type !== "http" || spec.auth_type !== "OAUTH2")
+            ) {
               throw new Error(
                 "Catalog OAuth client setup requires an HTTP OAuth option"
               )
@@ -846,10 +845,12 @@ export function MCPIntegrationDialog({
             // required but the pasted JSON still has empty values; otherwise an
             // empty client_secret is silently dropped and the OAuth callback
             // token exchange fails.
-            const missingCredentials = missingRequiredOAuthClientCredentials(
-              spec,
-              oauthClientCredentials
-            )
+            const missingCredentials = spec
+              ? missingRequiredOAuthClientCredentials(
+                  spec,
+                  oauthClientCredentials
+                )
+              : []
             if (missingCredentials.length > 0) {
               form.setError("oauth_client_credentials", {
                 type: "manual",
@@ -859,10 +860,12 @@ export function MCPIntegrationDialog({
             }
             // Rows like Google SecOps also need required headers alongside
             // the OAuth client; those live in the separate headers editor.
-            const missingHeaders = missingRequiredHttpHeaderCredentials(
-              spec,
-              customCredentialsForCreate ?? ""
-            )
+            const missingHeaders = spec
+              ? missingRequiredHttpHeaderCredentials(
+                  spec,
+                  customCredentialsForCreate ?? ""
+                )
+              : []
             if (missingHeaders.length > 0) {
               form.setError("custom_credentials", {
                 type: "manual",
@@ -1563,6 +1566,18 @@ export function MCPIntegrationDialog({
                                           { shouldDirty: true }
                                         )
                                       }
+                                      if (
+                                        value === "oauth_client" &&
+                                        !form
+                                          .getValues("oauth_client_credentials")
+                                          ?.trim()
+                                      ) {
+                                        form.setValue(
+                                          "oauth_client_credentials",
+                                          OAUTH_CLIENT_CREDENTIALS_TEMPLATE,
+                                          { shouldDirty: true }
+                                        )
+                                      }
                                     }}
                                   >
                                     <SelectTrigger>
@@ -1575,7 +1590,7 @@ export function MCPIntegrationDialog({
                                       </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {hasCatalogOAuthClient ? (
+                                      {canUseOAuthClientSetup ? (
                                         <SelectItem
                                           value="oauth_client"
                                           textValue="OAuth client credentials"
@@ -1585,9 +1600,8 @@ export function MCPIntegrationDialog({
                                               OAuth client credentials
                                             </span>
                                             <span className="text-xs text-muted-foreground">
-                                              Create a Tracecat OAuth
-                                              integration from this client ID
-                                              and secret.
+                                              Register your own client ID and
+                                              secret with the MCP server.
                                             </span>
                                           </div>
                                         </SelectItem>
