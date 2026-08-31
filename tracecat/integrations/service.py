@@ -46,13 +46,17 @@ from tracecat.db.engine import (
 )
 from tracecat.db.models import (
     AgentPreset,
+    AgentPresetVersionSkill,
     AgentSession,
     MCPIntegration,
     OAuthIntegration,
     OAuthStateDB,
+    Skill,
+    SkillVersionMcpTool,
     WorkspaceOAuthProvider,
 )
 from tracecat.dsl.client import get_temporal_client
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.integrations.catalog.loader import (
     get_platform_mcp_catalog_entries,
@@ -4819,6 +4823,53 @@ class IntegrationService(BaseWorkspaceService):
         """
         mcp_integration_id = mcp_integration.id
         id_str = str(mcp_integration_id)
+
+        current_skill_versions = select(Skill.current_version_id).where(
+            Skill.workspace_id == self.workspace_id,
+            Skill.deleted_at.is_(None),
+            Skill.archived_at.is_(None),
+            Skill.current_version_id.is_not(None),
+        )
+        live_preset_skill_versions = (
+            select(AgentPresetVersionSkill.skill_version_id)
+            .join(
+                AgentPreset,
+                AgentPreset.current_version_id
+                == AgentPresetVersionSkill.preset_version_id,
+            )
+            .where(
+                AgentPresetVersionSkill.workspace_id == self.workspace_id,
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+            )
+        )
+        referenced_tool_id = (
+            await self.session.execute(
+                select(SkillVersionMcpTool.tool_id)
+                .where(
+                    SkillVersionMcpTool.workspace_id == self.workspace_id,
+                    SkillVersionMcpTool.mcp_integration_id == mcp_integration_id,
+                    or_(
+                        SkillVersionMcpTool.skill_version_id.in_(
+                            current_skill_versions
+                        ),
+                        SkillVersionMcpTool.skill_version_id.in_(
+                            live_preset_skill_versions
+                        ),
+                    ),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if referenced_tool_id is not None:
+            raise TracecatValidationError(
+                "Cannot delete an MCP integration referenced by a live skill version",
+                detail={
+                    "code": "mcp_integration_referenced_by_skill",
+                    "mcp_integration_id": str(mcp_integration_id),
+                    "tool_id": referenced_tool_id,
+                },
+            )
 
         try:
             pruned_preset_ids = (

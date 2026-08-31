@@ -42,6 +42,8 @@ from tracecat.agent.preset.schemas import (
 )
 from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.skill.bindings import SkillBindingService
+from tracecat.agent.skill.grants import SkillToolGrantService
+from tracecat.agent.skill.types import SkillMcpGrant
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAgentsConfig,
@@ -119,6 +121,7 @@ class AgentPresetService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
         self.skills = SkillBindingService(session, role=self.role)
+        self.skill_tools = SkillToolGrantService(session, role=self.role)
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
@@ -1173,6 +1176,64 @@ class AgentPresetService(BaseWorkspaceService):
 
         return policies
 
+    async def _merge_skill_mcp_grants(
+        self,
+        mcp_servers: list[MCPServerConfig] | None,
+        skill_grants: Sequence[SkillMcpGrant],
+    ) -> list[MCPServerConfig] | None:
+        """Merge skill-granted integrations and explicit tool subsets."""
+
+        if not skill_grants:
+            return mcp_servers
+        merged = list(mcp_servers or [])
+        explicit_integration_ids = {
+            uuid.UUID(config_id)
+            for config in merged
+            if (config_id := config.get("id")) is not None
+        }
+        missing_grants = [
+            grant
+            for grant in skill_grants
+            if grant.mcp_integration_id not in explicit_integration_ids
+        ]
+        if not missing_grants:
+            return merged
+
+        resolved = await self.resolve_mcp_integration_refs(
+            [str(grant.mcp_integration_id) for grant in missing_grants]
+        )
+        resolved_by_id = {
+            uuid.UUID(config_id): config
+            for config in resolved or ()
+            if (config_id := config.get("id")) is not None
+        }
+        policies_by_id = await self.resolve_mcp_integration_tool_policies(
+            [grant.mcp_integration_id for grant in missing_grants]
+        )
+        for grant in missing_grants:
+            config = resolved_by_id.get(grant.mcp_integration_id)
+            if config is None:
+                raise TracecatValidationError(
+                    "Skill-granted MCP integration could not be resolved",
+                    detail={
+                        "code": "skill_mcp_integrations_unavailable",
+                        "mcp_integration_id": str(grant.mcp_integration_id),
+                    },
+                )
+            projected_config = cast(MCPServerConfig, {**config})
+            if grant.tool_names is not None:
+                policies = policies_by_id.get(grant.mcp_integration_id, {})
+                projected_config["tools"] = cast(
+                    list[MCPServerToolSummary],
+                    [
+                        policy.model_dump(exclude_none=True)
+                        for tool_name in sorted(grant.tool_names)
+                        if (policy := policies.get(tool_name)) is not None
+                    ],
+                )
+            merged.append(projected_config)
+        return merged
+
     async def resolve_mcp_integration_secrets(
         self, mcp_integration_id: uuid.UUID
     ) -> dict[str, str] | None:
@@ -2095,11 +2156,19 @@ class AgentPresetService(BaseWorkspaceService):
         # (build_tool_definitions, trusted MCP server) re-resolve secrets
         # per use via resolve_mcp_integration_secrets.
         mcp_servers = await self.resolve_mcp_integration_refs(version.mcp_integrations)
-        model_settings: dict[str, Any] = {}
         resolved_skills = await self.skills.get_resolved_skill_refs_for_preset_version(
             version.id,
             use_latest_versions=resolve_dependencies_from_heads,
         )
+        skill_tool_grants = await self.skill_tools.compile_tool_grants(
+            preset_version_id=version.id,
+            resolved_skills=resolved_skills,
+        )
+        mcp_servers = await self._merge_skill_mcp_grants(
+            mcp_servers,
+            skill_tool_grants.mcp_grants,
+        )
+        model_settings: dict[str, Any] = {}
         duplicate_skill_names = sorted(
             name
             for name, count in Counter(
@@ -2116,8 +2185,17 @@ class AgentPresetService(BaseWorkspaceService):
                     "preset_version_id": str(version.id),
                 },
             )
+        preset_actions = [
+            action
+            for action in version.actions or ()
+            if not version.namespaces
+            or any(action.startswith(namespace) for namespace in version.namespaces)
+        ]
+        effective_actions = list(
+            dict.fromkeys([*preset_actions, *skill_tool_grants.registry_tool_ids])
+        )
         # Only disable parallel tool calls if tools will be present
-        if version.actions or mcp_servers:
+        if effective_actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
         agents = AgentSubagentsConfig.model_validate(version.agents)
         if resolve_dependencies_from_heads:
@@ -2139,8 +2217,10 @@ class AgentPresetService(BaseWorkspaceService):
             base_url=version.base_url,
             instructions=version.instructions,
             output_type=cast(OutputType | None, version.output_type),
-            actions=version.actions,
-            namespaces=version.namespaces,
+            actions=effective_actions or None,
+            # Namespace filters apply to authored preset actions, not independent
+            # capabilities declared by attached skills.
+            namespaces=None,
             tool_approvals=version.tool_approvals,
             mcp_servers=mcp_servers,
             agents=agents,

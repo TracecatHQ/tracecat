@@ -46,6 +46,8 @@ class MCPHttpServerConfigPayload(BaseModel):
     """UUID of the source ``mcp_integrations`` row. Lets trusted callers
     re-resolve secrets per use without carrying them through workflow
     history."""
+    tools: list[MCPServerToolSummaryPayload] | None = Field(default=None)
+    """Explicit non-secret tool subset granted by attached skills."""
 
 
 class MCPServerToolSummaryPayload(BaseModel):

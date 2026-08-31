@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 from urllib.parse import urlparse
 
@@ -55,16 +55,29 @@ from tracecat.agent.skill.service import (
 )
 from tracecat.auth.types import Role
 from tracecat.db.models import (
+    MCPIntegration,
+    RegistryIndex,
+    RegistryRepository,
+    RegistryVersion,
     Skill,
     SkillBlob,
     SkillVersion,
+    SkillVersionMcpTool,
+    SkillVersionTool,
     Workspace,
 )
 from tracecat.db.models import (
     SkillUpload as SkillUploadModel,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.integrations.enums import MCPAuthType
+from tracecat.integrations.service import IntegrationService
 from tracecat.pagination import CursorPaginationParams
+from tracecat.registry.actions.schemas import RegistryActionType
+from tracecat.registry.versions.schemas import (
+    RegistryVersionManifest,
+    RegistryVersionManifestAction,
+)
 from tracecat.storage.blob import ensure_bucket_exists, file_exists, upload_file
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -4169,3 +4182,351 @@ class TestSkillService:
         assert archived is not None
         assert archived.archived_at is not None
         assert archived.deleted_at == archived.archived_at
+
+    async def test_unknown_frontmatter_tool_fails_draft_save(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Raw SKILL.md writes reject unknown tool IDs with structured detail."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(name="unknown-tool-skill")
+        )
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftUpsertTextFileOp(
+                            path="SKILL.md",
+                            content="""---
+name: unknown-tool-skill
+metadata:
+  tools:
+    - core.missing.action
+---
+""",
+                            content_type="text/markdown; charset=utf-8",
+                        )
+                    ],
+                ),
+            )
+
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "skill_draft_tool_validation_failed"
+        assert exc_info.value.detail["errors"][0]["code"] == "unknown_skill_tools"
+
+    async def test_dispatch_treats_absent_projection_rows_as_empty(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Versions without projection rows grant no tools without reparsing."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(name="legacy-projection-skill")
+        )
+        await skill_service.publish_skill(created.id)
+
+        preset_service = AgentPresetService(session=session, role=svc_role)
+        preset = await preset_service.create_preset(
+            AgentPresetCreate(
+                name="Legacy projection preset",
+                instructions="Use the legacy skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=created.id)],
+            )
+        )
+        preset_version = await preset_service.get_current_version_for_preset(preset)
+
+        download_file = AsyncMock(side_effect=AssertionError("unexpected legacy read"))
+        monkeypatch.setattr(skill_service_module.blob, "download_file", download_file)
+        resolved_skills = (
+            await preset_service.skills.get_resolved_skill_refs_for_preset_version(
+                preset_version.id
+            )
+        )
+        grants = await preset_service.skill_tools.compile_tool_grants(
+            preset_version_id=preset_version.id,
+            resolved_skills=resolved_skills,
+        )
+
+        assert grants.registry_tool_ids == ()
+        assert grants.mcp_grants == ()
+        download_file.assert_not_awaited()
+
+    async def test_registry_tool_projection_follows_selected_resolution_mode(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        skill_service: SkillService,
+    ) -> None:
+        """Fresh runs follow heads while immutable snapshots retain pinned grants."""
+
+        repository = RegistryRepository(
+            organization_id=svc_role.organization_id,
+            origin="skill-tool-test",
+        )
+        session.add(repository)
+        await session.flush()
+        manifest = RegistryVersionManifest(
+            actions={
+                "core.http_request": RegistryVersionManifestAction(
+                    namespace="core",
+                    name="http_request",
+                    action_type=cast(RegistryActionType, "template"),
+                    description="Synthetic HTTP action",
+                    interface={"expects": {}, "returns": {}},
+                    implementation={"type": "template"},
+                )
+            }
+        )
+        registry_version = RegistryVersion(
+            organization_id=svc_role.organization_id,
+            repository_id=repository.id,
+            version="skill-tool-test-v1",
+            manifest=manifest.model_dump(mode="json"),
+            tarball_uri="s3://synthetic/registry.tar.gz",
+        )
+        session.add(registry_version)
+        await session.flush()
+        repository.current_version_id = registry_version.id
+        session.add(
+            RegistryIndex(
+                organization_id=svc_role.organization_id,
+                registry_version_id=registry_version.id,
+                namespace="core",
+                name="http_request",
+                action_type="template",
+                description="Synthetic HTTP action",
+                options={"include_in_schema": True},
+            )
+        )
+        await session.commit()
+
+        created = await skill_service.create_skill(
+            SkillCreate(name="registry-tool-skill")
+        )
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="""---
+name: registry-tool-skill
+metadata:
+  tools:
+    - core.http_request
+---
+""",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        first_version = await skill_service.publish_skill(created.id)
+
+        projection = (
+            await session.execute(
+                select(SkillVersionTool).where(
+                    SkillVersionTool.skill_version_id == first_version.id
+                )
+            )
+        ).scalar_one()
+        assert projection.tool_id == "core.http_request"
+
+        preset_service = AgentPresetService(session=session, role=svc_role)
+        preset = await preset_service.create_preset(
+            AgentPresetCreate(
+                name="Projected tool preset",
+                instructions="Use the skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=created.id)],
+            )
+        )
+        pinned_preset_version = await preset_service.get_current_version_for_preset(
+            preset
+        )
+
+        next_draft = await skill_service.get_draft(created.id)
+        assert next_draft is not None
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=next_draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="""---
+name: registry-tool-skill
+metadata:
+  tools: []
+---
+""",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        await skill_service.publish_skill(created.id)
+
+        latest_config = await preset_service._version_to_agent_config(
+            pinned_preset_version
+        )
+        assert latest_config.actions is None
+
+        pinned_config = await preset_service._version_to_agent_config(
+            pinned_preset_version,
+            resolve_dependencies_from_heads=False,
+        )
+        assert pinned_config.actions == ["core.http_request"]
+
+        await preset_service.update_preset(
+            preset,
+            AgentPresetUpdate(skills=[]),
+        )
+        detached_version = await preset_service.get_current_version_for_preset(preset)
+        detached_config = await preset_service._version_to_agent_config(
+            detached_version
+        )
+        assert detached_config.actions is None
+
+    async def test_mcp_deletion_ignores_live_skill_without_projection_rows(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        skill_service: SkillService,
+    ) -> None:
+        """A current skill without declared tools does not block MCP deletion."""
+
+        integration = MCPIntegration(
+            workspace_id=skill_service.workspace_id,
+            name="Unreferenced MCP",
+            slug=f"unreferenced-mcp-{uuid.uuid4().hex}",
+            server_type="http",
+            server_uri="https://mcp.example.test",
+            auth_type=MCPAuthType.NONE,
+            tools=[],
+        )
+        session.add(integration)
+        await session.commit()
+
+        skill = await skill_service.create_skill(SkillCreate(name="no-tool-skill"))
+        await skill_service.publish_skill(skill.id)
+
+        integration_service = IntegrationService(session=session, role=svc_role)
+        deleted = await integration_service.delete_mcp_integration(
+            mcp_integration_id=integration.id
+        )
+
+        assert deleted is True
+
+    async def test_mcp_projection_filters_tools_and_blocks_live_deletion(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        skill_service: SkillService,
+    ) -> None:
+        """Specific MCP grants are projected, filtered, and deletion-protected."""
+
+        integration = MCPIntegration(
+            workspace_id=skill_service.workspace_id,
+            name="Synthetic MCP",
+            slug=f"synthetic-mcp-{uuid.uuid4().hex}",
+            server_type="http",
+            server_uri="https://mcp.example.test",
+            auth_type=MCPAuthType.NONE,
+            tools=[
+                {
+                    "name": "allowed_tool",
+                    "description": "Allowed by the skill",
+                    "enabled": True,
+                    "status": "available",
+                },
+                {
+                    "name": "other_tool",
+                    "description": "Not allowed by the skill",
+                    "enabled": True,
+                    "status": "available",
+                },
+            ],
+        )
+        session.add(integration)
+        await session.commit()
+
+        created = await skill_service.create_skill(SkillCreate(name="mcp-tool-skill"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=f"""---
+name: mcp-tool-skill
+metadata:
+  tools:
+    - mcp.{integration.slug}.allowed_tool
+---
+""",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        skill_version = await skill_service.publish_skill(created.id)
+        projection = (
+            await session.execute(
+                select(SkillVersionMcpTool).where(
+                    SkillVersionMcpTool.skill_version_id == skill_version.id
+                )
+            )
+        ).scalar_one()
+        assert projection.mcp_integration_id == integration.id
+        assert projection.tool_name == "allowed_tool"
+
+        preset_service = AgentPresetService(session=session, role=svc_role)
+        preset = await preset_service.create_preset(
+            AgentPresetCreate(
+                name="MCP skill preset",
+                instructions="Use the MCP skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=created.id)],
+            )
+        )
+        preset_version = await preset_service.get_current_version_for_preset(preset)
+        config = await preset_service._version_to_agent_config(preset_version)
+        assert config.mcp_servers is not None
+        assert len(config.mcp_servers) == 1
+        assert config.mcp_servers[0].get("tools") == [
+            {
+                "name": "allowed_tool",
+                "description": "Allowed by the skill",
+                "enabled": True,
+                "requires_approval": False,
+                "status": "available",
+            }
+        ]
+
+        integration_service = IntegrationService(session=session, role=svc_role)
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await integration_service.delete_mcp_integration(
+                mcp_integration_id=integration.id
+            )
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "mcp_integration_referenced_by_skill"
