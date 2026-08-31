@@ -94,7 +94,6 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
         preset_version_id=uuid.uuid4(),
     )
     result = ResolvedAgentsRuntimeConfig(
-        enabled=True,
         subagents=[
             ResolvedSubagentConfig(
                 binding=binding,
@@ -112,14 +111,11 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
     assert result.subagents[0].alias == "analyst"
     assert result.subagents[0].max_turns == 5
     agents_binding = result.to_agents_binding()
-    assert agents_binding.enabled is True
     assert agents_binding.subagents == [binding]
 
 
 @pytest.mark.anyio
-async def test_resolve_preset_subagent_allows_enabled_agent_tool_without_children() -> (
-    None
-):
+async def test_resolve_preset_subagent_allows_no_attached_children() -> None:
     role = Role(
         type="service",
         service_id="tracecat-api",
@@ -141,7 +137,6 @@ async def test_resolve_preset_subagent_allows_enabled_agent_tool_without_childre
 
     result = await service._resolve_preset_subagent_configs(
         AgentSubagentsConfig(
-            enabled=True,
             subagents=[
                 ResolvedAttachedSubagentRef(
                     preset="old-analyst-slug",
@@ -205,7 +200,6 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
         ResolveAgentsConfigActivityInput(
             role=role,
             agents=AgentSubagentsConfig(
-                enabled=True,
                 subagents=[
                     ResolvedAttachedSubagentRef(
                         preset="old-analyst-slug",
@@ -268,7 +262,6 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
         ResolveAgentsConfigActivityInput(
             role=role,
             agents=AgentSubagentsConfig(
-                enabled=True,
                 subagents=[
                     ResolvedAttachedSubagentRef(
                         preset="old-analyst-slug",

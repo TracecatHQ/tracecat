@@ -17,7 +17,9 @@ async def test_resolve_run_config_rejects_subagents_on_internal_runner() -> None
         config=AgentConfigSchema(
             model_name="gpt-5",
             model_provider="openai",
-            agents=AgentSubagentsConfig(enabled=True),
+            agents=AgentSubagentsConfig.model_validate(
+                {"subagents": [{"preset": "analyst"}]}
+            ),
         ),
     )
 

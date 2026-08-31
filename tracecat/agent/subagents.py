@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from typing import Annotated, Self
+from typing import Annotated
 
 from pydantic import (
     BaseModel,
@@ -13,7 +13,6 @@ from pydantic import (
     StringConstraints,
     TypeAdapter,
     ValidationError,
-    model_validator,
 )
 
 AgentAlias = Annotated[
@@ -71,33 +70,21 @@ type AnyAttachedSubagentRef = ResolvedAttachedSubagentRef | AttachedSubagentRef
 
 
 class AgentSubagentsConfig(BaseModel):
-    """User-facing agents toggle and optional preset-backed subagents."""
+    """User-facing preset-backed subagents."""
 
-    model_config = ConfigDict(extra="forbid")
+    # Ignore the removed ``enabled`` toggle when reading legacy JSON payloads.
+    model_config = ConfigDict(extra="ignore")
 
-    enabled: bool = False
     subagents: list[AnyAttachedSubagentRef] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_subagents_enabled(self) -> Self:
-        if not self.enabled and self.subagents:
-            raise ValueError("subagents require enabled=true")
-        return self
 
 
 class ResolvedAgentsConfig(BaseModel):
-    """Persisted agents toggle with immutable resolved child refs."""
+    """Persisted immutable resolved child refs."""
 
-    model_config = ConfigDict(extra="forbid")
+    # Ignore the removed ``enabled`` toggle in persisted legacy bindings.
+    model_config = ConfigDict(extra="ignore")
 
-    enabled: bool = False
     subagents: list[ResolvedAttachedSubagentRef] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_subagents_enabled(self) -> Self:
-        if not self.enabled and self.subagents:
-            raise ValueError("subagents require enabled=true")
-        return self
 
 
 def validate_subagent_alias(alias: str) -> None:

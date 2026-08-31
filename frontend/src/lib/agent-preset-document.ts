@@ -107,9 +107,7 @@ export interface AgentPresetDocumentInput {
   mcpIntegrations: string[]
   /** Tool approvals, sorted by tool name. */
   toolApprovals: AgentPresetToolApproval[]
-  /** Whether subagents are enabled. */
-  subagentsEnabled: boolean
-  /** Attached subagents, sorted by name then preset. Empty when disabled. */
+  /** Attached subagents, sorted by name then preset. */
   subagents: AgentPresetSubagentEntry[]
   /** Attached skills with their version pins, sorted by name then version. */
   skills: AgentPresetSkillEntry[]
@@ -267,12 +265,7 @@ function agentPresetExecutionFieldsToDocumentInput(
   skillBindings: readonly RawSkillBinding[],
   skillNamesById: ReadonlyMap<string, string>
 ): AgentPresetDocumentInput {
-  const subagentsEnabled = fields.agents?.enabled ?? false
-  // Mirrors `formValuesToAgentsPayload` in the builder: a disabled toggle drops
-  // the attachments entirely, so a stale list must not show up in the diff.
-  const subagents = subagentsEnabled
-    ? normalizeSubagents(fields.agents?.subagents)
-    : []
+  const subagents = normalizeSubagents(fields.agents?.subagents)
 
   return {
     instructions: fields.instructions ?? "",
@@ -285,7 +278,6 @@ function agentPresetExecutionFieldsToDocumentInput(
     namespaces: sortStrings(fields.namespaces ?? []),
     mcpIntegrations: sortStrings(fields.mcp_integrations ?? []),
     toolApprovals: normalizeToolApprovals(fields.tool_approvals),
-    subagentsEnabled,
     subagents,
     skills: normalizeSkills(skillBindings, skillNamesById),
     // `form.getValues()` returns raw input and `retries` is a `z.coerce.number()`
@@ -404,7 +396,6 @@ export function buildAgentPresetVirtualFiles(input: AgentPresetDocumentInput): {
       allow: approval.allow,
     })),
     subagents: {
-      enabled: input.subagentsEnabled,
       agents: input.subagents.map((subagent) => ({
         name: subagent.name,
         preset: subagent.preset,

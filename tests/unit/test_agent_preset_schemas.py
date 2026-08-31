@@ -19,6 +19,7 @@ from tracecat.agent.preset.schemas import (
     build_agent_preset_read_minimal,
     build_subagent_eligibility,
 )
+from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.db.models import AgentPreset
 
 
@@ -263,11 +264,11 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
             "preset subagents yet."
         ),
     }
-    assert dumped["capabilities"] == ["approvals", "subagents"]
+    assert dumped["capabilities"] == ["approvals"]
     assert "agents" not in dumped
 
 
-def test_build_subagent_eligibility_allows_agent_tool_without_children() -> None:
+def test_build_subagent_eligibility_allows_no_attached_children() -> None:
     eligibility = build_subagent_eligibility(
         agents_config={"enabled": True, "subagents": []},
         tool_approvals={"core.http_request": False},
@@ -276,6 +277,25 @@ def test_build_subagent_eligibility_allows_agent_tool_without_children() -> None
     assert eligibility.eligible is True
     assert eligibility.reasons == []
     assert eligibility.message is None
+
+
+def test_agents_config_ignores_removed_legacy_enabled_field() -> None:
+    config = AgentSubagentsConfig.model_validate(
+        {"enabled": False, "subagents": [{"preset": "analyst"}]}
+    )
+
+    assert config.subagents[0].preset == "analyst"
+    assert config.model_dump(mode="json") == {
+        "subagents": [
+            {
+                "preset": "analyst",
+                "preset_version": None,
+                "name": None,
+                "description": None,
+                "max_turns": None,
+            }
+        ]
+    }
 
 
 def test_build_subagent_eligibility_rejects_nested_subagents() -> None:
@@ -288,7 +308,7 @@ def test_build_subagent_eligibility_rejects_nested_subagents() -> None:
     )
 
     assert eligibility.eligible is False
-    assert eligibility.reasons == ["agents_enabled"]
+    assert eligibility.reasons == ["subagents_attached"]
     assert eligibility.message == (
         "This version defines its own subagents. Remove those subagents before "
         "attaching this version as a subagent."

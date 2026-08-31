@@ -87,18 +87,15 @@ class ResolvedSubagentResolution(BaseModel):
 class ResolvedAgentsConfigResult(BaseModel):
     """Resolved preset-backed subagent bindings."""
 
-    enabled: bool = False
     subagents: list[ResolvedSubagentResolution] = Field(default_factory=list)
 
     def to_agents_binding(self) -> ResolvedAgentsConfig:
         return ResolvedAgentsConfig(
-            enabled=self.enabled,
             subagents=[subagent.binding for subagent in self.subagents],
         )
 
     def to_runtime_config(self) -> ResolvedAgentsRuntimeConfig:
         return ResolvedAgentsRuntimeConfig(
-            enabled=self.enabled,
             subagents=[
                 subagent.require_runtime_config() for subagent in self.subagents
             ],
@@ -108,12 +105,10 @@ class ResolvedAgentsConfigResult(BaseModel):
 class ResolvedAgentsRuntimeConfig(BaseModel):
     """Runtime-ready resolved preset-backed subagent config."""
 
-    enabled: bool = False
     subagents: list[ResolvedSubagentConfig] = Field(default_factory=list)
 
     def to_agents_binding(self) -> ResolvedAgentsConfig:
         return ResolvedAgentsConfig(
-            enabled=self.enabled,
             subagents=[subagent.binding for subagent in self.subagents],
         )
 
@@ -130,9 +125,6 @@ async def resolve_agents_config(
     """Resolve and validate preset-backed subagent refs."""
 
     config = AgentSubagentsConfig.model_validate({} if agents is None else agents)
-    if not config.enabled:
-        return ResolvedAgentsConfigResult()
-
     aliases: set[str] = set()
     resolved_subagents: list[ResolvedSubagentResolution] = []
     for ref in config.subagents:
@@ -233,7 +225,7 @@ async def resolve_agents_config(
         else:
             resolved_subagents.append(ResolvedSubagentResolution(binding=binding))
 
-    return ResolvedAgentsConfigResult(enabled=True, subagents=resolved_subagents)
+    return ResolvedAgentsConfigResult(subagents=resolved_subagents)
 
 
 def build_subagent_prompt(instructions: str | None) -> str:

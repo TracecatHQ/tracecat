@@ -182,7 +182,7 @@ async def list_presets(
         capabilities = []
         if has_manual_tool_approvals(tool_approvals):
             capabilities.append("approvals")
-        if agents.enabled:
+        if agents.subagents:
             capabilities.append("subagents")
         if preset.enable_internet_access:
             capabilities.append("internet_access")

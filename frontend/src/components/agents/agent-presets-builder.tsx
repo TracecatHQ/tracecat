@@ -225,7 +225,6 @@ const agentPresetSchema = z
     actions: z.array(z.string()).default([]),
     namespaces: z.array(z.string()).default([]),
     mcpIntegrations: z.array(z.string()).default([]),
-    agentsEnabled: z.boolean().default(false),
     subagents: z
       .array(
         z.object({
@@ -298,57 +297,55 @@ const agentPresetSchema = z
       }
     }
 
-    if (data.agentsEnabled) {
-      const aliases = new Set<string>()
-      data.subagents.forEach((subagent, index) => {
-        const preset = subagent.preset.trim()
-        const alias = subagent.name.trim()
-        const effectiveAlias = alias || preset
+    const aliases = new Set<string>()
+    data.subagents.forEach((subagent, index) => {
+      const preset = subagent.preset.trim()
+      const alias = subagent.name.trim()
+      const effectiveAlias = alias || preset
 
-        if (!preset) {
-          ctx.addIssue({
-            path: ["subagents", index, "preset"],
-            code: z.ZodIssueCode.custom,
-            message: "Select a preset",
-          })
-        }
-        if (alias && !SUBAGENT_ALIAS_REGEX.test(alias)) {
-          ctx.addIssue({
-            path: ["subagents", index, "name"],
-            code: z.ZodIssueCode.custom,
-            message:
-              "Use lowercase letters, numbers, and hyphens; start and end with a letter or number",
-          })
-        }
-        if (effectiveAlias && RESERVED_SUBAGENT_ALIASES.has(effectiveAlias)) {
-          ctx.addIssue({
-            path: ["subagents", index, alias ? "name" : "preset"],
-            code: z.ZodIssueCode.custom,
-            message: "This alias is reserved",
-          })
-        }
-        if (effectiveAlias && aliases.has(effectiveAlias)) {
-          ctx.addIssue({
-            path: ["subagents", index, alias ? "name" : "preset"],
-            code: z.ZodIssueCode.custom,
-            message: "Subagent aliases must be unique",
-          })
-        }
-        if (effectiveAlias) {
-          aliases.add(effectiveAlias)
-        }
-        if (
-          subagent.maxTurns.trim() &&
-          !POSITIVE_INTEGER_REGEX.test(subagent.maxTurns.trim())
-        ) {
-          ctx.addIssue({
-            path: ["subagents", index, "maxTurns"],
-            code: z.ZodIssueCode.custom,
-            message: "Use a positive turn limit",
-          })
-        }
-      })
-    }
+      if (!preset) {
+        ctx.addIssue({
+          path: ["subagents", index, "preset"],
+          code: z.ZodIssueCode.custom,
+          message: "Select a preset",
+        })
+      }
+      if (alias && !SUBAGENT_ALIAS_REGEX.test(alias)) {
+        ctx.addIssue({
+          path: ["subagents", index, "name"],
+          code: z.ZodIssueCode.custom,
+          message:
+            "Use lowercase letters, numbers, and hyphens; start and end with a letter or number",
+        })
+      }
+      if (effectiveAlias && RESERVED_SUBAGENT_ALIASES.has(effectiveAlias)) {
+        ctx.addIssue({
+          path: ["subagents", index, alias ? "name" : "preset"],
+          code: z.ZodIssueCode.custom,
+          message: "This alias is reserved",
+        })
+      }
+      if (effectiveAlias && aliases.has(effectiveAlias)) {
+        ctx.addIssue({
+          path: ["subagents", index, alias ? "name" : "preset"],
+          code: z.ZodIssueCode.custom,
+          message: "Subagent aliases must be unique",
+        })
+      }
+      if (effectiveAlias) {
+        aliases.add(effectiveAlias)
+      }
+      if (
+        subagent.maxTurns.trim() &&
+        !POSITIVE_INTEGER_REGEX.test(subagent.maxTurns.trim())
+      ) {
+        ctx.addIssue({
+          path: ["subagents", index, "maxTurns"],
+          code: z.ZodIssueCode.custom,
+          message: "Use a positive turn limit",
+        })
+      }
+    })
   })
 
 type AgentPresetFormValues = z.infer<typeof agentPresetSchema>
@@ -397,7 +394,6 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   actions: [],
   namespaces: [],
   mcpIntegrations: [],
-  agentsEnabled: false,
   subagents: [],
   skills: [],
   toolApprovals: [],
@@ -1107,7 +1103,7 @@ function getAgentPresetErrorTab(
     return "skills"
   }
 
-  if (errors.agentsEnabled || errors.subagents) {
+  if (errors.subagents) {
     return "subagents"
   }
 
@@ -1159,7 +1155,6 @@ const AGENT_PRESET_FORM_FIELD_TO_BACKEND_FIELD: Record<
   actions: "actions",
   namespaces: "namespaces",
   mcpIntegrations: "mcp_integrations",
-  agentsEnabled: "agents",
   subagents: "agents",
   skills: "skills",
   toolApprovals: "tool_approvals",
@@ -1600,23 +1595,21 @@ function AgentPresetForm({
 
   const handleSubmit = form.handleSubmit(
     async (values) => {
-      if (values.agentsEnabled) {
-        const eligibilityIssue = getFirstSubagentEligibilityIssue({
-          subagents: values.subagents,
-          presetsById: agentPresetsById,
-          presetsBySlug: agentPresetsBySlug,
-        })
-        if (eligibilityIssue) {
-          form.setError(
-            `subagents.${eligibilityIssue.index}.${eligibilityIssue.field}`,
-            {
-              type: "manual",
-              message: eligibilityIssue.message,
-            }
-          )
-          handleTabChange("subagents")
-          return
-        }
+      const eligibilityIssue = getFirstSubagentEligibilityIssue({
+        subagents: values.subagents,
+        presetsById: agentPresetsById,
+        presetsBySlug: agentPresetsBySlug,
+      })
+      if (eligibilityIssue) {
+        form.setError(
+          `subagents.${eligibilityIssue.index}.${eligibilityIssue.field}`,
+          {
+            type: "manual",
+            message: eligibilityIssue.message,
+          }
+        )
+        handleTabChange("subagents")
+        return
       }
 
       const payload = formValuesToPayload(values, {
@@ -2198,7 +2191,6 @@ function AgentPresetConfigurationPanel({
   const baseUrl = form.watch("base_url")
   const thinkingEnabled = form.watch("enableThinking")
   const internetAccessEnabled = form.watch("enableInternetAccess")
-  const agentsEnabled = form.watch("agentsEnabled")
   const selectedModel = useMemo(
     () =>
       findEnabledModelOption(enabledModelOptions, {
@@ -2482,32 +2474,6 @@ function AgentPresetConfigurationPanel({
                 />
               )}
             </div>
-            <div className="border-t" />
-            <div className="flex items-start justify-between gap-4 px-4 py-3">
-              <div className="space-y-1">
-                <label
-                  htmlFor="enable-subagents"
-                  className="text-sm font-medium leading-none"
-                >
-                  Agent tool
-                </label>
-                <p className="text-xs text-muted-foreground">
-                  Allows the agent to call subagents. Must be enabled for
-                  configured subagents to be callable.
-                </p>
-              </div>
-              <Switch
-                id="enable-subagents"
-                checked={agentsEnabled}
-                onCheckedChange={(checked) =>
-                  form.setValue("agentsEnabled", checked, {
-                    shouldDirty: true,
-                    shouldValidate: true,
-                  })
-                }
-                disabled={isSaving}
-              />
-            </div>
           </div>
         </section>
 
@@ -2715,8 +2681,6 @@ function AgentPresetSubagentsPanel({
   onAddSubagent: () => void
   onRemoveSubagent: (index: number) => void
 }) {
-  const agentsEnabled =
-    useWatch({ control: form.control, name: "agentsEnabled" }) ?? false
   const parentInternetAccessEnabled =
     useWatch({ control: form.control, name: "enableInternetAccess" }) ?? false
   const selectedSubagents =
@@ -2743,16 +2707,12 @@ function AgentPresetSubagentsPanel({
       presetsBySlug: presetOptionsBySlug,
     })
   const internetAccessWarningMessage = getInternetAccessWarningMessage({
-    agentsEnabled,
     parentInternetAccessEnabled,
     selectedInternetAccessSubagentAliases,
   })
 
   let addPresetDisabledReason: string | null = null
-  if (!agentsEnabled) {
-    addPresetDisabledReason =
-      "Turn on the Agent tool in the Tools tab to attach preset subagents."
-  } else if (presetOptions.length === 0) {
+  if (presetOptions.length === 0) {
     addPresetDisabledReason =
       "Create another agent preset first, then attach it here."
   }
@@ -2763,7 +2723,7 @@ function AgentPresetSubagentsPanel({
       size="sm"
       variant="outline"
       onClick={onAddSubagent}
-      disabled={isSaving || !agentsEnabled || presetOptions.length === 0}
+      disabled={isSaving || presetOptions.length === 0}
     >
       <Plus className="mr-2 size-4" />
       Add preset
@@ -2804,19 +2764,15 @@ function AgentPresetSubagentsPanel({
             </Alert>
           ) : null}
 
-          {!agentsEnabled ? (
-            <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
-              Turn on the Agent tool in the Tools tab to use subagents.
-            </p>
-          ) : presetOptions.length === 0 ? (
+          {presetOptions.length === 0 ? (
             <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
               Create another agent preset first, then attach it here. Dynamic
-              subagents are already available while the Agent tool is enabled.
+              general-purpose subagents are already available.
             </p>
           ) : subagentFields.length === 0 ? (
             <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
-              No preset subagents attached. Dynamic subagents can still run and
-              inherit this agent's current scopes.
+              No preset subagents attached. General-purpose subagents can still
+              run and inherit this agent's current scopes.
             </p>
           ) : (
             <div className="space-y-4">
@@ -2867,7 +2823,7 @@ function AgentPresetSubagentsPanel({
                                     selected?.id ?? ""
                                   )
                                 }}
-                                disabled={isSaving || !agentsEnabled}
+                                disabled={isSaving}
                               >
                                 <FormControl>
                                   <SelectTrigger>
@@ -2975,7 +2931,7 @@ function AgentPresetSubagentsPanel({
                                     placeholder="triage-analyst"
                                     value={field.value ?? ""}
                                     onChange={field.onChange}
-                                    disabled={isSaving || !agentsEnabled}
+                                    disabled={isSaving}
                                   />
                                 </FormControl>
                                 <FormDescription>
@@ -3008,7 +2964,7 @@ function AgentPresetSubagentsPanel({
                                   placeholder="When should the parent delegate to this subagent?"
                                   value={field.value ?? ""}
                                   onChange={field.onChange}
-                                  disabled={isSaving || !agentsEnabled}
+                                  disabled={isSaving}
                                 />
                               </FormControl>
                               <FormDescription>
@@ -3032,7 +2988,7 @@ function AgentPresetSubagentsPanel({
                                   placeholder="No limit"
                                   value={field.value ?? ""}
                                   onChange={field.onChange}
-                                  disabled={isSaving || !agentsEnabled}
+                                  disabled={isSaving}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -3672,19 +3628,16 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
       ? null
       : preset.output_type
   const agents = preset.agents
-  const agentsEnabled = agents?.enabled === true
-  const subagents = agentsEnabled
-    ? (agents.subagents ?? []).map((subagent) => ({
-        preset: subagent.preset,
-        presetId: "preset_id" in subagent ? subagent.preset_id : "",
-        name: subagent.name ?? "",
-        description: subagent.description ?? "",
-        maxTurns:
-          subagent.max_turns === null || subagent.max_turns === undefined
-            ? ""
-            : String(subagent.max_turns),
-      }))
-    : []
+  const subagents = (agents?.subagents ?? []).map((subagent) => ({
+    preset: subagent.preset,
+    presetId: "preset_id" in subagent ? subagent.preset_id : "",
+    name: subagent.name ?? "",
+    description: subagent.description ?? "",
+    maxTurns:
+      subagent.max_turns === null || subagent.max_turns === undefined
+        ? ""
+        : String(subagent.max_turns),
+  }))
 
   return {
     name: preset.name,
@@ -3717,7 +3670,6 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
         )
       : [],
     mcpIntegrations: preset.mcp_integrations ?? [],
-    agentsEnabled,
     subagents,
     skills:
       preset.skills?.map(
@@ -3776,10 +3728,6 @@ function formValuesToPayload(
 function formValuesToAgentsPayload(
   values: AgentPresetFormValues
 ): AgentPresetCreate["agents"] {
-  if (!values.agentsEnabled) {
-    return { enabled: false }
-  }
-
   const subagents = values.subagents
     .map((subagent): AttachedSubagentRef | null => {
       const preset = subagent.preset.trim()
@@ -3806,7 +3754,6 @@ function formValuesToAgentsPayload(
     .filter((subagent): subagent is AttachedSubagentRef => subagent !== null)
 
   return {
-    enabled: true,
     subagents,
   }
 }
@@ -3970,16 +3917,13 @@ function getSelectedInternetAccessSubagentAliases({
 }
 
 function getInternetAccessWarningMessage({
-  agentsEnabled,
   parentInternetAccessEnabled,
   selectedInternetAccessSubagentAliases,
 }: {
-  agentsEnabled: boolean
   parentInternetAccessEnabled: boolean
   selectedInternetAccessSubagentAliases: string[]
 }): string | null {
   if (
-    !agentsEnabled ||
     parentInternetAccessEnabled ||
     selectedInternetAccessSubagentAliases.length === 0
   ) {

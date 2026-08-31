@@ -1421,8 +1421,8 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
         preset_id=child_preset_id,
         preset_version_id=latest_version_id,
     )
-    stored_binding = ResolvedAgentsConfig(enabled=True, subagents=[stored_ref])
-    latest_agents_config = AgentSubagentsConfig(enabled=True, subagents=[latest_ref])
+    stored_binding = ResolvedAgentsConfig(subagents=[stored_ref])
+    latest_agents_config = AgentSubagentsConfig(subagents=[latest_ref])
     resolve_inputs: list[ResolveAgentsConfigActivityInput] = []
     create_inputs: list[CreateSessionInput] = []
     agent_inputs: list[AgentExecutorInput] = []
@@ -1451,7 +1451,6 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
         assert resolved_ref.preset_version_id == stored_version_id
 
         return ResolvedAgentsRuntimeConfig(
-            enabled=True,
             subagents=[
                 ResolvedSubagentConfig(
                     binding=stored_ref,

@@ -2993,7 +2993,7 @@ export const $AgentPresetSubagentEligibility = {
 
 export const $AgentPresetSubagentEligibilityReason = {
   type: "string",
-  enum: ["agents_enabled", "tool_approvals"],
+  enum: ["subagents_attached", "tool_approvals"],
 } as const
 
 export const $AgentPresetTagCreate = {
@@ -4597,11 +4597,6 @@ export const $AgentSettingsUpdate = {
 
 export const $AgentSubagentsConfig_Input = {
   properties: {
-    enabled: {
-      type: "boolean",
-      title: "Enabled",
-      default: false,
-    },
     subagents: {
       items: {
         $ref: "#/components/schemas/AnyAttachedSubagentRef",
@@ -4610,20 +4605,13 @@ export const $AgentSubagentsConfig_Input = {
       title: "Subagents",
     },
   },
-  additionalProperties: false,
   type: "object",
   title: "AgentSubagentsConfig",
-  description:
-    "User-facing agents toggle and optional preset-backed subagents.",
+  description: "User-facing preset-backed subagents.",
 } as const
 
 export const $AgentSubagentsConfig_Output = {
   properties: {
-    enabled: {
-      type: "boolean",
-      title: "Enabled",
-      default: false,
-    },
     subagents: {
       items: {
         $ref: "#/components/schemas/AnyAttachedSubagentRef",
@@ -4632,11 +4620,9 @@ export const $AgentSubagentsConfig_Output = {
       title: "Subagents",
     },
   },
-  additionalProperties: false,
   type: "object",
   title: "AgentSubagentsConfig",
-  description:
-    "User-facing agents toggle and optional preset-backed subagents.",
+  description: "User-facing preset-backed subagents.",
 } as const
 
 export const $AgentTagRead = {
@@ -22203,11 +22189,6 @@ export const $RepositorySyncResult = {
 
 export const $ResolvedAgentsConfig = {
   properties: {
-    enabled: {
-      type: "boolean",
-      title: "Enabled",
-      default: false,
-    },
     subagents: {
       items: {
         $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
@@ -22216,10 +22197,9 @@ export const $ResolvedAgentsConfig = {
       title: "Subagents",
     },
   },
-  additionalProperties: false,
   type: "object",
   title: "ResolvedAgentsConfig",
-  description: "Persisted agents toggle with immutable resolved child refs.",
+  description: "Persisted immutable resolved child refs.",
 } as const
 
 export const $ResolvedAttachedSubagentRef = {

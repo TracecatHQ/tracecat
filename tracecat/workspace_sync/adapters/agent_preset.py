@@ -1311,7 +1311,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     name=spec.name,
                     model_name=DEFAULT_AGENT_MODEL_NAME,
                     model_provider=DEFAULT_AGENT_MODEL_PROVIDER,
-                    agents={"enabled": True, "subagents": []},
+                    agents={"subagents": []},
                 )
             else:
                 preset.slug = spec.slug
@@ -1582,7 +1582,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         Resolves each child head to its current version for the rollback shadow.
         """
         if not spec.subagents:
-            return ResolvedAgentsConfig(enabled=True)
+            return ResolvedAgentsConfig()
 
         subagents: list[ResolvedAttachedSubagentRef] = []
         for subagent in spec.subagents:
@@ -1603,7 +1603,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     max_turns=subagent.max_turns,
                 )
             )
-        return ResolvedAgentsConfig(enabled=True, subagents=subagents)
+        return ResolvedAgentsConfig(subagents=subagents)
 
     async def _resolved_subagent_target(
         self,

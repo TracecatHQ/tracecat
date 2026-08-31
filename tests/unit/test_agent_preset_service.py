@@ -975,7 +975,7 @@ class TestAgentPresetService:
         assert [version.version for version in page_2.items] == [1]
         assert page_2.has_more is False
 
-    async def test_list_versions_allows_agent_tool_without_nested_subagents(
+    async def test_list_versions_allows_no_attached_subagents(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
@@ -998,7 +998,7 @@ class TestAgentPresetService:
 
         assert len(versions.items) == 1
         version = versions.items[0]
-        assert version.capabilities == ["subagents"]
+        assert version.capabilities == []
         assert version.subagent_eligibility.eligible is True
         assert version.subagent_eligibility.reasons == []
         assert version.subagent_eligibility.message is None
@@ -2839,7 +2839,7 @@ class TestAgentPresetService:
 
         await agent_preset_service.session.refresh(parent)
         assert parent.current_version_id == version_without_child.id
-        assert parent.agents == {"enabled": False, "subagents": []}
+        assert parent.agents == {"subagents": []}
 
     async def test_restore_version_locks_skill_bindings_during_validation(
         self,
@@ -3797,7 +3797,6 @@ class TestAgentPresetService:
         )
 
         agents = AgentSubagentsConfig.model_validate(parent.agents)
-        assert agents.enabled is True
         assert isinstance(agents.subagents[0], ResolvedAttachedSubagentRef)
         assert agents.subagents[0].preset_id == child.id
 
@@ -3847,7 +3846,6 @@ class TestAgentPresetService:
         )
 
         assert child_version_two.id != child_version_one.id
-        assert config.agents.enabled is True
         assert len(config.agents.subagents) == 1
         resolved_subagent = config.agents.subagents[0]
         assert isinstance(resolved_subagent, ResolvedAttachedSubagentRef)

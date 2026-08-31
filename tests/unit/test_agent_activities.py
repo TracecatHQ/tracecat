@@ -58,7 +58,10 @@ from tracecat.agent.session.activities import (
 )
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.types import ResolvedSkillRef
-from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.agent.subagents import (
+    ResolvedAgentsConfig,
+    ResolvedAttachedSubagentRef,
+)
 from tracecat.agent.tools import BuildToolsResult
 from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -762,18 +765,18 @@ class TestCreateSessionActivity:
                 None,
                 "sdk-session-1",
                 None,
+                True,
                 False,
-                False,
-                id="resumable-null-cannot-enable-agents",
+                id="resumable-null-ignores-legacy-enabled",
             ),
             pytest.param(
                 ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
                 None,
                 None,
                 uuid.UUID("00000000-0000-0000-0000-000000000001"),
+                True,
                 False,
-                False,
-                id="fork-null-cannot-enable-agents",
+                id="fork-null-ignores-legacy-enabled",
             ),
             pytest.param(
                 ResolvedAgentsConfig(),
@@ -789,18 +792,37 @@ class TestCreateSessionActivity:
                 {"enabled": False},
                 None,
                 None,
+                True,
                 False,
-                False,
-                id="different-explicit-binding",
+                id="legacy-enabled-values-are-equivalent",
             ),
             pytest.param(
                 None,
                 {"enabled": True, "subagents": []},
                 None,
                 None,
+                True,
+                False,
+                id="missing-incoming-matches-legacy-empty-binding",
+            ),
+            pytest.param(
+                ResolvedAgentsConfig(
+                    subagents=[
+                        ResolvedAttachedSubagentRef(
+                            preset="analyst",
+                            preset_id=uuid.UUID("00000000-0000-0000-0000-000000000010"),
+                            preset_version_id=uuid.UUID(
+                                "00000000-0000-0000-0000-000000000011"
+                            ),
+                        )
+                    ]
+                ),
+                {"subagents": []},
+                "sdk-session-1",
+                None,
                 False,
                 False,
-                id="missing-incoming-binding",
+                id="attached-subagent-binding-mismatch",
             ),
         ],
     )

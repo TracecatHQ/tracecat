@@ -2178,7 +2178,6 @@ async def test_run_agent_activity_plumbs_subagents_to_runtime_in_each_sandbox_mo
         handler: LoopbackHandler,
         payload: RuntimeInitPayload,
     ) -> None:
-        assert payload.config.agents.enabled is True
         assert payload.config.agents.subagents[0].preset == "analyst"
         [subagent] = payload.subagents
         assert subagent.alias == "analyst"

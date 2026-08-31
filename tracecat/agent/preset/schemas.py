@@ -20,7 +20,9 @@ if TYPE_CHECKING:
 
 
 type AgentPresetCapability = Literal["approvals", "subagents", "internet_access"]
-type AgentPresetSubagentEligibilityReason = Literal["agents_enabled", "tool_approvals"]
+type AgentPresetSubagentEligibilityReason = Literal[
+    "subagents_attached", "tool_approvals"
+]
 
 
 class AgentPresetSubagentEligibility(BaseModel):
@@ -213,7 +215,7 @@ def _agent_preset_capabilities(
     agents = AgentSubagentsConfig.model_validate(agents_config or {})
     if has_manual_tool_approvals(tool_approvals):
         capabilities.append("approvals")
-    if agents.enabled:
+    if agents.subagents:
         capabilities.append("subagents")
     if enable_internet_access:
         capabilities.append("internet_access")
@@ -230,7 +232,7 @@ def build_subagent_eligibility(
     reasons: list[AgentPresetSubagentEligibilityReason] = []
     agents = AgentSubagentsConfig.model_validate(agents_config or {})
     if agents.subagents:
-        reasons.append("agents_enabled")
+        reasons.append("subagents_attached")
     if has_manual_tool_approvals(tool_approvals):
         reasons.append("tool_approvals")
     return AgentPresetSubagentEligibility(
@@ -246,7 +248,7 @@ def _subagent_eligibility_message(
     if not reasons:
         return None
     reason_set = set(reasons)
-    if reason_set == {"agents_enabled"}:
+    if reason_set == {"subagents_attached"}:
         return (
             "This version defines its own subagents. Remove those subagents before "
             "attaching this version as a subagent."

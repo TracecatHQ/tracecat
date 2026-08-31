@@ -568,7 +568,6 @@ class AgentPresetService(BaseWorkspaceService):
                 )
             ]
             parent.agents = AgentSubagentsConfig(
-                enabled=agents.enabled and bool(remaining),
                 subagents=remaining,
             ).model_dump(mode="json")
             await self.publish_preset_head(
@@ -769,7 +768,7 @@ class AgentPresetService(BaseWorkspaceService):
         ]
         if persisted_refs:
             await self._lock_active_subagent_presets(
-                ResolvedAgentsConfig(enabled=True, subagents=persisted_refs)
+                ResolvedAgentsConfig(subagents=persisted_refs)
             )
         resolved = await resolve_agents_config(
             self,
@@ -2131,7 +2130,6 @@ class AgentPresetService(BaseWorkspaceService):
             )
             binding = resolved_agents.to_agents_binding()
             agents = AgentSubagentsConfig(
-                enabled=binding.enabled,
                 subagents=list(binding.subagents),
             )
         return AgentConfig(

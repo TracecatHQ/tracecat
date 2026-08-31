@@ -765,7 +765,7 @@ export type AgentPresetSubagentEligibility = {
 }
 
 export type AgentPresetSubagentEligibilityReason =
-  | "agents_enabled"
+  | "subagents_attached"
   | "tool_approvals"
 
 /**
@@ -1122,18 +1122,16 @@ export type AgentSettingsUpdate = {
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Input = {
-  enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Output = {
-  enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
 
@@ -6791,10 +6789,9 @@ export type RepositorySyncResult = {
 }
 
 /**
- * Persisted agents toggle with immutable resolved child refs.
+ * Persisted immutable resolved child refs.
  */
 export type ResolvedAgentsConfig = {
-  enabled?: boolean
   subagents?: Array<ResolvedAttachedSubagentRef>
 }
 

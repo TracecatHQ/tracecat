@@ -679,10 +679,8 @@ class DurableAgentWorkflow:
         follow_latest_versions: bool | None = None,
     ) -> ResolvedAgentsRuntimeConfig:
         agents_config = agents if agents is not None else cfg.agents
-        if not agents_config.enabled:
-            return ResolvedAgentsRuntimeConfig()
         if not agents_config.subagents:
-            return ResolvedAgentsRuntimeConfig(enabled=True)
+            return ResolvedAgentsRuntimeConfig()
         return await workflow.execute_activity(
             resolve_agents_config_activity,
             ResolveAgentsConfigActivityInput(

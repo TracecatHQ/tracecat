@@ -112,7 +112,7 @@ function buildVersion(
 ): AgentPresetVersionRead {
   return {
     ...SHARED_EXECUTION,
-    agents: { enabled: true, subagents: VERSION_SUBAGENTS },
+    agents: { subagents: VERSION_SUBAGENTS },
     skills: VERSION_SKILLS,
     id: "version-1",
     preset_id: "preset-1",
@@ -129,7 +129,7 @@ function buildPayload(
 ): AgentPresetCreate {
   return {
     ...SHARED_EXECUTION,
-    agents: { enabled: true, subagents: DRAFT_SUBAGENTS },
+    agents: { subagents: DRAFT_SUBAGENTS },
     skills: [{ skill_id: SKILL_ALPHA_ID }, { skill_id: SKILL_BETA_ID }],
     name: "Alert triage agent",
     slug: "alert-triage-agent",
@@ -226,7 +226,6 @@ describe("buildAgentPresetVirtualFiles determinism", () => {
     const shuffled = renderPayload(
       buildPayload({
         agents: {
-          enabled: true,
           subagents: [...DRAFT_SUBAGENTS].reverse(),
         },
       })
@@ -323,11 +322,15 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
     expect(config).toContain("preset_version: 2")
   })
 
-  it("forces an empty agent list when subagents are disabled", () => {
+  it("ignores the removed legacy enabled field", () => {
     const { config } = renderPayload(
-      buildPayload({ agents: { enabled: false, subagents: DRAFT_SUBAGENTS } })
+      buildPayload({
+        agents: { enabled: false, subagents: DRAFT_SUBAGENTS } as never,
+      })
     )
-    expect(config).toContain("subagents:\n  enabled: false\n  agents: []\n")
+    expect(config).not.toContain("enabled:")
+    expect(config).toContain("preset: writer")
+    expect(config).toContain("preset: triage")
   })
 
   it("emits explicit nulls and empty lists for a minimal preset", () => {
@@ -351,7 +354,6 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
         "mcp_integrations: []",
         "tool_approvals: []",
         "subagents:",
-        "  enabled: false",
         "  agents: []",
         "skills: []",
         "runtime:",
