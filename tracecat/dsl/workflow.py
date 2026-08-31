@@ -278,6 +278,7 @@ class DSLWorkflow:
     @workflow.init
     def __init__(self, args: DSLRunArgs) -> None:
         self.role = args.role
+        ctx_role.set(self.role)
         self.start_to_close_timeout = args.timeout
         """The activity execution timeout."""
         self.execution_type = args.execution_type

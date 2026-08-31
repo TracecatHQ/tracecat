@@ -9,6 +9,7 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -19,6 +20,23 @@ from tracecat.runtime.errors import (
 )
 from tracecat.temporal.errors import extract_error_classification
 from tracecat.workspaces.activities import get_workspace_organization_id_activity
+
+
+def test_dsl_workflow_sets_role_during_workflow_initialization():
+    role = Role(
+        type="service",
+        service_id="tracecat-schedule-runner",
+        workspace_id=uuid.uuid4(),
+    )
+    args = DSLRunArgs(role=role, wf_id=WorkflowUUID.new_uuid4())
+    token = ctx_role.set(None)
+
+    try:
+        DSLWorkflow(args)
+
+        assert ctx_role.get() == role
+    finally:
+        ctx_role.reset(token)
 
 
 @pytest.mark.anyio
