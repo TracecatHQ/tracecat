@@ -22,7 +22,7 @@ Select `Tools` to open the picker. Tracecat defaults are always included.
 
 `MCP integrations` lists the servers your workspace configured itself, and `Connect an MCP server` adds one; see [MCP servers](/automations/integrations/mcp-integrations) to connect a remote or local one. Your workspace role needs `integration:read` to see the section.
 
-The agent add-ons entitlement adds `Agent presets` to `Active capabilities`, and the Tracecat-managed catalog connectors to `MCP integrations`. The screenshot below shows a workspace that has them.
+The agent add-ons entitlement adds `Agent presets` to `Active capabilities`, as shown below, and the Tracecat-managed catalog connectors to `MCP integrations`.
 
 ![Workspace chat tools](/img/agents/workspace-chat-tools.png)
 
@@ -32,7 +32,9 @@ The agent add-ons entitlement adds `Agent presets` to `Active capabilities`, and
 
 Focus the empty composer to show the `@ Mention agent` hint, then type `@` and select a preset agent from the list. Selecting the result sets that preset for the entire conversation, and the `@Agent name` text remains in the message you send.
 
-The list keeps filtering as you type, including across the spaces in a name. Selecting a result is what binds the agent; typing a name as plain text does not.
+The list keeps filtering as you type, including across the spaces in a name. It matches the agent name or its slug, which each row shows on the right.
+
+Selecting a result is what binds the agent; typing a name as plain text does not.
 
 A badge with the agent name replaces the hint until you clear it with `×`. A preset supplies its own tools, so `Tools` is unavailable while an agent is set.
 
