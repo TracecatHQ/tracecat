@@ -2008,6 +2008,52 @@ describe("ChatSessionPane", () => {
       await waitFor(() => expect(onSelect).toHaveBeenCalledWith("preset-2"))
     })
 
+    it("does not reopen on the trigger of a mention already bound", async () => {
+      // One preset name prefixing another: typing the rest of the longer name
+      // as prompt text after `@Triage ` must not reopen the list, or Enter
+      // rebinds the agent instead of sending.
+      mockPresets([
+        { ...TRIAGE_PRESET, name: "Triage", slug: "triage" },
+        { ...MALWARE_PRESET, name: "Triage investigate", slug: "triage-inv" },
+      ])
+      const onSelect = jest.fn().mockResolvedValue(true)
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect,
+        },
+      })
+
+      const textarea = screen.getByRole("textbox")
+      fireEvent.change(textarea, {
+        target: { value: "@Triag", selectionStart: 6 },
+      })
+      // Name plus slug hint, so this is the short preset and not the long one.
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Triage triage" })
+      )
+      await waitFor(() => expect(textarea).toHaveValue("@Triage "))
+
+      // Prompt text that happens to complete the other preset's name.
+      fireEvent.change(textarea, {
+        target: { value: "@Triage investigate", selectionStart: 19 },
+      })
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0))
+      })
+
+      expect(
+        screen.queryByRole("button", { name: /Triage investigate/ })
+      ).not.toBeInTheDocument()
+
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+      await waitFor(() => expect(onSelect).toHaveBeenCalledWith("preset-1"))
+      expect(onSelect).not.toHaveBeenCalledWith("preset-2")
+      expect(textarea).toHaveValue("")
+    })
+
     it("replaces the first agent when a second one is picked", async () => {
       // A chat session owns one preset, so a stale name left in the text would
       // quietly win at submit.

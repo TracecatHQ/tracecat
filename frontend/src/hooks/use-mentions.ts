@@ -362,6 +362,17 @@ export function useMentions({
         setSession(undefined)
         return
       }
+      // A bound mention's own trigger must not start a fresh query. With one
+      // target's name a prefix of another, typing the rest of the longer name
+      // as ordinary prompt text after `@Triage ` would otherwise reopen the
+      // list, and Enter would rebind the agent instead of sending.
+      const insideBoundMention = ranges.some(
+        (range) => token.start >= range.start && token.start < range.end
+      )
+      if (insideBoundMention) {
+        setSession(undefined)
+        return
+      }
       const state = token.kind === "agent" ? agents : workflows
       if (state === "unavailable") {
         setSession(undefined)
@@ -380,7 +391,7 @@ export function useMentions({
         activeIndex: pinned ? (current?.activeIndex ?? 0) : 0,
       }))
     },
-    [agents, workflows, sessionCaret, sessionStart, textareaRef]
+    [agents, workflows, ranges, sessionCaret, sessionStart, textareaRef]
   )
 
   // Scopes and entitlements resolve after mount, so a trigger typed during the
