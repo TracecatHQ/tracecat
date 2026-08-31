@@ -1,4 +1,5 @@
 from contextlib import suppress
+from contextvars import ContextVar
 from typing import Any
 
 from temporalio import workflow
@@ -39,6 +40,19 @@ with workflow.unsafe.imports_passed_through():
 
 class _SentryWrappedWorkflowError(ApplicationError):
     """Mark Sentry's internal wrapper without changing its Temporal payload."""
+
+
+_ATTRIBUTION_ORIGINAL_ERROR: ContextVar[BaseException | None] = ContextVar(
+    "attribution_original_error",
+    default=None,
+)
+
+
+def _take_attribution_original_error() -> BaseException | None:
+    """Return and clear a history-local error retained for Sentry capture."""
+    error = _ATTRIBUTION_ORIGINAL_ERROR.get()
+    _ATTRIBUTION_ORIGINAL_ERROR.set(None)
+    return error
 
 
 def _unclassified_retry_disposition(error: BaseException) -> RetryDisposition:
@@ -125,6 +139,7 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
         try:
             return await super().execute_workflow(input)
         except Exception as error:
+            original_error = _take_attribution_original_error()
             if is_cancelled_exception(error) or isinstance(
                 error, (TerminatedError, TemporalTimeoutError)
             ):
@@ -147,7 +162,10 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
 
             classification = select_error_classification(classifications)
             try:
-                _report_terminal_failure(error, classification)
+                _report_terminal_failure(
+                    original_error if original_error is not None else error,
+                    classification,
+                )
             except Exception as reporting_error:
                 with suppress(Exception):
                     logger.warning(
@@ -212,6 +230,7 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
                     workflow_type=workflow.info().workflow_type,
                     error_type=type(error).__name__,
                 )
+            _ATTRIBUTION_ORIGINAL_ERROR.set(error)
             raise application_error_from_classification(classification) from None
 
     @staticmethod

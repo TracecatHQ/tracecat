@@ -8,6 +8,7 @@ from typing import Any, cast
 import pytest
 import sentry_sdk
 from sentry_sdk.envelope import Envelope
+from sentry_sdk.integrations.atexit import AtexitIntegration
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event
 from temporalio import workflow
@@ -126,6 +127,16 @@ def test_worker_interceptor_order_keeps_attribution_without_sentry() -> None:
     assert isinstance(interceptors[0], RuntimeErrorAttributionInterceptor)
 
 
+def test_sentry_keeps_only_the_shutdown_flush_integration(
+    sentry_events: list[Event],
+) -> None:
+    del sentry_events
+
+    client = sentry_sdk.get_client()
+
+    assert client.get_integration(AtexitIntegration) is not None
+
+
 @pytest.mark.anyio
 async def test_unclassified_platform_failure_is_attributed_then_captured_once(
     sentry_events: list[Event],
@@ -144,6 +155,10 @@ async def test_unclassified_platform_failure_is_attributed_then_captured_once(
 
     assert len(sentry_events) == 1
     event = sentry_events[0]
+    assert "exception" in event
+    exception = event["exception"]
+    assert "values" in exception
+    assert exception["values"][-1]["type"] == "RuntimeError"
     assert "fingerprint" in event
     assert event["fingerprint"] == [
         "tracecat-runtime-v1",

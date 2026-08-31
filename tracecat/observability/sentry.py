@@ -5,6 +5,7 @@ from enum import StrEnum
 from typing import Any, cast
 
 import sentry_sdk
+from sentry_sdk.integrations.atexit import AtexitIntegration
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
 
@@ -77,6 +78,7 @@ def initialize_sentry(
         server_name=service_name,
         default_integrations=False,
         auto_enabling_integrations=False,
+        integrations=[AtexitIntegration()],
         send_default_pii=False,
         include_local_variables=False,
         max_breadcrumbs=0,
