@@ -80,6 +80,28 @@ async def test_run_omits_null_config_fields(
     assert "catalog_id" not in config
 
 
+@pytest.mark.anyio
+async def test_run_forwards_deprecated_preset_version(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    await agents_client.run(
+        user_prompt="Summarize this",
+        preset_slug="case-triage",
+        preset_version=3,
+    )
+
+    mock_tracecat_client.post.assert_awaited_once_with(
+        "/agent/run",
+        json={
+            "user_prompt": "Summarize this",
+            "preset_slug": "case-triage",
+            "preset_version": 3,
+            "max_requests": 120,
+        },
+    )
+
+
 def test_agent_config_rejects_agents_option() -> None:
     config_kwargs = cast(
         Any,
@@ -225,7 +247,7 @@ async def test_update_preset_serializes_authoring_fields(
         "case-triage",
         instructions="Triage cases.",
         tool_approvals={"core.cases.update_case": True},
-        agents={"enabled": True, "subagents": []},
+        agents={"subagents": []},
         skills=[{"skill_id": "11111111-1111-1111-1111-111111111111"}],
     )
 
@@ -234,7 +256,7 @@ async def test_update_preset_serializes_authoring_fields(
         json={
             "instructions": "Triage cases.",
             "tool_approvals": {"core.cases.update_case": True},
-            "agents": {"enabled": True, "subagents": []},
+            "agents": {"subagents": []},
             "skills": [{"skill_id": "11111111-1111-1111-1111-111111111111"}],
         },
     )
