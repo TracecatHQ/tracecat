@@ -141,7 +141,7 @@ async def test_dsl_workflow_auto_heals_missing_organization_id():
 
 
 @pytest.mark.anyio
-async def test_dsl_workflow_defers_and_classifies_missing_workspace():
+async def test_dsl_workflow_classifies_missing_workspace_during_run_initialization():
     role = Role(type="service", service_id="tracecat-schedule-runner")
     args = DSLRunArgs(role=role, wf_id=WorkflowUUID.new_uuid4())
 
@@ -157,11 +157,12 @@ async def test_dsl_workflow_defers_and_classifies_missing_workspace():
     )
 
     dsl_workflow = DSLWorkflow(args)
-    with patch("tracecat.dsl.workflow.workflow.info", return_value=fake_wf_info):
-        dsl_workflow._initialize_run(args)
 
-    with pytest.raises(ApplicationError) as exc_info:
-        _ = dsl_workflow.workspace_id
+    with (
+        patch("tracecat.dsl.workflow.workflow.info", return_value=fake_wf_info),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        dsl_workflow._initialize_run(args)
 
     classification = extract_error_classification(exc_info.value)
     assert classification is not None

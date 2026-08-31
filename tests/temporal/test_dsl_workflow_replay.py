@@ -32,6 +32,7 @@ from tracecat.dsl.workflow import (
 )
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import extract_error_classification
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -80,6 +81,40 @@ def _raise_legacy_workflow_application_error(
 
 def _ignore_terminal_error_owner(_error: ApplicationError) -> None:
     """Reproduce the absence of terminal owner attribution before ENG-1407."""
+
+
+@pytest.mark.anyio
+async def test_dsl_workflow_classifies_missing_workspace_inside_run(
+    temporal_client: Client,
+) -> None:
+    """Classify missing workspace data in a real sandboxed workflow instance."""
+    task_queue = f"dsl-workflow-bootstrap-{uuid.uuid4()}"
+    wf_id = WorkflowUUID.new_uuid4()
+    run_args = DSLRunArgs(
+        role=Role(type="service", service_id="tracecat-runner"),
+        wf_id=wf_id,
+    )
+
+    async with Worker(
+        client=temporal_client,
+        task_queue=task_queue,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+        interceptors=[RuntimeErrorAttributionInterceptor()],
+    ):
+        handle = await temporal_client.start_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=generate_exec_id(wf_id),
+            task_queue=task_queue,
+            execution_timeout=timedelta(seconds=30),
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await handle.result()
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA
 
 
 @pytest.mark.anyio

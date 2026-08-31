@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, Never
 
-from temporalio.exceptions import ApplicationError, is_cancelled_exception
+from temporalio.exceptions import (
+    ApplicationError,
+    CancelledError,
+    is_cancelled_exception,
+)
 
 from tracecat.dsl.error_transport import parse_classified_action_error_payload
 from tracecat.dsl.types import ActionErrorInfo, TaskExceptionInfo
@@ -37,7 +41,7 @@ def raise_child_failures_application_error(
             child_type = classification.cause_type or type(failure).__name__
         else:
             classification = None
-            has_unclassified_non_cancellation |= not is_cancelled_exception(failure)
+            has_unclassified_non_cancellation |= not _is_cancellation_fallout(failure)
             child_message = str(failure)
             child_type = type(failure).__name__
         child_classifications.append(classification)
@@ -102,7 +106,7 @@ def build_terminal_application_error(
         classifications = extract_error_classifications(info.exception)
         if not classifications:
             has_unclassified = True
-            has_unclassified_non_cancellation |= not is_cancelled_exception(
+            has_unclassified_non_cancellation |= not _is_cancellation_fallout(
                 info.exception
             )
             continue
@@ -152,6 +156,13 @@ def build_terminal_application_error(
         non_retryable=True,
         type=ApplicationError.__name__,
     )
+
+
+def _is_cancellation_fallout(error: BaseException) -> bool:
+    """Recognize native and workflow-transported sibling cancellation."""
+    if is_cancelled_exception(error):
+        return True
+    return isinstance(error, ApplicationError) and error.type == CancelledError.__name__
 
 
 def adapt_error_handler_details(

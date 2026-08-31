@@ -30,6 +30,7 @@ from tests.temporal.runtime_error_attribution_harness import (
 )
 from tracecat import config
 from tracecat.dsl import action as action_module
+from tracecat.dsl.action import SubflowDefinitionNotFoundError
 from tracecat.dsl.common import (
     DSLEntrypoint,
     DSLInput,
@@ -244,6 +245,107 @@ async def run_unhandled_subflow_preparation_failure_sets_platform_owner(
         root=handle,
         failure=exc_info.value,
         attempts=prepare_subflow.await_count,
+    )
+
+
+async def run_missing_subflow_with_cancelled_sibling_preserves_causal_owner(
+    env: WorkflowEnvironment,
+    test_worker_factory,
+) -> ScenarioObservation:
+    """A missing child definition remains causal when a sibling is cancelled."""
+    missing_alias = "deliberately-missing-child"
+    slow_started = asyncio.Event()
+
+    async def prepare_subflow(
+        _input: action_module.PrepareSubflowActivityInput,
+    ) -> PreparedSubflowResult:
+        await slow_started.wait()
+        raise SubflowDefinitionNotFoundError(
+            f"Workflow alias '{missing_alias}' not found"
+        )
+
+    async def dispatch_slow_action(*, backend: object, input: object) -> object:
+        del backend, input
+        slow_started.set()
+        await asyncio.Event().wait()
+        return {"ok": True}  # pragma: no cover - cancelled by the workflow
+
+    prepare_subflow_mock = AsyncMock(side_effect=prepare_subflow)
+    run_args = DSLRunArgs(
+        role=_role(),
+        wf_id=WorkflowUUID.new_uuid4(),
+        dsl=DSLInput(
+            title="Missing child with cancelled sibling",
+            description="Preserve the causal subflow classification",
+            entrypoint=DSLEntrypoint(ref="classified_failure"),
+            actions=[
+                ActionStatement(
+                    ref="classified_failure",
+                    action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+                    args={"workflow_alias": missing_alias},
+                    retry_policy=ActionRetryPolicy(max_attempts=1, timeout=60),
+                ),
+                ActionStatement(
+                    ref="slow_sibling",
+                    action="core.noop",
+                    args={},
+                    retry_policy=ActionRetryPolicy(max_attempts=1, timeout=60),
+                ),
+            ],
+        ),
+        trigger_inputs=InlineObject(data={}),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test"},
+            actions={"core.noop": "tracecat_registry"},
+        ),
+    )
+    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
+
+    with (
+        patch(
+            "tracecat.dsl.action._prepare_subflow",
+            new=prepare_subflow_mock,
+        ),
+        patch(
+            "tracecat.executor.activities.get_executor_backend",
+            return_value=object(),
+        ),
+        patch(
+            "tracecat.executor.activities.dispatch_action",
+            new=dispatch_slow_action,
+        ),
+    ):
+        async with (
+            test_worker_factory(
+                env.client,
+                activities=[
+                    resolve_time_anchor_activity,
+                    resolve_workflow_concurrency_limits_enabled_activity,
+                    action_module.DSLActivities.prepare_subflow_activity,
+                    WorkflowsManagementService.get_error_handler_workflow_id,
+                ],
+                task_queue=dsl_queue,
+            ),
+            test_worker_factory(
+                env.client,
+                activities=[ExecutorActivities.execute_action_activity],
+                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            ),
+        ):
+            handle = await env.client.start_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=generate_exec_id(run_args.wf_id),
+                task_queue=dsl_queue,
+            )
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await handle.result()
+
+    assert slow_started.is_set()
+    return ScenarioObservation(
+        root=handle,
+        failure=exc_info.value,
+        attempts=prepare_subflow_mock.await_count,
     )
 
 

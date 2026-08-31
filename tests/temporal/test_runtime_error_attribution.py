@@ -40,6 +40,7 @@ temporal_env = harness.env
 
 class _Topology(StrEnum):
     SINGLE_ACTION = "single_action"
+    CONCURRENT_ACTIONS = "concurrent_actions"
     DEFINITION_LOOKUP = "definition_lookup"
     SCATTER_GATHER = "scatter_gather"
     FANOUT = "fanout"
@@ -475,6 +476,20 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         attempts=1,
         runner=_basic_runner(
             child_harness.run_unhandled_subflow_preparation_failure_sets_platform_owner
+        ),
+    ),
+    _AttributionScenario(
+        id="subflow_preparation.missing_definition_with_cancelled_sibling",
+        topology=_Topology.CONCURRENT_ACTIONS,
+        fault_point=_FaultPoint.SUBFLOW_PREPARATION,
+        fault="missing child definition + cancelled sibling",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+        envelope_owners=frozenset({RuntimeErrorOwner.USER}),
+        kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        attempts=1,
+        runner=_basic_runner(
+            child_harness.run_missing_subflow_with_cancelled_sibling_preserves_causal_owner
         ),
     ),
     _AttributionScenario(

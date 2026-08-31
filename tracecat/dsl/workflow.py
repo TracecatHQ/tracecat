@@ -266,7 +266,7 @@ class DSLWorkflow:
     organization_id: identifiers.OrganizationID
     dep_list: dict[str, list[str]]
     scheduler: DSLScheduler
-    _workspace_id: identifiers.WorkspaceID | None
+    workspace_id: identifiers.WorkspaceID
 
     # Tier limit tracking
     _tier_limits: EffectiveLimits | None = None
@@ -277,15 +277,11 @@ class DSLWorkflow:
 
     @workflow.init
     def __init__(self, args: DSLRunArgs) -> None:
-        # Keep workflow construction assignment-only. The inbound interceptor
-        # does not wrap @workflow.init, so fallible bootstrap work belongs at
-        # the start of run(), inside the terminal attribution boundary.
         self.role = args.role
         self.start_to_close_timeout = args.timeout
         """The activity execution timeout."""
         self.execution_type = args.execution_type
         """Execution type (draft or published). Draft executions use draft aliases for child workflows."""
-        self._workspace_id = self.role.workspace_id
 
     def _initialize_run(self, args: DSLRunArgs) -> None:
         """Initialize fallible workflow runtime state inside the interceptor."""
@@ -294,6 +290,14 @@ class DSLWorkflow:
         self.wf_exec_id = wf_info.workflow_id
         # Tracecat wf run id == Temporal wf run id
         self.wf_run_id = wf_info.run_id
+        if (workspace_id := self.role.workspace_id) is None:
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
+                message="Tracecat could not initialize the workflow workspace",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+            )
+            raise_application_error_from_classification(classification)
+        self.workspace_id = workspace_id
         self.logger = get_workflow_logger(
             wf_id=args.wf_id,
             wf_exec_id=self.wf_exec_id,
@@ -321,23 +325,6 @@ class DSLWorkflow:
             self.logger.error("Failed to show workflow info", error=e)
 
         self.interactions = InteractionManager(self)
-
-    @property
-    def workspace_id(self) -> identifiers.WorkspaceID:
-        """Return the required workspace ID or raise a classified bootstrap error."""
-        if self._workspace_id is None:
-            classification = RuntimeErrorClassification.platform(
-                kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
-                message="Tracecat could not initialize the workflow workspace",
-                retry_disposition=RetryDisposition.NON_RETRYABLE,
-            )
-            raise_application_error_from_classification(classification)
-        return self._workspace_id
-
-    @workspace_id.setter
-    def workspace_id(self, value: identifiers.WorkspaceID) -> None:
-        """Allow runtime setup and tests to replace the resolved workspace ID."""
-        self._workspace_id = value
 
     @workflow.update
     async def interaction_handler(self, input: InteractionInput) -> InteractionResult:
