@@ -39,6 +39,7 @@ from tracecat.logger import logger
 _CREATE_CASE = "core.cases.create_case"
 _UPDATE_COMMENT = "core.cases.update_comment"
 _HISTORY_FETCH_SIZE = 100
+_TARGET_LOOKUP_BATCH_SIZE = 1000
 _INTERACTION_INSERT_BATCH_SIZE = 1000
 # Successful case deletions leave no case row for the interaction foreign key.
 _CASE_ID_ACTIONS = frozenset(
@@ -500,24 +501,22 @@ class CaseAgentSessionBackfill:
             if mutation.target == "comment"
         }
         comment_cases: dict[tuple[uuid.UUID, uuid.UUID], uuid.UUID] = {}
-        if comment_keys:
+        for chunk in batched(comment_keys, _TARGET_LOOKUP_BATCH_SIZE):
             rows = (
                 await self.session.execute(
                     select(
                         CaseComment.workspace_id,
                         CaseComment.id,
                         CaseComment.case_id,
-                    ).where(
-                        tuple_(CaseComment.workspace_id, CaseComment.id).in_(
-                            comment_keys
-                        )
-                    )
+                    ).where(tuple_(CaseComment.workspace_id, CaseComment.id).in_(chunk))
                 )
             ).tuples()
-            comment_cases = {
-                (workspace_id, comment_id): case_id
-                for workspace_id, comment_id, case_id in rows
-            }
+            comment_cases.update(
+                {
+                    (workspace_id, comment_id): case_id
+                    for workspace_id, comment_id, case_id in rows
+                }
+            )
 
         skipped: Counter[CaseAgentSessionBackfillSkipReason] = Counter()
         resolved: list[_ResolvedMutation] = []
@@ -533,12 +532,12 @@ class CaseAgentSessionBackfill:
 
         case_keys = {(source.workspace_id, case_id) for source, _, case_id in resolved}
         existing_cases: set[tuple[uuid.UUID, uuid.UUID]] = set()
-        if case_keys:
-            existing_cases = set(
+        for chunk in batched(case_keys, _TARGET_LOOKUP_BATCH_SIZE):
+            existing_cases.update(
                 (
                     await self.session.execute(
                         select(Case.workspace_id, Case.id)
-                        .where(tuple_(Case.workspace_id, Case.id).in_(case_keys))
+                        .where(tuple_(Case.workspace_id, Case.id).in_(chunk))
                         .order_by(Case.workspace_id, Case.id)
                         .with_for_update(read=True, key_share=True)
                     )
