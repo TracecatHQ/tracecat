@@ -17,6 +17,7 @@ import {
   PromptInputTextarea,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import type { ChatHistoryScope } from "@/components/chat/chat-history-dropdown"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
@@ -163,7 +164,13 @@ export function ChatInterface({
   // Every workspace can attach the MCP servers it configured itself, so the
   // entitlement is deliberately not folded in here. It only narrows what the
   // picker lists: the Tracecat-managed catalog connectors stay entitled.
-  const sessionMcpEnabled = entityType === "copilot"
+  // `integration:read` is folded in: the picker lists servers from the MCP
+  // integration endpoint, which is guarded by it. Without it the request 403s
+  // and the picker would offer to connect a server on a page the role cannot
+  // open.
+  const canReadIntegrations = useScopeCheck("integration:read")
+  const sessionMcpEnabled =
+    canReadIntegrations === true && entityType === "copilot"
   const inWorkspaceChat = surface === "workspace-chat"
   // Surfaces that defer server-side session creation until the first message,
   // showing a draft composer instead of an eagerly-created empty session.
