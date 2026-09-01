@@ -64,15 +64,6 @@ class Conventions:
         """Scopes an author may write, including the type-disambiguated ones."""
         return tuple(sorted({*self.scopes, *self.scopes_by_type}))
 
-    @property
-    def known_scopes(self) -> tuple[str, ...]:
-        """Every scope the autolabeler recognises, canonical or not."""
-        return tuple(
-            sorted(
-                {*self.canonical_scopes, *self.scope_aliases, *self.ambiguous_scopes}
-            )
-        )
-
     def scope_label(self, scope: str, *, type_: str) -> str | None:
         """Area label for a canonical scope under `type_`, or None if unknown."""
         if scope in self.scopes:

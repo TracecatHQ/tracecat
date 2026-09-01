@@ -146,13 +146,13 @@ def _check_scope_part(part: str, conventions: Conventions) -> Violation | None:
     # `fix(pool): ...` is engine work, and the autolabeler files it under
     # Integrations precisely because nothing claimed it first.
     integrations = conventions.scopes["integrations"]
-    known = sorted(set(conventions.scopes) | set(conventions.scopes_by_type))
     return Violation(
         "unknown-scope",
         f"`{part}` is not a scope. If it names a vendor, write "
         f"`feat({integrations}): add {part.replace('_', ' ').title()} issue "
         "search` and put the vendor in the description. If it names part of "
-        f"Tracecat, use the scope that covers it: {_quote(known)}.",
+        f"Tracecat, use the scope that covers it: "
+        f"{_quote(conventions.canonical_scopes)}.",
     )
 
 
@@ -299,8 +299,11 @@ def check_title(title: str, conventions: Conventions) -> Report:
 
 
 def _names_replacement(description: str, conventions: Conventions) -> bool:
-    lowered = description.lower()
-    return any(marker in lowered for marker in conventions.replacement_markers)
+    return any(
+        re.search(rf"\b{re.escape(marker.strip())}\b", description, re.IGNORECASE)
+        is not None
+        for marker in conventions.replacement_markers
+    )
 
 
 def render(report: Report) -> str:

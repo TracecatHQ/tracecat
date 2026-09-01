@@ -13,6 +13,7 @@ a label, and the pull requests it would have held render with no heading.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 from typing import Final
@@ -24,6 +25,7 @@ from commit_conventions import Conventions, LegacyType, load_conventions
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 DRAFTER_PATH: Final = REPO_ROOT / ".github" / "release-drafter.yml"
+AUDIT_SCRIPT_PATH: Final = REPO_ROOT / "scripts" / "audit_commit_conventions.py"
 DOC_PATHS: Final = (REPO_ROOT / "CONTRIBUTING.md", REPO_ROOT / "AGENTS.md")
 
 # Release Drafter accepts either a bare string or a JavaScript-style
@@ -49,7 +51,7 @@ AUTOLABEL_RULES: Final = tuple(
     for pattern in rule["title"]
 )
 TIER_A_TYPE_RULE: Final = re.compile(
-    re.escape(r"^(\[\w+\] )?(?:")
+    re.escape(r"^(\[[\w.-]+\]\s+)?(?:")
     + r"(?P<alternatives>[a-z|]+)"
     + re.escape(r")(\([^)]*\))?!?: ")
 )
@@ -170,7 +172,8 @@ def test_revert_wrapper_is_labelled() -> None:
     ],
 )
 def test_bot_prefix_does_not_change_labels(title: str) -> None:
-    assert autolabel(f"[codex] {title}") == autolabel(title)
+    for prefix in ("[codex]", "[pre-commit.ci]", "[foo-bar]"):
+        assert autolabel(f"{prefix} {title}") == autolabel(title)
 
 
 @pytest.mark.parametrize("vendor", ["jira", "splunk", "scc", "elastic_security"])
@@ -224,6 +227,20 @@ def test_every_vocabulary_label_has_a_home(conventions: Conventions) -> None:
     assert not homeless, sorted(homeless)
 
 
+def test_audit_script_has_no_top_level_yaml_import() -> None:
+    """The backfill job would break if yaml were hoisted to module scope."""
+    module = ast.parse(AUDIT_SCRIPT_PATH.read_text(encoding="utf-8"))
+    imports_yaml = any(
+        (
+            isinstance(node, ast.Import)
+            and any(alias.name == "yaml" for alias in node.names)
+        )
+        or (isinstance(node, ast.ImportFrom) and node.module == "yaml")
+        for node in module.body
+    )
+    assert not imports_yaml
+
+
 # `scripts/audit_commit_conventions.py` resolves labels in Python instead of by
 # regex, so it is a third restatement of the same rules and can drift too.
 CORPUS: Final = (
@@ -231,6 +248,7 @@ CORPUS: Final = (
     "fix: return 404 for missing workspaces",
     "feat(api)!: drop the v1 webhook payload",
     "feat(ui+api): case comment replies",
+    "feat(splunk+ui): add saved search export",
     "[codex] chore(deps): bump orjson",
     'Revert "feat(mcp): add internal OIDC issuer"',
     "release: 1.0.0-beta.49",

@@ -34,8 +34,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-import yaml
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from commit_conventions import (  # noqa: E402
@@ -227,7 +225,10 @@ def resolve_labels(parsed: ParsedTitle, conventions: Conventions) -> frozenset[s
                 label = legacy.label
         if label is not None:
             labels.add(label)
-        elif part not in conventions.ambiguous_scopes:
+        # The drafter's vendor-fallback lookahead cannot span `+`, so a
+        # compound scope containing an unknown component gets no integrations
+        # label. Mirror that production behavior deliberately.
+        elif len(parsed.scope_parts) == 1 and part not in conventions.ambiguous_scopes:
             labels.add(vendor_label)
 
     return frozenset(labels)
@@ -235,6 +236,10 @@ def resolve_labels(parsed: ParsedTitle, conventions: Conventions) -> frozenset[s
 
 def load_release_drafter(path: Path) -> ReleaseDrafterConfig:
     """Read `categories:` and `exclude-labels:` from `release-drafter.yml`."""
+    # Keep this import function-local: the dependency-free backfill job runs
+    # `labels-for` without third-party packages installed.
+    import yaml
+
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:

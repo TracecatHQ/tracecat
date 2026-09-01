@@ -114,8 +114,8 @@ gen-functions-docs:
 	uv run python scripts/generate_functions_docs.py
 
 # Validate a PR title against .github/commit-conventions.toml
-check-pr-title title:
-	uv run python scripts/check_pr_title.py --title "{{title}}"
+check-pr-title $title:
+	PR_TITLE="$title" uv run python scripts/check_pr_title.py
 
 # Report how merged PRs line up with the commit conventions
 # Subcommands: labels, prefixes, backfill, sections, labels-for

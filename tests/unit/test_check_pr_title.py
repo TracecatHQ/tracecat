@@ -148,6 +148,29 @@ def test_deprecation_replacement_markers(description: str) -> None:
     assert check_title(f"deprecation(integrations): {description}", CONVENTIONS).ok
 
 
+@pytest.mark.parametrize(
+    "title",
+    [
+        "deprecation(api): reuse old endpoint",
+        "deprecation(api): misuse the old field",
+    ],
+)
+def test_deprecation_replacement_markers_require_word_boundaries(title: str) -> None:
+    assert "depr-no-replacement" in check_title(title, CONVENTIONS).codes
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "deprecation(api): use tools.y instead",
+        "deprecation(api): x in favour of y",
+        "deprecation(api): drop x with no replacement",
+    ],
+)
+def test_deprecation_replacement_markers_match_complete_words(title: str) -> None:
+    assert check_title(title, CONVENTIONS).ok
+
+
 def test_main_reads_the_title_from_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
