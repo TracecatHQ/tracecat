@@ -5,6 +5,7 @@ import math
 import sys
 import traceback
 from datetime import UTC
+from enum import Enum
 from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict
 
 import orjson
@@ -58,17 +59,35 @@ def _serialize_exception(record: "Record") -> LogException | None:
     }
 
 
-def _fallback_value(value: object) -> object:
+def _fallback_value(value: object, ancestors: set[int] | None = None) -> object:
     """Make uncommon Python values safe for the standard JSON fallback."""
-    if isinstance(value, dict):
-        return {str(key): _fallback_value(item) for key, item in value.items()}
-    if isinstance(value, list | tuple | set | frozenset):
-        return [_fallback_value(item) for item in value]
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if value is None or isinstance(value, str | int | float | bool):
         return value
-    return str(value)
+    if isinstance(value, Enum):
+        return _fallback_value(value.value, ancestors)
+    if isinstance(value, set | frozenset):
+        return str(value)
+    if not isinstance(value, dict | list | tuple):
+        return str(value)
+
+    if ancestors is None:
+        ancestors = set()
+    marker = id(value)
+    if marker in ancestors:
+        return "<recursive>"
+
+    ancestors.add(marker)
+    try:
+        if isinstance(value, dict):
+            return {
+                str(key): _fallback_value(item, ancestors)
+                for key, item in value.items()
+            }
+        return [_fallback_value(item, ancestors) for item in value]
+    finally:
+        ancestors.remove(marker)
 
 
 def _encode_payload(payload: StructuredLog) -> str:
@@ -77,7 +96,13 @@ def _encode_payload(payload: StructuredLog) -> str:
         return orjson.dumps(
             payload,
             default=str,
-            option=orjson.OPT_APPEND_NEWLINE | orjson.OPT_NON_STR_KEYS,
+            option=(
+                orjson.OPT_APPEND_NEWLINE
+                | orjson.OPT_NON_STR_KEYS
+                | orjson.OPT_PASSTHROUGH_DATACLASS
+                | orjson.OPT_PASSTHROUGH_DATETIME
+                | orjson.OPT_PASSTHROUGH_SUBCLASS
+            ),
         ).decode()
     except TypeError:
         return (

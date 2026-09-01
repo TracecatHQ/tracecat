@@ -189,6 +189,34 @@ def test_json_log_format_preserves_unusual_mapping_keys() -> None:
     assert payload["attributes"]["details"] == {"('a', 'b')": 1}
 
 
+def test_json_log_format_replaces_recursive_attributes() -> None:
+    payload = json.loads(
+        _emit_log(
+            LogFormat.JSON,
+            statement=(
+                "items = []; items.append(items); "
+                "logger.bind(items=items).info('Workflow failed')"
+            ),
+        )
+    )
+
+    assert payload["attributes"]["items"] == ["<recursive>"]
+
+
+def test_json_log_format_keeps_datetime_shape_on_fallback() -> None:
+    datetime_binding = "created_at=__import__('datetime').datetime(2024, 1, 2, 3, 4, 5)"
+    normal = json.loads(_emit_log(LogFormat.JSON, bindings=datetime_binding))
+    fallback = json.loads(
+        _emit_log(
+            LogFormat.JSON,
+            bindings=f"{datetime_binding}, path='bad' + chr(0xDCFF)",
+        )
+    )
+
+    assert normal["attributes"]["created_at"] == "2024-01-02 03:04:05"
+    assert fallback["attributes"]["created_at"] == "2024-01-02 03:04:05"
+
+
 def test_json_log_format_preserves_correlation_fields() -> None:
     payload = json.loads(
         _emit_log(
