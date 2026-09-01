@@ -15,7 +15,10 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
 )
 from tracecat.temporal.errors import raise_application_error_from_classification
-from tracecat.tiers.exceptions import InvalidOrganizationConcurrencyCapError
+from tracecat.tiers.exceptions import (
+    DefaultTierNotConfiguredError,
+    InvalidOrganizationConcurrencyCapError,
+)
 from tracecat.tiers.permits import TierPermitService
 from tracecat.tiers.schemas import EffectiveLimits
 from tracecat.tiers.semaphore import AcquireResult
@@ -255,10 +258,19 @@ async def get_tier_limits_activity(
         async with TierService.with_session() as service:
             limits = await service.get_effective_limits(input.org_id)
     except Exception as e:
+        invalid_data = isinstance(e, DefaultTierNotConfiguredError)
         classification = RuntimeErrorClassification.platform(
-            kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
+            kind=(
+                RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA
+                if invalid_data
+                else RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE
+            ),
             message="Tracecat could not resolve workflow tier limits",
-            retry_disposition=RetryDisposition.RETRYABLE,
+            retry_disposition=(
+                RetryDisposition.NON_RETRYABLE
+                if invalid_data
+                else RetryDisposition.RETRYABLE
+            ),
             cause=e,
         )
         raise_application_error_from_classification(classification)
