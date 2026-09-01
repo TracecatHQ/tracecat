@@ -80,7 +80,10 @@ suggest = "docs"
 
 [legacy_types.helm]
 label = "infra"
-suggest = "infra(helm)"
+# Not `infra(helm)`: `helm` is an alias for `infra`, so that suggestion fails
+# the scope check and sends the author round a second time. Name the chart in
+# the description instead.
+suggest = "infra"
 
 [legacy_types.tests]
 label = "tests"

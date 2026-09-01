@@ -121,6 +121,43 @@ def test_audit_is_canonical_not_an_alias_for_api() -> None:
     assert CONVENTIONS.scope_label("logging", type_="fix") == "logging"
 
 
+def _suggestion_cases() -> list[tuple[str, str]]:
+    """(source, title) for every replacement the checker tells an author to write."""
+    cases: list[tuple[str, str]] = []
+
+    def described(suggest: str) -> str:
+        # A `deprecation:` title must name a replacement, so a generic
+        # description would fail for reasons that have nothing to do with the
+        # suggestion being valid.
+        if suggest.split("(")[0] == CONVENTIONS.deprecation_type:
+            return f"{suggest}: tools.x in favour of tools.y"
+        return f"{suggest}: example change"
+
+    for name, suggest in CONVENTIONS.type_aliases.items():
+        if suggest:
+            cases.append((f"type_aliases.{name}", described(suggest)))
+    for name, legacy in CONVENTIONS.legacy_types.items():
+        if legacy.suggest:
+            cases.append((f"legacy_types.{name}", described(legacy.suggest)))
+    for name, legacy in CONVENTIONS.legacy_scopes.items():
+        if legacy.suggest:
+            cases.append((f"legacy_scopes.{name}", f"feat({legacy.suggest}): example"))
+    return cases
+
+
+@pytest.mark.parametrize(
+    ("source", "title"), _suggestion_cases(), ids=[c[0] for c in _suggestion_cases()]
+)
+def test_every_suggestion_is_itself_valid(source: str, title: str) -> None:
+    """An error message that names an invalid replacement sends the author round twice.
+
+    `legacy_types.helm` suggested `infra(helm)`, and `helm` is an alias for
+    `infra`, so following the message produced a second, different error.
+    """
+    report = check_title(title, CONVENTIONS)
+    assert report.ok, f"{source} suggests {title!r}, which fails: {report.codes}"
+
+
 def test_over_length_warns_but_does_not_fail() -> None:
     title = f"feat(ui): {'x' * CONVENTIONS.max_length}"
     report = check_title(title, CONVENTIONS)
