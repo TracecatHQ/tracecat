@@ -24,9 +24,7 @@ from temporalio.worker import (
 from tracecat.dsl import interceptor as interceptor_module
 from tracecat.dsl.interceptor import (
     RuntimeErrorAttributionInterceptor,
-    _LegacySentryCompatibleRuntimeErrorAttributionWorkflowInterceptor,
     _RuntimeErrorAttributionWorkflowInterceptor,
-    _SentryWrappedWorkflowError,
 )
 from tracecat.logger import logger
 from tracecat.observability import sentry as sentry_module
@@ -221,25 +219,22 @@ def test_sentry_contexts_are_filtered_by_context_and_field() -> None:
 
 
 @pytest.mark.anyio
-async def test_marker_free_replay_preserves_legacy_sentry_wrapper(
+async def test_marker_free_history_preserves_original_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(workflow, "patched", lambda _: False)
     raw_error = RuntimeError("Legacy workflow failure")
-    configured = RuntimeErrorAttributionInterceptor(preserve_legacy_sentry_wrapper=True)
+    configured = RuntimeErrorAttributionInterceptor()
     inbound_class = configured.workflow_interceptor_class(
         cast(WorkflowInterceptorClassInput, object())
     )
 
-    assert (
-        inbound_class
-        is _LegacySentryCompatibleRuntimeErrorAttributionWorkflowInterceptor
-    )
+    assert inbound_class is _RuntimeErrorAttributionWorkflowInterceptor
     inbound = inbound_class(_RaisingInbound(raw_error))
-    with pytest.raises(_SentryWrappedWorkflowError) as raised:
+    with pytest.raises(RuntimeError) as raised:
         await inbound.execute_workflow(_workflow_input())
 
-    assert raised.value.__cause__ is raw_error
+    assert raised.value is raw_error
 
 
 @pytest.mark.anyio

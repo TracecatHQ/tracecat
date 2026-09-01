@@ -38,15 +38,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
-class _SentryWrappedWorkflowError(ApplicationError):
-    """Mark Sentry's internal wrapper without changing its Temporal payload."""
-
-
 def _unclassified_retry_disposition(error: BaseException) -> RetryDisposition:
     """Preserve explicit Temporal retryability without guessing for raw errors."""
     for current in iter_error_chain(error, include_implicit_context=False):
-        if isinstance(current, _SentryWrappedWorkflowError):
-            continue
         if isinstance(current, ApplicationError):
             return (
                 RetryDisposition.NON_RETRYABLE
@@ -101,8 +95,6 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
     intentionally surfaced as ``platform/runtime.unclassified``.
     """
 
-    _preserve_legacy_sentry_wrapper = False
-
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
         try:
             return await super().execute_workflow(input)
@@ -117,18 +109,9 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
                 include_implicit_context=False,
             )
 
-            # Marker-free histories that ran with the legacy Sentry interceptor
-            # recorded this ApplicationError wrapper. Reproduce it during replay
-            # without retaining the old interceptor or its reporting behavior.
             if not workflow.patched(
                 WorkflowPatch.RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR
             ):
-                if (
-                    self._preserve_legacy_sentry_wrapper
-                    and not isinstance(error, ApplicationError)
-                    and not classifications
-                ):
-                    raise _SentryWrappedWorkflowError(str(error)) from error
                 raise
 
             if classifications:
@@ -176,20 +159,7 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
 class RuntimeErrorAttributionInterceptor(Interceptor):
     """Always-on terminal workflow attribution backstop."""
 
-    def __init__(self, *, preserve_legacy_sentry_wrapper: bool = False) -> None:
-        self._preserve_legacy_sentry_wrapper = preserve_legacy_sentry_wrapper
-
     def workflow_interceptor_class(
         self, input: WorkflowInterceptorClassInput
     ) -> type[WorkflowInboundInterceptor] | None:
-        if self._preserve_legacy_sentry_wrapper:
-            return _LegacySentryCompatibleRuntimeErrorAttributionWorkflowInterceptor
         return _RuntimeErrorAttributionWorkflowInterceptor
-
-
-class _LegacySentryCompatibleRuntimeErrorAttributionWorkflowInterceptor(
-    _RuntimeErrorAttributionWorkflowInterceptor
-):
-    """Replay the legacy Sentry wrapper for marker-free workflow histories."""
-
-    _preserve_legacy_sentry_wrapper = True

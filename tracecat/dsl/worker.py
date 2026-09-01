@@ -122,9 +122,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     client = await get_temporal_client()
 
     initialize_sentry_from_environment()
-    interceptors = [
-        RuntimeErrorAttributionInterceptor(preserve_legacy_sentry_wrapper=True)
-    ]
+    interceptors = [RuntimeErrorAttributionInterceptor()]
 
     # Run a worker for the activities and workflow
     activities = get_activities()

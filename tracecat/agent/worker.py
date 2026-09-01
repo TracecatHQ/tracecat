@@ -117,9 +117,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     client = await get_temporal_client()
 
     initialize_sentry_from_environment()
-    interceptors = [
-        RuntimeErrorAttributionInterceptor(preserve_legacy_sentry_wrapper=True)
-    ]
+    interceptors = [RuntimeErrorAttributionInterceptor()]
 
     activities = get_activities()
     logger.debug(
