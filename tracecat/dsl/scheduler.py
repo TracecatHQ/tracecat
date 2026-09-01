@@ -898,16 +898,12 @@ class DSLScheduler:
             if indegree == 0:
                 self.queue.put_nowait(task_instance)
 
-        pending_tasks: dict[asyncio.Task[None], int] = {}
-        next_task_sequence = 0
+        pending_tasks: dict[asyncio.Task[None], None] = {}
 
         def reap_done_tasks() -> None:
             # Workflow code must choose among concurrently completed tasks
-            # deterministically, so preserve their spawn order.
-            done_tasks = sorted(
-                (task for task in pending_tasks if task.done()),
-                key=pending_tasks.__getitem__,
-            )
+            # deterministically. Dict insertion order is their spawn order.
+            done_tasks = [task for task in pending_tasks if task.done()]
             for done_task in done_tasks:
                 pending_tasks.pop(done_task)
             first_error: BaseException | None = None
@@ -947,8 +943,7 @@ class DSLScheduler:
                 task_instance = await self.queue.get()
                 self.logger.debug("Scheduling task", task=task_instance)
                 task = asyncio.create_task(self._schedule_task(task_instance))
-                pending_tasks[task] = next_task_sequence
-                next_task_sequence += 1
+                pending_tasks[task] = None
                 spawned_since_yield += 1
                 if spawned_since_yield % _SCHEDULER_TASK_SPAWN_YIELD_EVERY == 0:
                     # High-fanout scatters can enqueue many ready tasks at once.
