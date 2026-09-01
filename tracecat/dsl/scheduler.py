@@ -916,13 +916,15 @@ class DSLScheduler:
                     task_error = done_task.exception()
                 except BaseException as error:
                     task_error = error
-                if task_error is not None and first_error is None:
+                if task_error is None:
+                    continue
+                if is_cancelled_exception(task_error) and not workflow.patched(
+                    PRESERVE_TEMPORAL_CANCELLATION_PATCH
+                ):
+                    continue
+                if first_error is None:
                     first_error = task_error
             if first_error is None:
-                return
-            if is_cancelled_exception(first_error) and not workflow.patched(
-                PRESERVE_TEMPORAL_CANCELLATION_PATCH
-            ):
                 return
             raise first_error
 

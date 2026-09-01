@@ -40,7 +40,7 @@ from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import extract_error_classification
 from tracecat.temporal.exceptions import UserError
 from tracecat.tiers.schemas import EffectiveLimits
-from tracecat.workflow.executions.enums import ExecutionType
+from tracecat.workflow.executions.enums import ExecutionType, TriggerType
 
 
 def _effective_limits(
@@ -286,6 +286,50 @@ async def test_execute_task_preserves_temporal_cancellation_with_replay_gate(
             assert exc_info.value.type == CancelledError.__name__
 
     patched.assert_called_once_with(PRESERVE_TEMPORAL_CANCELLATION_PATCH)
+
+
+@pytest.mark.anyio
+async def test_run_workflow_preserves_scheduler_cancellation() -> None:
+    workflow = _build_workflow()
+    task = ActionStatement(ref="noop", action="core.noop")
+    dsl = DSLInput(
+        title="Scheduler cancellation",
+        description="preserve native cancellation",
+        entrypoint=DSLEntrypoint(ref=task.ref),
+        actions=[task],
+    )
+    time_anchor = datetime.now(UTC)
+    run_args = DSLRunArgs(
+        role=workflow.role,
+        dsl=dsl,
+        wf_id=workflow.run_context.wf_id,
+        time_anchor=time_anchor,
+    )
+    workflow.dsl = dsl
+    workflow.dispatch_type = "push"
+    workflow.wf_run_id = str(workflow.run_context.wf_run_id)
+    workflow.start_to_close_timeout = run_args.timeout
+    cancellation = _activity_error_from(CancelledError("cancelled by sibling"))
+    scheduler = SimpleNamespace(start=AsyncMock(side_effect=cancellation))
+    workflow_info = SimpleNamespace(
+        start_time=time_anchor,
+        workflow_id=workflow.run_context.wf_exec_id,
+        run_id=str(workflow.run_context.wf_run_id),
+        execution_timeout=None,
+    )
+
+    with (
+        patch("tracecat.dsl.workflow.workflow.info", return_value=workflow_info),
+        patch(
+            "tracecat.dsl.workflow.get_trigger_type",
+            return_value=TriggerType.MANUAL,
+        ),
+        patch("tracecat.dsl.workflow.DSLScheduler", return_value=scheduler),
+        pytest.raises(ActivityError) as exc_info,
+    ):
+        await workflow._run_workflow(run_args)
+
+    assert exc_info.value is cancellation
 
 
 @pytest.mark.anyio

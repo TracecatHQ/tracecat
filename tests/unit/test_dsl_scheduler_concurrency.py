@@ -14,6 +14,7 @@ from tests.shared import capture_application_error as _capture_application_error
 from tracecat.auth.types import Role
 from tracecat.dsl import scheduler as scheduler_module
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
+from tracecat.dsl.constants import PRESERVE_TEMPORAL_CANCELLATION_PATCH
 from tracecat.dsl.error_transport import parse_classified_action_error_payload
 from tracecat.dsl.scheduler import DSLScheduler
 from tracecat.dsl.schemas import (
@@ -116,6 +117,37 @@ async def test_scheduler_preserves_temporal_cancellation_with_replay_gate(
         else:
             await scheduler.start()
             assert "task_0" in scheduler.task_exceptions
+
+
+@pytest.mark.anyio
+async def test_scheduler_legacy_cancellation_does_not_hide_same_batch_error() -> None:
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(total_tasks=2, executor=executor)
+    ready: set[str] = set()
+    all_ready = asyncio.Event()
+
+    async def schedule_task(task: Task) -> None:
+        ready.add(task.ref)
+        if len(ready) == 2:
+            all_ready.set()
+        await all_ready.wait()
+        if task.ref == "task_0":
+            raise asyncio.CancelledError
+        raise RuntimeError("causal scheduler failure")
+
+    with (
+        patch.object(scheduler, "_schedule_task", new=schedule_task),
+        patch(
+            "tracecat.dsl.scheduler.workflow.patched",
+            return_value=False,
+        ) as patched,
+        pytest.raises(RuntimeError, match="causal scheduler failure"),
+    ):
+        await scheduler.start()
+
+    patched.assert_called_once_with(PRESERVE_TEMPORAL_CANCELLATION_PATCH)
 
 
 @pytest.mark.anyio

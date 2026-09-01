@@ -664,6 +664,8 @@ class DSLWorkflow:
         try:
             task_exceptions = await self.scheduler.start()
         except Exception as e:
+            if is_cancelled_exception(e):
+                raise
             classification = RuntimeErrorClassification.platform(
                 kind=RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
                 message="Tracecat could not complete workflow scheduling",
