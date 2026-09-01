@@ -148,7 +148,7 @@ def test_sentry_environment_bootstrap_is_disabled_without_dsn(
     initializer = Mock()
     monkeypatch.setattr(sentry_module, "initialize_sentry", initializer)
 
-    assert initialize_sentry_from_environment() is False
+    initialize_sentry_from_environment()
     initializer.assert_not_called()
 
 
@@ -172,7 +172,7 @@ def test_sentry_environment_bootstrap_initializes_shared_worker_configuration(
     initializer = Mock()
     monkeypatch.setattr(sentry_module, "initialize_sentry", initializer)
 
-    assert initialize_sentry_from_environment() is True
+    initialize_sentry_from_environment()
     initializer.assert_called_once_with(
         dsn="https://public@example.com/1",
         environment="production-eu-cloud",

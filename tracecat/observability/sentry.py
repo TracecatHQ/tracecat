@@ -154,10 +154,10 @@ def initialize_sentry(
     )
 
 
-def initialize_sentry_from_environment() -> bool:
+def initialize_sentry_from_environment() -> None:
     """Initialize Sentry from process configuration when a DSN is present."""
     if not (dsn := os.environ.get("SENTRY_DSN")):
-        return False
+        return
 
     app_env = config.TRACECAT__APP_ENV
     temporal_namespace = config.TEMPORAL__CLUSTER_NAMESPACE
@@ -182,4 +182,3 @@ def initialize_sentry_from_environment() -> bool:
         app_env=app_env,
         temporal_namespace=temporal_namespace,
     )
-    return True
