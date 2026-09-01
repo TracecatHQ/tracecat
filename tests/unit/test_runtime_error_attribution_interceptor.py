@@ -1,4 +1,9 @@
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError,
+    TimeoutType,
+)
 
 from tracecat.dsl.interceptor import _unclassified_retry_disposition
 from tracecat.runtime.errors import RetryDisposition
@@ -33,6 +38,18 @@ def test_unclassified_activity_error_preserves_non_retryable_application_cause()
     )
 
     assert _unclassified_retry_disposition(error) is RetryDisposition.NON_RETRYABLE
+
+
+def test_unclassified_activity_error_preserves_timeout_retryability() -> None:
+    error = _activity_error_from(
+        TimeoutError(
+            "Activity timed out",
+            type=TimeoutType.START_TO_CLOSE,
+            last_heartbeat_details=(),
+        )
+    )
+
+    assert _unclassified_retry_disposition(error) is RetryDisposition.RETRYABLE
 
 
 def test_unclassified_raw_error_remains_non_retryable() -> None:

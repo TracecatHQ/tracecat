@@ -16,6 +16,7 @@ from tracecat.exceptions import (
     RegistryError,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -212,7 +213,12 @@ async def test_resolve_registry_lock_activity_maps_invalid_manifest_as_terminal(
         action_names={"tools.invalid.action"},
     )
     with pytest.raises(ValidationError) as validation_exc:
-        Role.model_validate({})
+        RegistryVersionManifest.model_validate(
+            {
+                "schema_version": "v1",
+                "actions": [{"namespace": "tools.invalid"}],
+            }
+        )
     mock_service = AsyncMock()
     mock_service.resolve_lock_with_bindings.side_effect = validation_exc.value
     mock_ctx = AsyncMock()

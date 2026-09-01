@@ -50,6 +50,8 @@ def _unclassified_retry_disposition(error: BaseException) -> RetryDisposition:
             if source_error.non_retryable
             else RetryDisposition.RETRYABLE
         )
+    if isinstance(source_error, TemporalTimeoutError):
+        return RetryDisposition.RETRYABLE
     return RetryDisposition.NON_RETRYABLE
 
 
