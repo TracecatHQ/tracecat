@@ -254,10 +254,16 @@ Anything left with no matching label goes under a trailing **Other** section. Do
 not silently drop PRs.
 
 Format each entry as `- <title> (#<number>)`, matching the config's
-`change-template`. Use the title verbatim, conventional-commit prefix included.
-The config's `replacers:` only rewrite scope aliases, never the type prefix, so
-Release Drafter renders `$TITLE` with its prefix intact; stripping it here would
-make this skill's output disagree with every real release.
+`change-template`, then apply every rule in the config's `replacers:` to the
+assembled body, in order. Read them from the file the way you read
+`categories:`; do not restate them here.
+
+They are not cosmetic, and they are not only scope aliases. They rewrite the
+type prefix too -- `chore(deps)` and `fix(deps)` become `build(deps)`, a scope
+that merely repeats its type is dropped, `feat!(api)` moves the bang to
+`feat(api)!` -- and they capitalize the first letter of every description. Skip
+them and every line this skill produces differs from the line the same commit
+gets in its stable release, at minimum by that capital letter.
 
 #### 8e. Assemble the body
 
