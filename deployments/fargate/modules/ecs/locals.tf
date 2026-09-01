@@ -332,6 +332,7 @@ locals {
       TEMPORAL_BROADCAST_ADDRESS        = "0.0.0.0"
       BIND_ON_IP                        = "0.0.0.0"
       NUM_HISTORY_SHARDS                = var.temporal_num_history_shards
+      DEFAULT_NAMESPACE_RETENTION       = var.temporal_default_namespace_retention
       SQL_TLS                           = var.temporal_db_tls_enabled
       SQL_TLS_ENABLED                   = var.temporal_db_tls_enabled
       SQL_TLS_DISABLE_HOST_VERIFICATION = !var.temporal_db_tls_enable_host_verification

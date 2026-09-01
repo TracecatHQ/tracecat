@@ -187,6 +187,7 @@ module "ecs" {
   temporal_cpu                             = var.temporal_cpu
   temporal_memory                          = var.temporal_memory
   temporal_num_history_shards              = var.temporal_num_history_shards
+  temporal_default_namespace_retention     = var.temporal_default_namespace_retention
   temporal_db_tls_enabled                  = var.temporal_db_tls_enabled
   temporal_db_tls_enable_host_verification = var.temporal_db_tls_enable_host_verification
   temporal_db_force_ssl                    = var.temporal_db_force_ssl

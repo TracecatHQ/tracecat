@@ -650,6 +650,7 @@ services:
       - POSTGRES_USER=${TEMPORAL__POSTGRES_USER}
       - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD}
       - POSTGRES_SEEDS=temporal_postgres_db
+      - DEFAULT_NAMESPACE_RETENTION=${TEMPORAL__DEFAULT_NAMESPACE_RETENTION:-24h}
       - LOG_LEVEL=warn
     healthcheck:
       test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
