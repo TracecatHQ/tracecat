@@ -258,8 +258,10 @@ def test_json_log_format_preserves_exception_without_local_diagnostics() -> None
         _emit_log(
             LogFormat.JSON,
             statement=(
-                "\ntry:\n    raise ValueError('invalid input')\n"
-                "except ValueError:\n    logger.exception('Workflow failed')"
+                "\ndef outer():\n    inner()\n\n"
+                "def inner():\n    try:\n        raise ValueError('invalid input')\n"
+                "    except ValueError:\n        logger.exception('Workflow failed')\n\n"
+                "outer()"
             ),
         )
     )
@@ -267,6 +269,8 @@ def test_json_log_format_preserves_exception_without_local_diagnostics() -> None
     assert payload["exception"]["type"] == "ValueError"
     assert payload["exception"]["message"] == "invalid input"
     assert "ValueError: invalid input" in payload["exception"]["stack"]
+    assert "in outer" in payload["exception"]["stack"]
+    assert "in inner" in payload["exception"]["stack"]
 
 
 def test_console_log_format_remains_human_readable() -> None:

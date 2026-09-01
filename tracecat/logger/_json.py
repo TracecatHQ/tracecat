@@ -41,21 +41,29 @@ class LogMessage(Protocol):
     def record(self) -> "Record": ...
 
 
-def _serialize_exception(record: "Record") -> LogException | None:
+def _serialize_exception(
+    record: "Record", formatted_message: str | None
+) -> LogException | None:
     exception = record["exception"]
     if exception is None or exception.type is None or exception.value is None:
         return None
 
+    stack = "".join(
+        traceback.format_exception(
+            exception.type,
+            exception.value,
+            exception.traceback,
+        )
+    )
+    if formatted_message is not None and formatted_message.startswith(
+        record["message"]
+    ):
+        stack = formatted_message[len(record["message"]) :].lstrip("\n")
+
     return {
         "type": exception.type.__name__,
         "message": str(exception.value),
-        "stack": "".join(
-            traceback.format_exception(
-                exception.type,
-                exception.value,
-                exception.traceback,
-            )
-        ),
+        "stack": stack,
     }
 
 
@@ -129,7 +137,7 @@ def _encode_payload(payload: StructuredLog) -> str:
         )
 
 
-def serialize_log_record(record: "Record") -> str:
+def serialize_log_record(record: "Record", formatted_message: str | None = None) -> str:
     """Serialize one Loguru record into the collector-facing schema."""
     attributes: dict[str, object] = dict(record["extra"])
     service = attributes.pop("process_service", "tracecat")
@@ -147,7 +155,7 @@ def serialize_log_record(record: "Record") -> str:
         "line": record["line"],
         "attributes": attributes,
     }
-    if exception := _serialize_exception(record):
+    if exception := _serialize_exception(record, formatted_message):
         payload["exception"] = exception
 
     return _encode_payload(payload)
@@ -155,4 +163,4 @@ def serialize_log_record(record: "Record") -> str:
 
 def write_json_log(message: LogMessage) -> None:
     """Write one serialized Loguru message to standard error."""
-    sys.stderr.write(serialize_log_record(message.record))
+    sys.stderr.write(serialize_log_record(message.record, str(message)))
