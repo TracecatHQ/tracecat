@@ -420,6 +420,12 @@ replacers:
   - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:frontend|canvas|ux)\)(!?): /gm'
     replace: '- $1$2(ui)$3: '
 
+  # Drop a scope that only repeats its type. `infra(fargate)` is a fine title,
+  # but the alias rules above rewrite it to `infra(infra)`, which reads as a
+  # stutter. Must stay below those rules; it exists to clean up after them.
+  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\(\2\)(!?): /gm'
+    replace: '- $1$2$3: '
+
   # A dependency bump is packaging work, whatever prompted it. History spells
   # it four ways -- chore(deps) 21, fix(deps) 9, build(deps) 9 -- and all three
   # of those land in the same Dependencies section, so the type is noise the

@@ -308,6 +308,16 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
             id="fix-deps-is-packaging-work",
         ),
         pytest.param(
+            "- infra(fargate): add the agent executor service (#2500)",
+            "- infra: Add the agent executor service (#2500)",
+            id="alias-that-becomes-a-stutter-loses-the-scope",
+        ),
+        pytest.param(
+            "- docs(docs): fix a broken anchor (#2600)",
+            "- docs: Fix a broken anchor (#2600)",
+            id="stutter-written-by-hand",
+        ),
+        pytest.param(
             "- build(deps): patch dependabot alerts (#2400)",
             "- build(deps): Patch dependabot alerts (#2400)",
             id="build-deps-is-already-canonical",
