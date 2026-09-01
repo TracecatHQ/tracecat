@@ -1,0 +1,22 @@
+scripts/audit_commit_conventions.py
+  s_c5002332a8185a::t_470433e32f847f 542,547-552,554-556,560,566,574-575,587,592,598,609,616
+tests/unit/test_commit_conventions.py
+  s_c5002332a8185a::t_203c8b50722cfb 308-309
+  s_c5002332a8185a::t_6132f95c08c4e8 23-28,289-307
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a07c32a9d10c8fdd00ccc9b1dc0cd1d14f849ea2",
+  "prompts": {},
+  "sessions": {
+    "s_c5002332a8185a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "831b7546-2af0-4f8f-af70-e9256e652a68",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
