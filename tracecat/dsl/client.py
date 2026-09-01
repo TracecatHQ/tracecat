@@ -1,3 +1,4 @@
+import asyncio
 import base64
 
 import aioboto3
@@ -25,6 +26,7 @@ from tracecat.dsl._converter import get_data_converter
 from tracecat.logger import logger
 
 _client: Client | None = None
+_client_lock = asyncio.Lock()
 
 
 async def _retrieve_temporal_api_key(arn: str) -> str:
@@ -89,22 +91,26 @@ async def get_temporal_client(plugins: list[Plugin] | None = None) -> Client:
     if _client is not None:
         return _client
 
-    try:
-        logger.info(
-            "Connecting to Temporal server...",
-            namespace=TEMPORAL__CLUSTER_NAMESPACE,
-            url=TEMPORAL__CLUSTER_URL,
-        )
-        _client = await connect_to_temporal(plugins=plugins)
-        logger.info("Successfully connected to Temporal server")
-    except RetryError as e:
-        msg = (
-            f"Failed to connect to host {TEMPORAL__CLUSTER_URL} using namespace "
-            f"{TEMPORAL__CLUSTER_NAMESPACE} after {TEMPORAL__CONNECT_RETRIES} attempts. "
-        )
-        raise RuntimeError(msg) from e
-    else:
-        return _client
+    async with _client_lock:
+        if _client is not None:
+            return _client
+
+        try:
+            logger.info(
+                "Connecting to Temporal server...",
+                namespace=TEMPORAL__CLUSTER_NAMESPACE,
+                url=TEMPORAL__CLUSTER_URL,
+            )
+            _client = await connect_to_temporal(plugins=plugins)
+            logger.info("Successfully connected to Temporal server")
+        except RetryError as e:
+            msg = (
+                f"Failed to connect to host {TEMPORAL__CLUSTER_URL} using namespace "
+                f"{TEMPORAL__CLUSTER_NAMESPACE} after {TEMPORAL__CONNECT_RETRIES} attempts. "
+            )
+            raise RuntimeError(msg) from e
+        else:
+            return _client
 
 
 def init_runtime_with_prometheus(port: int) -> Runtime:
