@@ -87,13 +87,13 @@ def test_json_log_format_preserves_structured_fields() -> None:
         "message": "Workflow failed",
         "service": "worker",
         "environment": "staging",
-        "source": {
-            "module": "__main__",
-            "function": "<module>",
-            "line": 1,
+        "module": "__main__",
+        "function": "<module>",
+        "line": 1,
+        "attributes": {
+            "event": "workflow_terminal_failure",
+            "owner": "platform",
         },
-        "event": "workflow_terminal_failure",
-        "owner": "platform",
     }
     assert payload["timestamp"].endswith("Z")
     assert "text" not in payload
@@ -121,10 +121,10 @@ def test_json_log_format_preserves_only_intentional_event_attributes() -> None:
     assert payload["attributes"] == {
         "count": 0,
         "details": {"backend": "s3"},
+        "event": "collection_manifest_stored",
         "num_chunks": 1,
         "prefix": "resource-path",
     }
-    assert "event" not in payload["attributes"]
 
 
 def test_json_log_format_preserves_rejected_reserved_attributes() -> None:
@@ -143,7 +143,7 @@ def test_json_log_format_preserves_rejected_reserved_attributes() -> None:
     }
 
 
-def test_json_log_format_stringifies_integers_outside_orjson_range() -> None:
+def test_json_log_format_preserves_arbitrary_size_integers() -> None:
     payload = json.loads(
         _emit_log(
             LogFormat.JSON,
@@ -151,10 +151,10 @@ def test_json_log_format_stringifies_integers_outside_orjson_range() -> None:
         )
     )
 
-    assert payload["attributes"]["large_identifier"] == str(1 << 128)
+    assert payload["attributes"]["large_identifier"] == 1 << 128
 
 
-def test_json_log_format_normalizes_correlation_fields() -> None:
+def test_json_log_format_preserves_correlation_fields() -> None:
     payload = json.loads(
         _emit_log(
             LogFormat.JSON,
@@ -165,12 +165,14 @@ def test_json_log_format_normalizes_correlation_fields() -> None:
         )
     )
 
-    assert payload["workflow_id"] == "wf-123"
-    assert payload["execution_id"] == "exec-456"
-    assert payload["action_ref"] == "parse"
-    assert payload["trace_id"] == "0" * 32
-    assert payload["span_id"] == "1" * 16
-    assert payload["trace_sampled"] is True
+    assert payload["attributes"] == {
+        "wf_id": "wf-123",
+        "wf_exec_id": "exec-456",
+        "task_ref": "parse",
+        "trace_id": "0" * 32,
+        "span_id": "1" * 16,
+        "trace_sampled": True,
+    }
 
 
 def test_json_log_format_preserves_exception_without_local_diagnostics() -> None:
