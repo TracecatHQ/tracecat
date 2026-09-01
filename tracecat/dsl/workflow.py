@@ -280,6 +280,7 @@ class DSLWorkflow:
         """The activity execution timeout."""
         self.execution_type = args.execution_type
         """Execution type (draft or published). Draft executions use draft aliases for child workflows."""
+        self.interactions = InteractionManager(self)
 
     def _initialize_run(self, args: DSLRunArgs) -> None:
         """Initialize fallible workflow runtime state inside the interceptor."""
@@ -321,8 +322,6 @@ class DSLWorkflow:
             )
         except Exception as e:
             self.logger.error("Failed to show workflow info", error=e)
-
-        self.interactions = InteractionManager(self)
 
     @workflow.update
     async def interaction_handler(self, input: InteractionInput) -> InteractionResult:

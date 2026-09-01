@@ -12,7 +12,8 @@ from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
+from tracecat.interactions.schemas import InteractionInput
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -37,6 +38,25 @@ def test_dsl_workflow_sets_role_during_workflow_initialization():
         assert ctx_role.get() == role
     finally:
         ctx_role.reset(token)
+
+
+def test_dsl_workflow_initializes_interactions_before_run() -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-schedule-runner",
+        workspace_id=uuid.uuid4(),
+    )
+    wf_id = WorkflowUUID.new_uuid4()
+    workflow = DSLWorkflow(DSLRunArgs(role=role, wf_id=wf_id))
+    interaction = InteractionInput(
+        interaction_id=uuid.uuid4(),
+        execution_id=generate_exec_id(wf_id),
+        action_ref="action",
+        data={},
+    )
+
+    with pytest.raises(ValueError, match="could not find interaction state"):
+        workflow.validate_interaction_handler(interaction)
 
 
 @pytest.mark.anyio
