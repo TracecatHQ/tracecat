@@ -26,6 +26,7 @@ ACCEPT = [
     "feat(actions): add a table lookup action",
     "fix(functions): regex_extract corner case",
     "feat(cases+actions): add a case linking action",
+    "feat(audit): stream audit logs via webhook",
 ]
 
 REJECT: list[tuple[str, str]] = [
@@ -104,6 +105,20 @@ def test_compound_scope_resolves_to_both_area_labels() -> None:
     assert CONVENTIONS.scope_label("cases", type_="feat") == "cases"
     assert CONVENTIONS.scope_label("actions", type_="feat") == "actions"
     assert CONVENTIONS.scope_label("functions", type_="fix") == "functions"
+
+
+def test_audit_is_canonical_not_an_alias_for_api() -> None:
+    """`audit` was an alias to `api` until 2026-09-01, so this is the regression.
+
+    Nine merged pull requests about security audit logs were filed under `api`
+    because of it. The checker used to reject the title below outright.
+    """
+    result = check_title("fix(audit): preserve client attribution", CONVENTIONS)
+    assert result.ok, [v.message for v in result.violations]
+    assert "audit" not in CONVENTIONS.scope_aliases
+    assert CONVENTIONS.scope_label("audit", type_="fix") == "audit"
+    # The distinction the scope exists to draw.
+    assert CONVENTIONS.scope_label("logging", type_="fix") == "logging"
 
 
 def test_over_length_warns_but_does_not_fail() -> None:

@@ -356,6 +356,7 @@ rendered release notes are normalized, by the `replacers:` block in
   | `actions` | The built-in core.* actions a user calls in a workflow |
   | `agents` | Agent runtime, chat, presets, tools, and artifacts |
   | `api` | Backend API, auth, and organization or workspace administration |
+  | `audit` | Security audit logs: who did what in a workspace |
   | `build` | Packaging and the operator CLI |
   | `cases` | Case management |
   | `deps` | Dependency bumps |
@@ -365,7 +366,7 @@ rendered release notes are normalized, by the `replacers:` block in
   | `functions` | The FN.* inline expression functions |
   | `infra` | Databases, deployments, and cloud infrastructure |
   | `integrations` | Third-party vendor connectors and registry templates |
-  | `logging` | Logging and telemetry |
+  | `logging` | Application logging and telemetry: how Tracecat runs |
   | `mcp` | Tracecat's own MCP server |
   | `rbac` | Roles and permissions |
   | `skills` | Agent skills |
@@ -384,6 +385,10 @@ rendered release notes are normalized, by the `replacers:` block in
   their own sections. Neither folds into `api` or `engine`.
 - `engine` is what runs; `infra` is what it runs on. If the change could ship
   by redeploying the same image, it is `infra`.
+- `audit` is the security audit log: what a workspace records about who did
+  what, for someone reviewing it later. `logging` is application telemetry, what
+  an operator reads to debug Tracecat itself. Audit work renders under Security,
+  telemetry under Observability.
 - Vendor names are not scopes. Write `feat(integrations): add Jira issue
   search` and name the vendor in the description. The autolabeler still
   absorbs vendor scopes into `integrations` so merged PRs categorize, but the
@@ -449,6 +454,11 @@ Removing something takes three PRs, usually across three releases:
   before anyone adds it through the GitHub UI, because scopes and labels decide
   release-note section headings, which are user-facing. An agent that invents a
   scope mid-task ships a heading nobody agreed to.
+- `audit` was added exactly that way on 2026-09-01. An agent hit the
+  `unknown-scope` rejection telling it to write `api` on a real pull request,
+  stopped rather than retitling, and named the gap; a human approved the scope.
+  Nine merged pull requests had been filed under `api` because of that alias.
+  The escalation is the path, and the vocabulary is still closed.
 
 ### Changing the conventions
 

@@ -32,8 +32,8 @@ exclude-labels:
 
 # Category order is three tiers:
 #   1-3   act on this: a breaking change, a security fix, a deprecation.
-#   4-15  product areas, so a reader can find the part of Tracecat they use.
-#   16-21 by kind, for everything no area claimed.
+#   4-16  product areas, so a reader can find the part of Tracecat they use.
+#   17-22 by kind, for everything no area claimed.
 #
 # Inside tier 2, features come before catalogs. A compound scope matches the
 # first category it hits, so `feat(cases+actions)` lands in Case management
@@ -53,6 +53,7 @@ categories:
   - title: Security
     labels:
       - security
+      - audit
 
   # 3
   - title: Deprecations
@@ -121,43 +122,47 @@ categories:
       - cicd
 
   # 15
+  - title: Observability
+    labels:
+      - logging
+
+  # 16
   - title: Documentation
     labels:
       - docs
 
-  # 16
+  # 17
   - title: Performance
     labels:
       - perf
 
-  # 17
+  # 18
   - title: Dependencies
     labels:
       - deps
 
-  # 18
+  # 19
   - title: Features
     labels:
       - feat
 
-  # 19
+  # 20
   - title: Fixes
     labels:
       - fix
 
-  # 20
+  # 21
   - title: Build system
     labels:
       - build
 
-  # 21
+  # 22
   - title: Other changes
     labels:
       - chore
       - refactor
       - tests
       - revert
-      - logging
 
 autolabeler:
   # Two tiers:
@@ -267,7 +272,7 @@ autolabeler:
   # Example: fix(api): return 404 for missing workspaces
   - label: api
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|audit|auth|saml|api|cli|org)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|auth|saml|api|cli|org)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: build(admin-cli): ship the operator CLI wheel
   - label: build
@@ -318,6 +323,11 @@ autolabeler:
   - label: integrations
     title:
       - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:integrations|integration|registry|sync|git|vcs)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(audit): stream audit logs via webhook
+  - label: audit
+    title:
+      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:audit)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: fix(logging): redact secrets in executor logs
   - label: logging
@@ -474,7 +484,7 @@ replacers:
   - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:agent-harness|artifacts|prompts|claude|agent|inbox|tools|chat)\)(!?): /gm'
     replace: '- $1$2(agents)$3: '
   # -> (api)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|audit|auth|saml|cli|org)\)(!?): /gm'
+  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|auth|saml|cli|org)\)(!?): /gm'
     replace: '- $1$2(api)$3: '
   # -> (build)
   - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:admin-cli)\)(!?): /gm'
