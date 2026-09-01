@@ -11,7 +11,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
-    RegistryError,
+    RegistryLockInvalidDataError,
     TracecatValidationError,
 )
 from tracecat.identifiers.workflow import WorkflowID
@@ -253,7 +253,7 @@ async def resolve_registry_lock_activity(
             cause=e,
         )
         raise_application_error_from_classification(classification, e.detail)
-    except (RegistryError, ValidationError) as e:
+    except (RegistryLockInvalidDataError, ValidationError) as e:
         classification = RuntimeErrorClassification.platform(
             kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
             message="Tracecat could not resolve the workflow registry",

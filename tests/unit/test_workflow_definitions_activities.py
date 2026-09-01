@@ -13,7 +13,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
-    RegistryError,
+    RegistryLockInvalidDataError,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.versions.schemas import RegistryVersionManifest
@@ -183,7 +183,7 @@ async def test_resolve_registry_lock_activity_maps_invalid_registry_as_terminal(
         action_names={"tools.missing.action"},
     )
     mock_service = AsyncMock()
-    mock_service.resolve_lock_with_bindings.side_effect = RegistryError(
+    mock_service.resolve_lock_with_bindings.side_effect = RegistryLockInvalidDataError(
         "action is not present in the selected registry"
     )
     mock_ctx = AsyncMock()
