@@ -178,7 +178,7 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
 
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
         try:
-            result = await super().execute_workflow(input)
+            return await super().execute_workflow(input)
         except Exception as error:
             if is_cancelled_exception(error) or isinstance(
                 error, (TerminatedError, TemporalTimeoutError)
@@ -215,26 +215,11 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
                     error_kind=classification.kind.value,
                 )
             raise application_error_from_classification(classification) from None
-        else:
-            self._clear_inherited_owner()
-            return result
 
     @staticmethod
     def _stamp_owner(classification: RuntimeErrorClassification) -> None:
         workflow.upsert_search_attributes(
             [TemporalSearchAttr.ERROR_OWNER.key.value_set(classification.owner.value)]
-        )
-
-    @staticmethod
-    def _clear_inherited_owner() -> None:
-        """Clear a failed attempt's owner after a workflow retry succeeds."""
-        info = workflow.info()
-        if info.attempt <= 1:
-            return
-        if info.typed_search_attributes.get(TemporalSearchAttr.ERROR_OWNER.key) is None:
-            return
-        workflow.upsert_search_attributes(
-            [TemporalSearchAttr.ERROR_OWNER.key.value_unset()]
         )
 
 
