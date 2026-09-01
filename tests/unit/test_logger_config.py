@@ -154,6 +154,19 @@ def test_json_log_format_preserves_arbitrary_size_integers() -> None:
     assert payload["attributes"]["large_identifier"] == 1 << 128
 
 
+def test_json_log_format_preserves_surrogate_escaped_strings() -> None:
+    payload = json.loads(
+        _emit_log(
+            LogFormat.JSON,
+            bindings="path='bad' + chr(0xDCFF)",
+            statement="logger.info('scan {}', 'bad' + chr(0xDCFF))",
+        )
+    )
+
+    assert payload["message"] == "scan bad\udcff"
+    assert payload["attributes"]["path"] == "bad\udcff"
+
+
 def test_json_log_format_preserves_correlation_fields() -> None:
     payload = json.loads(
         _emit_log(
