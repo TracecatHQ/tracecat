@@ -8,7 +8,7 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, is_cancelled_exception
 
 from tracecat.auth.types import Role
 from tracecat.dsl.action import ScatterActionInput
@@ -33,7 +33,10 @@ with workflow.unsafe.imports_passed_through():
         DSLInput,
         edge_components_from_dep,
     )
-    from tracecat.dsl.constants import MAX_DO_WHILE_ITERATIONS
+    from tracecat.dsl.constants import (
+        MAX_DO_WHILE_ITERATIONS,
+        PRESERVE_TEMPORAL_CANCELLATION_PATCH,
+    )
     from tracecat.dsl.enums import (
         EdgeMarker,
         EdgeType,
@@ -867,6 +870,10 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
+            if is_cancelled_exception(e) and workflow.patched(
+                PRESERVE_TEMPORAL_CANCELLATION_PATCH
+            ):
+                raise
             exc = e.error if isinstance(e, PlatformExecutionError) else e
             fail_workflow = isinstance(e, PlatformExecutionError)
             kind = e.__class__.__name__
@@ -891,11 +898,33 @@ class DSLScheduler:
             if indegree == 0:
                 self.queue.put_nowait(task_instance)
 
-        pending_tasks: set[asyncio.Task[None]] = set()
+        pending_tasks: dict[asyncio.Task[None], int] = {}
+        next_task_sequence = 0
 
-        def discard_done_tasks() -> None:
-            done_tasks = {task for task in pending_tasks if task.done()}
-            pending_tasks.difference_update(done_tasks)
+        def reap_done_tasks() -> None:
+            # Workflow code must choose among concurrently completed tasks
+            # deterministically, so preserve their spawn order.
+            done_tasks = sorted(
+                (task for task in pending_tasks if task.done()),
+                key=pending_tasks.__getitem__,
+            )
+            for done_task in done_tasks:
+                pending_tasks.pop(done_task)
+            first_error: BaseException | None = None
+            for done_task in done_tasks:
+                try:
+                    task_error = done_task.exception()
+                except BaseException as error:
+                    task_error = error
+                if task_error is not None and first_error is None:
+                    first_error = task_error
+            if first_error is None:
+                return
+            if is_cancelled_exception(first_error) and not workflow.patched(
+                PRESERVE_TEMPORAL_CANCELLATION_PATCH
+            ):
+                return
+            raise first_error
 
         while not self.task_exceptions and (not self.queue.empty() or pending_tasks):
             self.logger.trace(
@@ -905,7 +934,7 @@ class DSLScheduler:
             )
 
             # Clean up completed tasks
-            discard_done_tasks()
+            reap_done_tasks()
 
             spawned_since_yield = 0
             while (
@@ -916,7 +945,8 @@ class DSLScheduler:
                 task_instance = await self.queue.get()
                 self.logger.debug("Scheduling task", task=task_instance)
                 task = asyncio.create_task(self._schedule_task(task_instance))
-                pending_tasks.add(task)
+                pending_tasks[task] = next_task_sequence
+                next_task_sequence += 1
                 spawned_since_yield += 1
                 if spawned_since_yield % _SCHEDULER_TASK_SPAWN_YIELD_EVERY == 0:
                     # High-fanout scatters can enqueue many ready tasks at once.
@@ -924,7 +954,7 @@ class DSLScheduler:
                     # monopolize the event loop long enough to trip Temporal's
                     # deadlock detector.
                     await asyncio.sleep(0)
-                    discard_done_tasks()
+                    reap_done_tasks()
             if self.task_exceptions:
                 break
             if not self.queue.empty() and len(pending_tasks) >= self.max_pending_tasks:

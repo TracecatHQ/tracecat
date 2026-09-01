@@ -5,8 +5,10 @@ import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import patch
 
 import pytest
+from temporalio.exceptions import ActivityError, CancelledError
 
 from tests.shared import capture_application_error as _capture_application_error
 from tracecat.auth.types import Role
@@ -74,6 +76,46 @@ def _build_scheduler(
         role=test_role,
         run_context=test_run_context,
     )
+
+
+def _cancelled_activity_error() -> ActivityError:
+    try:
+        raise ActivityError(
+            "Activity failed",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="test-worker",
+            activity_type="test-activity",
+            activity_id="test-activity-id",
+            retry_state=None,
+        ) from CancelledError("cancelled by sibling")
+    except ActivityError as error:
+        return error
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("preserve_cancellation", [True, False])
+async def test_scheduler_preserves_temporal_cancellation_with_replay_gate(
+    preserve_cancellation: bool,
+) -> None:
+    activity_error = _cancelled_activity_error()
+
+    async def executor(_: ActionStatement) -> None:
+        raise activity_error
+
+    scheduler = _build_scheduler(total_tasks=1, executor=executor)
+    with patch(
+        "tracecat.dsl.scheduler.workflow.patched",
+        return_value=preserve_cancellation,
+    ):
+        if preserve_cancellation:
+            with pytest.raises(ActivityError) as exc_info:
+                await scheduler.start()
+            assert exc_info.value is activity_error
+            assert not scheduler.task_exceptions
+        else:
+            await scheduler.start()
+            assert "task_0" in scheduler.task_exceptions
 
 
 @pytest.mark.anyio

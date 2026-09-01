@@ -72,6 +72,7 @@ with workflow.unsafe.imports_passed_through():
         dsl_execution_error_from_exception,
         get_trigger_type,
     )
+    from tracecat.dsl.constants import PRESERVE_TEMPORAL_CANCELLATION_PATCH
     from tracecat.dsl.enums import (
         FailStrategy,
         LoopStrategy,
@@ -191,7 +192,6 @@ ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH = "dsl-action-heartbeat-timeout-retry-v1"
 ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH = "dsl-error-owner-search-attribute-v1"
 ERROR_OWNER_CONTROL_FLOW_PATCH = "dsl-error-owner-control-flow-v1"
 ERROR_OWNER_AFTER_HANDLER_PATCH = "dsl-error-owner-after-handler-v1"
-PRESERVE_TEMPORAL_CANCELLATION_PATCH = "dsl-preserve-temporal-cancellation-v1"
 
 
 def _raise_workflow_application_error(
