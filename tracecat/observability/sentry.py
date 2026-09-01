@@ -1,5 +1,6 @@
 """Privacy-bounded Sentry configuration for explicit platform error capture."""
 
+import os
 from collections.abc import MutableMapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -10,6 +11,9 @@ from sentry_sdk.integrations.atexit import AtexitIntegration
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
 
+from tracecat import __version__ as APP_VERSION
+from tracecat import config
+from tracecat.logger import logger
 from tracecat.runtime.errors import RuntimeErrorClassification
 
 
@@ -148,3 +152,34 @@ def initialize_sentry(
         before_send=_sanitize_platform_event,
         transport=transport,
     )
+
+
+def initialize_sentry_from_environment() -> bool:
+    """Initialize Sentry from process configuration when a DSN is present."""
+    if not (dsn := os.environ.get("SENTRY_DSN")):
+        return False
+
+    app_env = config.TRACECAT__APP_ENV
+    temporal_namespace = config.TEMPORAL__CLUSTER_NAMESPACE
+    environment = (
+        config.SENTRY_ENVIRONMENT_OVERRIDE or f"{app_env}-{temporal_namespace}"
+    )
+    logger.info(
+        "Initializing Sentry",
+        environment=environment,
+        app_env=app_env,
+        temporal_namespace=temporal_namespace,
+    )
+    initialize_sentry(
+        dsn=dsn,
+        environment=environment,
+        release=f"tracecat@{APP_VERSION}",
+        service_name=config.TRACECAT__SERVICE_NAME,
+    )
+    logger.info(
+        "Sentry initialized",
+        environment=environment,
+        app_env=app_env,
+        temporal_namespace=temporal_namespace,
+    )
+    return True

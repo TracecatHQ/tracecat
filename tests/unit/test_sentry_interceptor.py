@@ -4,6 +4,7 @@ import json
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
+from unittest.mock import Mock
 
 import pytest
 import sentry_sdk
@@ -28,10 +29,12 @@ from tracecat.dsl.interceptor import (
     _SentryWrappedWorkflowError,
 )
 from tracecat.logger import logger
+from tracecat.observability import sentry as sentry_module
 from tracecat.observability.sentry import (
     SentryTag,
     _sanitize_platform_event,
     initialize_sentry,
+    initialize_sentry_from_environment,
 )
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -131,6 +134,51 @@ def test_sentry_keeps_only_the_shutdown_flush_integration(
 
     assert client.get_integration(AtexitIntegration) is not None
     assert set(integrations) == {AtexitIntegration.identifier}
+
+
+@pytest.mark.parametrize("dsn", [None, ""])
+def test_sentry_environment_bootstrap_is_disabled_without_dsn(
+    monkeypatch: pytest.MonkeyPatch,
+    dsn: str | None,
+) -> None:
+    if dsn is None:
+        monkeypatch.delenv("SENTRY_DSN", raising=False)
+    else:
+        monkeypatch.setenv("SENTRY_DSN", dsn)
+    initializer = Mock()
+    monkeypatch.setattr(sentry_module, "initialize_sentry", initializer)
+
+    assert initialize_sentry_from_environment() is False
+    initializer.assert_not_called()
+
+
+def test_sentry_environment_bootstrap_initializes_shared_worker_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SENTRY_DSN", "https://public@example.com/1")
+    monkeypatch.setattr(sentry_module, "APP_VERSION", "1.2.3")
+    monkeypatch.setattr(sentry_module.config, "TRACECAT__APP_ENV", "production")
+    monkeypatch.setattr(
+        sentry_module.config,
+        "TEMPORAL__CLUSTER_NAMESPACE",
+        "eu-cloud",
+    )
+    monkeypatch.setattr(
+        sentry_module.config,
+        "SENTRY_ENVIRONMENT_OVERRIDE",
+        None,
+    )
+    monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", "worker")
+    initializer = Mock()
+    monkeypatch.setattr(sentry_module, "initialize_sentry", initializer)
+
+    assert initialize_sentry_from_environment() is True
+    initializer.assert_called_once_with(
+        dsn="https://public@example.com/1",
+        environment="production-eu-cloud",
+        release="tracecat@1.2.3",
+        service_name="worker",
+    )
 
 
 def test_sentry_contexts_are_filtered_by_context_and_field() -> None:

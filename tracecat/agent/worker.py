@@ -16,8 +16,6 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
-from tracecat import __version__ as APP_VERSION
-
 with workflow.unsafe.imports_passed_through():
     import uvloop
     from tracecat_ee.agent.activities import AgentActivities
@@ -50,7 +48,7 @@ with workflow.unsafe.imports_passed_through():
         RuntimeErrorAttributionInterceptor,
     )
     from tracecat.logger import logger
-    from tracecat.observability.sentry import initialize_sentry
+    from tracecat.observability.sentry import initialize_sentry_from_environment
     from tracecat.storage.blob import close_storage_client_cache
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
@@ -118,21 +116,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     client = await get_temporal_client()
 
-    sentry_enabled = False
-    if sentry_dsn := os.environ.get("SENTRY_DSN"):
-        logger.info("Initializing Sentry")
-        app_env = config.TRACECAT__APP_ENV
-        temporal_namespace = config.TEMPORAL__CLUSTER_NAMESPACE
-        sentry_environment = (
-            config.SENTRY_ENVIRONMENT_OVERRIDE or f"{app_env}-{temporal_namespace}"
-        )
-        initialize_sentry(
-            dsn=sentry_dsn,
-            environment=sentry_environment,
-            release=f"tracecat@{APP_VERSION}",
-            service_name=config.TRACECAT__SERVICE_NAME,
-        )
-        sentry_enabled = True
+    sentry_enabled = initialize_sentry_from_environment()
     interceptors = [
         RuntimeErrorAttributionInterceptor(
             preserve_legacy_sentry_wrapper=sentry_enabled
