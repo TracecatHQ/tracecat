@@ -40,7 +40,7 @@ def raise_child_failures_application_error(
             child_type = classification.cause_type or type(failure).__name__
         else:
             classification = None
-            has_unclassified_non_cancellation |= not _is_cancellation_fallout(failure)
+            has_unclassified_non_cancellation |= not is_cancelled_exception(failure)
             child_message = str(failure)
             child_type = type(failure).__name__
         child_classifications.append(classification)
@@ -105,7 +105,7 @@ def build_terminal_application_error(
         classifications = extract_error_classifications(info.exception)
         if not classifications:
             has_unclassified = True
-            has_unclassified_non_cancellation |= not _is_cancellation_fallout(
+            has_unclassified_non_cancellation |= not is_cancelled_exception(
                 info.exception
             )
             continue
@@ -155,11 +155,6 @@ def build_terminal_application_error(
         non_retryable=True,
         type=ApplicationError.__name__,
     )
-
-
-def _is_cancellation_fallout(error: BaseException) -> bool:
-    """Recognize cancellation from its native Temporal failure chain."""
-    return is_cancelled_exception(error)
 
 
 def adapt_error_handler_details(
