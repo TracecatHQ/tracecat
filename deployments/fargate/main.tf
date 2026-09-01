@@ -74,6 +74,7 @@ module "ecs" {
   otel_exporter_otlp_endpoint                   = var.otel_exporter_otlp_endpoint
   otel_exporter_otlp_headers_arn                = var.otel_exporter_otlp_headers_arn
   log_level                                     = var.log_level
+  log_format                                    = var.log_format
   temporal_log_level                            = var.temporal_log_level
   feature_flags                                 = var.feature_flags
   ee_multi_tenant                               = var.ee_multi_tenant

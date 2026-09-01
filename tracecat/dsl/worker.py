@@ -25,6 +25,10 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.preset.activities import (
         resolve_agent_preset_version_ref_activity,
     )
+    from tracecat.cases.agent_sessions.workflow import (
+        CaseAgentSessionBackfillWorkflow,
+        case_agent_session_backfill_activity,
+    )
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.init_activities import (
@@ -92,6 +96,7 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 
 def get_activities() -> list[Callable]:
     activities: list[Callable] = [
+        case_agent_session_backfill_activity,
         *DSLActivities.load(),
         *CollectionActivities.get_activities(),
         resolve_agent_preset_version_ref_activity,
@@ -166,7 +171,10 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     try:
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-            workflows: list[type] = [DSLWorkflow]
+            workflows: list[type] = [
+                CaseAgentSessionBackfillWorkflow,
+                DSLWorkflow,
+            ]
 
             async with Worker(
                 client,

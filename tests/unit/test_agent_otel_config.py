@@ -88,6 +88,16 @@ def test_agent_otel_config_rejects_endpoint_query_string() -> None:
         )
 
 
+def test_agent_otel_config_rejects_endpoint_fragment() -> None:
+    # Fragments are never sent over HTTP, so signal paths appended after one
+    # would deliver to the wrong URL.
+    with pytest.raises(ValidationError, match="must not include a fragment"):
+        AgentOtelConfig(
+            enabled=True,
+            endpoint=HttpUrl("https://collector.example.com/base#fragment"),
+        )
+
+
 def test_agent_otel_config_requires_endpoint_when_enabled() -> None:
     with pytest.raises(ValidationError, match="no endpoint is configured"):
         AgentOtelConfig(enabled=True)
@@ -202,6 +212,32 @@ def test_secret_otel_headers_wraps_values() -> None:
 
 def test_secret_otel_headers_returns_empty_for_none() -> None:
     assert secret_otel_headers(None) == {}
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Bad Header": "x"},
+        {"Authorization\n": "x"},
+        {"Auth\u00e9": "x"},
+        {"Authorization": "bad\nvalue"},
+        {"Authorization": "  edge  "},
+        {"Authorization": "bad\x01value"},
+        # Non-ASCII: httpx ASCII-encodes header values at request build time.
+        {"Authorization": "café"},
+    ],
+)
+def test_validate_otel_header_items_rejects_unsendable(
+    headers: dict[str, str],
+) -> None:
+    with pytest.raises(ValueError):
+        validate_otel_header_items(headers)
+
+
+def test_validate_otel_header_items_accepts_token_names() -> None:
+    validate_otel_header_items(
+        {"Authorization": "Bearer token", "X-Api-Key": "k", "x_custom": "v"}
+    )
     assert secret_otel_headers({}) == {}
 
 
@@ -226,19 +262,41 @@ def test_validate_otel_header_items_rejects_non_string_header_value() -> None:
 
 
 def test_validate_otel_header_items_rejects_blank_header_name() -> None:
-    with pytest.raises(ValueError, match="header names must be non-empty strings"):
+    with pytest.raises(
+        ValueError, match="header names must be valid HTTP header names"
+    ):
         validate_otel_header_items({"  ": "secret"})
 
 
 def test_validate_otel_header_items_rejects_non_string_header_name() -> None:
     # Non-string keys can only arrive from untyped deserialized input.
     headers = cast(Mapping[str, Any], {1: "secret"})
-    with pytest.raises(ValueError, match="header names must be non-empty strings"):
+    with pytest.raises(
+        ValueError, match="header names must be valid HTTP header names"
+    ):
         validate_otel_header_items(headers)
 
 
 def test_secret_otel_headers_rejects_malformed_headers() -> None:
     with pytest.raises(ValueError, match="must have a non-empty string value"):
         secret_otel_headers({"x-api-key": "   "})
-    with pytest.raises(ValueError, match="header names must be non-empty strings"):
+    with pytest.raises(
+        ValueError, match="header names must be valid HTTP header names"
+    ):
         secret_otel_headers({"": "secret"})
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "message"),
+    [
+        ("https://collector.example.com/base?", "must not include a query string"),
+        ("https://collector.example.com/base#", "must not include a fragment"),
+    ],
+)
+def test_endpoint_rejects_bare_query_and_fragment_delimiters(
+    endpoint: str, message: str
+) -> None:
+    # A bare delimiter parses as an empty query/fragment; the relay would then
+    # append the OTLP signal path after it and deliver to the wrong path.
+    with pytest.raises(ValidationError, match=message):
+        AgentOtelConfig.model_validate({"enabled": True, "endpoint": endpoint})
