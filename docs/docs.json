@@ -107,6 +107,7 @@
               "self-hosting/docker-compose",
               "self-hosting/aws-fargate",
               "self-hosting/kubernetes",
+              "self-hosting/temporal-retention",
               "self-hosting/architecture",
               "self-hosting/tls",
               "self-hosting/environment-variables",

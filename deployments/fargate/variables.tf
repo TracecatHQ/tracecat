@@ -801,6 +801,12 @@ variable "temporal_num_history_shards" {
   default     = "512"
 }
 
+variable "temporal_default_namespace_retention" {
+  type        = string
+  description = "Workflow history retention for the Temporal namespace created by auto-setup. Applied at namespace creation only."
+  default     = "24h"
+}
+
 variable "caddy_cpu" {
   type    = string
   default = "256"
