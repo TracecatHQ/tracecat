@@ -16,6 +16,7 @@ from tracecat_ee.agent.activities import (
 )
 from tracecat_ee.agent.schemas import AgentActionArgs
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
+from tracecat_registry.integrations.agents.slack import SlackbotContext
 
 from tests.shared import to_data
 from tracecat import config
@@ -41,6 +42,7 @@ from tracecat.auth.types import Role
 from tracecat.dsl.action import (
     BuildAgentArgsActivityInput,
     FinalizeSlackbotActivityInput,
+    PreparedSlackbot,
 )
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionStatement
@@ -177,24 +179,22 @@ def create_mock_build_agent_args_activity(
 
 
 def create_mock_slackbot_agent_args_activity() -> Callable[..., Any]:
-    @activity.defn(name="build_agent_args_activity")
-    async def mock_build_agent_args_activity(
+    @activity.defn(name="prepare_slackbot_activity")
+    async def mock_prepare_slackbot_activity(
         input: BuildAgentArgsActivityInput,
-    ) -> AgentActionArgs:
+    ) -> PreparedSlackbot:
         assert input.action == "ai.slackbot"
-        return AgentActionArgs(
-            user_prompt="Prepared Slack prompt",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            actions=["tools.slack.post_message"],
-            interface_context={
-                "channel_id": "C01234567",
-                "thread_ts": None,
-                "ts": "1700000000.000001",
-            },
+        return PreparedSlackbot(
+            args=AgentActionArgs(
+                user_prompt="Prepared Slack prompt",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                actions=["tools.slack.post_message"],
+            ),
+            context=SlackbotContext(channel_id="C01234567", ts="1700000000.000001"),
         )
 
-    return mock_build_agent_args_activity
+    return mock_prepare_slackbot_activity
 
 
 def create_mock_finalize_slackbot_activity(
@@ -457,7 +457,7 @@ class TestDSLAgentWiring:
         assert data["output"] == "slackbot-interface-wired"
         assert len(finalized) == 1
         assert finalized[0].succeeded is True
-        assert finalized[0].interface_context["channel_id"] == "C01234567"
+        assert finalized[0].context.channel_id == "C01234567"
 
     @pytest.mark.anyio
     @pytest.mark.integration

@@ -32,6 +32,7 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa  # pyright: ignore[reportUnusedImport]
     import tracecat_registry  # noqa  # pyright: ignore[reportUnusedImport]
     from pydantic import ValidationError
+    from tracecat_ee.agent.schemas import AgentActionArgs
     from tracecat_ee.agent.types import AgentWorkflowID
     from tracecat_ee.agent.workflows.durable import (
         AgentWorkflowArgs,
@@ -44,7 +45,7 @@ with workflow.unsafe.imports_passed_through():
         ResolveAgentPresetVersionRefActivityInput,
         resolve_agent_preset_version_ref_activity,
     )
-    from tracecat.agent.schemas import RunAgentArgs
+    from tracecat.agent.schemas import AgentOutput, RunAgentArgs
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
     from tracecat.contexts import (
@@ -1000,11 +1001,46 @@ class DSLWorkflow:
                     )
                     # action_result handled - skip with_result below
                     action_result = None
-                case action if action == PlatformAction.AI_AGENT or (
-                    (
-                        action == PlatformAction.AI_SLACKBOT
-                        or action in MCP_AGENT_ACTION_PROVIDER_IDS
+                case PlatformAction.AI_SLACKBOT if workflow.patched(
+                    AGENT_INTERFACE_ACTIONS_PATCH
+                ):
+                    self.logger.debug("Executing slackbot agent", task=task)
+                    agent_operand = self._build_action_context(task, stream_id)
+                    self._set_logical_time_context()
+                    prepared = await workflow.execute_activity(
+                        DSLActivities.prepare_slackbot_activity,
+                        arg=BuildAgentArgsActivityInput(
+                            action=task.action,
+                            args=dict(task.args),
+                            operand=agent_operand,
+                            role=self.role,
+                            task_environment=task.environment,
+                            default_environment=self.run_context.environment,
+                            registry_lock=self.registry_lock,
+                        ),
+                        start_to_close_timeout=timedelta(seconds=60),
+                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
+                    succeeded = False
+                    try:
+                        action_result = await self._run_agent_child(
+                            task, prepared.args, stream_id
+                        )
+                        succeeded = True
+                    finally:
+                        await workflow.execute_activity(
+                            DSLActivities.finalize_slackbot_activity,
+                            arg=FinalizeSlackbotActivityInput(
+                                role=self.role,
+                                registry_lock=self.registry_lock,
+                                context=prepared.context,
+                                succeeded=succeeded,
+                            ),
+                            start_to_close_timeout=timedelta(seconds=60),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                        )
+                case action if action == PlatformAction.AI_AGENT or (
+                    action in MCP_AGENT_ACTION_PROVIDER_IDS
                     and workflow.patched(AGENT_INTERFACE_ACTIONS_PATCH)
                 ):
                     self.logger.debug("Executing agent", task=task)
@@ -1024,73 +1060,9 @@ class DSLWorkflow:
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
-                    wf_info = workflow.info()
-                    child_search_attributes = _build_agent_child_search_attributes(
-                        wf_info, task.ref
+                    action_result = await self._run_agent_child(
+                        task, action_args, stream_id
                     )
-                    session_id = action_args.session_id or workflow.uuid4()
-                    arg = AgentWorkflowArgs(
-                        role=self.role,
-                        agent_args=RunAgentArgs(
-                            user_prompt=action_args.user_prompt,
-                            session_id=session_id,
-                            config=AgentConfig(
-                                model_name=action_args.model_name,
-                                model_provider=action_args.model_provider,
-                                catalog_id=action_args.catalog_id,
-                                instructions=action_args.instructions,
-                                output_type=action_args.output_type,
-                                model_settings=action_args.model_settings,
-                                retries=action_args.retries,
-                                enable_thinking=action_args.enable_thinking,
-                                base_url=action_args.base_url,
-                                actions=action_args.actions,
-                                tool_approvals=action_args.tool_approvals,
-                                agents=action_args.agents,
-                                mcp_servers=action_args.mcp_servers,
-                            ),
-                            max_requests=action_args.max_requests,
-                            max_tool_calls=action_args.max_tool_calls,
-                            timeout_seconds=task.retry_policy.timeout,
-                        ),
-                        title=self.dsl.title,
-                        entity_type=AgentSessionEntity.WORKFLOW,
-                        entity_id=self.run_context.wf_id,
-                        continue_existing_session=action_args.session_id is not None,
-                    )
-                    succeeded = False
-                    try:
-                        action_result = await workflow.execute_child_workflow(
-                            DurableAgentWorkflow.run,
-                            arg=arg,
-                            id=AgentWorkflowID(session_id),
-                            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                            # Route to agent worker queue for session activities
-                            task_queue=config.TRACECAT__AGENT_QUEUE,
-                            execution_timeout=wf_info.execution_timeout,
-                            task_timeout=wf_info.task_timeout,
-                            search_attributes=child_search_attributes,
-                            memo=AgentActionMemo(
-                                action_ref=task.ref,
-                                action_title=task.title,
-                                stream_id=stream_id or ROOT_STREAM,
-                                mask_output=task.mask_output,
-                            ).model_dump(),
-                        )
-                        succeeded = True
-                    finally:
-                        if action_args.interface_context is not None:
-                            await workflow.execute_activity(
-                                DSLActivities.finalize_slackbot_activity,
-                                arg=FinalizeSlackbotActivityInput(
-                                    role=self.role,
-                                    registry_lock=self.registry_lock,
-                                    interface_context=action_args.interface_context,
-                                    succeeded=succeeded,
-                                ),
-                                start_to_close_timeout=timedelta(seconds=60),
-                                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                            )
                 case PlatformAction.AI_ACTION:
                     self.logger.debug("Executing AI action", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
@@ -1847,6 +1819,65 @@ class DSLWorkflow:
             retry_policy=RetryPolicy(
                 maximum_attempts=task.retry_policy.max_attempts,
             ),
+        )
+
+    async def _run_agent_child(
+        self,
+        task: ActionStatement,
+        action_args: AgentActionArgs,
+        stream_id: StreamID,
+    ) -> AgentOutput:
+        """Launch the durable agent child workflow for an agent action."""
+        wf_info = workflow.info()
+        child_search_attributes = _build_agent_child_search_attributes(
+            wf_info, task.ref
+        )
+        session_id = action_args.session_id or workflow.uuid4()
+        arg = AgentWorkflowArgs(
+            role=self.role,
+            agent_args=RunAgentArgs(
+                user_prompt=action_args.user_prompt,
+                session_id=session_id,
+                config=AgentConfig(
+                    model_name=action_args.model_name,
+                    model_provider=action_args.model_provider,
+                    catalog_id=action_args.catalog_id,
+                    instructions=action_args.instructions,
+                    output_type=action_args.output_type,
+                    model_settings=action_args.model_settings,
+                    retries=action_args.retries,
+                    enable_thinking=action_args.enable_thinking,
+                    base_url=action_args.base_url,
+                    actions=action_args.actions,
+                    tool_approvals=action_args.tool_approvals,
+                    agents=action_args.agents,
+                    mcp_servers=action_args.mcp_servers,
+                ),
+                max_requests=action_args.max_requests,
+                max_tool_calls=action_args.max_tool_calls,
+                timeout_seconds=task.retry_policy.timeout,
+            ),
+            title=self.dsl.title,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=self.run_context.wf_id,
+            continue_existing_session=action_args.session_id is not None,
+        )
+        return await workflow.execute_child_workflow(
+            DurableAgentWorkflow.run,
+            arg=arg,
+            id=AgentWorkflowID(session_id),
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            # Route to agent worker queue for session activities
+            task_queue=config.TRACECAT__AGENT_QUEUE,
+            execution_timeout=wf_info.execution_timeout,
+            task_timeout=wf_info.task_timeout,
+            search_attributes=child_search_attributes,
+            memo=AgentActionMemo(
+                action_ref=task.ref,
+                action_title=task.title,
+                stream_id=stream_id or ROOT_STREAM,
+                mask_output=task.mask_output,
+            ).model_dump(),
         )
 
     def _build_action_context(

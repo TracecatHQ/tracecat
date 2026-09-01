@@ -18,7 +18,7 @@ from tracecat_registry.integrations.slack_sdk import call_method, slack_secret
 
 from tracecat_registry import ActionIsInterfaceError, registry
 from tracecat_registry.fields import ActionType, AgentModel, ModelSelection, TextArea
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing_extensions import Doc
 from typing import Annotated, Any
 from slack_sdk.errors import SlackApiError
@@ -69,6 +69,27 @@ async def _remove_ack(channel_id: str, ts: str):
         sdk_method="reactions_remove",
         params={"channel": channel_id, "timestamp": ts, "name": "eyes"},
     )
+
+
+class SlackbotContext(BaseModel):
+    """Slack thread coordinates for post-run acknowledgement cleanup."""
+
+    model_config = ConfigDict(frozen=True)
+
+    channel_id: str
+    thread_ts: str | None = None
+    ts: str | None = None
+
+
+class PreparedSlackbotPrompt(BaseModel):
+    """Agent prompt fields plus the Slack context needed for cleanup."""
+
+    model_config = ConfigDict(frozen=True)
+
+    user_prompt: str
+    instructions: str
+    actions: list[str]
+    context: SlackbotContext
 
 
 class AppMentionEvent(BaseModel):
@@ -208,7 +229,7 @@ async def prepare_slackbot(
     channel_id: str,
     actions: list[str] | None,
     limit_messages: int,
-) -> dict[str, Any]:
+) -> PreparedSlackbotPrompt:
     """Prepare an agent request and Slack cleanup context."""
     if limit_messages > 20:
         raise ValueError("Cannot look back more than 20 messages in a conversation.")
@@ -264,29 +285,26 @@ async def prepare_slackbot(
             initial_prompt=prompt,
         )
 
-    return {
-        "user_prompt": prompts.user_prompt,
-        "instructions": prompts.instructions,
-        "actions": bot_actions,
-        "interface_context": {
-            "channel_id": channel_id,
-            "thread_ts": thread_ts,
-            "ts": ts,
-        },
-    }
+    return PreparedSlackbotPrompt(
+        user_prompt=prompts.user_prompt,
+        instructions=prompts.instructions,
+        actions=bot_actions,
+        context=SlackbotContext(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            ts=ts,
+        ),
+    )
 
 
-async def finalize_slackbot(
-    interface_context: dict[str, Any], *, succeeded: bool
-) -> None:
+async def finalize_slackbot(context: SlackbotContext, *, succeeded: bool) -> None:
     """Finalize Slack acknowledgement state after the child agent exits."""
-    channel_id = interface_context["channel_id"]
-    ts = interface_context.get("ts")
+    ts = context.ts
     if succeeded:
         if ts:
-            await _remove_ack(channel_id, ts)
+            await _remove_ack(context.channel_id, ts)
         return
-    await _notify_error(channel_id, interface_context.get("thread_ts"), ts)
+    await _notify_error(context.channel_id, context.thread_ts, ts)
 
 
 @registry.register(
