@@ -1,173 +1,419 @@
-exclude-labels:
-  - skip changelog
-  - release
+# Release Drafter configuration.
+#
+# GENERATED SHAPE: the autolabeler and replacer regexes below are derived from
+# .github/commit-conventions.toml. Edit that file, not these patterns, and let
+# tests/unit/test_commit_conventions.py catch the two drifting apart.
+#
+# The pipeline in one line:
+#   type -> type label, scope -> area label, first matching category -> section.
+#
+# - Every category label below must exist in the repo (`gh label list`).
+#   A missing label silently drops its category, and the PRs it would have
+#   held render at the top of the notes with no heading.
+# - The autolabeler guarantees each PR receives at least one category label
+#   derived from its conventional-commit type, so nothing renders headerless.
+# - Categories are matched in order: each PR lands in the first category that
+#   matches one of its labels.
+#
+# The autolabeler is deliberately more forgiving than
+# scripts/check_pr_title.py. The checker only accepts canonical types and
+# scopes so new titles converge; the autolabeler also understands every
+# historical spelling so the already-merged backlog still categorizes.
 
 name-template: Tracecat $RESOLVED_VERSION
 tag-template: $RESOLVED_VERSION
 
 change-template: "- $TITLE (#$NUMBER)"
 change-title-escapes: '\<*_&'
-replacers:
-  # Remove conventional commits from titles
-  - search: '/- (build|chore|ci|depr|deps|docs|feat|fix|helm|infra|perf|refactor|release|revert|security|style|test)(\(.*\))?(\!)?\: /g'
-    replace: "- "
 
-autolabeler:
-  - label: playbook
-    title:
-      - "/^playbook/"
+exclude-labels:
+  - release
+  - skip changelog
 
-  - label: integrations
-    title:
-      - "/^integrations/"
-      # Example: feat(registry): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*registry.*\)\!?\: /'
-
-  - label: agents
-    title:
-      # Example: feat(agent): ... or feat(agents): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*agents?.*\)\!?\: /'
-
-  - label: frontend
-    title:
-      # Example: feat(ui): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*ui.*\)\!?\: /'
-
-  - label: engine
-    title:
-      # Example: feat(engine): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*engine.*\)\!?\: /'
-
-  - label: app
-    title:
-      # Example: feat(app): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*app.*\)\!?\: /'
-
-  - label: breaking
-    title:
-      # Example: feat!: ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)(\(.*\))?\!\: /'
-
-  - label: breaking frontend
-    title:
-      # Example: feat(ui!): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*ui\!.*\)\: /'
-
-  - label: breaking engine
-    title:
-      # Example: feat(engine!): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*engine\!.*\)\: /'
-
-  - label: breaking app
-    title:
-      # Example: feat(app!): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*app\!.*\)\: /'
-
-  - label: breaking infra
-    title:
-      # Example: feat(infra!): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*infra\!.*\)\: /'
-
-  - label: build
-    title:
-      - "/^build/"
-
-  - label: internal
-    title:
-      - "/^(chore|ci|refactor|test|style|revert)/"
-
-  - label: deprecation
-    title:
-      - "/^depr/"
-
-  - label: documentation
-    title:
-      - "/^docs/"
-
-  - label: enhancement
-    title:
-      - "/^feat/"
-
-  - label: fix
-    title:
-      - "/^fix/"
-
-  - label: performance
-    title:
-      - "/^perf/"
-
-  - label: release
-    title:
-      - "/^release/"
-
-  - label: security
-    title:
-      - "/^security/"
-
-  - label: dependencies
-    title:
-      - "/^deps/"
-      # Example: chore(deps): ... or fix(deps): ...
-      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*deps.*\)\!?\: /'
-
-  - label: infra
-    title:
-      - "/^infra/"
-      - "/^helm/"
-      # Example: feat(infra): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*infra.*\)\!?\: /'
-
+# Category order is three tiers:
+#   1-3   act on this: a breaking change, a security fix, a deprecation.
+#   4-14  product areas, so a reader can find the part of Tracecat they use.
+#   15-20 by kind, for everything no area claimed.
+#
+# Inside tier 2, features come before catalogs. A compound scope matches the
+# first category it hits, so `feat(cases+actions)` lands in Case management
+# rather than Core actions: the reader cares that case management gained
+# something, not which package it was built from.
+#
+# Dependencies sits above Features and Fixes on purpose: `fix(deps)` carries
+# both `deps` and `fix`, and first-match would otherwise file a dependency
+# bump under Fixes.
 categories:
+  # 1
   - title: Breaking changes
     labels:
       - breaking
-      - breaking ui
-      - breaking frontend
-      - breaking engine
-      - breaking app
-      - breaking infra
 
-  - title: Deprecations
-    labels: deprecation
-
+  # 2
   - title: Security
-    labels: security
+    labels:
+      - security
 
-  - title: Playbooks
-    labels: playbook
+  # 3
+  - title: Deprecations
+    labels:
+      - depr
 
-  - title: Integrations
-    labels: integrations
+  # 4
+  - title: Case management
+    labels:
+      - cases
 
+  # 5
+  - title: Tables
+    labels:
+      - tables
+
+  # 6
   - title: Agents
-    labels: agents
+    labels:
+      - agents
+      - skills
 
-  - title: Performance improvements
-    labels: performance
+  # 7
+  - title: Tracecat MCP
+    labels:
+      - mcp
 
-  - title: Enhancements
-    labels: enhancement
+  # 8
+  - title: Core actions
+    labels:
+      - core-actions
 
-  - title: Bug fixes
-    labels: fix
+  # 9
+  - title: Integrations
+    labels:
+      - integrations
 
+  # 10
+  - title: Engine
+    labels:
+      - engine
+
+  # 11
+  - title: API
+    labels:
+      - api
+      - rbac
+      - enterprise
+
+  # 12
+  - title: User interface
+    labels:
+      - ui
+
+  # 13
   - title: Infrastructure
-    labels: infra
+    labels:
+      - infra
+      - self-hosted
+      - migration
+      - cicd
 
+  # 14
   - title: Documentation
-    labels: documentation
+    labels:
+      - docs
 
+  # 15
+  - title: Performance
+    labels:
+      - perf
+
+  # 16
   - title: Dependencies
-    labels: dependencies
+    labels:
+      - deps
 
+  # 17
+  - title: Features
+    labels:
+      - feat
+
+  # 18
+  - title: Fixes
+    labels:
+      - fix
+
+  # 19
   - title: Build system
-    labels: build
+    labels:
+      - build
 
-  - title: Other improvements
-    labels: internal
+  # 20
+  - title: Other changes
+    labels:
+      - chore
+      - refactor
+      - tests
+      - revert
+      - logging
+
+autolabeler:
+  # Two tiers:
+  # - Tier A maps the conventional-commit type to a category label. Every
+  #   well-formed title matches exactly one type rule, which is what
+  #   guarantees no PR renders uncategorized.
+  # - Tier B maps the (scope) to an area label so the PR lands in the most
+  #   specific section, e.g. Integrations instead of Features.
+  # All rules tolerate an optional bracketed bot prefix such as "[codex] "
+  # and a compound scope such as (ui+api).
+
+  # Tier A: type -> label
+
+  # Example: build(deps): bump base images
+  - label: build
+    title:
+      - '/^(\[\w+\] )?(?:build)(\([^)]*\))?!?: /'
+
+  # Example: chore: update release drafter configuration
+  - label: chore
+    title:
+      - '/^(\[\w+\] )?(?:chore)(\([^)]*\))?!?: /'
+
+  # Example: ci(workflows): pin actions to immutable SHAs
+  - label: cicd
+    title:
+      - '/^(\[\w+\] )?(?:ci)(\([^)]*\))?!?: /'
+
+  # Example: depr(integrations): tools.x.list_signals in favour of tools.x.search_alerts
+  - label: depr
+    title:
+      - '/^(\[\w+\] )?(?:depr)(\([^)]*\))?!?: /'
+
+  # Example: chore(deps): bump orjson
+  - label: deps
+    title:
+      - '/^(\[\w+\] )?(?:deps)(\([^)]*\))?!?: /'
+
+  # Example: docs: clarify secret environment use cases
+  - label: docs
+    title:
+      - '/^(\[\w+\] )?(?:docs|doc)(\([^)]*\))?!?: /'
+
+  # Example: feat(integrations): add 1Password SDK and Events API
+  - label: feat
+    title:
+      - '/^(\[\w+\] )?(?:feat)(\([^)]*\))?!?: /'
+
+  # Example: fix(agents): preserve runtime error attribution
+  - label: fix
+    title:
+      - '/^(\[\w+\] )?(?:fix)(\([^)]*\))?!?: /'
+
+  # Example: infra(fargate): raise executor memory limits
+  - label: infra
+    title:
+      - '/^(\[\w+\] )?(?:infra|helm)(\([^)]*\))?!?: /'
+
+  # Example: perf(engine): batch workflow event writes
+  - label: perf
+    title:
+      - '/^(\[\w+\] )?(?:perf)(\([^)]*\))?!?: /'
+
+  # Example: refactor(api): split the workspace router
+  - label: refactor
+    title:
+      - '/^(\[\w+\] )?(?:refactor)(\([^)]*\))?!?: /'
+
+  # Example: release: 1.0.0-beta.49
+  - label: release
+    title:
+      - '/^(\[\w+\] )?(?:release)(\([^)]*\))?!?: /'
+
+  # Example: revert(ui): restore the preset button
+  - label: revert
+    title:
+      - '/^(\[\w+\] )?(?:revert)(\([^)]*\))?!?: /'
+
+  # Example: security(deps): patch an unauthenticated RCE
+  - label: security
+    title:
+      - '/^(\[\w+\] )?(?:security)(\([^)]*\))?!?: /'
+
+  # Example: test(engine): cover retry backoff
+  - label: tests
+    title:
+      - '/^(\[\w+\] )?(?:tests|test)(\([^)]*\))?!?: /'
+
+  # Example: feat(api)!: drop the v1 webhook payload
+  - label: breaking
+    title:
+      - '/^(\[\w+\] )?[a-z]+(\([^)]*\))?!: /'
+
+  # GitHub's own revert titles carry no conventional-commit prefix.
+  # Example: Revert "feat(mcp): add internal OIDC issuer"
+  - label: chore
+    title:
+      - '/^Revert "/'
+
+  # Tier B: scope -> area label
+
+  # Example: fix(agents): preserve runtime error attribution
+  - label: agents
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:agent-harness|artifacts|prompts|agents|claude|agent|inbox|tools|chat)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: fix(api): return 404 for missing workspaces
+  - label: api
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|audit|auth|saml|api|cli|org)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: build(admin-cli): ship the operator CLI wheel
+  - label: build
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:admin-cli|build)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(cases): add case duplication
+  - label: cases
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:case-triggers|cases|case)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(actions): add a table lookup action
+  - label: core-actions
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:core-actions|functions|actions|core|udfs|udf)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: build(deps): patch dependabot alerts
+  - label: deps
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:deps)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: fix(docs): repair broken anchors
+  - label: docs
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:playbooks|playbook|docs)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: fix(engine): retry transient action failures
+  - label: engine
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:expressions|approvals|scheduler|executor|temporal|workflow|runtime|sandbox|workers|engine|worker|dsl)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(enterprise): gate SAML behind a tier
+  - label: enterprise
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:enterprise|tiers|ee)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: fix(infra): wire LiteLLM URL into managed AI runtimes
+  - label: infra
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:deployments|migration|terraform|cluster|fargate|storage|deploy|docker|chart|infra|helm|aws|cdk|eks|k8s|db)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(integrations): add Jira issue search
+  - label: integrations
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:integrations|integration|registry|sync|git|vcs)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: fix(logging): redact secrets in executor logs
+  - label: logging
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:observability|logging)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(mcp): add server health checks
+  - label: mcp
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:mcp)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(rbac): add workspace-scoped roles
+  - label: rbac
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:authz|rbac)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(skills): add a triage skill
+  - label: skills
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:skills)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(tables): add unique indexes
+  - label: tables
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:tables|table)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(ui): replace preset button with @ mentions
+  - label: ui
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:frontend|canvas|ui|ux)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # `workflows` is the one scope whose area depends on the type:
+  # ci(workflows) is GitHub Actions, feat(workflows) is the product engine.
+  # Example: ci(workflows): pin actions to immutable SHAs
+  - label: cicd
+    title:
+      - '/^(\[\w+\] )?ci\((?:[a-z0-9_-]+\+)*workflows(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(workflows): add a workflow alias resolver
+  - label: engine
+    title:
+      - '/^(\[\w+\] )?(?!ci\()[a-z]+\((?:[a-z0-9_-]+\+)*workflows(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Vendor absorption. Any scope that is neither canonical, an alias, nor on
+  # the ambiguous list is read as a vendor name and filed under Integrations,
+  # which is where the 69 long-tail scopes in history (jira, splunk, scc,
+  # elastic_security, ...) belong. scripts/check_pr_title.py rejects these
+  # instead: going forward the vendor goes in the description, not the scope.
+  # Example: feat(splunk): add saved search export
+  - label: integrations
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?!(?:agent-harness|case-triggers|observability|core-actions|integrations|organization|deployments|expressions|integration|invitations|enterprise|pagination|workspaces|admin-cli|approvals|artifacts|functions|migration|playbooks|scheduler|terraform|workflows|workspace|executor|frontend|playbook|registry|settings|temporal|tracecat|webhooks|workflow|actions|cluster|fargate|logging|prompts|runtime|sandbox|secrets|service|storage|workers|agents|canvas|claude|config|deploy|docker|engine|skills|tables|worker|admin|agent|audit|authz|build|cases|chart|inbox|infra|table|tiers|tools|auth|case|chat|core|deps|docs|helm|rbac|saml|sync|udfs|api|app|aws|cdk|cli|dev|dsl|eks|git|k8s|mcp|org|udf|vcs|ai|db|ee|ui|ux)\))[a-z0-9_-]+\)!?: /'
+
+# Rewrite historical scope spellings to canonical ones in the rendered notes,
+# so a release reads with one vocabulary. The type prefix stays visible: it is
+# the fastest signal a reader has for what kind of change a line is.
+# Compound scopes are left alone; they are rare and already canonical.
+replacers:
+  # -> (actions)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:core-actions|core|udfs|udf)\)(!?): /gm'
+    replace: '- $1$2(actions)$3: '
+  # -> (agents)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:agent-harness|artifacts|prompts|claude|agent|inbox|tools|chat)\)(!?): /gm'
+    replace: '- $1$2(agents)$3: '
+  # -> (api)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|audit|auth|saml|cli|org)\)(!?): /gm'
+    replace: '- $1$2(api)$3: '
+  # -> (build)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:admin-cli)\)(!?): /gm'
+    replace: '- $1$2(build)$3: '
+  # -> (cases)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:case-triggers|case)\)(!?): /gm'
+    replace: '- $1$2(cases)$3: '
+  # -> (docs)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:playbooks|playbook)\)(!?): /gm'
+    replace: '- $1$2(docs)$3: '
+  # -> (engine)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:expressions|approvals|scheduler|executor|temporal|workflow|runtime|sandbox|workers|worker|dsl)\)(!?): /gm'
+    replace: '- $1$2(engine)$3: '
+  # -> (enterprise)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:tiers|ee)\)(!?): /gm'
+    replace: '- $1$2(enterprise)$3: '
+  # -> (infra)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:deployments|migration|terraform|cluster|fargate|storage|deploy|docker|chart|helm|aws|cdk|eks|k8s|db)\)(!?): /gm'
+    replace: '- $1$2(infra)$3: '
+  # -> (integrations)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:integration|registry|sync|git|vcs)\)(!?): /gm'
+    replace: '- $1$2(integrations)$3: '
+  # -> (logging)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:observability)\)(!?): /gm'
+    replace: '- $1$2(logging)$3: '
+  # -> (rbac)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:authz)\)(!?): /gm'
+    replace: '- $1$2(rbac)$3: '
+  # -> (tables)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:table)\)(!?): /gm'
+    replace: '- $1$2(tables)$3: '
+  # -> (ui)
+  - search: '/^- (\[\w+\] )?([a-z]+)\((?:frontend|canvas|ux)\)(!?): /gm'
+    replace: '- $1$2(ui)$3: '
 
 template: |
   $CHANGES
 
-  Thank you to all our contributors for making this release possible!
+  ## Contributors
+
   $CONTRIBUTORS
+
+  **Full changelog**: https://github.com/TracecatHQ/tracecat/compare/$PREVIOUS_TAG...$RESOLVED_VERSION

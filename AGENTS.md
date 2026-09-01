@@ -273,17 +273,143 @@ just gen-functions
 
 ### Titles
 
-- Always use conventional commit prefixes: `feat:`, `fix:`, `chore:`, `docs:`,
-  `refactor:`, `test:`, `ci:`, `perf:`, etc.
-- Keep the first line under 72 characters.
-- Optionally include a scope, e.g. `fix(agent): ...`, `feat(ui): ...`.
+- The PR title is the changelog line. Release Drafter renders it verbatim into
+  the release notes, prefix included, so write it as a user-facing change
+  description. The repo squash-merges, so the title also becomes the commit
+  subject, plus ` (#NNNN)`.
+- The format is `<type>(<scope>)!: <description>`. One line describes the
+  pipeline: type picks a type label, scope picks an area label, and the first
+  matching category in `.github/release-drafter.yml` picks the release-notes
+  section.
+- Validate before opening the PR:
+  `just check-pr-title "feat(cases): add case duplication"`. It reports every
+  violation at once, each with a stable code such as `unknown-scope`.
+- Allowed types:
+
+  <!-- BEGIN commit-conventions:types -->
+
+  | Type | Use it for |
+  | --- | --- |
+  | `build` | Packaging, wheels, images, and release tooling |
+  | `chore` | Housekeeping with no user-visible effect |
+  | `ci` | GitHub Actions and CI configuration |
+  | `depr` | Announcing a deprecation |
+  | `docs` | Documentation only |
+  | `feat` | New user-visible behaviour |
+  | `fix` | A bug fix |
+  | `infra` | Deployment targets, Terraform, Helm, Compose |
+  | `perf` | Measurable performance work |
+  | `refactor` | Restructuring that preserves behaviour |
+  | `release` | Version bumps, excluded from the release notes |
+  | `revert` | Undoing a previous change |
+  | `security` | Security fixes and hardening |
+  | `test` | Tests only |
+
+  <!-- END commit-conventions:types -->
+
+- Keep the first line under 72 characters. Over-length warns, it does not fail.
+- Mark breaking changes with `!` before the colon, e.g. `feat(api)!: ...`. The
+  `!` routes the PR to the Breaking changes section. There is no `breaking:`
+  type.
+- Malformed titles like `feat(cases) ENG-1597: ...` (no colon after the scope)
+  get no automatic label and render without a heading in the draft release.
+
+### Scopes
+
+- Add a scope for anything touching a product area. Leave it off only when the
+  change is genuinely repo-wide.
+
+  <!-- BEGIN commit-conventions:scopes -->
+
+  | Scope | Use it for |
+  | --- | --- |
+  | `actions` | The built-in core.* actions a user calls in a workflow |
+  | `agents` | Agent runtime, chat, presets, tools, and artifacts |
+  | `api` | Backend API, auth, and organization or workspace administration |
+  | `build` | Packaging and the operator CLI |
+  | `cases` | Case management |
+  | `deps` | Dependency bumps |
+  | `docs` | Documentation and playbooks |
+  | `engine` | The Temporal workers, executors, and scheduler that run workflows |
+  | `enterprise` | Enterprise edition and tiers |
+  | `functions` | The FN.* inline expression functions |
+  | `infra` | Databases, deployments, and cloud infrastructure |
+  | `integrations` | Third-party vendor connectors and registry templates |
+  | `logging` | Logging and telemetry |
+  | `mcp` | Tracecat's own MCP server |
+  | `rbac` | Roles and permissions |
+  | `skills` | Agent skills |
+  | `tables` | Workspace tables |
+  | `ui` | The Next.js app and React UI |
+  | `workflows` | GitHub Actions when the type is ci, the workflow engine otherwise |
+
+  <!-- END commit-conventions:scopes -->
+
+- `actions` is the built-in `core.*` actions a user calls in a workflow;
+  `functions` is the `FN.*` inline expression functions; `engine` is the
+  Temporal workers and executors that run them. The first two are catalogs of
+  what the platform offers, and both land in Core actions; the third is the
+  machinery.
+- `cases` and `tables` are core platform features with their own scopes and
+  their own sections. Neither folds into `api` or `engine`.
+- `engine` is what runs; `infra` is what it runs on. If the change could ship
+  by redeploying the same image, it is `infra`.
+- Vendor names are not scopes. Write `feat(integrations): add Jira issue
+  search` and name the vendor in the description. The autolabeler still
+  absorbs vendor scopes into `integrations` so merged PRs categorize, but the
+  checker rejects them.
+- At most two scopes, joined with `+`, e.g. `feat(cases+actions): add a case
+  linking action`. A change lands in the first section its labels match, so
+  that example appears under Case management, not Core actions. Needing three
+  scopes usually means the PR should be split.
+- Scopes that used to mean two different things are rejected outright: `app`,
+  `dev`, `config`, `service`, `tracecat`, `ai`. `app` is the reason the list
+  exists; it historically meant the backend, not the frontend.
+- Everything else the checker rejects is an old spelling with a canonical
+  replacement it will name for you, e.g. `registry` to `integrations`, `agent`
+  to `agents`, `ee` to `enterprise`, `udfs` and `core` to `actions`.
+
+### Deprecations
+
+Removing something takes three PRs, usually across three releases:
+
+1. Announce: `depr(<scope>): <thing> in favour of <replacement>`. The
+   description must name a replacement or say `with no replacement`; the
+   checker fails otherwise.
+2. Warn in the code in the same PR, via `deprecated="Use ... instead"` on the
+   registry action.
+3. Remove: `feat(<scope>)!: remove <thing>`, which lands under Breaking
+   changes.
+
+### Dependencies
+
+- Routine Dependabot patches and Low, Moderate, or High severity advisories
+  are `build(deps):` and land under Dependencies.
+- Reserve `security(deps):` for Critical unauthenticated remote-code-execution
+  advisories. Security stays a drop-everything section only if it is rare.
 
 ### Labels
 
-- Always label PRs on a best-effort basis. Do not skip labeling.
-- Before labeling, list existing repo labels with `gh label list` and pick from
-  that set. Do not invent new labels unless the user explicitly asks for one.
-- Apply labels with `gh pr edit <pr-number> --add-label "<label>"`.
+- The autolabeler assigns type and area labels from the title once the PR is
+  opened, so do not hand-label in the normal case. Hand-label only fork PRs
+  (the autolabeler cannot write to them) and to add nuance the title cannot
+  express.
+- Before hand-labeling, list existing repo labels with `gh label list` and
+  pick from that set. Do not invent new labels unless the user explicitly asks
+  for one.
+- `gh pr edit` subcommands fail on this repo because of the Projects-classic
+  deprecation. Apply labels with
+  `gh api repos/TracecatHQ/tracecat/issues/<pr-number>/labels -f "labels[]=<label>"`.
+
+### Changing the conventions
+
+- `.github/commit-conventions.toml` is the source of truth. Edit it, then
+  regenerate and re-verify: `just check-pr-title`, and
+  `uv run pytest tests/unit/test_commit_conventions.py`, which fails if the
+  autolabeler regexes, the category labels, or the tables above drift from it.
+- Any counts quoted in these docs are a snapshot. Re-derive them with
+  `just audit-conventions prefixes`; that command, not the prose, is the
+  source of truth for how the repo actually writes titles.
 
 ### Descriptions
 
@@ -326,6 +452,8 @@ just gen-functions
 - Registry templates live in
   `packages/tracecat-registry/tracecat_registry/templates/`.
 - Use the `tools.{integration_name}` namespace for integrations.
+- Scope PRs for vendor connector work as `(integrations)`, not `(registry)`;
+  see the Scopes rules under Pull requests.
 - Keep template expressions platform-native. For anything complex, prefer
   `core.script.run_python` over dense inline expressions.
 - When adding SDK helpers, verify the exact request path and add or update a

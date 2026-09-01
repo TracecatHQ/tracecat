@@ -239,34 +239,25 @@ gh pr view "$N" --json number,title,labels,author,url
 
 #### 8d. Categorize per `.github/release-drafter.yml`
 
-Drop any PR carrying an `exclude-labels` value (`skip changelog`, `release`).
+Read `.github/release-drafter.yml` and derive the buckets from it. Do not copy
+the category list into this skill: the last copy drifted, and a stale copy
+silently files changes under headings the real release notes do not have.
 
-For the rest, bucket each PR into the **first** matching category in this order. The list mirrors `.github/release-drafter.yml` exactly — if that file changes, update this list:
+From that file you need:
 
-| # | Category title           | Labels that match                                                                                  |
-|---|--------------------------|----------------------------------------------------------------------------------------------------|
-| 1 | Breaking changes         | `breaking`, `breaking ui`, `breaking frontend`, `breaking engine`, `breaking app`, `breaking infra` |
-| 2 | Deprecations             | `deprecation`                                                                                       |
-| 3 | Security                 | `security`                                                                                          |
-| 4 | Playbooks                | `playbook`                                                                                          |
-| 5 | Integrations             | `integrations`                                                                                      |
-| 6 | Agents                   | `agents`                                                                                            |
-| 7 | Performance improvements | `performance`                                                                                       |
-| 8 | Enhancements             | `enhancement`                                                                                       |
-| 9 | Bug fixes                | `fix`                                                                                               |
-| 10| Infrastructure           | `infra`                                                                                             |
-| 11| Documentation            | `documentation`                                                                                     |
-| 12| Dependencies             | `dependencies`                                                                                      |
-| 13| Build system             | `build`                                                                                             |
-| 14| Other improvements       | `internal`                                                                                          |
+- `exclude-labels`: drop any PR carrying one of these.
+- `categories`, in order: bucket each remaining PR into the **first** category
+  whose `labels` intersect the PR's labels. Use the category's `title`
+  verbatim.
 
-Anything left with no matching label goes under a trailing **Other** section. Do not silently drop PRs.
+Anything left with no matching label goes under a trailing **Other** section. Do
+not silently drop PRs.
 
-Format each entry as `- <cleaned-title> (#<number>)` (matches release-drafter's `change-template`). Strip conventional-commit prefixes from the title using the same replacer regex the config uses:
-
-```
-^(build|chore|ci|depr|deps|docs|feat|fix|helm|infra|perf|refactor|release|revert|security|style|test)(\(.*\))?(\!)?:\s
-```
+Format each entry as `- <title> (#<number>)`, matching the config's
+`change-template`. Use the title verbatim, conventional-commit prefix included.
+The config's `replacers:` only rewrite scope aliases, never the type prefix, so
+Release Drafter renders `$TITLE` with its prefix intact; stripping it here would
+make this skill's output disagree with every real release.
 
 #### 8e. Assemble the body
 

@@ -1,0 +1,247 @@
+# Commit and pull-request title conventions.
+#
+# This file is the single source of truth for the commit-convention system.
+# Everything downstream reads it rather than restating it:
+#
+#   scripts/check_pr_title.py       validates a title (strict, authoring-time)
+#   scripts/audit_commit_conventions.py  reports drift against merged PRs
+#   .github/release-drafter.yml     labels merged PRs (lenient, history-aware)
+#   tests/unit/test_commit_conventions.py  asserts the two stay in agreement
+#
+# The format is TOML so the checker runs on stdlib `tomllib` with no
+# dependencies, which is what lets it run as a fast required status check and
+# as a local `commit-msg` hook.
+#
+# The pipeline in one line:
+#   type -> type label, scope -> area label, first matching category -> section.
+#
+# Strict forward, lenient backward. The checker accepts only canonical types
+# and canonical scopes, so new titles converge on one vocabulary. The
+# autolabeler additionally understands every historical alias, so the 2000+
+# already-merged PRs still categorize correctly in release notes. When the two
+# disagree, the checker is the stricter one on purpose.
+
+[title]
+# Advisory only. Over-length titles warn, they do not fail: GitHub truncates
+# around here, but a clear 74-character title beats a cryptic 70-character one.
+max_length = 72
+# Two areas is a description of the change; three is a description of a PR that
+# should have been split.
+max_scope_parts = 2
+# Tolerate an agent prefix such as "[codex] feat(ui): ...".
+allow_bot_prefix = true
+# Tolerate GitHub's own revert titles: Revert "feat(mcp): ...".
+allow_revert_wrapper = true
+
+# Conventional-commit types, and the label each one applies.
+#
+# The label decides which release-notes section the PR lands in when no scope
+# claims it first. Authors may use any type in this table and no others.
+[types]
+build = "build"        # Build system, packaging, release tooling
+chore = "chore"        # Housekeeping with no user-visible effect
+ci = "cicd"            # GitHub Actions and CI configuration
+depr = "depr"          # Announce a deprecation (see [deprecation])
+docs = "docs"          # Documentation only
+feat = "feat"          # New user-visible behaviour
+fix = "fix"            # Bug fix
+infra = "infra"        # Deployment targets, Terraform, Helm, Compose
+perf = "perf"          # Measurable performance work
+refactor = "refactor"  # Behaviour-preserving restructuring
+release = "release"    # Version bumps; excluded from the notes
+revert = "revert"      # Undo a previous change
+security = "security"  # Security fixes and hardening
+test = "tests"         # Tests only
+
+# Types the checker rejects, mapped to what to write instead.
+#
+# `style` is deleted rather than renamed: it had zero uses, and ruff and biome
+# autoformat on commit, so formatting is never its own PR here.
+# An empty suggestion means there is no valid replacement.
+[type_aliases]
+style = "chore"
+tests = "test"
+doc = "docs"
+wip = ""
+
+# Types that only exist in history. The autolabeler still maps them so old PRs
+# keep their section; the checker rejects them and names the replacement.
+[legacy_types.deps]
+label = "deps"
+suggest = "build(deps)"
+
+[legacy_types.helm]
+label = "infra"
+suggest = "infra(helm)"
+
+# Canonical scopes, and the area label each one applies.
+#
+# An area label wins over the type label when both name a category, which is
+# how `feat(integrations)` lands under Integrations instead of Features.
+[scopes]
+integrations = "integrations"  # Vendor connectors, registry templates, sync
+ui = "ui"                      # Next.js app and React UI
+agents = "agents"              # Agent runtime, chat, presets, tools, artifacts
+mcp = "mcp"                    # Tracecat's own MCP server, not vendor MCP
+cases = "cases"                # Case management
+engine = "engine"              # Workflow execution: DSL, executor, Temporal
+actions = "core-actions"       # Built-in core.* actions users call in a workflow
+functions = "core-actions"     # FN.* inline expression functions
+tables = "tables"              # Lookup tables
+api = "api"                    # Backend API, auth, org and workspace admin
+rbac = "rbac"                  # Roles and permissions
+enterprise = "enterprise"      # Enterprise edition and tiers
+skills = "skills"              # Agent skills
+logging = "logging"            # Logging and telemetry
+infra = "infra"                # Databases, deployments, cloud infrastructure
+deps = "deps"                  # Dependency bumps
+docs = "docs"                  # Documentation and playbooks
+build = "build"                # Packaging and operator tooling
+
+# Historical spellings the autolabeler accepts and the checker rewrites.
+#
+# Every value must be a key in [scopes].
+[scope_aliases]
+registry = "integrations"
+integration = "integrations"
+sync = "integrations"
+git = "integrations"
+vcs = "integrations"
+
+frontend = "ui"
+ux = "ui"
+canvas = "ui"
+
+agent = "agents"
+chat = "agents"
+claude = "agents"
+prompts = "agents"
+tools = "agents"
+agent-harness = "agents"
+artifacts = "agents"
+inbox = "agents"
+
+case = "cases"
+case-triggers = "cases"
+
+executor = "engine"
+runtime = "engine"
+dsl = "engine"
+workflow = "engine"
+sandbox = "engine"
+temporal = "engine"
+worker = "engine"
+workers = "engine"
+scheduler = "engine"
+expressions = "engine"
+approvals = "engine"
+
+core = "actions"
+# The label is `core-actions`; the scope is `actions`. Both spellings of the
+# label are rejected as scopes so titles stay short.
+core-actions = "actions"
+udf = "actions"
+udfs = "actions"
+
+table = "tables"
+
+auth = "api"
+admin = "api"
+webhooks = "api"
+audit = "api"
+org = "api"
+organization = "api"
+invitations = "api"
+workspace = "api"
+workspaces = "api"
+secrets = "api"
+settings = "api"
+cli = "api"
+pagination = "api"
+saml = "api"
+
+authz = "rbac"
+
+ee = "enterprise"
+tiers = "enterprise"
+
+observability = "logging"
+
+db = "infra"
+fargate = "infra"
+docker = "infra"
+terraform = "infra"
+cluster = "infra"
+helm = "infra"
+storage = "infra"
+k8s = "infra"
+eks = "infra"
+aws = "infra"
+cdk = "infra"
+deploy = "infra"
+deployments = "infra"
+chart = "infra"
+migration = "infra"
+
+playbook = "docs"
+playbooks = "docs"
+
+# The operator CLI in packages/tracecat-admin is a packaged tool, so it labels
+# as `build`. Deliberately different from `admin`, which is the org admin API.
+admin-cli = "build"
+
+# Scopes whose area depends on the type. `ci(workflows)` is GitHub Actions;
+# `feat(workflows)` is the product's workflow engine. The "*" key is the
+# fallback for every other type.
+[scopes_by_type.workflows]
+ci = "cicd"
+"*" = "engine"
+
+# Scopes that read as two different things depending on who wrote them. These
+# are never auto-mapped, in either direction: guessing here silently files
+# changes under the wrong product area, which is worse than a failed check.
+#
+# `app` is the reason this list exists. It has 89 historical uses and meant the
+# backend, not the frontend, in nearly all of them. Anyone reading it today
+# assumes the opposite.
+[ambiguous_scopes]
+app = ["api", "engine", "cases"]
+dev = ["build", "infra"]
+config = ["api", "infra"]
+service = ["api", "engine"]
+tracecat = ["api", "engine", "ui"]
+ai = ["agents", "actions"]
+
+[ambiguous_scope_notes]
+app = "retired: it historically meant the backend, not the frontend"
+
+# Anything that is neither canonical, alias, nor ambiguous is treated as a
+# vendor name. The autolabeler absorbs those into `integrations` so the 69
+# long-tail scopes in history (jira, splunk, scc, elastic_security, ...) still
+# land in the right section. The checker rejects them, because a vendor belongs
+# in the description where it is searchable and readable:
+#
+#   feat(integrations): add Jira issue search
+#
+# not in a scope that fragments the Integrations section 69 ways.
+
+[deprecation]
+# A `depr:` title has to say what to use instead, or the release notes tell
+# users something is going away and leave them with nowhere to go.
+replacement_markers = [
+    "in favour of",
+    "in favor of",
+    "replaced by",
+    "superseded by",
+    "use ",
+    "with no replacement",
+]
+
+[labels]
+# Applied when the title carries `!` before the colon.
+breaking = "breaking"
+# Labels the autolabeler never applies, kept so a hand-applied label still
+# routes to a section.
+extra = ["migration", "self-hosted"]
+# A PR carrying either label is left out of the release notes entirely.
+exclude = ["release", "skip changelog"]

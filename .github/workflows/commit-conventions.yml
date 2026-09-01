@@ -1,0 +1,86 @@
+name: Commit conventions
+
+# No `paths:` filter, deliberately. A path-filtered workflow is skipped rather
+# than passed on pull requests that touch nothing it watches, and a status
+# check that can be skipped can never be marked required.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commit-conventions-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title:
+    name: PR title
+    runs-on: blacksmith-2vcpu-ubuntu-2204
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      # Check out the base branch, not the pull request. The rules a pull
+      # request is judged against must be the rules already on main, or a fork
+      # could rewrite them in the same change that violates them.
+      - name: Check out the base commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      # The checker is stdlib-only, but `tomllib` needs 3.11 or newer.
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
+        with:
+          python-version: "3.12"
+
+      - name: Check the pull request title
+        env:
+          # The title is attacker-controlled text. Pass it through the
+          # environment; interpolating it into `run:` would splice it into the
+          # shell command.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: python scripts/check_pr_title.py
+
+  sync:
+    name: Config drift
+    runs-on: blacksmith-2vcpu-ubuntu-2204
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      # This job checks the pull request's own config, so it checks out the
+      # pull request. It holds no secrets and a read-only token.
+      - name: Check out the pull request
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
+        with:
+          version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # `--noconftest` skips the project-wide fixtures, which want Postgres,
+      # Redis and MinIO. These tests read files and compile regexes; they need
+      # none of it.
+      - name: Check the config, autolabeler and docs agree
+        run: >-
+          uv run --no-sync pytest --noconftest -q
+          tests/unit/test_commit_conventions.py
+          tests/unit/test_check_pr_title.py
