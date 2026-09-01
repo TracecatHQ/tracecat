@@ -12661,6 +12661,10 @@ export type InboxGetPendingCountResponse = InboxPendingCount
 
 export type InboxListItemsData = {
   /**
+   * Filter items to root sessions associated with this case
+   */
+  caseId?: string | null
+  /**
    * Only items created at or after this time (ISO 8601)
    */
   createdAfter?: string | null
