@@ -120,7 +120,10 @@ async def test_scheduler_preserves_temporal_cancellation_with_replay_gate(
 
 
 @pytest.mark.anyio
-async def test_scheduler_legacy_cancellation_does_not_hide_same_batch_error() -> None:
+@pytest.mark.parametrize("preserve_cancellation", [True, False])
+async def test_scheduler_cancellation_does_not_hide_same_batch_error(
+    preserve_cancellation: bool,
+) -> None:
     async def executor(_: ActionStatement) -> None:
         return None
 
@@ -141,7 +144,7 @@ async def test_scheduler_legacy_cancellation_does_not_hide_same_batch_error() ->
         patch.object(scheduler, "_schedule_task", new=schedule_task),
         patch(
             "tracecat.dsl.scheduler.workflow.patched",
-            return_value=False,
+            return_value=preserve_cancellation,
         ) as patched,
         pytest.raises(RuntimeError, match="causal scheduler failure"),
     ):

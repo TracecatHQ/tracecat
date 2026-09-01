@@ -905,6 +905,8 @@ class DSLScheduler:
             for done_task in done_tasks:
                 pending_tasks.pop(done_task)
             first_error: BaseException | None = None
+            first_cancellation: BaseException | None = None
+            preserve_cancellation = False
             for done_task in done_tasks:
                 try:
                     task_error = done_task.exception()
@@ -912,15 +914,20 @@ class DSLScheduler:
                     task_error = error
                 if task_error is None:
                     continue
-                if is_cancelled_exception(task_error) and not workflow.patched(
-                    WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION
-                ):
+                if is_cancelled_exception(task_error):
+                    preserve_cancellation = (
+                        workflow.patched(WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION)
+                        or preserve_cancellation
+                    )
+                    if first_cancellation is None:
+                        first_cancellation = task_error
                     continue
                 if first_error is None:
                     first_error = task_error
-            if first_error is None:
-                return
-            raise first_error
+            if first_error is not None:
+                raise first_error
+            if first_cancellation is not None and preserve_cancellation:
+                raise first_cancellation
 
         while not self.task_exceptions and (not self.queue.empty() or pending_tasks):
             self.logger.trace(
