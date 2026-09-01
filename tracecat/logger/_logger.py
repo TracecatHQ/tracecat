@@ -8,6 +8,7 @@ from loguru import logger as base_logger
 from opentelemetry import trace
 from opentelemetry.trace import TraceFlags
 
+from tracecat.logger._json import write_json_log
 from tracecat.logger.config import LogFormat, log_format_from_env
 
 if TYPE_CHECKING:
@@ -70,14 +71,23 @@ except ValueError:
     pass
 log_format = log_format_from_env()
 base_logger.configure(patcher=_add_process_context)
-base_logger.add(
-    sink=sys.stderr,
-    colorize=log_format is LogFormat.CONSOLE,
-    level=os.environ.get("LOG_LEVEL", "INFO"),
-    format=_CONSOLE_FORMAT,
-    filter=_workflow_replay_filter,
-    diagnose=False,
-    serialize=log_format is LogFormat.JSON,
-)
+if log_format is LogFormat.JSON:
+    base_logger.add(
+        sink=write_json_log,
+        colorize=False,
+        level=os.environ.get("LOG_LEVEL", "INFO"),
+        format="{message}",
+        filter=_workflow_replay_filter,
+        diagnose=False,
+    )
+else:
+    base_logger.add(
+        sink=sys.stderr,
+        colorize=True,
+        level=os.environ.get("LOG_LEVEL", "INFO"),
+        format=_CONSOLE_FORMAT,
+        filter=_workflow_replay_filter,
+        diagnose=False,
+    )
 
 logger = base_logger
