@@ -112,7 +112,7 @@ just check-pr-title "feat(cases): add case duplication"
 | `build` | Packaging, wheels, images, and release tooling |
 | `chore` | Housekeeping with no user-visible effect |
 | `ci` | GitHub Actions and CI configuration |
-| `depr` | Announcing a deprecation |
+| `deprecation` | Announcing a deprecation |
 | `docs` | Documentation only |
 | `feat` | New user-visible behaviour |
 | `fix` | A bug fix |
@@ -173,7 +173,7 @@ Put `!` before the colon to mark a breaking change: `feat(api)!: drop the v1 web
 
 Removing something takes three steps, usually across three releases:
 
-1. Announce it: `depr(integrations): tools.x.list_signals in favour of tools.x.search_alerts`. The description has to name the replacement, or say `with no replacement`.
+1. Announce it: `deprecation(integrations): tools.x.list_signals in favour of tools.x.search_alerts`. The description has to name the replacement, or say `with no replacement`.
 2. Warn in the code in the same pull request, with the `deprecated="Use ... instead"` argument on the registry action.
 3. Remove it: `feat(integrations)!: remove tools.x.list_signals`.
 

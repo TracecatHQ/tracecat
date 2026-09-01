@@ -81,9 +81,9 @@ def _quote(values: Sequence[str]) -> str:
 
 
 def _check_type(type_: str, conventions: Conventions) -> tuple[Violation | None, bool]:
-    """Validate the type. Returns the violation and whether it is `depr`."""
+    """Validate the type. Returns the violation and whether it deprecates."""
     if type_ in conventions.types:
-        return None, type_ == "depr"
+        return None, type_ == conventions.deprecation_type
 
     if type_ in conventions.type_aliases:
         suggestion = conventions.type_aliases[type_]
@@ -122,6 +122,13 @@ def _check_scope_part(part: str, conventions: Conventions) -> Violation | None:
         return Violation(
             "unknown-scope",
             f"`{part}` is an old spelling of `{canonical}`. Write `{canonical}`.",
+        )
+
+    legacy = conventions.legacy_scopes.get(part)
+    if legacy is not None:
+        return Violation(
+            "unknown-scope",
+            f"`{part}` is retired. Write `{legacy.suggest}`.",
         )
 
     candidates = conventions.ambiguous_scopes.get(part)

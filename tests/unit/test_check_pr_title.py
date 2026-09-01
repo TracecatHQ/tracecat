@@ -21,7 +21,7 @@ ACCEPT = [
     "[codex] chore(deps): bump orjson",
     'Revert "feat(mcp): add internal OIDC issuer"',
     "release: 1.0.0-beta.49",
-    "depr(integrations): tools.x.list_signals in favour of tools.x.search_alerts",
+    "deprecation(integrations): tools.x.list_signals in favour of tools.x.search_alerts",
     "build(deps): patch dependabot alerts",
     "feat(actions): add a table lookup action",
     "fix(functions): regex_extract corner case",
@@ -36,7 +36,7 @@ REJECT: list[tuple[str, str]] = [
     ("feat(jira): add issue search", "unknown-scope"),
     ("refactor(app): update case filtering", "ambiguous-scope"),
     ("deps: bump orjson", "unknown-type"),
-    ("depr(registry): remove old thing", "depr-no-replacement"),
+    ("deprecation(registry): remove old thing", "depr-no-replacement"),
     ("feat(ui+api+ee): x", "too-many-scopes"),
     ("feat(ui, api): x", "scope-format"),
     ("feat(UI): x", "scope-format"),
@@ -102,7 +102,8 @@ def test_compound_scope_resolves_to_both_area_labels() -> None:
     title = "feat(cases+actions): add a case linking action"
     assert check_title(title, CONVENTIONS).ok
     assert CONVENTIONS.scope_label("cases", type_="feat") == "cases"
-    assert CONVENTIONS.scope_label("actions", type_="feat") == "core-actions"
+    assert CONVENTIONS.scope_label("actions", type_="feat") == "actions"
+    assert CONVENTIONS.scope_label("functions", type_="fix") == "functions"
 
 
 def test_over_length_warns_but_does_not_fail() -> None:
@@ -144,7 +145,7 @@ def test_description_capitalisation_is_not_enforced(description: str) -> None:
     ],
 )
 def test_deprecation_replacement_markers(description: str) -> None:
-    assert check_title(f"depr(integrations): {description}", CONVENTIONS).ok
+    assert check_title(f"deprecation(integrations): {description}", CONVENTIONS).ok
 
 
 def test_main_reads_the_title_from_the_environment(

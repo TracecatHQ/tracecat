@@ -47,11 +47,13 @@ class Conventions:
     types: Mapping[str, str]
     type_aliases: Mapping[str, str]
     legacy_types: Mapping[str, LegacyType]
+    legacy_scopes: Mapping[str, LegacyType]
     scopes: Mapping[str, str]
     scope_aliases: Mapping[str, str]
     scopes_by_type: Mapping[str, Mapping[str, str]]
     ambiguous_scopes: Mapping[str, tuple[str, ...]]
     ambiguous_scope_notes: Mapping[str, str]
+    deprecation_type: str
     replacement_markers: tuple[str, ...]
     breaking_label: str
     extra_labels: tuple[str, ...]
@@ -89,6 +91,7 @@ class Conventions:
             {
                 *self.types.values(),
                 *(legacy.label for legacy in self.legacy_types.values()),
+                *(legacy.label for legacy in self.legacy_scopes.values()),
                 *self.scopes.values(),
                 *by_type,
                 self.breaking_label,
@@ -155,6 +158,21 @@ def load_conventions(path: Path | None = None) -> Conventions:
             )
         legacy_types[name] = LegacyType(label=label, suggest=suggest)
 
+    legacy_scope_raw = raw.get("legacy_scopes", {})
+    if not isinstance(legacy_scope_raw, dict):
+        raise ConventionsError("[legacy_scopes] must be a table")
+    legacy_scopes: dict[str, LegacyType] = {}
+    for name, entry in legacy_scope_raw.items():
+        if not isinstance(entry, dict):
+            raise ConventionsError(f"[legacy_scopes.{name}] must be a table")
+        label = entry.get("label")
+        suggest = entry.get("suggest")
+        if not isinstance(label, str) or not isinstance(suggest, str):
+            raise ConventionsError(
+                f"[legacy_scopes.{name}] needs string `label` and `suggest`"
+            )
+        legacy_scopes[name] = LegacyType(label=label, suggest=suggest)
+
     by_type_raw = raw.get("scopes_by_type", {})
     if not isinstance(by_type_raw, dict):
         raise ConventionsError("[scopes_by_type] must be a table")
@@ -193,11 +211,13 @@ def load_conventions(path: Path | None = None) -> Conventions:
         types=_require_str_map(raw, "types"),
         type_aliases=_require_str_map(raw, "type_aliases"),
         legacy_types=legacy_types,
+        legacy_scopes=legacy_scopes,
         scopes=_require_str_map(raw, "scopes"),
         scope_aliases=_require_str_map(raw, "scope_aliases"),
         scopes_by_type=scopes_by_type,
         ambiguous_scopes=ambiguous,
         ambiguous_scope_notes=_require_str_map(raw, "ambiguous_scope_notes"),
+        deprecation_type=str(raw.get("deprecation", {}).get("type", "deprecation")),
         replacement_markers=_require_str_list(
             raw, "deprecation", "replacement_markers"
         ),
@@ -260,6 +280,12 @@ def _validate(conventions: Conventions) -> None:
             raise ConventionsError(
                 f"[type_aliases].{alias} suggests {target!r}, which is not a type"
             )
+
+    for name in conventions.legacy_scopes:
+        if name in conventions.scopes:
+            raise ConventionsError(f"[legacy_scopes.{name}] is also a canonical scope")
+        if name in conventions.scope_aliases:
+            raise ConventionsError(f"[legacy_scopes.{name}] is also a scope alias")
 
     for name in conventions.legacy_types:
         if name in conventions.types:

@@ -182,6 +182,8 @@ def classify_scope(scope: str, conventions: Conventions) -> str:
         return "canonical"
     if scope in conventions.scope_aliases:
         return f"alias-of-{conventions.scope_aliases[scope]}"
+    if scope in conventions.legacy_scopes:
+        return f"retired-use-{conventions.legacy_scopes[scope].suggest}"
     if scope in conventions.ambiguous_scopes:
         return "ambiguous"
     return "vendor(absorbed into integrations)"
@@ -219,6 +221,10 @@ def resolve_labels(parsed: ParsedTitle, conventions: Conventions) -> frozenset[s
             canonical = conventions.scope_aliases.get(part)
             if canonical is not None:
                 label = conventions.scope_label(canonical, type_=parsed.type)
+        if label is None:
+            legacy = conventions.legacy_scopes.get(part)
+            if legacy is not None:
+                label = legacy.label
         if label is not None:
             labels.add(label)
         elif part not in conventions.ambiguous_scopes:

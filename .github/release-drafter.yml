@@ -57,7 +57,7 @@ categories:
   # 3
   - title: Deprecations
     labels:
-      - depr
+      - deprecation
 
   # 4
   - title: Case management
@@ -83,7 +83,12 @@ categories:
   # 8
   - title: Core actions
     labels:
-      - core-actions
+      - actions
+
+  # 8b
+  - title: Functions
+    labels:
+      - functions
 
   # 9
   - title: Integrations
@@ -181,10 +186,10 @@ autolabeler:
     title:
       - '/^(\[\w+\] )?(?:ci)(\([^)]*\))?!?: /'
 
-  # Example: depr(integrations): tools.x.list_signals in favour of tools.x.search_alerts
-  - label: depr
+  # Example: deprecation(integrations): tools.x.list_signals in favour of tools.x.search_alerts
+  - label: deprecation
     title:
-      - '/^(\[\w+\] )?(?:depr)(\([^)]*\))?!?: /'
+      - '/^(\[\w+\] )?(?:deprecation|depr)(\([^)]*\))?!?: /'
 
   # Example: chore(deps): bump orjson
   - label: deps
@@ -275,9 +280,14 @@ autolabeler:
       - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:case-triggers|cases|case)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: feat(actions): add a table lookup action
-  - label: core-actions
+  - label: actions
     title:
-      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:core-actions|functions|actions|core|udfs|udf)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*(?:core-actions|actions|core|udfs|udf)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: fix(functions): regex_extract corner case
+  - label: functions
+    title:
+      - '/^(\[\w+\] )?[a-z]+\((?:[a-z0-9_-]+\+)*functions(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: build(deps): patch dependabot alerts
   - label: deps

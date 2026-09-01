@@ -41,7 +41,7 @@ allow_revert_wrapper = true
 build = "build"        # Build system, packaging, release tooling
 chore = "chore"        # Housekeeping with no user-visible effect
 ci = "cicd"            # GitHub Actions and CI configuration
-depr = "depr"          # Announce a deprecation (see [deprecation])
+deprecation = "deprecation"  # Announce a deprecation (see [deprecation])
 docs = "docs"          # Documentation only
 feat = "feat"          # New user-visible behaviour
 fix = "fix"            # Bug fix
@@ -62,6 +62,7 @@ test = "tests"         # Tests only
 style = "chore"
 tests = "test"
 doc = "docs"
+depr = "deprecation"
 wip = ""
 
 # Types that only exist in history. The autolabeler still maps them so old PRs
@@ -74,6 +75,26 @@ suggest = "build(deps)"
 label = "infra"
 suggest = "infra(helm)"
 
+# Scopes that only exist in history, or that name a label rather than a scope.
+# Same contract as [legacy_types]: the autolabeler maps `label` so old PRs keep
+# their section, and the checker rejects the spelling and names `suggest`.
+#
+# Kept out of [scope_aliases] on purpose. An entry there reads as an acceptable
+# spelling; these are retired. "UDF" is dead terminology, and `core-actions` is
+# the label, not the scope — writing it is the most likely mistake, so it earns
+# a precise message rather than the vendor fallback.
+[legacy_scopes.udf]
+label = "actions"
+suggest = "actions"
+
+[legacy_scopes.udfs]
+label = "actions"
+suggest = "actions"
+
+[legacy_scopes.core-actions]
+label = "actions"
+suggest = "actions"
+
 # Canonical scopes, and the area label each one applies.
 #
 # An area label wins over the type label when both name a category, which is
@@ -85,8 +106,8 @@ agents = "agents"              # Agent runtime, chat, presets, tools, artifacts
 mcp = "mcp"                    # Tracecat's own MCP server, not vendor MCP
 cases = "cases"                # Case management
 engine = "engine"              # Workflow execution: DSL, executor, Temporal
-actions = "core-actions"       # Built-in core.* actions users call in a workflow
-functions = "core-actions"     # FN.* inline expression functions
+actions = "actions"            # Built-in core.* actions users call in a workflow
+functions = "functions"        # FN.* inline expression functions, kept separate
 tables = "tables"              # Lookup tables
 api = "api"                    # Backend API, auth, org and workspace admin
 rbac = "rbac"                  # Roles and permissions
@@ -100,7 +121,11 @@ build = "build"                # Packaging and operator tooling
 
 # Historical spellings the autolabeler accepts and the checker rewrites.
 #
-# Every value must be a key in [scopes].
+# Every value must be a key in [scopes]. Entries earn their place two ways:
+# a spelling with real history, so the retro rewrite files those PRs correctly;
+# or a near-miss of a canonical name, so a typo gets "`ux` is an old spelling of
+# `ui`" rather than the vendor fallback's misleading "`ux` is a vendor name".
+# Retired terminology is NOT listed — an alias here reads as still acceptable.
 [scope_aliases]
 registry = "integrations"
 integration = "integrations"
@@ -136,12 +161,11 @@ scheduler = "engine"
 expressions = "engine"
 approvals = "engine"
 
+# `core` is the namespace users actually type in a workflow (core.http_request),
+# and has 19 historical uses. The retired "UDF" spellings live in
+# [legacy_scopes] instead, so they still categorize history without reading as
+# acceptable to write today.
 core = "actions"
-# The label is `core-actions`; the scope is `actions`. Both spellings of the
-# label are rejected as scopes so titles stay short.
-core-actions = "actions"
-udf = "actions"
-udfs = "actions"
 
 table = "tables"
 
@@ -226,7 +250,11 @@ app = "retired: it historically meant the backend, not the frontend"
 # not in a scope that fragments the Integrations section 69 ways.
 
 [deprecation]
-# A `depr:` title has to say what to use instead, or the release notes tell
+# The type this rule applies to. Named here so no code hardcodes the string:
+# renaming the type without updating a literal silently disables the rule.
+type = "deprecation"
+
+# A `deprecation:` title has to say what to use instead, or the release notes tell
 # users something is going away and leave them with nowhere to go.
 replacement_markers = [
     "in favour of",

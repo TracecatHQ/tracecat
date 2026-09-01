@@ -293,7 +293,7 @@ just gen-functions
   | `build` | Packaging, wheels, images, and release tooling |
   | `chore` | Housekeeping with no user-visible effect |
   | `ci` | GitHub Actions and CI configuration |
-  | `depr` | Announcing a deprecation |
+  | `deprecation` | Announcing a deprecation |
   | `docs` | Documentation only |
   | `feat` | New user-visible behaviour |
   | `fix` | A bug fix |
@@ -373,7 +373,7 @@ just gen-functions
 
 Removing something takes three PRs, usually across three releases:
 
-1. Announce: `depr(<scope>): <thing> in favour of <replacement>`. The
+1. Announce: `deprecation(<scope>): <thing> in favour of <replacement>`. The
    description must name a replacement or say `with no replacement`; the
    checker fails otherwise.
 2. Warn in the code in the same PR, via `deprecated="Use ... instead"` on the

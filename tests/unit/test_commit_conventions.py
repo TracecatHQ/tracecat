@@ -215,7 +215,7 @@ CORPUS: Final = (
     "[codex] chore(deps): bump orjson",
     'Revert "feat(mcp): add internal OIDC issuer"',
     "release: 1.0.0-beta.49",
-    "depr(integrations): x in favour of y",
+    "deprecation(integrations): x in favour of y",
     "build(deps): patch dependabot alerts",
     "ci(workflows): pin actions to immutable SHAs",
     "feat(workflows): add a workflow alias resolver",
