@@ -1,0 +1,30 @@
+.github/workflows/release-drafter.yml
+  s_c5002332a8185a::t_1dd8cfb2236225 48-52,68-79
+  s_c5002332a8185a::t_687200fe7a147d 80
+tests/unit/test_commit_conventions.py
+  s_c5002332a8185a::t_17e6c988c73193 360-369,417-423,432,442
+.github/release-drafter.yml
+  s_c5002332a8185a::t_7947c38a02646b 534-539
+scripts/check_pr_title.py
+  s_c5002332a8185a::t_00baf1e9173b9f 327-333,339,344-346
+  s_c5002332a8185a::t_e257e8f506a5a8 224-243,247,268,283
+tests/unit/test_check_pr_title.py
+  s_c5002332a8185a::t_6ffafdea1f5bc7 53,240-257,265-283
+  s_c5002332a8185a::t_80f29d5723e046 284-285
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0efe0438f51600b5c6de33797f60965f76012cce",
+  "prompts": {},
+  "sessions": {
+    "s_c5002332a8185a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "831b7546-2af0-4f8f-af70-e9256e652a68",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
