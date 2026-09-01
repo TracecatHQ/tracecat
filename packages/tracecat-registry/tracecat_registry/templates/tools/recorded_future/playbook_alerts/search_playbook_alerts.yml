@@ -1,0 +1,100 @@
+type: action
+definition:
+  title: Search playbook alerts
+  description: Searches for Playbook Alerts based on filtering conditions supplied in the body. Only Playbook Alerts matching all specified criteria are included in the response. Calls POST /playbook-alert/search directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/playbook-alerts-search
+  namespace: tools.recorded_future
+  name: search_playbook_alerts
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    limit:
+      type: int | None
+      description: Pagination limit, show items up to this limit. Offset + limit cannot exceed 10 000.
+      default: null
+    offset:
+      type: str | None
+      description: Allows pagination by using next_offset from previous search response.
+      default: null
+    order_by:
+      type: str | None
+      description: Order results by created or modified data. Allowed values are created and modified.
+      default: null
+    direction:
+      type: str | None
+      description: Order results ascending or descending. Allowed values are asc and desc.
+      default: null
+    entity:
+      type: list[str] | None
+      description: Entity of the alert (ID). For Domain Abuse alerts the entity is the attacker domain and for Vulnerability Alerts the entity is the CVE.
+      default: null
+    statuses:
+      type: list[str] | None
+      description: Return Playbook Alerts with this status. Allowed values are New, InProgress, Dismissed and Resolved. If omitted or empty, all statuses will be selected.
+      default: null
+    priority:
+      type: list[str] | None
+      description: Return Playbook Alerts with this priority. Allowed values are High, Moderate and Informational. If omitted or empty, all priorities will be selected.
+      default: null
+    category:
+      type: list[str] | None
+      description: Return Playbook Alerts with this category. Allowed values are domain_abuse, malicious_sites, cyber_vulnerability, code_repo_leakage, third_party_risk, identity_novel_exposures, geopolitics_facility, dark_web and socmed_impersonation.
+      default: null
+    assignee:
+      type: list[str] | None
+      description: Return Playbook Alerts with this assignee. Valid assignees can be listed in /playbook-alert/metadata/assignees.
+      default: null
+    organisation:
+      type: list[str] | None
+      description: Return Playbook Alerts with either of the organisations as owner.
+      default: null
+    created_from:
+      type: datetime | None
+      description: Created at or after this point in time. Sent as created_range.from.
+      default: null
+    created_until:
+      type: datetime | None
+      description: Created before or at this point in time. Sent as created_range.until.
+      default: null
+    updated_from:
+      type: datetime | None
+      description: Updated at or after this point in time. Sent as updated_range.from.
+      default: null
+    updated_until:
+      type: datetime | None
+      description: Updated before or at this point in time. Sent as updated_range.until.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/playbook-alert/search
+        method: POST
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+          Content-Type: application/json
+        payload:
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          order_by: ${{ inputs.order_by }}
+          direction: ${{ inputs.direction }}
+          entity: ${{ inputs.entity }}
+          statuses: ${{ inputs.statuses }}
+          priority: ${{ inputs.priority }}
+          category: ${{ inputs.category }}
+          assignee: ${{ inputs.assignee }}
+          organisation: ${{ inputs.organisation }}
+          created_range:
+            from: ${{ inputs.created_from }}
+            until: ${{ inputs.created_until }}
+          updated_range:
+            from: ${{ inputs.updated_from }}
+            until: ${{ inputs.updated_until }}
+  returns: ${{ steps.request.result }}

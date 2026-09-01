@@ -10,6 +10,7 @@ import {
   LogInIcon,
   LogsIcon,
   MousePointerClickIcon,
+  RadioTowerIcon,
   Settings2,
   UsersIcon,
 } from "lucide-react"
@@ -67,7 +68,16 @@ export function OrganizationSidebar({
     },
   ]
 
-  const navSettings = [
+  interface OrgSettingsNavItem {
+    title: string
+    url: string
+    icon: React.ComponentType<{ className?: string }>
+    isActive: boolean | undefined
+    visible: boolean
+    locked: boolean
+  }
+
+  const navSettings: OrgSettingsNavItem[] = [
     {
       title: "SAML (SSO)",
       url: "/organization/settings/sso",
@@ -101,14 +111,6 @@ export function OrganizationSidebar({
       locked: false,
     },
     {
-      title: "Agent",
-      url: "/organization/settings/agent",
-      icon: MousePointerClickIcon,
-      isActive: pathname?.includes("/organization/settings/agent"),
-      visible: canViewSettings === true,
-      locked: false,
-    },
-    {
       title: "Git sync",
       url: "/organization/vcs",
       icon: GitBranchIcon,
@@ -123,6 +125,25 @@ export function OrganizationSidebar({
     //   icon: LinkIcon,
     //   isActive: pathname?.includes("/organization/settings/mcp"),
     // },
+  ]
+
+  const navAgent = [
+    {
+      title: "Configuration",
+      url: "/organization/settings/agent",
+      icon: MousePointerClickIcon,
+      isActive: pathname === "/organization/settings/agent",
+      visible: canViewSettings === true,
+      locked: false,
+    },
+    {
+      title: "Telemetry",
+      url: "/organization/settings/agent/telemetry",
+      icon: RadioTowerIcon,
+      isActive: pathname?.startsWith("/organization/settings/agent/telemetry"),
+      visible: canViewSettings === true,
+      locked: false,
+    },
   ]
 
   const navManage = [
@@ -185,6 +206,28 @@ export function OrganizationSidebar({
                           <span className="sr-only">Requires upgrade</span>
                         </SidebarMenuBadge>
                       ) : null}
+                    </SidebarMenuItem>
+                  ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {navAgent.some((item) => item.visible === true) && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Agent</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {navAgent
+                  .filter((item) => item.visible === true)
+                  .map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild isActive={item.isActive}>
+                        <Link href={item.url}>
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
               </SidebarMenu>

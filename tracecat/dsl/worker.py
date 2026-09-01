@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from temporalio import workflow
-from temporalio.worker import Worker
+from temporalio.worker import Interceptor, Worker
 from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
     SandboxRestrictions,
@@ -25,13 +25,20 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.preset.activities import (
         resolve_agent_preset_version_ref_activity,
     )
+    from tracecat.cases.agent_sessions.workflow import (
+        CaseAgentSessionBackfillWorkflow,
+        case_agent_session_backfill_activity,
+    )
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.init_activities import (
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
-    from tracecat.dsl.interceptor import SentryInterceptor
+    from tracecat.dsl.interceptor import (
+        RuntimeErrorAttributionInterceptor,
+        SentryInterceptor,
+    )
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
@@ -89,6 +96,7 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 
 def get_activities() -> list[Callable]:
     activities: list[Callable] = [
+        case_agent_session_backfill_activity,
         *DSLActivities.load(),
         *CollectionActivities.get_activities(),
         resolve_agent_preset_version_ref_activity,
@@ -116,7 +124,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     client = await get_temporal_client()
 
-    interceptors = []
+    interceptors: list[Interceptor] = [RuntimeErrorAttributionInterceptor()]
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
         logger.info("Initializing Sentry interceptor")
         app_env = config.TRACECAT__APP_ENV
@@ -163,7 +171,10 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     try:
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-            workflows: list[type] = [DSLWorkflow]
+            workflows: list[type] = [
+                CaseAgentSessionBackfillWorkflow,
+                DSLWorkflow,
+            ]
 
             async with Worker(
                 client,

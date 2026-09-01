@@ -74,13 +74,15 @@
             "icon": "ticket-check",
             "pages": [
               "automations/cases",
-              "automations/cases/agent-mentions"
+              "automations/cases/agent-mentions",
+              "automations/cases/tasks"
             ]
           },
           {
             "group": "Building agents",
             "icon": "sparkles",
             "pages": [
+              "agents/workspace-chat",
               "agents/ai-action",
               "agents/ai-agent",
               "agents/custom-llm-providers",
@@ -145,34 +147,86 @@
         ]
       },
       {
-        "tab": "Integrations",
+        "tab": "Core Actions",
         "groups": [
           {
-            "group": "Core actions",
-            "icon": "boxes",
+            "group": "Request",
+            "icon": "globe",
             "expanded": true,
             "pages": [
               "automations/core-actions/request-actions/http",
               "automations/core-actions/request-actions/sql",
               "automations/core-actions/request-actions/ssh",
               "automations/core-actions/request-actions/grpc",
-              "automations/core-actions/request-actions/email",
+              "automations/core-actions/request-actions/email"
+            ]
+          },
+          {
+            "group": "Transform",
+            "icon": "shuffle",
+            "expanded": true,
+            "pages": [
               "automations/core-actions/transform-actions/reshape",
               "automations/core-actions/transform-actions/python-script",
               "automations/core-actions/transform-actions/data-transforms",
-              "automations/core-actions/transform-actions/require",
-              "automations/core-actions/workflow-actions/run-subflow",
-              "automations/core-actions/workflow-actions/scatter-gather-loops",
-              "automations/core-actions/workflow-actions/while-loops",
-              "automations/core-actions/case-actions/cases",
-              "automations/core-actions/memory-actions/tables"
+              "automations/core-actions/transform-actions/require"
             ]
           },
+          {
+            "group": "Workflow",
+            "icon": "workflow",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/workflow-actions/run-subflow",
+              "automations/core-actions/workflow-actions/scatter-gather-loops",
+              "automations/core-actions/workflow-actions/while-loops"
+            ]
+          },
+          {
+            "group": "Agent",
+            "icon": "sparkles",
+            "expanded": true,
+            "pages": [
+              "agents/ai-agent",
+              "agents/ai-action"
+            ]
+          },
+          {
+            "group": "Case",
+            "icon": "ticket-check",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/case-actions/cases",
+              "automations/core-actions/case-actions/comments",
+              "automations/core-actions/case-actions/attachments",
+              "automations/core-actions/case-actions/tasks",
+              "automations/core-actions/case-actions/linked-rows"
+            ]
+          },
+          {
+            "group": "Table",
+            "icon": "table",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/memory-actions/tables",
+              "automations/core-actions/memory-actions/columns",
+              "automations/core-actions/memory-actions/lookups",
+              "automations/core-actions/memory-actions/rows",
+              "automations/core-actions/memory-actions/export"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
           {
             "group": "Integrations",
             "icon": "wrench",
             "pages": [
               "integrations/overview",
+              "tools/1password",
+              "tools/1password_sdk",
               "tools/abuseipdb",
               "tools/alertmedia",
               "tools/amazon_s3",
@@ -207,6 +261,7 @@
               "tools/google_alert_center",
               "tools/google_api",
               "tools/google_chronicle",
+              "tools/google_cloud_logging",
               "tools/google_directory",
               "tools/google_docs",
               "tools/google_drive",
@@ -256,6 +311,7 @@
               "tools/pipe0",
               "tools/project_discovery",
               "tools/pymongo",
+              "tools/recorded_future",
               "tools/rippling",
               "tools/rootly",
               "tools/runreveal",
@@ -374,38 +430,22 @@
     },
     {
       "source": "/automations/core-actions/case-comments",
-      "destination": "/automations/core-actions/case-actions/cases"
+      "destination": "/automations/core-actions/case-actions/comments"
     },
     {
       "source": "/automations/core-actions/case-attachments",
-      "destination": "/automations/core-actions/case-actions/cases"
+      "destination": "/automations/core-actions/case-actions/attachments"
     },
     {
       "source": "/automations/core-actions/case-tasks",
-      "destination": "/automations/core-actions/case-actions/cases"
+      "destination": "/automations/core-actions/case-actions/tasks"
     },
     {
       "source": "/automations/core-actions/case-tables",
-      "destination": "/automations/core-actions/case-actions/cases"
+      "destination": "/automations/core-actions/case-actions/linked-rows"
     },
     {
       "source": "/automations/core-actions/case-metrics",
-      "destination": "/automations/core-actions/case-actions/cases"
-    },
-    {
-      "source": "/automations/core-actions/case-actions/comments",
-      "destination": "/automations/core-actions/case-actions/cases"
-    },
-    {
-      "source": "/automations/core-actions/case-actions/attachments",
-      "destination": "/automations/core-actions/case-actions/cases"
-    },
-    {
-      "source": "/automations/core-actions/case-actions/tasks",
-      "destination": "/automations/core-actions/case-actions/cases"
-    },
-    {
-      "source": "/automations/core-actions/case-actions/linked-rows",
       "destination": "/automations/core-actions/case-actions/cases"
     },
     {

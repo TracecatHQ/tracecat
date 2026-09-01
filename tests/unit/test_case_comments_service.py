@@ -28,6 +28,7 @@ from tracecat.cases.agent_invocations.service import (
     CaseCommentAgentInvocationService,
 )
 from tracecat.cases.enums import (
+    CaseAgentSessionInteractionOperation,
     CaseCommentAgentInvocationStatus,
     CaseEventType,
     CasePriority,
@@ -47,6 +48,7 @@ from tracecat.db.models import (
     AgentPresetVersion,
     AgentSession,
     Case,
+    CaseAgentSessionInteraction,
     CaseComment,
     CaseCommentAgentInvocation,
     CaseCommentMention,
@@ -442,7 +444,7 @@ class TestCaseCommentsService:
         assert invocation_data.session_id == agent_session.id
         assert invocation_data.error is None
 
-    async def test_invocation_failure_is_structured(
+    async def test_invocation_failure_is_persisted_on_linked_session(
         self,
         case_comments_service: CaseCommentsService,
         session: AsyncSession,
@@ -458,6 +460,15 @@ class TestCaseCommentsService:
             CaseCommentCreate(content=_mention_token("Failing agent", preset.id)),
         )
         [invocation] = await _load_comment_invocations(session, comment.id)
+        agent_session = AgentSession(
+            workspace_id=case_comments_service.workspace_id,
+            entity_type="case",
+            entity_id=test_case.id,
+            agent_preset_id=preset.id,
+        )
+        session.add(agent_session)
+        await session.flush()
+        invocation.session_id = agent_session.id
         invocation_service = CaseCommentAgentInvocationService(
             session,
             case_comments_service.role,
@@ -465,12 +476,16 @@ class TestCaseCommentsService:
         assert await invocation_service.claim_pending(invocation.id) is not None
         failed = await invocation_service.mark_failed(
             invocation.id,
-            {"kind": "agent_turn", "message": "model failed"},
+            {"kind": "preparation", "message": "configuration failed"},
         )
         await session.commit()
 
         assert failed is not None
-        assert failed.error == {"kind": "agent_turn", "message": "model failed"}
+        assert failed.error == {
+            "kind": "preparation",
+            "message": "configuration failed",
+        }
+        assert agent_session.last_error == "configuration failed"
 
     async def test_create_comment_agent_mention_is_inert_without_execute_scope(
         self,
@@ -916,6 +931,14 @@ class TestCaseCommentsService:
             assert agent_session.agent_preset_version_id == version.id
             assert agent_session.title == "Thread agent"
             assert agent_session.channel_context == {"session_origin": "case_comment"}
+            interaction = await session.scalar(
+                select(CaseAgentSessionInteraction).where(
+                    CaseAgentSessionInteraction.case_id == test_case.id,
+                    CaseAgentSessionInteraction.agent_session_id == first.session_id,
+                )
+            )
+            assert interaction is not None
+            assert interaction.operation == CaseAgentSessionInteractionOperation.UPDATE
 
             session_service = AgentSessionService(session, case_comments_service.role)
             messages = await session_service.list_messages(first.session_id)

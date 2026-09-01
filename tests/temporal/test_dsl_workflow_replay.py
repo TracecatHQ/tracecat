@@ -21,18 +21,17 @@ from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.init_activities import (
     resolve_workflow_concurrency_limits_enabled_activity,
 )
+from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.types import TaskExceptionInfo
 from tracecat.dsl.worker import new_sandbox_runner
-from tracecat.dsl.workflow import (
-    ERROR_OWNER_AFTER_HANDLER_PATCH,
-    ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
-    DSLWorkflow,
-)
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import extract_error_classification
+from tracecat.temporal.patches import WorkflowPatch
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 pytestmark = [pytest.mark.temporal, pytest.mark.integration]
@@ -82,6 +81,43 @@ def _ignore_terminal_error_owner(_error: ApplicationError) -> None:
 
 
 @pytest.mark.anyio
+async def test_dsl_workflow_classifies_missing_workspace_inside_run(
+    temporal_client: Client,
+) -> None:
+    """Classify missing workspace data in a real sandboxed workflow instance."""
+    task_queue = f"dsl-workflow-bootstrap-{uuid.uuid4()}"
+    wf_id = WorkflowUUID.new_uuid4()
+    run_args = DSLRunArgs(
+        role=Role(type="service", service_id="tracecat-runner"),
+        wf_id=wf_id,
+    )
+
+    async with Worker(
+        client=temporal_client,
+        task_queue=task_queue,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+        interceptors=[RuntimeErrorAttributionInterceptor()],
+    ):
+        handle = await temporal_client.start_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=generate_exec_id(wf_id),
+            task_queue=task_queue,
+            execution_timeout=timedelta(seconds=30),
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await handle.result()
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA
+    history = await handle.fetch_history()
+    patch_ids = await recorded_patch_ids(temporal_client, history)
+    assert WorkflowPatch.RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR.value in patch_ids
+
+
+@pytest.mark.anyio
 async def test_dsl_workflow_replays_legacy_subflow_failure_history(
     temporal_client: Client,
     monkeypatch: pytest.MonkeyPatch,
@@ -121,7 +157,7 @@ async def test_dsl_workflow_replays_legacy_subflow_failure_history(
 
     def legacy_patched(patch_id: str) -> bool:
         """Keep the captured history older than the owner-timing patch."""
-        if patch_id == ERROR_OWNER_AFTER_HANDLER_PATCH:
+        if patch_id == WorkflowPatch.ERROR_OWNER_AFTER_HANDLER:
             return False
         return current_patched(patch_id)
 
@@ -161,12 +197,13 @@ async def test_dsl_workflow_replays_legacy_subflow_failure_history(
     history = await handle.fetch_history()
     assert extract_error_classification(exc_info.value) is None
     patch_ids = await recorded_patch_ids(temporal_client, history)
-    assert ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH not in patch_ids
-    assert ERROR_OWNER_AFTER_HANDLER_PATCH not in patch_ids
+    assert WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE not in patch_ids
+    assert WorkflowPatch.ERROR_OWNER_AFTER_HANDLER not in patch_ids
 
     replay_result = await Replayer(
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
         data_converter=temporal_client.data_converter,
+        interceptors=[RuntimeErrorAttributionInterceptor()],
     ).replay_workflow(history, raise_on_replay_failure=False)
     assert replay_result.replay_failure is None

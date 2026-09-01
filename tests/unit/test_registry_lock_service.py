@@ -26,7 +26,7 @@ from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
-    RegistryError,
+    RegistryLockInvalidDataError,
 )
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.service import RegistryLockService
@@ -205,7 +205,7 @@ async def test_resolve_lock_uses_current_version(
     assert "test.action_a" in lock.actions
 
     # action_b should NOT be found because version 2 is not current
-    with pytest.raises(RegistryError, match="not found in any registry"):
+    with pytest.raises(RegistryLockInvalidDataError, match="not found in any registry"):
         await service.resolve_lock_with_bindings({"test.action_b"})
 
 
@@ -428,7 +428,7 @@ async def test_resolve_lock_fails_without_current_version(
 
     # Resolve lock - should fail because action is not available
     service = RegistryLockService(session, role=svc_role)
-    with pytest.raises(RegistryError, match="not found in any registry"):
+    with pytest.raises(RegistryLockInvalidDataError, match="not found in any registry"):
         await service.resolve_lock_with_bindings({"test.action"})
 
 
@@ -752,7 +752,7 @@ async def test_resolve_lock_rejects_template_step_with_other_platform_action(
 
     service = RegistryLockService(session, role=svc_role)
     with pytest.raises(
-        RegistryError,
+        RegistryLockInvalidDataError,
         match="Platform actions cannot be used inside templates",
     ):
         await service.resolve_lock_with_bindings({template_action})

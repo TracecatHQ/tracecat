@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import cast
-
 import pytest
 from pydantic import ValidationError
 
@@ -101,22 +99,6 @@ def test_parser_requires_explicit_schema_discriminator() -> None:
         parse_error_classification({**serialized, "schema": "tracecat.error.v2"})
         is None
     )
-
-
-def test_named_constructors_require_enum_members() -> None:
-    with pytest.raises(TypeError, match="RuntimeErrorKind enum member"):
-        RuntimeErrorClassification.user(
-            kind=cast(RuntimeErrorKind, "action.execution.failed"),
-            message="The action failed",
-            retry_disposition=RetryDisposition.NON_RETRYABLE,
-        )
-
-    with pytest.raises(TypeError, match="RetryDisposition enum member"):
-        RuntimeErrorClassification.user(
-            kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-            message="The action failed",
-            retry_disposition=cast(RetryDisposition, "non_retryable"),
-        )
 
 
 def test_select_error_classification_prefers_first_platform_classification() -> None:

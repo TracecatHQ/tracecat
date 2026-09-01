@@ -12,7 +12,8 @@ Only published workflows appear in the list, so publish a draft before you run i
 ![Comment trigger](/img/triggers/comment-triggers.png)
 
 Your organization needs the case add-ons entitlement, and your workspace role needs `workflow:read` to list workflows, `workflow:execute` to run the workflow, and `case:update` to create the comment.
-Without these, `/` behaves as regular comment text and never starts a workflow.
+Without `workflow:read` and `workflow:execute`, `/` behaves as regular comment text and never starts a workflow.
+Without the entitlement, `/` still opens the list, showing an Enterprise notice in place of workflow titles.
 
 Selecting the autocomplete result attaches the workflow.
 Typing a workflow title as plain text does not run it.
