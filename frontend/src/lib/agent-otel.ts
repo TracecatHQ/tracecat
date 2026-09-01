@@ -690,7 +690,8 @@ export function validateAgentOtelHeaderEntries(
     }
     if (!HEADER_NAME_PATTERN.test(name)) {
       return [
-        `Header name ${name} is not a valid HTTP header name (letters, digits, and !#$%&'*+-.^_\x60|~).`,
+        `Header name ${name} is not a valid HTTP header name ` +
+          "(letters, digits, and !#$%&'*+-.^_`|~).",
       ]
     }
     if (HEADER_VALUE_INVALID_PATTERN.test(entry.value)) {
