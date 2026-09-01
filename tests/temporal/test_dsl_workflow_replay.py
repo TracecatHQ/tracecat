@@ -112,6 +112,9 @@ async def test_dsl_workflow_classifies_missing_workspace_inside_run(
     classification = extract_error_classification(exc_info.value)
     assert classification is not None
     assert classification.kind is RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA
+    history = await handle.fetch_history()
+    patch_ids = await recorded_patch_ids(temporal_client, history)
+    assert WorkflowPatch.RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR.value in patch_ids
 
 
 @pytest.mark.anyio
