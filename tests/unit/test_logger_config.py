@@ -253,7 +253,7 @@ def test_json_log_format_preserves_correlation_fields() -> None:
     }
 
 
-def test_json_log_format_preserves_exception_without_local_diagnostics() -> None:
+def test_json_log_format_preserves_loguru_extended_backtrace() -> None:
     payload = json.loads(
         _emit_log(
             LogFormat.JSON,
@@ -271,6 +271,23 @@ def test_json_log_format_preserves_exception_without_local_diagnostics() -> None
     assert "ValueError: invalid input" in payload["exception"]["stack"]
     assert "in outer" in payload["exception"]["stack"]
     assert "in inner" in payload["exception"]["stack"]
+
+
+def test_json_log_format_preserves_exception_for_raw_log() -> None:
+    payload = json.loads(
+        _emit_log(
+            LogFormat.JSON,
+            statement=(
+                "\ntry:\n    raise ValueError('invalid input')\n"
+                "except ValueError:\n"
+                "    logger.opt(raw=True).exception('Workflow failed')"
+            ),
+        )
+    )
+
+    assert payload["exception"]["type"] == "ValueError"
+    assert payload["exception"]["message"] == "invalid input"
+    assert "ValueError: invalid input" in payload["exception"]["stack"]
 
 
 def test_console_log_format_remains_human_readable() -> None:

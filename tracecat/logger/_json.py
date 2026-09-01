@@ -58,7 +58,9 @@ def _serialize_exception(
     if formatted_message is not None and formatted_message.startswith(
         record["message"]
     ):
-        stack = formatted_message[len(record["message"]) :].lstrip("\n")
+        formatted_stack = formatted_message[len(record["message"]) :].lstrip("\n")
+        if formatted_stack:
+            stack = formatted_stack
 
     return {
         "type": exception.type.__name__,
