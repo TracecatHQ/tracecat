@@ -120,7 +120,6 @@ def _encode_payload(payload: StructuredLog) -> str:
                 | orjson.OPT_NON_STR_KEYS
                 | orjson.OPT_PASSTHROUGH_DATACLASS
                 | orjson.OPT_PASSTHROUGH_DATETIME
-                | orjson.OPT_PASSTHROUGH_SUBCLASS
             ),
         ).decode()
     except TypeError:

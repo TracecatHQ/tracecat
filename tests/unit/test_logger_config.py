@@ -218,6 +218,36 @@ def test_json_log_format_keeps_float_keys_stable_on_fallback() -> None:
     assert fallback["attributes"]["details"] == {"0.00001": "reading"}
 
 
+@pytest.mark.parametrize(
+    ("value_expression", "expected"),
+    [
+        (
+            "__import__('collections').OrderedDict([('answer', 42)])",
+            {"answer": 42},
+        ),
+        ("type('Items', (list,), {})([1, 2])", [1, 2]),
+        ("type('Identifier', (int,), {})(42)", 42),
+        ("type('Label', (str,), {})('ready')", "ready"),
+    ],
+    ids=["mapping", "list", "integer", "string"],
+)
+def test_json_log_format_keeps_subclass_shapes_stable_on_fallback(
+    value_expression: str,
+    expected: object,
+) -> None:
+    binding = f"value={value_expression}"
+    normal = json.loads(_emit_log(LogFormat.JSON, bindings=binding))
+    fallback = json.loads(
+        _emit_log(
+            LogFormat.JSON,
+            bindings=f"{binding}, path='bad' + chr(0xDCFF)",
+        )
+    )
+
+    assert normal["attributes"]["value"] == expected
+    assert fallback["attributes"]["value"] == expected
+
+
 def test_json_log_format_replaces_recursive_attributes() -> None:
     payload = json.loads(
         _emit_log(
