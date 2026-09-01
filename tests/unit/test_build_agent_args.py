@@ -29,7 +29,12 @@ from tracecat.dsl.action import (
     DSLActivities,
 )
 from tracecat.dsl.schemas import ExecutionContext, TaskResult
-from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
+from tracecat.exceptions import TracecatValidationError
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.storage.object import InlineObject, StoredObject
 from tracecat.temporal.errors import extract_error_classification
 
@@ -96,6 +101,72 @@ async def test_agent_materialization_failure_keeps_platform_attribution(
     assert classification is not None
     assert classification.owner is RuntimeErrorOwner.PLATFORM
     assert classification.kind is RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("preset", [False, True], ids=["agent", "preset-agent"])
+@pytest.mark.parametrize(
+    ("error", "owner", "kind", "retry_disposition"),
+    [
+        (
+            TracecatValidationError("invalid agent input diagnostic"),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.WORKFLOW_AGENT_INPUT_INVALID,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+        (
+            RuntimeError("agent dependency diagnostic"),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.WORKFLOW_AGENT_PREPARATION_FAILED,
+            RetryDisposition.RETRYABLE,
+        ),
+    ],
+    ids=["invalid-input", "dependency-failure"],
+)
+async def test_agent_preparation_classifies_user_and_platform_failures(
+    role: Role,
+    preset: bool,
+    error: Exception,
+    owner: RuntimeErrorOwner,
+    kind: RuntimeErrorKind,
+    retry_disposition: RetryDisposition,
+) -> None:
+    input = BuildAgentArgsActivityInput(
+        args=(
+            {"preset": "my-preset", "user_prompt": "Hello"}
+            if preset
+            else {
+                "user_prompt": "Hello",
+                "model_name": "test-model",
+                "model_provider": "test-provider",
+            }
+        ),
+        operand=_make_context(),
+        role=role,
+        task_environment=None,
+        default_environment="default",
+    )
+    build_activity = (
+        DSLActivities.build_preset_agent_args_activity
+        if preset
+        else DSLActivities.build_agent_args_activity
+    )
+
+    with (
+        patch(
+            "tracecat.dsl.action._evaluate_agent_args",
+            new=AsyncMock(side_effect=error),
+        ),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await build_activity(input)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is owner
+    assert classification.kind is kind
+    assert classification.retry_disposition is retry_disposition
+    assert str(error) not in str(exc_info.value)
 
 
 class TestBuildAgentArgsActivity:

@@ -21,6 +21,8 @@ from tracecat.auth.types import Role
 from tracecat.dsl.action import (
     DSLActivities,
     EvaluateLoopedSubflowInputActivityInput,
+    EvaluateTemplatedObjectActivityInput,
+    FinalizeGatherActivityInput,
     NormalizeTriggerInputsActivityInputs,
     PrepareSubflowActivityInput,
     ResolveSubflowBatchActivityInput,
@@ -32,7 +34,7 @@ from tracecat.dsl.action import (
     _result_persistence_error_classification,
 )
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
-from tracecat.dsl.enums import PlatformAction
+from tracecat.dsl.enums import PlatformAction, StreamErrorHandlingStrategy
 from tracecat.dsl.error_transport import (
     ActionErrorTransportDetail,
     parse_classified_action_error_payload,
@@ -183,6 +185,196 @@ def test_remaining_runtime_boundary_policy_inventory(
     assert classification.kind is expectation.kind
     assert classification.retry_disposition is expectation.retry_disposition
     assert RETRY_POLICIES[expectation.retry_policy].maximum_attempts == 1
+
+
+@pytest.mark.parametrize(
+    ("stage", "error", "owner", "kind", "retry_disposition"),
+    [
+        (
+            "materialization",
+            HTTPClientError(error=RuntimeError("materialization diagnostic")),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+            RetryDisposition.RETRYABLE,
+        ),
+        (
+            "expression",
+            TracecatExpressionError("expression diagnostic"),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+        (
+            "persistence",
+            HTTPClientError(error=RuntimeError("persistence diagnostic")),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+            RetryDisposition.RETRYABLE,
+        ),
+        (
+            "persistence",
+            ValueError("invalid stored return diagnostic"),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+    ],
+    ids=[
+        "materialization-transport",
+        "expression-user",
+        "persistence-transport",
+        "persistence-invalid-data",
+    ],
+)
+def test_resolve_return_expression_classifies_each_failure_stage(
+    stage: str,
+    error: Exception,
+    owner: RuntimeErrorOwner,
+    kind: RuntimeErrorKind,
+    retry_disposition: RetryDisposition,
+) -> None:
+    input = EvaluateTemplatedObjectActivityInput(
+        obj="${{ TRIGGER.value }}",
+        operand=ExecutionContext(ACTIONS={}, TRIGGER=InlineObject(data={"value": 1})),
+        key="test/return",
+    )
+    storage = MagicMock()
+    storage.store = AsyncMock(return_value=InlineObject(data=1))
+    materialize = AsyncMock(return_value={"ACTIONS": {}, "TRIGGER": {"value": 1}})
+    evaluate = MagicMock(return_value=1)
+    if stage == "materialization":
+        materialize.side_effect = error
+    elif stage == "expression":
+        evaluate.side_effect = error
+    else:
+        storage.store.side_effect = error
+
+    with (
+        patch("tracecat.dsl.action.materialize_context", new=materialize),
+        patch("tracecat.dsl.action.eval_templated_object", new=evaluate),
+        patch("tracecat.dsl.action.get_object_storage", return_value=storage),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        DSLActivities.resolve_return_expression_activity(input)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is owner
+    assert classification.kind is kind
+    assert classification.retry_disposition is retry_disposition
+    assert str(error) not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_store_workflow_payload_classifies_persistence_failure() -> None:
+    diagnostic = "workflow payload persistence diagnostic"
+    storage = MagicMock()
+    storage.store = AsyncMock(
+        side_effect=HTTPClientError(error=RuntimeError(diagnostic))
+    )
+
+    with (
+        patch("tracecat.dsl.action.get_object_storage", return_value=storage),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await DSLActivities.store_workflow_payload_activity(
+            key="test/payload",
+            data={"value": 1},
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert (
+        classification.kind
+        is RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE
+    )
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert diagnostic not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("activity_name", "failure_stage", "kind"),
+    [
+        (
+            "synchronize_collection_object_activity",
+            "retrieve",
+            RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+        ),
+        (
+            "synchronize_collection_object_activity",
+            "store",
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        ),
+        (
+            "synchronize_collection_object_activity",
+            "manifest",
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        ),
+        (
+            "finalize_gather_activity",
+            "retrieve",
+            RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+        ),
+        (
+            "finalize_gather_activity",
+            "store",
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        ),
+    ],
+)
+async def test_collection_boundaries_classify_storage_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    activity_name: str,
+    failure_stage: str,
+    kind: RuntimeErrorKind,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", True)
+    diagnostic = f"{activity_name} {failure_stage} diagnostic"
+    error = HTTPClientError(error=RuntimeError(diagnostic))
+    storage = MagicMock()
+    storage.retrieve = AsyncMock(return_value="value")
+    storage.store = AsyncMock(return_value=InlineObject(data="value"))
+    store_list = AsyncMock(return_value=InlineObject(data=["value"]))
+    store_collection = AsyncMock(return_value=InlineObject(data=["value"]))
+    if failure_stage == "retrieve":
+        storage.retrieve.side_effect = error
+    elif failure_stage == "manifest":
+        store_collection.side_effect = error
+    elif activity_name == "synchronize_collection_object_activity":
+        storage.store.side_effect = error
+    else:
+        store_list.side_effect = error
+
+    with (
+        patch("tracecat.dsl.action.get_object_storage", return_value=storage),
+        patch("tracecat.dsl.action._store_list_result", new=store_list),
+        patch("tracecat.dsl.action.store_collection", new=store_collection),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        if activity_name == "synchronize_collection_object_activity":
+            await DSLActivities.synchronize_collection_object_activity(
+                SynchronizeCollectionObjectActivityInput(
+                    collection=[InlineObject(data="value")],
+                    key="test/synchronized",
+                )
+            )
+        else:
+            await DSLActivities.finalize_gather_activity(
+                FinalizeGatherActivityInput(
+                    collection=[InlineObject(data="value")],
+                    key="test/gather",
+                    error_strategy=StreamErrorHandlingStrategy.INCLUDE,
+                )
+            )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is kind
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert diagnostic not in str(exc_info.value)
 
 
 def test_invalid_loop_expression_is_user_attributed() -> None:
@@ -422,6 +614,46 @@ def test_trigger_input_validation_is_classified_and_history_safe() -> None:
     logger_info_mock.assert_called_once()
     assert "error" not in logger_info_mock.call_args.kwargs
     assert sensitive not in str(logger_info_mock.call_args)
+
+
+@pytest.mark.parametrize(
+    "fault_point",
+    ["initialize-storage", "normalize", "persist-invalid-data"],
+)
+def test_trigger_input_invariant_failures_are_precise_and_history_safe(
+    fault_point: str,
+) -> None:
+    diagnostic = f"trigger {fault_point} diagnostic must not enter history"
+    storage = MagicMock()
+    storage.store = AsyncMock(return_value=InlineObject(data={}))
+    get_storage = MagicMock(return_value=storage)
+    normalize = MagicMock(return_value={})
+    if fault_point == "initialize-storage":
+        get_storage.side_effect = RuntimeError(diagnostic)
+    elif fault_point == "normalize":
+        normalize.side_effect = RuntimeError(diagnostic)
+    else:
+        storage.store.side_effect = ValueError(diagnostic)
+
+    with (
+        patch("tracecat.dsl.action.get_object_storage", new=get_storage),
+        patch("tracecat.dsl.action.normalize_trigger_inputs", new=normalize),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        DSLActivities.normalize_trigger_inputs_activity(
+            NormalizeTriggerInputsActivityInputs(
+                input_schema={},
+                trigger_inputs=None,
+                key="test/trigger",
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert diagnostic not in str(exc_info.value)
 
 
 @pytest.mark.parametrize(

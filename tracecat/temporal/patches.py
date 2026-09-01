@@ -1,8 +1,9 @@
 """Stable Temporal workflow patch identifiers."""
 
-from enum import StrEnum
+from enum import StrEnum, unique
 
 
+@unique
 class WorkflowPatch(StrEnum):
     """Patch IDs recorded in Temporal workflow histories."""
 

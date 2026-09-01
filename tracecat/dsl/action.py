@@ -389,7 +389,7 @@ def _trigger_input_storage_initialization_error_classification(
 ) -> RuntimeErrorClassification:
     """Classify failure to initialize trigger-input object storage."""
     return RuntimeErrorClassification.platform(
-        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        kind=RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
         message="Tracecat could not initialize workflow input storage",
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,
@@ -405,7 +405,7 @@ def _trigger_input_persistence_error_classification(
         kind=(
             RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE
             if retryable
-            else RuntimeErrorKind.RUNTIME_UNCLASSIFIED
+            else RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION
         ),
         message="Tracecat could not persist normalized workflow inputs",
         retry_disposition=(

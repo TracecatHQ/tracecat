@@ -30,7 +30,6 @@ from tests.temporal.runtime_error_attribution_harness import (
 )
 from tracecat import config
 from tracecat.dsl import action as action_module
-from tracecat.dsl.action import SubflowDefinitionNotFoundError
 from tracecat.dsl.common import (
     DSLEntrypoint,
     DSLInput,
@@ -255,22 +254,27 @@ async def run_missing_subflow_with_cancelled_sibling_preserves_causal_owner(
     """A missing child definition remains causal when a sibling is cancelled."""
     missing_alias = "deliberately-missing-child"
     slow_started = asyncio.Event()
+    slow_cancelled = asyncio.Event()
 
-    async def prepare_subflow(
-        _input: action_module.PrepareSubflowActivityInput,
-    ) -> PreparedSubflowResult:
+    async def resolve_missing_alias(*args: object, **kwargs: object) -> None:
+        del args, kwargs
         await slow_started.wait()
-        raise SubflowDefinitionNotFoundError(
-            f"Workflow alias '{missing_alias}' not found"
-        )
+        return None
 
     async def dispatch_slow_action(*, backend: object, input: object) -> object:
         del backend, input
         slow_started.set()
-        await asyncio.Event().wait()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            slow_cancelled.set()
+            raise
         return {"ok": True}  # pragma: no cover - cancelled by the workflow
 
-    prepare_subflow_mock = AsyncMock(side_effect=prepare_subflow)
+    management_service = AsyncMock()
+    management_service.resolve_workflow_alias.side_effect = resolve_missing_alias
+    management_context = AsyncMock()
+    management_context.__aenter__.return_value = management_service
     run_args = DSLRunArgs(
         role=_role(),
         wf_id=WorkflowUUID.new_uuid4(),
@@ -303,8 +307,8 @@ async def run_missing_subflow_with_cancelled_sibling_preserves_causal_owner(
 
     with (
         patch(
-            "tracecat.dsl.action._prepare_subflow",
-            new=prepare_subflow_mock,
+            "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
+            return_value=management_context,
         ),
         patch(
             "tracecat.executor.activities.get_executor_backend",
@@ -342,10 +346,11 @@ async def run_missing_subflow_with_cancelled_sibling_preserves_causal_owner(
                 await handle.result()
 
     assert slow_started.is_set()
+    assert slow_cancelled.is_set()
     return ScenarioObservation(
         root=handle,
         failure=exc_info.value,
-        attempts=prepare_subflow_mock.await_count,
+        attempts=management_service.resolve_workflow_alias.await_count,
     )
 
 

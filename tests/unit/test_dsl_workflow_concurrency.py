@@ -31,12 +31,17 @@ from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import extract_error_classification
 from tracecat.temporal.exceptions import UserError
 from tracecat.temporal.patches import WorkflowPatch
 from tracecat.tiers.schemas import EffectiveLimits
+from tracecat.tiers.semaphore import AcquireResult
 from tracecat.workflow.executions.enums import ExecutionType, TriggerType
 
 
@@ -214,6 +219,51 @@ async def test_retry_until_enforces_action_execution_limit() -> None:
     assert classification.kind is RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED
     assert execute_task_mock.await_count == 2
     assert workflow._action_execution_count == 3
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("permit_scope", ["workflow", "action"])
+async def test_permit_wait_expiry_is_user_attributed_quota_exhaustion(
+    monkeypatch: pytest.MonkeyPatch,
+    permit_scope: str,
+) -> None:
+    workflow = _build_workflow()
+    execute_activity = AsyncMock(
+        return_value=AcquireResult(acquired=False, current_count=1)
+    )
+    monkeypatch.setattr(
+        config,
+        (
+            "TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS"
+            if permit_scope == "workflow"
+            else "TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS"
+        ),
+        0,
+    )
+
+    with (
+        patch(
+            "tracecat.dsl.workflow.workflow.info",
+            return_value=SimpleNamespace(workflow_id=workflow.wf_exec_id),
+        ),
+        patch("tracecat.dsl.workflow.workflow.now", return_value=datetime.now(UTC)),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_activity",
+            new=execute_activity,
+        ),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        if permit_scope == "workflow":
+            await workflow._acquire_workflow_permit(limit=1)
+        else:
+            await workflow._acquire_action_permit(action_id="wf:root:task", limit=1)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert exc_info.value.non_retryable is True
 
 
 @pytest.mark.anyio
