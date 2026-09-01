@@ -116,11 +116,13 @@ async def test_grouped_list_items_passes_reverse(
     )
     grouped = AsyncMock(return_value=expected)
     monkeypatch.setattr(provider, "_list_items_grouped", grouped)
+    case_id = uuid.uuid4()
 
     page = await provider.list_items(
         limit=10,
         cursor="cursor",
         reverse=True,
+        case_id=case_id,
         group=InboxGroup.COMPLETED,
     )
 
@@ -129,6 +131,7 @@ async def test_grouped_list_items_passes_reverse(
     await_args = grouped.await_args
     assert await_args is not None
     assert await_args.kwargs["reverse"] is True
+    assert await_args.kwargs["case_id"] == case_id
 
 
 @pytest.mark.anyio
@@ -417,8 +420,10 @@ async def test_ungrouped_list_applies_entity_type_and_date_filters() -> None:
 
     created_after = datetime(2026, 1, 1, tzinfo=UTC)
     updated_after = datetime(2026, 2, 1, tzinfo=UTC)
+    case_id = uuid.uuid4()
     await provider.list_items(
         limit=10,
+        case_id=case_id,
         entity_type=AgentSessionEntity.CASE,
         created_after=created_after,
         updated_after=updated_after,
@@ -428,6 +433,37 @@ async def test_ungrouped_list_applies_entity_type_and_date_filters() -> None:
     assert "agent_session.entity_type =" in compiled
     assert "agent_session.created_at >=" in compiled
     assert "agent_session.updated_at >=" in compiled
+    assert "case_agent_session_interaction.workspace_id =" in compiled
+    assert "case_agent_session_interaction.case_id =" in compiled
+    assert "case_agent_session_interaction.agent_session_id = agent_session.id" in (
+        compiled
+    )
+
+
+@pytest.mark.parametrize("group", list(InboxGroup))
+@pytest.mark.anyio
+async def test_grouped_list_applies_case_filter(group: InboxGroup) -> None:
+    """Every grouped scan inherits the case EXISTS predicate."""
+    session = _RecordingSession()
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
+
+    await provider._list_items_grouped(
+        limit=10,
+        cursor=None,
+        reverse=False,
+        order_by=None,
+        sort=None,
+        search=None,
+        case_id=uuid.uuid4(),
+        group=group,
+    )
+
+    compiled = str(session.statements[-1].compile())
+    assert "case_agent_session_interaction.workspace_id =" in compiled
+    assert "case_agent_session_interaction.case_id =" in compiled
+    assert "case_agent_session_interaction.agent_session_id = agent_session.id" in (
+        compiled
+    )
 
 
 @pytest.mark.anyio
@@ -546,3 +582,4 @@ async def test_unfiltered_list_omits_optional_predicates() -> None:
     assert "agent_session.entity_type =" not in compiled
     assert "agent_session.created_at >=" not in compiled
     assert "agent_session.updated_at >=" not in compiled
+    assert "case_agent_session_interaction" not in compiled

@@ -4607,7 +4607,7 @@ async def test_agent_preset_sync_requires_an_ambiguous_catalog_choice_per_pull(
 
 
 @pytest.mark.anyio
-async def test_workspace_sync_catalog_mapping_rewrites_preset_and_workflow_together(
+async def test_workspace_sync_catalog_mapping_rewrites_preset_and_nested_workflow(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -4638,10 +4638,6 @@ async def test_workspace_sync_catalog_mapping_rewrites_preset_and_workflow_toget
             action_ref="run_shared_agent",
             action_args={
                 "user_prompt": "Investigate the event.",
-                "model_provider": model_provider,
-                "model_name": model_name,
-                "catalog_id": str(source_catalog_id),
-                "base_url": "https://source-flat.models.example.com/v1",
                 "model": {
                     "model_provider": model_provider,
                     "model_name": model_name,
@@ -4683,8 +4679,8 @@ async def test_workspace_sync_catalog_mapping_rewrites_preset_and_workflow_toget
     prepared_action_args = (
         prepared.snapshot.spec.workflows[workflow_source_id].definition.actions[0].args
     )
-    assert prepared_action_args["catalog_id"] == str(chosen_catalog.id)
-    assert prepared_action_args["base_url"] is None
+    assert "catalog_id" not in prepared_action_args
+    assert "base_url" not in prepared_action_args
     prepared_nested_model = prepared_action_args["model"]
     assert isinstance(prepared_nested_model, dict)
     assert prepared_nested_model["catalog_id"] == str(chosen_catalog.id)
@@ -4723,8 +4719,8 @@ async def test_workspace_sync_catalog_mapping_rewrites_preset_and_workflow_toget
         workflow_alias=workflow_alias,
         action_type="ai.agent",
     )
-    assert imported_args["catalog_id"] == str(chosen_catalog.id)
-    assert imported_args["base_url"] is None
+    assert "catalog_id" not in imported_args
+    assert "base_url" not in imported_args
     imported_nested_model = imported_args["model"]
     assert isinstance(imported_nested_model, dict)
     assert imported_nested_model["catalog_id"] == str(chosen_catalog.id)

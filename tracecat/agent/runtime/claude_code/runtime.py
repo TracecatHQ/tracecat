@@ -79,6 +79,8 @@ from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_METADATA_KEY,
 )
 from tracecat.agent.mcp.utils import (
+    LEGACY_REGISTRY_MCP_SERVER_NAME,
+    REGISTRY_MCP_SERVER_NAME,
     STDIO_MCP_TOOL_NAME_RE,
     action_name_to_mcp_tool_name,
     normalize_mcp_tool_name,
@@ -250,12 +252,14 @@ COMMAND_LINE_TOOLS_PROMPT = (
 # interpolate into the system prompt.
 STDIO_MCP_TOOL_DESCRIPTION_MAX_CHARS = 500
 
-REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
 REGISTRY_MCP_TOOL_PREFIX = f"mcp__{REGISTRY_MCP_SERVER_NAME}__"
 REGISTRY_MCP_DOT_PREFIX = f"mcp.{REGISTRY_MCP_SERVER_NAME}."
-LEGACY_REGISTRY_MCP_TOOL_PREFIX = "mcp__tracecat_registry__"
-LEGACY_REGISTRY_MCP_DOT_PREFIX = "mcp.tracecat_registry."
+LEGACY_REGISTRY_MCP_TOOL_PREFIX = f"mcp__{LEGACY_REGISTRY_MCP_SERVER_NAME}__"
+LEGACY_REGISTRY_MCP_DOT_PREFIX = f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}."
 SUBAGENT_REGISTRY_MCP_SERVER_PREFIX = "tracecat-registry-"
+RESERVED_MCP_SERVER_NAMES = frozenset(
+    {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
+)
 TRUSTED_MCP_BRIDGE_URL = f"http://127.0.0.1:{TRACECAT__AGENT_MCP_BRIDGE_PORT}/mcp"
 
 # Increase the SDK's stdout/stderr capture buffer above its default 1 MiB so
@@ -495,7 +499,9 @@ class ClaudeAgentRuntime:
         servers: dict[str, McpStdioServerConfig] = {}
         tools_by_server: dict[str, list[MCPServerToolSummary]] = {}
         blocked_approval_tools: set[str] = set()
-        used_names = set(existing_names or ())
+        # Keep trusted registry identities unavailable to user-supplied servers,
+        # including turns that expose no registry actions.
+        used_names = set(RESERVED_MCP_SERVER_NAMES) | set(existing_names or ())
         if not source_configs:
             return _StdioMCPServerSpec(
                 servers=servers,
@@ -1672,9 +1678,17 @@ class ClaudeAgentRuntime:
             )
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
+            reserved_subagent_server_names = {
+                server_name
+                for subagent in payload.subagents
+                for server_name in (
+                    self._subagent_registry_server_name(subagent.alias),
+                    f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-{subagent.alias}",
+                )
+            }
             stdio_mcp_spec = self._stdio_mcp_server_spec(
                 source_configs=payload.config.mcp_servers,
-                existing_names=set(mcp_servers),
+                existing_names=set(mcp_servers) | reserved_subagent_server_names,
             )
             self._stdio_approval_blocked_tools = stdio_mcp_spec.blocked_approval_tools
             stdio_mcp_servers = stdio_mcp_spec.servers

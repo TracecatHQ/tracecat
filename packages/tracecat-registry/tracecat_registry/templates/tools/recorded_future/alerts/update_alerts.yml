@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Update alerts
+  description: Update the status, assignee or note of one or several alerts. Calls POST /alert/v2/update directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/alerts-update
+  namespace: tools.recorded_future
+  name: update_alerts
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    alerts:
+      # Generic: this endpoint takes a top level array of per-alert updates,
+      # where every field except id is optional and must be omitted when unset.
+      type: list[dict[str, Any]]
+      description: >-
+        Alert updates, each given as {"id": "<alert id>"} plus any of assignee (an id, uhash, username or email), statusInPortal (New, Resolved, Pending, Dismissed or Flag for Tuning) and note (new note text).
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/alert/v2/update
+        method: POST
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ inputs.alerts }}
+  returns: ${{ steps.request.result }}

@@ -144,6 +144,10 @@ class BuiltinRegistryHasNoSelectionError(RegistryError):
     """Raised when the builtin platform registry has no selected version yet."""
 
 
+class RegistryLockInvalidDataError(RegistryError):
+    """Raised when registry lock resolution finds deterministic invalid data."""
+
+
 class RegistryActionError(RegistryError):
     """Exception raised when a registry action error occurs."""
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, Literal
 
 from tracecat.service import BaseWorkspaceService
@@ -46,6 +47,7 @@ class InboxService(BaseWorkspaceService):
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
         search: str | None = None,
+        case_id: uuid.UUID | None = None,
         group: InboxGroup | None = None,
         entity_type: AgentSessionEntity | None = None,
         created_after: datetime | None = None,
@@ -59,6 +61,7 @@ class InboxService(BaseWorkspaceService):
             order_by=order_by,
             sort=sort,
             search=search,
+            case_id=case_id,
             group=group,
             entity_type=entity_type,
             created_after=created_after,

@@ -1,9 +1,8 @@
+import re
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import quote
 
-import orjson
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -16,8 +15,7 @@ from pydantic import (
     model_validator,
 )
 
-from tracecat import config
-
+OtelProtocol = Literal["grpc", "http/json", "http/protobuf"]
 MetricsTemporality = Literal["delta", "cumulative"]
 
 
@@ -28,11 +26,13 @@ def _reject_endpoint_credentials(value: HttpUrl) -> HttpUrl:
         raise ValueError(
             "endpoint must not embed credentials; use exporter headers instead"
         )
-    if value.query:
+    if value.query is not None:
         raise ValueError(
             "endpoint must not include a query string; use exporter headers "
             "for authentication"
         )
+    if value.fragment is not None:
+        raise ValueError("endpoint must not include a fragment")
     return value
 
 
@@ -168,14 +168,6 @@ class AgentOtelConfig(BaseModel):
         return env
 
 
-@dataclass(frozen=True, slots=True)
-class AgentOtelPlatformOverride:
-    """Platform-wide OTel override for self-hosted deployments."""
-
-    config: AgentOtelConfig
-    headers: dict[str, SecretStr]
-
-
 class ResolvedAgentOtelConfig(BaseModel):
     """Single source of truth used by the agent runtime."""
 
@@ -185,32 +177,24 @@ class ResolvedAgentOtelConfig(BaseModel):
     sandbox_env: dict[str, str] = Field(default_factory=dict)
     collector_env: dict[str, str] = Field(default_factory=dict)
     headers: dict[str, SecretStr] = Field(default_factory=dict)
-    source: Literal["org", "platform"] = Field(default="org")
 
 
 def resolve_agent_otel_config(
     *,
     org_config: AgentOtelConfig | None,
     org_headers: Mapping[str, str] | None,
-    platform_override: AgentOtelPlatformOverride | None,
 ) -> ResolvedAgentOtelConfig:
-    """Resolve platform and org OTel inputs into one runtime config.
+    """Resolve org OTel inputs into one runtime config.
 
-    Platform override wins wholesale when present. `sandbox_env` never carries
-    a collector endpoint: the in-sandbox shim points the exporter at its local
-    bridge, and the collector details stay host-side in `collector_env`.
+    `sandbox_env` never carries a collector endpoint: the in-sandbox shim
+    points the exporter at its local bridge, and the collector details stay
+    host-side in `collector_env`.
     """
-    if platform_override is not None:
-        source: Literal["org", "platform"] = "platform"
-        config_value = platform_override.config
-        headers = dict(platform_override.headers)
-    else:
-        source = "org"
-        config_value = org_config or AgentOtelConfig()
-        headers = secret_otel_headers(org_headers)
+    config_value = org_config or AgentOtelConfig()
+    headers = secret_otel_headers(org_headers)
 
     if not config_value.enabled:
-        return ResolvedAgentOtelConfig(enabled=False, source=source)
+        return ResolvedAgentOtelConfig(enabled=False)
 
     collector_env = config_value.to_env()
     sandbox_env = _build_sandbox_env(collector_env)
@@ -220,42 +204,37 @@ def resolve_agent_otel_config(
         sandbox_env=sandbox_env,
         collector_env=collector_env,
         headers=headers,
-        source=source,
     )
 
 
-def load_agent_otel_platform_override(
-    *,
-    config_json: str | None = config.TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG,
-    headers: str | None = config.TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS,
-) -> AgentOtelPlatformOverride | None:
-    """Load the optional platform override through the typed OTel contract.
+# RFC 7230 token: the only characters legal in an HTTP header name.
+_HEADER_NAME_RE = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 
-    No SSRF check on this endpoint: it is operator-set deployment config, and
-    self-hosted operators legitimately point it at an in-cluster collector.
-    """
-    if config_json is None or not config_json.strip():
-        return None
 
-    # JSON is untyped only at this deployment boundary. The DTO validates it next.
-    config_data = _parse_json_object(config_json, name="platform OTel config")
-    if "headers" in config_data:
-        raise ValueError("platform OTel headers must be configured separately")
-    header_data = _parse_json_object(headers, name="platform OTel headers")
-    return AgentOtelPlatformOverride(
-        config=AgentOtelConfig.model_validate(config_data),
-        headers=secret_otel_headers(header_data),
+def _invalid_header_value(value: str) -> bool:
+    # CR/LF, control bytes, edge whitespace, or non-ASCII make httpx reject
+    # the request client-side, silently killing every delivery.
+    return value != value.strip() or any(
+        ord(ch) < 0x20 or ord(ch) > 0x7E for ch in value
     )
 
 
 def validate_otel_header_items(headers: Mapping[str, Any]) -> None:
-    """Reject empty header names or non-string/empty header values."""
+    """Reject header names that are not HTTP tokens and unsendable values."""
     for key, value in headers.items():
-        if not isinstance(key, str) or not key.strip():
-            raise ValueError("OTel header names must be non-empty strings")
+        if not isinstance(key, str) or not _HEADER_NAME_RE.fullmatch(key):
+            raise ValueError(
+                "OTel header names must be valid HTTP header names "
+                "(letters, digits, and !#$%&'*+-.^_`|~)"
+            )
         raw_value = value.get_secret_value() if isinstance(value, SecretStr) else value
         if not isinstance(raw_value, str) or not raw_value.strip():
             raise ValueError(f"OTel header {key} must have a non-empty string value")
+        if _invalid_header_value(raw_value):
+            raise ValueError(
+                f"OTel header {key} value must contain only printable ASCII "
+                "without leading/trailing whitespace"
+            )
 
 
 def secret_otel_headers(
@@ -297,15 +276,3 @@ def _serialize_resource_attributes(attributes: Mapping[str, str]) -> str:
         f"{quote(key, safe='')}={quote(value, safe='')}"
         for key, value in sorted(attributes.items())
     )
-
-
-def _parse_json_object(raw: str | None, *, name: str) -> dict[str, Any]:
-    if raw is None or raw == "":
-        return {}
-    try:
-        value = orjson.loads(raw)
-    except orjson.JSONDecodeError as e:
-        raise ValueError(f"{name} must be valid JSON") from e
-    if not isinstance(value, dict):
-        raise ValueError(f"{name} must be a JSON object")
-    return value

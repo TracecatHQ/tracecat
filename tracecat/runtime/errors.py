@@ -50,6 +50,7 @@ class RuntimeErrorKind(StrEnum):
     TENANT_QUOTA_EXHAUSTED = "tenant.quota.exhausted"
     TENANT_ENTITLEMENT_DENIED = "tenant.entitlement.denied"
     INTEGRATION_RATE_LIMITED = "integration.rate_limited"
+    REGISTRY_SYNC_VALIDATION_FAILED = "registry.sync.validation_failed"
     RUNTIME_UNCLASSIFIED = "runtime.unclassified"
     STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE = (
         "storage.materialization.transport_unavailable"
@@ -65,8 +66,17 @@ class RuntimeErrorKind(StrEnum):
     EXECUTOR_SANDBOX_INFRASTRUCTURE_FAILED = "executor.sandbox.infrastructure_failed"
     WORKFLOW_DEFINITION_NOT_FOUND = "workflow.definition.not_found"
     WORKFLOW_DEFINITION_LOOKUP_UNAVAILABLE = "workflow.definition.lookup_unavailable"
+    WORKFLOW_DEFINITION_INVALID_DATA = "workflow.definition.invalid_data"
+    WORKFLOW_TRIGGER_INPUT_INVALID = "workflow.trigger.input_invalid"
     WORKFLOW_SUBFLOW_INPUT_INVALID = "workflow.subflow.input_invalid"
     WORKFLOW_SUBFLOW_PREPARATION_FAILED = "workflow.subflow.preparation_failed"
+    WORKFLOW_BOOTSTRAP_INVALID_DATA = "workflow.bootstrap.invalid_data"
+    WORKFLOW_BOOTSTRAP_UNAVAILABLE = "workflow.bootstrap.unavailable"
+    WORKFLOW_EXPRESSION_INVALID = "workflow.expression.invalid"
+    WORKFLOW_LOOP_LIMIT_EXCEEDED = "workflow.loop.limit_exceeded"
+    WORKFLOW_RUNTIME_INVARIANT_VIOLATION = "workflow.runtime.invariant_violation"
+    WORKFLOW_AGENT_INPUT_INVALID = "workflow.agent.input_invalid"
+    WORKFLOW_AGENT_PREPARATION_FAILED = "workflow.agent.preparation_failed"
 
 
 class RuntimeErrorClassification(BaseModel):
@@ -137,8 +147,6 @@ class RuntimeErrorClassification(BaseModel):
         retry_disposition: RetryDisposition,
         cause: BaseException | None,
     ) -> RuntimeErrorClassification:
-        cls._require_kind(kind)
-        cls._require_retry_disposition(retry_disposition)
         return cls.model_validate(
             {
                 "schema": RUNTIME_ERROR_CLASSIFICATION_SCHEMA,
@@ -149,18 +157,6 @@ class RuntimeErrorClassification(BaseModel):
                 "cause_type": type(cause).__name__ if cause is not None else None,
             }
         )
-
-    @staticmethod
-    def _require_kind(kind: RuntimeErrorKind) -> None:
-        if not isinstance(kind, RuntimeErrorKind):
-            raise TypeError("kind must be a RuntimeErrorKind enum member")
-
-    @staticmethod
-    def _require_retry_disposition(
-        retry_disposition: RetryDisposition,
-    ) -> None:
-        if not isinstance(retry_disposition, RetryDisposition):
-            raise TypeError("retry_disposition must be a RetryDisposition enum member")
 
 
 class TracecatRuntimeError(Exception):

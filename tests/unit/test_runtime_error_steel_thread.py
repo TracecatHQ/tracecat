@@ -2,41 +2,51 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from botocore.exceptions import HTTPClientError
 from pydantic import ValidationError
 from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 
 from tests.shared import capture_application_error as _capture_application_error
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.action import (
     DSLActivities,
+    EvaluateLoopedSubflowInputActivityInput,
+    EvaluateTemplatedObjectActivityInput,
+    FinalizeGatherActivityInput,
+    NormalizeTriggerInputsActivityInputs,
     PrepareSubflowActivityInput,
+    ResolveSubflowBatchActivityInput,
     SubflowDefinitionNotFoundError,
+    SynchronizeCollectionObjectActivityInput,
+    _agent_preparation_error_classification,
+    _expression_error_classification,
+    _materialization_error_classification,
+    _result_persistence_error_classification,
 )
-from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
-from tracecat.dsl.enums import PlatformAction
+from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.enums import PlatformAction, StreamErrorHandlingStrategy
 from tracecat.dsl.error_transport import (
     ActionErrorTransportDetail,
     parse_classified_action_error_payload,
 )
-from tracecat.dsl.schemas import ActionStatement, ExecutionContext
+from tracecat.dsl.scheduler import _classified_action_error_info
+from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, ExecutionContext
 from tracecat.dsl.types import (
     ActionErrorInfo,
-    TaskExceptionInfo,
 )
-from tracecat.dsl.workflow import (
-    ERROR_OWNER_AFTER_HANDLER_PATCH,
-    ERROR_OWNER_CONTROL_FLOW_PATCH,
-    ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
-    DSLWorkflow,
-    _raise_workflow_application_error,
-)
+from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.exceptions import TracecatExpressionError, TracecatValidationError
+from tracecat.expressions.schemas import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -44,13 +54,446 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
+from tracecat.storage.backends.inline import InlineObjectStorage
+from tracecat.storage.object import (
+    CollectionObject,
+    InlineObject,
+    ObjectRef,
+    StoredObject,
+)
 from tracecat.temporal.errors import (
     build_error_transport_detail,
     extract_error_classification,
-    extract_error_classifications,
 )
 from tracecat.temporal.exceptions import UserError
+from tracecat.temporal.patches import WorkflowPatch
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
+
+
+@dataclass(frozen=True, slots=True)
+class _BoundaryPolicyExpectation:
+    boundary: str
+    classify: Callable[[Exception], RuntimeErrorClassification]
+    error_factory: Callable[[], Exception]
+    owner: RuntimeErrorOwner
+    kind: RuntimeErrorKind
+    retry_disposition: RetryDisposition
+    retry_policy: str
+
+
+def _transport_error() -> HTTPClientError:
+    return HTTPClientError(error=RuntimeError("transport diagnostic"))
+
+
+_REMAINING_BOUNDARY_POLICIES: tuple[_BoundaryPolicyExpectation, ...] = (
+    _BoundaryPolicyExpectation(
+        "return.materialization",
+        _materialization_error_classification,
+        _transport_error,
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+        RetryDisposition.RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "return.expression",
+        _expression_error_classification,
+        lambda: TracecatExpressionError("invalid return expression"),
+        RuntimeErrorOwner.USER,
+        RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID,
+        RetryDisposition.NON_RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "return.persistence",
+        _result_persistence_error_classification,
+        _transport_error,
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        RetryDisposition.RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "child_result.materialization",
+        _materialization_error_classification,
+        lambda: ValueError("invalid stored child result"),
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA,
+        RetryDisposition.NON_RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "child_result.persistence",
+        _result_persistence_error_classification,
+        _transport_error,
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        RetryDisposition.RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "gather.materialization",
+        _materialization_error_classification,
+        _transport_error,
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+        RetryDisposition.RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "gather.persistence",
+        _result_persistence_error_classification,
+        lambda: ValueError("invalid gather result"),
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
+        RetryDisposition.NON_RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "agent.input",
+        _agent_preparation_error_classification,
+        lambda: TracecatValidationError("invalid agent input"),
+        RuntimeErrorOwner.USER,
+        RuntimeErrorKind.WORKFLOW_AGENT_INPUT_INVALID,
+        RetryDisposition.NON_RETRYABLE,
+        "activity:fail_fast",
+    ),
+    _BoundaryPolicyExpectation(
+        "agent.preparation",
+        _agent_preparation_error_classification,
+        lambda: RuntimeError("agent dependency unavailable"),
+        RuntimeErrorOwner.PLATFORM,
+        RuntimeErrorKind.WORKFLOW_AGENT_PREPARATION_FAILED,
+        RetryDisposition.RETRYABLE,
+        "activity:fail_fast",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "expectation",
+    _REMAINING_BOUNDARY_POLICIES,
+    ids=lambda expectation: expectation.boundary,
+)
+def test_remaining_runtime_boundary_policy_inventory(
+    expectation: _BoundaryPolicyExpectation,
+) -> None:
+    """Keep owner, kind, retryability, and attempt budget reviewable together."""
+    classification = expectation.classify(expectation.error_factory())
+
+    assert classification.owner is expectation.owner
+    assert classification.kind is expectation.kind
+    assert classification.retry_disposition is expectation.retry_disposition
+    assert RETRY_POLICIES[expectation.retry_policy].maximum_attempts == 1
+
+
+@pytest.mark.parametrize(
+    ("stage", "error", "owner", "kind", "retry_disposition"),
+    [
+        (
+            "materialization",
+            HTTPClientError(error=RuntimeError("materialization diagnostic")),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+            RetryDisposition.RETRYABLE,
+        ),
+        (
+            "expression",
+            TracecatExpressionError("expression diagnostic"),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+        (
+            "persistence",
+            HTTPClientError(error=RuntimeError("persistence diagnostic")),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+            RetryDisposition.RETRYABLE,
+        ),
+        (
+            "persistence",
+            ValueError("invalid stored return diagnostic"),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+    ],
+    ids=[
+        "materialization-transport",
+        "expression-user",
+        "persistence-transport",
+        "persistence-invalid-data",
+    ],
+)
+def test_resolve_return_expression_classifies_each_failure_stage(
+    stage: str,
+    error: Exception,
+    owner: RuntimeErrorOwner,
+    kind: RuntimeErrorKind,
+    retry_disposition: RetryDisposition,
+) -> None:
+    input = EvaluateTemplatedObjectActivityInput(
+        obj="${{ TRIGGER.value }}",
+        operand=ExecutionContext(ACTIONS={}, TRIGGER=InlineObject(data={"value": 1})),
+        key="test/return",
+    )
+    storage = MagicMock()
+    storage.store = AsyncMock(return_value=InlineObject(data=1))
+    materialize = AsyncMock(return_value={"ACTIONS": {}, "TRIGGER": {"value": 1}})
+    evaluate = MagicMock(return_value=1)
+    if stage == "materialization":
+        materialize.side_effect = error
+    elif stage == "expression":
+        evaluate.side_effect = error
+    else:
+        storage.store.side_effect = error
+
+    with (
+        patch("tracecat.dsl.action.materialize_context", new=materialize),
+        patch("tracecat.dsl.action.eval_templated_object", new=evaluate),
+        patch("tracecat.dsl.action.get_object_storage", return_value=storage),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        DSLActivities.resolve_return_expression_activity(input)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is owner
+    assert classification.kind is kind
+    assert classification.retry_disposition is retry_disposition
+    assert str(error) not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_store_workflow_payload_classifies_persistence_failure() -> None:
+    diagnostic = "workflow payload persistence diagnostic"
+    storage = MagicMock()
+    storage.store = AsyncMock(
+        side_effect=HTTPClientError(error=RuntimeError(diagnostic))
+    )
+
+    with (
+        patch("tracecat.dsl.action.get_object_storage", return_value=storage),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await DSLActivities.store_workflow_payload_activity(
+            key="test/payload",
+            data={"value": 1},
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert (
+        classification.kind
+        is RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE
+    )
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert diagnostic not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("activity_name", "failure_stage", "kind"),
+    [
+        (
+            "synchronize_collection_object_activity",
+            "retrieve",
+            RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+        ),
+        (
+            "synchronize_collection_object_activity",
+            "store",
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        ),
+        (
+            "synchronize_collection_object_activity",
+            "manifest",
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        ),
+        (
+            "finalize_gather_activity",
+            "retrieve",
+            RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+        ),
+        (
+            "finalize_gather_activity",
+            "store",
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        ),
+    ],
+)
+async def test_collection_boundaries_classify_storage_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    activity_name: str,
+    failure_stage: str,
+    kind: RuntimeErrorKind,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", True)
+    diagnostic = f"{activity_name} {failure_stage} diagnostic"
+    error = HTTPClientError(error=RuntimeError(diagnostic))
+    storage = MagicMock()
+    storage.retrieve = AsyncMock(return_value="value")
+    storage.store = AsyncMock(return_value=InlineObject(data="value"))
+    store_list = AsyncMock(return_value=InlineObject(data=["value"]))
+    store_collection = AsyncMock(return_value=InlineObject(data=["value"]))
+    if failure_stage == "retrieve":
+        storage.retrieve.side_effect = error
+    elif failure_stage == "manifest":
+        store_collection.side_effect = error
+    elif activity_name == "synchronize_collection_object_activity":
+        storage.store.side_effect = error
+    else:
+        store_list.side_effect = error
+
+    with (
+        patch("tracecat.dsl.action.get_object_storage", return_value=storage),
+        patch("tracecat.dsl.action._store_list_result", new=store_list),
+        patch("tracecat.dsl.action.store_collection", new=store_collection),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        if activity_name == "synchronize_collection_object_activity":
+            await DSLActivities.synchronize_collection_object_activity(
+                SynchronizeCollectionObjectActivityInput(
+                    collection=[InlineObject(data="value")],
+                    key="test/synchronized",
+                )
+            )
+        else:
+            await DSLActivities.finalize_gather_activity(
+                FinalizeGatherActivityInput(
+                    collection=[InlineObject(data="value")],
+                    key="test/gather",
+                    error_strategy=StreamErrorHandlingStrategy.INCLUDE,
+                )
+            )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is kind
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert diagnostic not in str(exc_info.value)
+
+
+def test_invalid_loop_expression_is_user_attributed() -> None:
+    with pytest.raises(ApplicationError) as exc_info:
+        DSLActivities.handle_looped_subflow_input_activity(
+            EvaluateLoopedSubflowInputActivityInput(
+                for_each="not-an-iterable-expression",
+                operand=ExecutionContext(ACTIONS={}, TRIGGER=None),
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+
+def test_subflow_batch_storage_failure_keeps_persistence_classification() -> None:
+    storage = MagicMock()
+    storage.store = AsyncMock(side_effect=HTTPClientError(error="connection reset"))
+    expression = "$" + "{{ for var.item in [1] }}"
+    trigger_expression = "$" + "{{ var.item }}"
+    inputs = ResolveSubflowBatchActivityInput(
+        task=ActionStatement(
+            ref="child",
+            action="core.workflow.execute",
+            for_each=expression,
+            args={"trigger_inputs": {"value": trigger_expression}},
+        ),
+        operand=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        batch_start=0,
+        batch_size=1,
+        key="test/subflow",
+    )
+
+    with (
+        patch("tracecat.dsl.action.get_object_storage", return_value=storage),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        DSLActivities.resolve_subflow_batch_activity(inputs)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert (
+        classification.kind
+        is RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE
+    )
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_synchronize_collection_streams_externalized_child_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", True)
+    events: list[tuple[str, object]] = []
+    inputs: list[StoredObject] = [
+        InlineObject(data="first"),
+        InlineObject(data="second"),
+    ]
+    result = CollectionObject(
+        manifest_ref=ObjectRef(
+            bucket="test-bucket",
+            key="test/synchronized/manifest.json",
+            size_bytes=1,
+            sha256="manifest-hash",
+        ),
+        count=2,
+        chunk_size=2,
+        element_kind="stored_object",
+    )
+
+    async def retrieve(obj: InlineObject) -> object:
+        events.append(("retrieve", obj.data))
+        return obj.data
+
+    async def store(key: str, value: object) -> InlineObject:
+        events.append(("store", value))
+        return InlineObject(data=value)
+
+    async def store_manifest(
+        prefix: str,
+        refs: list[dict[str, Any]],
+        *,
+        element_kind: Literal["value", "stored_object"],
+    ) -> CollectionObject:
+        assert prefix == "test/synchronized"
+        assert len(refs) == 2
+        assert element_kind == "stored_object"
+        events.append(("manifest", len(refs)))
+        return result
+
+    storage = MagicMock()
+    storage.retrieve = AsyncMock(side_effect=retrieve)
+    storage.store = AsyncMock(side_effect=store)
+    with (
+        patch("tracecat.dsl.action.get_object_storage", return_value=storage),
+        patch(
+            "tracecat.dsl.action.store_collection",
+            new=AsyncMock(side_effect=store_manifest),
+        ),
+    ):
+        actual = await DSLActivities.synchronize_collection_object_activity(
+            SynchronizeCollectionObjectActivityInput(
+                collection=inputs,
+                key="test/synchronized",
+            )
+        )
+
+    assert actual == result
+    assert events == [
+        ("retrieve", "first"),
+        ("store", "first"),
+        ("retrieve", "second"),
+        ("store", "second"),
+        ("manifest", 2),
+    ]
 
 
 def _prepare_subflow_input() -> PrepareSubflowActivityInput:
@@ -91,14 +534,6 @@ def _error_transport_detail(
     ).model_dump(mode="json")
 
 
-def _capture_workflow_application_error(
-    task_exceptions: dict[str, TaskExceptionInfo],
-) -> ApplicationError:
-    with pytest.raises(ApplicationError) as exc_info:
-        _raise_workflow_application_error(task_exceptions)
-    return exc_info.value
-
-
 def _error_handler_workflow() -> tuple[DSLWorkflow, DSLRunArgs]:
     instance = object.__new__(DSLWorkflow)
     role = _prepare_subflow_input().role
@@ -113,6 +548,166 @@ def _error_handler_workflow() -> tuple[DSLWorkflow, DSLRunArgs]:
     instance.dsl = dsl
     instance.wf_exec_id = f"{args.wf_id.short()}/exec_test"
     return instance, args
+
+
+def test_scheduler_adapts_non_action_classification_to_error_info() -> None:
+    classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+        message="Tracecat could not retrieve stored workflow data",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=RuntimeError("storage transport unavailable"),
+    )
+    error = _capture_application_error(classification)
+
+    adapted = _classified_action_error_info(
+        error,
+        ref="fetch_data",
+        stream_id=ROOT_STREAM,
+    )
+
+    assert adapted is not None
+    detail, adapted_classification = adapted
+    assert detail.ref == "fetch_data"
+    assert detail.message == classification.message
+    assert detail.type == classification.kind.value
+    assert adapted_classification == classification
+
+
+def test_trigger_input_validation_is_classified_and_history_safe() -> None:
+    sensitive = "rejected-value-must-not-enter-history"
+
+    with (
+        patch(
+            "tracecat.dsl.action.get_object_storage",
+            return_value=InlineObjectStorage(),
+        ),
+        patch("tracecat.dsl.action.logger.info") as logger_info_mock,
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        DSLActivities.normalize_trigger_inputs_activity(
+            NormalizeTriggerInputsActivityInputs(
+                input_schema={"number": ExpectedField(type="int")},
+                trigger_inputs=InlineObject(data={"number": sensitive}),
+                key="test/normalized-trigger",
+            )
+        )
+
+    error = exc_info.value
+    classification = extract_error_classification(error)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_TRIGGER_INPUT_INVALID
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert classification.cause_type == ValidationError.__name__
+    assert error.non_retryable is True
+
+    payload = parse_classified_action_error_payload(error.details[0])
+    assert isinstance(payload, dict)
+    detail = payload["__workflow_trigger__"]
+    assert detail.classification == classification
+    assert detail.diagnostic is not None
+    assert detail.diagnostic.ref == "__workflow_trigger__"
+
+    failure = Failure()
+    asyncio.run(DataConverter.default.encode_failure(error, failure))
+    assert sensitive not in str(failure)
+    logger_info_mock.assert_called_once()
+    assert "error" not in logger_info_mock.call_args.kwargs
+    assert sensitive not in str(logger_info_mock.call_args)
+
+
+@pytest.mark.parametrize(
+    "fault_point",
+    ["initialize-storage", "normalize", "persist-invalid-data"],
+)
+def test_trigger_input_invariant_failures_are_precise_and_history_safe(
+    fault_point: str,
+) -> None:
+    diagnostic = f"trigger {fault_point} diagnostic must not enter history"
+    storage = MagicMock()
+    storage.store = AsyncMock(return_value=InlineObject(data={}))
+    get_storage = MagicMock(return_value=storage)
+    normalize = MagicMock(return_value={})
+    if fault_point == "initialize-storage":
+        get_storage.side_effect = RuntimeError(diagnostic)
+    elif fault_point == "normalize":
+        normalize.side_effect = RuntimeError(diagnostic)
+    else:
+        storage.store.side_effect = ValueError(diagnostic)
+
+    with (
+        patch("tracecat.dsl.action.get_object_storage", new=get_storage),
+        patch("tracecat.dsl.action.normalize_trigger_inputs", new=normalize),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        DSLActivities.normalize_trigger_inputs_activity(
+            NormalizeTriggerInputsActivityInputs(
+                input_schema={},
+                trigger_inputs=None,
+                key="test/trigger",
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert diagnostic not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("fault_point", "expected_kind"),
+    [
+        (
+            "retrieve",
+            RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+        ),
+        (
+            "store",
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
+        ),
+    ],
+)
+def test_trigger_input_storage_failure_is_platform_owned_and_history_safe(
+    fault_point: Literal["retrieve", "store"],
+    expected_kind: RuntimeErrorKind,
+) -> None:
+    sensitive = "trigger storage diagnostic must not enter history"
+    transport_error = HTTPClientError(error=RuntimeError(sensitive))
+    storage = MagicMock()
+    storage.retrieve = AsyncMock(return_value={"number": 1})
+    storage.store = AsyncMock(return_value=InlineObject(data={"number": 1}))
+    match fault_point:
+        case "retrieve":
+            storage.retrieve.side_effect = transport_error
+        case "store":
+            storage.store.side_effect = transport_error
+
+    with (
+        patch("tracecat.dsl.action.get_object_storage", return_value=storage),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        DSLActivities.normalize_trigger_inputs_activity(
+            NormalizeTriggerInputsActivityInputs(
+                input_schema={"number": ExpectedField(type="int")},
+                trigger_inputs=InlineObject(data={"number": 1}),
+                key="test/normalized-trigger",
+            )
+        )
+
+    error = exc_info.value
+    classification = extract_error_classification(error)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is expected_kind
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert classification.cause_type == HTTPClientError.__name__
+    assert error.non_retryable is False
+
+    failure = Failure()
+    asyncio.run(DataConverter.default.encode_failure(error, failure))
+    assert sensitive not in str(failure)
 
 
 @pytest.mark.anyio
@@ -227,14 +822,14 @@ def test_subflow_user_classification_control_flow_is_replay_gated() -> None:
         return_value=False,
     ) as patched_mock:
         assert DSLWorkflow._has_user_error_cause(error) is False
-        patched_mock.assert_called_once_with(ERROR_OWNER_CONTROL_FLOW_PATCH)
+        patched_mock.assert_called_once_with(WorkflowPatch.ERROR_OWNER_CONTROL_FLOW)
 
     with patch(
         "tracecat.dsl.workflow.workflow.patched",
         return_value=True,
     ) as patched_mock:
         assert DSLWorkflow._has_user_error_cause(error) is True
-        patched_mock.assert_called_once_with(ERROR_OWNER_CONTROL_FLOW_PATCH)
+        patched_mock.assert_called_once_with(WorkflowPatch.ERROR_OWNER_CONTROL_FLOW)
 
 
 @pytest.mark.anyio
@@ -390,173 +985,6 @@ async def test_prepare_subflow_cancellation_keeps_native_semantics() -> None:
         await DSLActivities.prepare_subflow_activity(_prepare_subflow_input())
 
 
-def test_workflow_error_preserves_all_action_classifications() -> None:
-    """The terminal map wraps every task; the platform-wins selection stamps the
-    outer error's message, type, and retryability regardless of task order."""
-    user_classification = RuntimeErrorClassification.user(
-        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-        message="The action failed",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-    )
-    platform_classification = RuntimeErrorClassification.platform(
-        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
-        message="Tracecat could not execute the action",
-        retry_disposition=RetryDisposition.RETRYABLE,
-    )
-    user_detail = _action_error_info(user_classification, ref="user_action")
-    platform_detail = _action_error_info(platform_classification, ref="platform_action")
-    task_exceptions = {
-        "user_action": TaskExceptionInfo(
-            exception=_capture_application_error(
-                user_classification,
-                build_error_transport_detail(user_classification, user_detail),
-            ),
-            details=user_detail,
-        ),
-        "platform_action": TaskExceptionInfo(
-            exception=_capture_application_error(
-                platform_classification,
-                build_error_transport_detail(platform_classification, platform_detail),
-            ),
-            details=platform_detail,
-        ),
-    }
-
-    error = _capture_workflow_application_error(task_exceptions)
-
-    assert error.message == platform_classification.message
-    assert error.type == platform_classification.kind.value
-    assert error.non_retryable is False
-    assert extract_error_classifications(error) == (
-        user_classification,
-        platform_classification,
-    )
-    assert error.details[0]["user_action"][
-        "classification"
-    ] == user_classification.model_dump(mode="json")
-    assert error.details[0]["user_action"]["diagnostic"] == user_detail.model_dump(
-        mode="json"
-    )
-    assert error.details[0]["platform_action"][
-        "classification"
-    ] == platform_classification.model_dump(mode="json")
-    assert error.details[0]["platform_action"][
-        "diagnostic"
-    ] == platform_detail.model_dump(mode="json")
-
-
-def test_workflow_error_map_platform_entry_survives_terminal_aggregation() -> None:
-    """A platform-owned entry in a task's child terminal map wins re-extraction.
-
-    The scheduler selects platform-wins for mixed child maps; the terminal
-    aggregation must retain that ownership instead of collapsing to the first
-    (user) classification in transport order.
-    """
-    user_classification = RuntimeErrorClassification.user(
-        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-        message="The child action failed",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-    )
-    platform_classification = RuntimeErrorClassification.platform(
-        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
-        message="Tracecat could not execute the child action",
-        retry_disposition=RetryDisposition.RETRYABLE,
-    )
-    user_detail = _action_error_info(user_classification, ref="user_child")
-    platform_detail = _action_error_info(platform_classification, ref="platform_child")
-    child_error = _capture_application_error(
-        user_classification,
-        {
-            "user_child": build_error_transport_detail(
-                user_classification, user_detail
-            ).model_dump(mode="json"),
-            "platform_child": build_error_transport_detail(
-                platform_classification, platform_detail
-            ).model_dump(mode="json"),
-        },
-    )
-    aggregate_detail = ActionErrorInfo(
-        ref="call_child",
-        message=platform_classification.message,
-        type="ApplicationError",
-        children=[user_detail, platform_detail],
-    )
-
-    error = _capture_workflow_application_error(
-        {
-            "call_child": TaskExceptionInfo(
-                exception=child_error, details=aggregate_detail
-            )
-        }
-    )
-
-    assert error.message == platform_classification.message
-    assert error.type == platform_classification.kind.value
-    assert error.non_retryable is False
-    assert extract_error_classifications(error) == (platform_classification,)
-    assert error.details[0]["call_child"][
-        "classification"
-    ] == platform_classification.model_dump(mode="json")
-    assert error.details[0]["call_child"]["diagnostic"] == aggregate_detail.model_dump(
-        mode="json"
-    )
-
-
-def test_legacy_workflow_error_shape_is_unchanged() -> None:
-    detail = ActionErrorInfo(ref="action", message="Failed", type="ValueError")
-    error = _capture_workflow_application_error(
-        {
-            "action": TaskExceptionInfo(
-                exception=ApplicationError("Failed", non_retryable=True),
-                details=detail,
-            )
-        }
-    )
-
-    assert error.non_retryable is True
-    assert error.details == ({"action": detail},)
-    assert extract_error_classification(error) is None
-
-
-def test_mixed_workflow_errors_use_the_unclassified_terminal_raise() -> None:
-    """One unclassified task keeps the whole terminal raise on the legacy shape."""
-    user_classification = RuntimeErrorClassification.user(
-        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-        message="The action failed",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-    )
-    user_detail = _action_error_info(user_classification, ref="user_action")
-    legacy_detail = ActionErrorInfo(
-        ref="legacy_action",
-        message="Legacy failure",
-        type="RuntimeError",
-    )
-    error = _capture_workflow_application_error(
-        {
-            "user_action": TaskExceptionInfo(
-                exception=_capture_application_error(
-                    user_classification,
-                    build_error_transport_detail(user_classification, user_detail),
-                ),
-                details=user_detail,
-            ),
-            "legacy_action": TaskExceptionInfo(
-                exception=ApplicationError("Legacy failure", non_retryable=True),
-                details=legacy_detail,
-            ),
-        }
-    )
-
-    assert error.message.startswith("Workflow failed with 2 error(s)")
-    assert error.details == (
-        {"user_action": user_detail, "legacy_action": legacy_detail},
-    )
-    assert extract_error_classifications(error) == ()
-    with patch("tracecat.dsl.workflow.workflow.patched") as patched_mock:
-        assert DSLWorkflow._has_user_error_cause(error) is False
-    patched_mock.assert_not_called()
-
-
 @pytest.mark.anyio
 async def test_error_handler_runs_before_original_owner_is_stamped() -> None:
     """The handler completes before the original error's owner is stamped."""
@@ -674,7 +1102,7 @@ async def test_error_handler_failure_replaces_original_terminal_owner() -> None:
 
     assert exc_info.value is handler_error
     assert handler_error.__context__ is original_error
-    patched_mock.assert_called_once_with(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH)
+    patched_mock.assert_called_once_with(WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE)
     upsert_mock.assert_called_once()
     updates = upsert_mock.call_args.args[0]
     assert len(updates) == 1
@@ -820,7 +1248,7 @@ def test_terminal_platform_owner_wins_for_alert_attribution() -> None:
     ):
         DSLWorkflow._upsert_terminal_error_owner(error)
 
-    patched_mock.assert_called_once_with(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH)
+    patched_mock.assert_called_once_with(WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE)
     upsert_mock.assert_called_once()
     updates = upsert_mock.call_args.args[0]
     assert len(updates) == 1
@@ -845,14 +1273,14 @@ def test_terminal_owner_upsert_is_replay_gated() -> None:
     ):
         DSLWorkflow._upsert_terminal_error_owner(error)
 
-    patched_mock.assert_called_once_with(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH)
+    patched_mock.assert_called_once_with(WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE)
     upsert_mock.assert_not_called()
 
 
 def test_error_handler_owner_timing_has_distinct_replay_patch() -> None:
-    assert ERROR_OWNER_AFTER_HANDLER_PATCH not in {
-        ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
-        ERROR_OWNER_CONTROL_FLOW_PATCH,
+    assert WorkflowPatch.ERROR_OWNER_AFTER_HANDLER not in {
+        WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE,
+        WorkflowPatch.ERROR_OWNER_CONTROL_FLOW,
     }
 
 

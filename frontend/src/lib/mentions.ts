@@ -1,5 +1,5 @@
 /**
- * Display-value mapping for comment mentions.
+ * Display-value mapping for composer mentions.
  *
  * The composer's textarea holds *display* text — an agent mention reads as
  * `@Label` and a workflow command as `/Label` — while the value sent to the
@@ -221,6 +221,36 @@ export function findWorkflowMention(
   return mentions.find((mention) => mention.kind === "workflow")
 }
 
+/** The single agent mention in the composer, if one has been picked. */
+export function findAgentMention(
+  mentions: MentionRange[]
+): MentionRange | undefined {
+  return mentions.find((mention) => mention.kind === "agent")
+}
+
+/**
+ * Re-base mentions onto text with `cut` characters removed from the front.
+ *
+ * A mention lying inside the cut goes with the text it described; the rest keep
+ * their bindings at their new offsets. Used when a sent message is taken off
+ * the front of a composer the user has carried on typing into.
+ */
+export function shiftMentionsAfterPrefix(
+  mentions: MentionRange[],
+  cut: number
+): MentionRange[] {
+  if (cut <= 0) {
+    return mentions
+  }
+  return mentions
+    .filter((mention) => mention.start >= cut)
+    .map((mention) => ({
+      ...mention,
+      start: mention.start - cut,
+      end: mention.end - cut,
+    }))
+}
+
 /** Caret-anchored `@query` or `/query` span that drives the mention popover. */
 export interface MentionToken {
   start: number
@@ -228,6 +258,15 @@ export interface MentionToken {
   query: string
   kind: MentionKind
 }
+
+/**
+ * Longest query a trigger will carry. Sized past the longest name the backend
+ * accepts -- a preset name is capped at 120 characters -- so a target never
+ * becomes unreachable by having its distinguishing suffix cut off. It is only
+ * a backstop: a query that stops matching releases the trigger well before
+ * this.
+ */
+const MAX_MENTION_QUERY_LENGTH = 160
 
 function getTokenForKind(
   beforeCaret: string,
@@ -246,7 +285,15 @@ function getTokenForKind(
   }
 
   const query = beforeCaret.slice(triggerIndex + 1)
-  if (/\s/.test(query)) {
+  // Agent and workflow names are usually several words, so a space has to be
+  // able to sit inside a query. A leading space means the trigger was typed on
+  // its own and prose followed, a newline always ends the mention, and the cap
+  // stops a stray trigger from trailing the rest of a paragraph. The caller
+  // closes the session once a multi-word query stops matching anything.
+  if (/^\s/.test(query) || query.includes("\n")) {
+    return undefined
+  }
+  if (query.length > MAX_MENTION_QUERY_LENGTH) {
     return undefined
   }
 
@@ -262,10 +309,11 @@ function getTokenForKind(
  * Locate the `@query` or `/query` token immediately before the caret.
  *
  * The trigger must sit at the start of the text or directly after whitespace,
- * and any whitespace inside the query dismisses the token. When both triggers
- * qualify, the one nearer the caret wins, so `@bar/baz` is still an agent
- * token. The whitespace rule is also what keeps `/` inside URLs and paths from
- * opening the popover.
+ * which is what keeps `/` inside URLs and paths from opening the popover. A
+ * query may contain spaces so multi-word names can be typed out; it ends at a
+ * newline, at a leading space, or at `MAX_MENTION_QUERY_LENGTH`. When both
+ * triggers qualify, the one nearer the caret wins, so `@bar/baz` is still an
+ * agent token.
  */
 export function getMentionToken(
   text: string,
@@ -291,20 +339,23 @@ export interface MentionEdit {
  * Replace the trigger token with a mention's display text plus a trailing
  * space, registering the new mention range.
  *
- * A comment carries at most one workflow, so inserting a workflow first
- * removes any workflow already in the text.
+ * Pass `replaceExisting` on a surface that holds at most one mention of this
+ * kind -- a comment runs one workflow, a chat session owns one preset -- so
+ * picking a second target removes the first instead of leaving a stale name in
+ * the text that quietly loses at submit.
  */
 export function applyMentionInsertion(
   text: string,
   mentions: MentionRange[],
   token: MentionToken,
-  mention: { kind: MentionKind; label: string; targetId: string }
+  mention: { kind: MentionKind; label: string; targetId: string },
+  replaceExisting = false
 ): MentionEdit {
   let baseText = text
   let baseMentions = mentions
   let baseToken = token
-  if (mention.kind === "workflow") {
-    const existing = findWorkflowMention(mentions)
+  if (replaceExisting) {
+    const existing = mentions.find((range) => range.kind === mention.kind)
     if (existing) {
       const removal = applyMentionRemoval(text, mentions, existing)
       baseText = removal.text

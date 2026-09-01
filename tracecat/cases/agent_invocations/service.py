@@ -20,6 +20,7 @@ from tracecat.cases.enums import (
 )
 from tracecat.db.models import (
     AgentPreset,
+    AgentSession,
     CaseComment,
     CaseCommentAgentInvocation,
     CaseCommentMention,
@@ -79,7 +80,7 @@ class CaseCommentAgentInvocationService(BaseWorkspaceService):
         invocation_id: uuid.UUID,
         error: CaseCommentAgentInvocationError,
     ) -> CaseCommentAgentInvocation | None:
-        """Atomically mark a running invocation as failed.
+        """Atomically mark a running invocation and its linked session as failed.
 
         The caller owns the transaction. A ``None`` result means the invocation
         was not running in this workspace.
@@ -98,7 +99,20 @@ class CaseCommentAgentInvocationService(BaseWorkspaceService):
             )
             .returning(CaseCommentAgentInvocation)
         )
-        return await self.session.scalar(statement)
+        invocation = await self.session.scalar(statement)
+        if invocation is None or invocation.session_id is None:
+            return invocation
+
+        agent_session = await self.session.scalar(
+            select(AgentSession).where(
+                AgentSession.id == invocation.session_id,
+                AgentSession.workspace_id == self.workspace_id,
+            )
+        )
+        # Preserve a more specific error already recorded by the agent workflow.
+        if agent_session is not None and agent_session.last_error is None:
+            agent_session.last_error = error["message"]
+        return invocation
 
     async def mark_succeeded(
         self,

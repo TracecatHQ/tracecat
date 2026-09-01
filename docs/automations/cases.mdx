@@ -60,6 +60,43 @@ Your workflows can create or update a case, attach evidence, add comments, and m
 - Store evidence as attachments instead of passing large blobs between actions
 - Link structured rows, tasks, and metrics to keep investigation context organized
 
+## How to trigger workflows from cases
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
+
+- Type `/` in a case comment and select a published workflow. See [Comment triggers](/automations/triggers/comment-triggers) to run it from the comment.
+- Set a workflow on a case task and start it from the task. See [Case tasks](/automations/cases/tasks) for task setup and [Task triggers](/automations/triggers/task-triggers) for the trigger payload.
+- Run a workflow automatically when a case event occurs. See [Case triggers](/automations/triggers/case-triggers) to select events and tag filters.
+
+An agent can also call a workflow as a tool. When you need fixed order, deterministic branching, or guaranteed steps, use `/` or start the workflow from a task instead of asking an agent to run it.
+
+## How to chat with agents from cases
+
+### Mention a preset agent
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
+
+Type `@` in a comment to have a preset agent investigate the case and reply in the thread. See [Mention agents in case comments](/automations/cases/agent-mentions) to configure access and follow the run.
+
+### Use the in-case copilot
+
+<Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
+
+Use the copilot inside a case to summarize activity and draft next steps. It draws from the case timeline, linked evidence, and workflow output.
+
+![Case copilot](/img/cases/case-copilot.png)
+
+### Correlate across cases
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
+
+Enterprise extends the copilot beyond a single case. Use it to correlate related cases, compare investigation history, and surface patterns across incidents.
+
+- Correlate repeated alerts across multiple cases
+- Spot shared indicators, assets, or actors
+- Find similar investigations before you start a new one
+- Build broader investigation context across your case queue
+
 ## Tags
 
 Tags help you group and find related cases.
@@ -82,37 +119,6 @@ Your workflows can read and update them through the `fields` input on case actio
 
 Case custom fields use the same storage type family as tables: `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, and `MULTI_SELECT`.
 In the case field picker, raw `JSONB` is currently surfaced through the case-only `URL` kind, and the picker also exposes `Long text`, which is layered on top of `TEXT`.
-
-## AI copilot in a case
-
-<Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
-
-The AI copilot lets you work inside a case instead of switching to a separate chat tool.
-You can use it to summarize activity, answer questions, and draft next steps from the case timeline, linked evidence, and workflow output.
-
-![Case copilot](/img/cases/case-copilot.png)
-
-## Mention agents in comments
-
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
-
-Mention a preset agent when you want it to investigate a case and reply in a comment thread.
-Tracecat gives the agent the case and thread context, posts its final answer as a reply, and keeps the full run in case chat history.
-
-See [Mention agents in case comments](/automations/cases/agent-mentions) to configure access and follow an agent run.
-
-## AI copilot across cases
-
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
-
-Enterprise extends the copilot beyond a single case.
-You can use it to correlate related cases, compare investigation history, and surface patterns across incidents.
-
-This is useful when you want to:
-- Correlate repeated alerts across multiple cases
-- Spot shared indicators, assets, or actors
-- Find similar investigations before you start a new one
-- Build broader investigation context across your case queue
 
 ## Dropdowns
 
@@ -142,16 +148,7 @@ They are useful when you want operational reporting or workflow triggers based o
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
 
-Tasks let you break an investigation into concrete follow-up work.
-They work well for analyst handoffs, evidence requests, and repeatable remediation steps.
-
-![Case tasks](/img/cases/case-tasks.png)
-
-Use tasks to:
-- Assign work to a person or queue
-- Capture checklist-style next steps
-- Attach workflows to routine case operations
-- Keep completion state visible alongside comments and evidence
+See [Case tasks](/automations/cases/tasks) to assign follow-up work, track completion, and start workflows from a task.
 
 ## Linked rows
 
@@ -206,7 +203,13 @@ Use the `description` input for case descriptions and the `content` input for co
 You can include standard Markdown formatting, Markdown tables, and Mermaid diagrams.
 To add a diagram, wrap valid Mermaid syntax in a fenced code block labeled `mermaid`.
 
-See [Case actions](/automations/core-actions/case-actions/cases) to create, fetch, update, search, and delete cases; manage comments and attachments; and use Enterprise tasks, linked rows, and metrics.
+Each group of case actions has its own reference page:
+
+- [Cases](/automations/core-actions/case-actions/cases) to create, fetch, update, search, and delete cases, assign users, apply tags, and read metrics
+- [Comments](/automations/core-actions/case-actions/comments) to add, reply to, update, and list comments and comment threads
+- [Attachments](/automations/core-actions/case-actions/attachments) to upload, list, download, and delete case attachments
+- [Tasks](/automations/core-actions/case-actions/tasks) to create, update, and list case tasks
+- [Linked rows](/automations/core-actions/case-actions/linked-rows) to link table rows to a case and read them back
 
 For example:
 

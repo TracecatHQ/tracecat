@@ -1,5 +1,6 @@
 """Inbox API router."""
 
+import uuid
 from datetime import datetime
 from typing import Literal
 
@@ -58,6 +59,10 @@ async def list_items(
         max_length=200,
         description="Case-insensitive search on item title",
     ),
+    case_id: uuid.UUID | None = Query(
+        default=None,
+        description="Filter items to root sessions associated with this case",
+    ),
     group: InboxGroup | None = Query(
         default=None,
         description="Filter items to a single display group",
@@ -103,6 +108,7 @@ async def list_items(
             order_by=order_by,
             sort=sort,
             search=search,
+            case_id=case_id,
             group=group,
             entity_type=entity_type,
             created_after=created_after,
