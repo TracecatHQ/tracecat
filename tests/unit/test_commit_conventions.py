@@ -313,6 +313,41 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
             id="alias-that-becomes-a-stutter-loses-the-scope",
         ),
         pytest.param(
+            "- Feat+fix(ui): add color dots in dropdown (#661)",
+            "- feat(ui): Add color dots in dropdown (#661)",
+            id="compound-type-keeps-its-first-component",
+        ),
+        pytest.param(
+            "- Feat!(engine): stronger ACLs (#570)",
+            "- feat(engine)!: Stronger ACLs (#570)",
+            id="bang-moves-behind-the-scope",
+        ),
+        pytest.param(
+            "- feat(cases) ENG-1597: add team scoped agent session reads (#3204)",
+            "- feat(cases): Add team scoped agent session reads (#3204)",
+            id="ticket-id-between-scope-and-colon",
+        ),
+        pytest.param(
+            "- ENG-1388 fix(agents): strip /vN from upstream_url (#2604)",
+            "- fix(agents): Strip /vN from upstream_url (#2604)",
+            id="ticket-id-in-front-of-the-type",
+        ),
+        pytest.param(
+            "- Fix(mcp) workflow uploads and restore inline yaml (#2360)",
+            "- fix(mcp): Workflow uploads and restore inline yaml (#2360)",
+            id="no-colon-after-the-scope",
+        ),
+        pytest.param(
+            "- fix(engine):: optional secrets not handled correctly (#916)",
+            "- fix(engine): Optional secrets not handled correctly (#916)",
+            id="doubled-colon",
+        ),
+        pytest.param(
+            "- Fix mouse scrolling issues in the actions editor",
+            "- Fix mouse scrolling issues in the actions editor",
+            id="prose-bullet-is-not-a-prefix",
+        ),
+        pytest.param(
             "- docs(docs): fix a broken anchor (#2600)",
             "- docs: Fix a broken anchor (#2600)",
             id="stutter-written-by-hand",

@@ -377,6 +377,96 @@ autolabeler:
 # fastest signal a reader has for what kind of change a line is.
 # Compound scopes are left alone; they are rare and already canonical.
 replacers:
+  # Normalise the prefix before anything else reads it.
+  #
+  # These sit at the top of the block on purpose. Every rule below matches a
+  # lowercase type, so a title that never presented one -- `feat+fix(ui)`,
+  # `Feat!(engine)`, `fix(mcp) ` with no colon -- slips past the scope aliases,
+  # past `chore(deps)`, and reaches the capitalizer with nothing it recognises
+  # as a prefix. The capitalizer then capitalizes the type instead of the
+  # description, which is where `Feat+fix(ui): ...` in the published notes comes
+  # from. Fixing the prefix first makes all three behave.
+
+  # Trailing whitespace on a change line. Everything here is anchored on `$`,
+  # and one stray space at the end of a pull request title silently defeats all
+  # of it -- including `- $TITLE (#$NUMBER)`, which is how the line got here.
+  - search: '/^(- .*?)[ \t]+$/gm'
+    replace: '$1'
+  # Leading whitespace, same cause: a title that opens on a space pushes the
+  # description out of the capitalizer's reach.
+  - search: '/^- [ \t]+(?=\S)/gm'
+    replace: '- '
+  # The doubled space a trailing space in the title leaves in front of `(#N)`.
+  - search: '/^(- .*\S)[ \t]{2,}(\(#\d+\))$/gm'
+    replace: '$1 $2'
+
+  # A compound type. Only the first component survives: `feat+fix(ui)` is a
+  # feature that also fixed something, and the section it belongs in is
+  # Features.
+  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)(?:\+[a-z]+)+(\([^)\n]*\))?(!?): /gm'
+    replace: '- $1$2$3$4: '
+
+  # The same, capitalised, plus a bare `Feat:`. JavaScript has no case-folding
+  # escape in a replacement string, so this is one rule per type, as with the
+  # capitalizer below. The lookahead is `[(!:]` and deliberately not `\s`: a
+  # prose bullet that opens on `Fix mouse scrolling ...` must be left alone.
+  - search: '/^- (\[[\w.-]+\]\s+)?Build(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1build'
+  - search: '/^- (\[[\w.-]+\]\s+)?Chore(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1chore'
+  - search: '/^- (\[[\w.-]+\]\s+)?Ci(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1ci'
+  - search: '/^- (\[[\w.-]+\]\s+)?Deprecation(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1deprecation'
+  - search: '/^- (\[[\w.-]+\]\s+)?Docs(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1docs'
+  - search: '/^- (\[[\w.-]+\]\s+)?Feat(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1feat'
+  - search: '/^- (\[[\w.-]+\]\s+)?Fix(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1fix'
+  - search: '/^- (\[[\w.-]+\]\s+)?Infra(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1infra'
+  - search: '/^- (\[[\w.-]+\]\s+)?Perf(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1perf'
+  - search: '/^- (\[[\w.-]+\]\s+)?Refactor(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1refactor'
+  - search: '/^- (\[[\w.-]+\]\s+)?Release(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1release'
+  - search: '/^- (\[[\w.-]+\]\s+)?Revert(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1revert'
+  - search: '/^- (\[[\w.-]+\]\s+)?Security(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1security'
+  - search: '/^- (\[[\w.-]+\]\s+)?Test(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1test'
+
+  # A bang in front of the scope. `feat!(engine)` is what a writer reaches for
+  # when the type feels like the breaking part; the legal position is after the
+  # closing paren.
+  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)!(\([^)\n]*\)): /gm'
+    replace: '- $1$2$3!: '
+
+  # A Linear ticket id in front of the type. It names the issue, not the
+  # change, and the pull request number is already at the other end of the line.
+  - search: '/^- (\[[\w.-]+\]\s+)?[A-Z]{2,}-\d+[ \t]+(?=[a-z]+(?:\([^)\n]*\))?!?: )/gm'
+    replace: '- $1'
+  # The same id wedged between the scope and the colon. This is the shape
+  # check_pr_title.py names in its own error text: with no colon after the
+  # scope, nothing downstream sees a prefix at all.
+  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?)[ \t]+[A-Z]{2,}-\d+: /gm'
+    replace: '- $1$2: '
+  # A missing colon after the scope. Must stay below the two ticket rules:
+  # without them `feat(cases) ENG-1597: x` would gain a second colon rather
+  # than lose the ticket.
+  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+\([^)\n]*\)!?)[ \t]+(?=[A-Za-z0-9`\[])/gm'
+    replace: '- $1$2: '
+  # A doubled colon.
+  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?):{2,}[ \t]/gm'
+    replace: '- $1$2: '
+  # More than one space after the colon, which hides the description from the
+  # capitalizer entirely.
+  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?:)[ \t]{2,}/gm'
+    replace: '- $1$2 '
+
   # -> (actions)
   - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:core-actions|core|udfs|udf)\)(!?): /gm'
     replace: '- $1$2(actions)$3: '
