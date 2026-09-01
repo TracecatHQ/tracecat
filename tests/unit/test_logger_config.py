@@ -127,6 +127,33 @@ def test_json_log_format_preserves_only_intentional_event_attributes() -> None:
     assert "event" not in payload["attributes"]
 
 
+def test_json_log_format_preserves_rejected_reserved_attributes() -> None:
+    payload = json.loads(
+        _emit_log(
+            LogFormat.JSON,
+            bindings="event={'unexpected': 'shape'}, trace_sampled='unknown'",
+        )
+    )
+
+    assert "event" not in payload
+    assert "trace_sampled" not in payload
+    assert payload["attributes"] == {
+        "event": {"unexpected": "shape"},
+        "trace_sampled": "unknown",
+    }
+
+
+def test_json_log_format_stringifies_integers_outside_orjson_range() -> None:
+    payload = json.loads(
+        _emit_log(
+            LogFormat.JSON,
+            bindings="large_identifier=1 << 128",
+        )
+    )
+
+    assert payload["attributes"]["large_identifier"] == str(1 << 128)
+
+
 def test_json_log_format_normalizes_correlation_fields() -> None:
     payload = json.loads(
         _emit_log(

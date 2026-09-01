@@ -71,7 +71,7 @@ class LogMessage(Protocol):
     def record(self) -> "Record": ...
 
 
-_RESERVED_EXTRA_KEYS = frozenset(
+_STRING_EXTRA_KEYS = frozenset(
     {
         "action_ref",
         "cause_type",
@@ -88,7 +88,6 @@ _RESERVED_EXTRA_KEYS = frozenset(
         "span_id",
         "task_ref",
         "trace_id",
-        "trace_sampled",
         "wf_exec_id",
         "wf_id",
         "workflow_execution_id",
@@ -113,7 +112,13 @@ def _as_string(value: object) -> str | None:
 
 def _to_json_value(value: object) -> JsonValue:
     """Normalize intentional log attributes without exposing Loguru internals."""
-    if value is None or isinstance(value, str | int | float | bool):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if -(1 << 63) <= value <= (1 << 64) - 1:
+            return value
+        return str(value)
+    if value is None or isinstance(value, str | float):
         return value
     if isinstance(value, UUID):
         return str(value)
@@ -203,10 +208,16 @@ def serialize_log_record(record: "Record") -> bytes:
     if error_type := _first_string(extra, "error_type", "cause_type"):
         payload["error_type"] = error_type
 
+    promoted_extra_keys = {
+        key for key in _STRING_EXTRA_KEYS if _as_string(extra.get(key)) is not None
+    }
+    if isinstance(extra.get("trace_sampled"), bool):
+        promoted_extra_keys.add("trace_sampled")
+
     attributes = {
         key: _to_json_value(value)
         for key, value in sorted(extra.items())
-        if key not in _RESERVED_EXTRA_KEYS
+        if key not in promoted_extra_keys
     }
     if attributes:
         payload["attributes"] = attributes
