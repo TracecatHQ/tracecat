@@ -248,7 +248,14 @@ def resolve_labels(parsed: ParsedTitle, conventions: Conventions) -> frozenset[s
 
 
 def load_release_drafter(path: Path) -> ReleaseDrafterConfig:
-    """Read `categories:` and `exclude-labels:` from `release-drafter.yml`."""
+    """Read `categories:` and `exclude-labels:` from `release-drafter.yml`.
+
+    `yaml.safe_load` returns `Any`, so every field is narrowed with an explicit
+    `isinstance` check and converted into the frozen dataclasses below before
+    anything reads it. A `TypedDict` would be the wrong tool: it is a static
+    construct and validates nothing at runtime, which is the only thing that
+    helps when the input is a file a human edits.
+    """
     # Keep this import function-local: the dependency-free backfill job runs
     # `labels-for` without third-party packages installed.
     import yaml
