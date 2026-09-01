@@ -539,22 +539,31 @@ def cmd_sections(args: argparse.Namespace, conventions: Conventions) -> int:
     return EXIT_OK
 
 
-def _build_common_parser() -> argparse.ArgumentParser:
+def _build_common_parser(*, subcommand: bool) -> argparse.ArgumentParser:
     """`--repo`/`--limit`, shared by the top-level parser and every subcommand.
 
     Accepting them at both levels lets `--repo X prefixes` and
     `prefixes --repo X` both work.
+
+    The subcommand copies must not carry defaults. argparse applies a
+    subparser's defaults after the top-level parse, so a real default there
+    silently overwrites `--limit 5 prefixes` back to DEFAULT_LIMIT, and the
+    command reports the wrong row count with no error. SUPPRESS makes the
+    subparser set the attribute only when the flag is actually given.
     """
+    repo_default = argparse.SUPPRESS if subcommand else DEFAULT_REPO
+    limit_default = argparse.SUPPRESS if subcommand else DEFAULT_LIMIT
+
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--repo",
-        default=DEFAULT_REPO,
+        default=repo_default,
         help=f"GitHub repo to audit (default: {DEFAULT_REPO})",
     )
     common.add_argument(
         "--limit",
         type=int,
-        default=DEFAULT_LIMIT,
+        default=limit_default,
         help=f"number of merged PRs to fetch (default: {DEFAULT_LIMIT})",
     )
     return common
@@ -562,7 +571,8 @@ def _build_common_parser() -> argparse.ArgumentParser:
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser."""
-    common = _build_common_parser()
+    common = _build_common_parser(subcommand=False)
+    sub_common = _build_common_parser(subcommand=True)
     parser = argparse.ArgumentParser(
         prog="audit_commit_conventions.py",
         description=__doc__,
@@ -574,18 +584,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "labels",
-        parents=[common],
+        parents=[sub_common],
         help="compare config labels against the repo's actual labels",
     )
     subparsers.add_parser(
         "prefixes",
-        parents=[common],
+        parents=[sub_common],
         help="tabulate observed type/scope frequencies in merged PR titles",
     )
 
     backfill_parser = subparsers.add_parser(
         "backfill",
-        parents=[common],
+        parents=[sub_common],
         help="find merged PRs missing config-derived labels",
     )
     backfill_parser.add_argument(
@@ -596,14 +606,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     labels_for_parser = subparsers.add_parser(
         "labels-for",
-        parents=[common],
+        parents=[sub_common],
         help="print the labels the config derives from one title, one per line",
     )
     labels_for_parser.add_argument("title", help="the PR title to resolve")
 
     subparsers.add_parser(
         "sections",
-        parents=[common],
+        parents=[sub_common],
         help="show how merged PRs distribute across release-notes categories",
     )
 

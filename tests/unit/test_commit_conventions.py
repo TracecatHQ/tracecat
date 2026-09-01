@@ -20,7 +20,12 @@ from typing import Final
 
 import pytest
 import yaml
-from audit_commit_conventions import parse_title, resolve_labels
+from audit_commit_conventions import (
+    DEFAULT_LIMIT,
+    build_parser,
+    parse_title,
+    resolve_labels,
+)
 from commit_conventions import Conventions, LegacyType, load_conventions
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
@@ -279,6 +284,27 @@ def test_audit_script_agrees_with_the_autolabeler(title: str) -> None:
     parsed = parse_title(title, CONVENTIONS)
     resolved = frozenset() if parsed is None else resolve_labels(parsed, CONVENTIONS)
     assert resolved == autolabel(title), title
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--limit", "7", "prefixes"],
+        ["prefixes", "--limit", "7"],
+    ],
+    ids=["global-first", "subcommand-first"],
+)
+def test_limit_survives_either_argument_order(argv: list[str]) -> None:
+    """A subparser default silently overwrote the top-level value.
+
+    `--limit 7 prefixes` reported 500 rows with no error, which is worse than
+    a parse failure because the number looks legitimate.
+    """
+    assert build_parser().parse_args(argv).limit == 7
+
+
+def test_limit_falls_back_to_the_default() -> None:
+    assert build_parser().parse_args(["prefixes"]).limit == DEFAULT_LIMIT
 
 
 @pytest.mark.parametrize("path", DOC_PATHS, ids=lambda p: p.name)
