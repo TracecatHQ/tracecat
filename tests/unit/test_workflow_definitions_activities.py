@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import ValidationError
 from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
@@ -184,6 +185,36 @@ async def test_resolve_registry_lock_activity_maps_invalid_registry_as_terminal(
     mock_service.resolve_lock_with_bindings.side_effect = RegistryError(
         "action is not present in the selected registry"
     )
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_service
+
+    with patch(
+        "tracecat.workflow.management.definitions.RegistryLockService.with_session",
+        return_value=mock_ctx,
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            await resolve_registry_lock_activity(inputs)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
+async def test_resolve_registry_lock_activity_maps_invalid_manifest_as_terminal(
+    mock_role: Role,
+) -> None:
+    inputs = ResolveRegistryLockActivityInputs(
+        role=mock_role,
+        action_names={"tools.invalid.action"},
+    )
+    with pytest.raises(ValidationError) as validation_exc:
+        Role.model_validate({})
+    mock_service = AsyncMock()
+    mock_service.resolve_lock_with_bindings.side_effect = validation_exc.value
     mock_ctx = AsyncMock()
     mock_ctx.__aenter__.return_value = mock_service
 

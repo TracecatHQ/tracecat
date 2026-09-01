@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pydantic import ValidationError
 from sqlalchemy import case, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
@@ -252,7 +253,7 @@ async def resolve_registry_lock_activity(
             cause=e,
         )
         raise_application_error_from_classification(classification, e.detail)
-    except RegistryError as e:
+    except (RegistryError, ValidationError) as e:
         classification = RuntimeErrorClassification.platform(
             kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
             message="Tracecat could not resolve the workflow registry",
