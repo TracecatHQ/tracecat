@@ -126,14 +126,25 @@ async def _deny_workspace_chat_entitlement(**kwargs: Any) -> None:
         raise EntitlementRequired("workspace_chat")
 
 
+def _without_workspace_chat_entitlement() -> Any:
+    """Patch the org off workspace chat, which OSS defaults now grant."""
+    return patch(
+        "tracecat.agent.session.router.is_workspace_chat_entitled",
+        AsyncMock(return_value=False),
+    )
+
+
 @pytest.mark.anyio
 async def test_list_sessions_service_account_defaults_to_workspace_sessions() -> None:
     workspace_id = uuid.uuid4()
     role = _service_account_role(workspace_id)
     fake_svc = SimpleNamespace(list_sessions=AsyncMock(return_value=[]))
 
-    with patch(
-        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        _without_workspace_chat_entitlement(),
     ):
         raw_list_sessions = cast(Any, list_sessions).__wrapped__
         response = await raw_list_sessions(
@@ -172,8 +183,11 @@ async def test_list_sessions_user_filters_by_explicit_user_id() -> None:
     )
     fake_svc = SimpleNamespace(list_sessions=AsyncMock(return_value=[]))
 
-    with patch(
-        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        _without_workspace_chat_entitlement(),
     ):
         raw_list_sessions = cast(Any, list_sessions).__wrapped__
         response = await raw_list_sessions(
@@ -199,6 +213,39 @@ async def test_list_sessions_user_filters_by_explicit_user_id() -> None:
 
 
 @pytest.mark.anyio
+async def test_list_sessions_keeps_workspace_chat_when_entitled() -> None:
+    """OSS installs are entitled by default, so nothing is filtered out."""
+    workspace_id = uuid.uuid4()
+    role = _service_account_role(workspace_id)
+    fake_svc = SimpleNamespace(list_sessions=AsyncMock(return_value=[]))
+
+    with patch(
+        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    ):
+        raw_list_sessions = cast(Any, list_sessions).__wrapped__
+        response = await raw_list_sessions(
+            role=role,
+            session=AsyncMock(),
+            entity_type=None,
+            entity_id=None,
+            created_by=None,
+            exclude_entity_types=None,
+            parent_session_id=None,
+            limit=100,
+        )
+
+    assert response == []
+    fake_svc.list_sessions.assert_awaited_once_with(
+        created_by=None,
+        entity_type=None,
+        entity_id=None,
+        exclude_entity_types=None,
+        parent_session_id=None,
+        limit=100,
+    )
+
+
+@pytest.mark.anyio
 async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
     workspace_id = uuid.uuid4()
     role = Role(
@@ -211,8 +258,11 @@ async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
     )
     fake_svc = SimpleNamespace(list_sessions=AsyncMock(return_value=[]))
 
-    with patch(
-        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        _without_workspace_chat_entitlement(),
     ):
         raw_list_sessions = cast(Any, list_sessions).__wrapped__
         response = await raw_list_sessions(

@@ -208,7 +208,6 @@ variable "temporal_namespace" {
   default     = "default"
 }
 
-
 ### Container Env Vars
 # NOTE: sensitive variables are stored in secrets manager
 # and specified directly in the task definition via a secret reference
@@ -241,6 +240,17 @@ variable "log_level" {
   type        = string
   description = "Log level for the application"
   default     = "INFO"
+}
+
+variable "log_format" {
+  type        = string
+  description = "Process-wide Tracecat log rendering format"
+  default     = "json"
+
+  validation {
+    condition     = contains(["console", "json"], lower(trimspace(var.log_format)))
+    error_message = "log_format must be console or json."
+  }
 }
 
 variable "temporal_log_level" {
@@ -695,18 +705,6 @@ variable "agent_executor_max_concurrent_activities" {
   type        = number
   description = "Maximum concurrent activities per agent-executor task"
   default     = 3
-}
-
-variable "agent_otel_platform_override_config" {
-  type        = string
-  description = "Typed Agent OTel configuration JSON. Unset uses org configuration; present overrides it."
-  default     = null
-}
-
-variable "agent_otel_platform_override_headers_arn" {
-  type        = string
-  description = "AWS Secrets Manager ARN containing Agent OTel platform override headers JSON."
-  default     = null
 }
 
 variable "llm_proxy_read_timeout" {

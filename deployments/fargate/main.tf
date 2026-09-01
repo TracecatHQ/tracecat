@@ -74,6 +74,7 @@ module "ecs" {
   otel_exporter_otlp_endpoint                   = var.otel_exporter_otlp_endpoint
   otel_exporter_otlp_headers_arn                = var.otel_exporter_otlp_headers_arn
   log_level                                     = var.log_level
+  log_format                                    = var.log_format
   temporal_log_level                            = var.temporal_log_level
   feature_flags                                 = var.feature_flags
   ee_multi_tenant                               = var.ee_multi_tenant
@@ -169,8 +170,6 @@ module "ecs" {
   agent_executor_desired_count             = var.agent_executor_desired_count
   agent_executor_queue                     = var.agent_executor_queue
   agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
-  agent_otel_platform_override_config      = var.agent_otel_platform_override_config
-  agent_otel_platform_override_headers_arn = var.agent_otel_platform_override_headers_arn
   llm_proxy_read_timeout                   = var.llm_proxy_read_timeout
 
   llm_gateway_credential_cache_ttl_seconds        = var.llm_gateway_credential_cache_ttl_seconds

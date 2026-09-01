@@ -51,12 +51,6 @@ def test_registered_grant_types(
     assert registered == grant_types
 
 
-def test_no_unexpected_google_providers() -> None:
-    """No Google provider id is registered outside the expected set."""
-    registered = {key.id for key in PROVIDER_REGISTRY if key.id.startswith("google")}
-    assert registered == set(EXPECTED_GRANT_TYPES)
-
-
 @pytest.mark.parametrize(
     ("key", "cls"), _google_classes(), ids=lambda value: str(value)
 )

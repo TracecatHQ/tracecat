@@ -36,6 +36,7 @@ class _InboxProvider:
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
         search: str | None = None,
+        case_id: uuid.UUID | None = None,
         group: InboxGroup | None = None,
         entity_type: AgentSessionEntity | None = None,
         created_after: datetime | None = None,
@@ -49,6 +50,7 @@ class _InboxProvider:
                 "order_by": order_by,
                 "sort": sort,
                 "search": search,
+                "case_id": case_id,
                 "group": group,
                 "entity_type": entity_type,
                 "created_after": created_after,
@@ -120,6 +122,7 @@ async def test_list_items_passes_arguments_through_to_provider() -> None:
 
     created_after = datetime(2026, 1, 1, tzinfo=UTC)
     updated_after = datetime(2026, 2, 1, tzinfo=UTC)
+    case_id = uuid.uuid4()
     page = await service.list_items(
         limit=5,
         cursor="cur",
@@ -127,6 +130,7 @@ async def test_list_items_passes_arguments_through_to_provider() -> None:
         order_by="updated_at",
         sort="asc",
         search="needle",
+        case_id=case_id,
         group=InboxGroup.COMPLETED,
         entity_type=AgentSessionEntity.CASE,
         created_after=created_after,
@@ -143,6 +147,7 @@ async def test_list_items_passes_arguments_through_to_provider() -> None:
             "order_by": "updated_at",
             "sort": "asc",
             "search": "needle",
+            "case_id": case_id,
             "group": InboxGroup.COMPLETED,
             "entity_type": AgentSessionEntity.CASE,
             "created_after": created_after,
