@@ -228,8 +228,12 @@ def test_json_log_format_keeps_float_keys_stable_on_fallback() -> None:
         ("type('Items', (list,), {})([1, 2])", [1, 2]),
         ("type('Identifier', (int,), {})(42)", 42),
         ("type('Label', (str,), {})('ready')", "ready"),
+        (
+            "__import__('collections').namedtuple('Point', 'x')(1)",
+            "Point(x=1)",
+        ),
     ],
-    ids=["mapping", "list", "integer", "string"],
+    ids=["mapping", "list", "integer", "string", "tuple"],
 )
 def test_json_log_format_keeps_subclass_shapes_stable_on_fallback(
     value_expression: str,

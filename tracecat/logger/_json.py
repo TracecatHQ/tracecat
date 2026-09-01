@@ -79,6 +79,8 @@ def _fallback_value(value: object, ancestors: set[int] | None = None) -> object:
         return _fallback_value(value.value, ancestors)
     if isinstance(value, set | frozenset):
         return str(value)
+    if isinstance(value, tuple) and type(value) is not tuple:
+        return str(value)
     if not isinstance(value, dict | list | tuple):
         return str(value)
 
