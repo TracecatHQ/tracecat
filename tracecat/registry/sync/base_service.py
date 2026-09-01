@@ -14,7 +14,6 @@ import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
 from temporalio.client import WorkflowFailureError
-from temporalio.exceptions import ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
@@ -49,7 +48,7 @@ from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseService
 from tracecat.storage import blob
-from tracecat.temporal.errors import extract_error_classifications, iter_error_chain
+from tracecat.temporal.errors import extract_error_classifications
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -61,9 +60,6 @@ class RepositoryProtocol(Protocol):
     id: Mapped[uuid.UUID]
     origin: Mapped[str]
     current_version_id: Mapped[uuid.UUID | None]
-
-
-_LEGACY_REGISTRY_SYNC_VALIDATION_ERROR_TYPE = "RegistrySyncValidationError"
 
 
 class VersionProtocol(Protocol):
@@ -743,25 +739,6 @@ class BaseRegistrySyncService[
             )
             if validation_failure is not None:
                 raise self._sync_error_cls()(validation_failure.message) from exc
-
-            # A rolling deployment can briefly route this workflow to a worker
-            # from before structured classifications were emitted. Preserve the
-            # former machine-readable ApplicationError type until every target
-            # environment has crossed this release boundary.
-            legacy_validation_failure = next(
-                (
-                    error
-                    for error in iter_error_chain(
-                        exc,
-                        include_implicit_context=False,
-                    )
-                    if isinstance(error, ApplicationError)
-                    and error.type == _LEGACY_REGISTRY_SYNC_VALIDATION_ERROR_TYPE
-                ),
-                None,
-            )
-            if legacy_validation_failure is not None:
-                raise self._sync_error_cls()(str(legacy_validation_failure)) from exc
 
             self.logger.error(
                 "Registry sync workflow failed",

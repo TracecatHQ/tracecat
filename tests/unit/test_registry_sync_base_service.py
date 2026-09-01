@@ -6,11 +6,10 @@ from types import SimpleNamespace
 
 import pytest
 from packaging.version import Version
-from pytest_mock import MockerFixture
-from sqlalchemy import delete, insert
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowFailureError
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError
 
 from tests.shared import capture_application_error
 from tracecat import config
@@ -573,63 +572,6 @@ async def test_sync_via_temporal_reads_validation_classification_through_activit
         await sync_service.sync_repository_v2(repo, commit=False)
 
     assert "workflow failed" not in str(exc_info.value).lower()
-
-
-@pytest.mark.anyio
-async def test_sync_via_temporal_preserves_legacy_validation_during_rollout(
-    session: AsyncSession,
-    mocker: MockerFixture,
-    mock_org_id: uuid.UUID,
-) -> None:
-    await session.execute(
-        insert(Organization).values(
-            id=mock_org_id,
-            name="Test Organization",
-            slug=f"test-org-{mock_org_id}",
-            is_active=True,
-        )
-    )
-    await session.flush()
-    role = Role(
-        type="service",
-        user_id=mock_org_id,
-        organization_id=mock_org_id,
-        workspace_id=uuid.uuid4(),
-        service_id="tracecat-runner",
-    )
-    repos_service = RegistryReposService(session, role)
-    repo = await repos_service.create_repository(
-        RegistryRepositoryCreate(origin=DEFAULT_REGISTRY_ORIGIN)
-    )
-    message = "Registry sync validation failed"
-    app_error = ApplicationError(
-        message,
-        non_retryable=True,
-        type="RegistrySyncValidationError",
-    )
-    try:
-        raise ActivityError(
-            "Registry sync activity failed",
-            scheduled_event_id=1,
-            started_event_id=2,
-            identity="test-worker",
-            activity_type="sync_registry_activity",
-            activity_id="registry-sync-activity",
-            retry_state=None,
-        ) from app_error
-    except ActivityError as activity_error:
-        workflow_error = WorkflowFailureError(cause=activity_error)
-
-    mock_client = mocker.Mock()
-    mock_client.execute_workflow = mocker.AsyncMock(side_effect=workflow_error)
-    mocker.patch(
-        "tracecat.dsl.client.get_temporal_client",
-        mocker.AsyncMock(return_value=mock_client),
-    )
-    sync_service = RegistrySyncService(session, role)
-
-    with pytest.raises(RegistrySyncError, match=message):
-        await sync_service.sync_repository_v2(repo, commit=False)
 
 
 @pytest.mark.anyio
