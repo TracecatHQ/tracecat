@@ -1,3 +1,4 @@
+import re
 from collections.abc import Mapping
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import quote
@@ -25,11 +26,13 @@ def _reject_endpoint_credentials(value: HttpUrl) -> HttpUrl:
         raise ValueError(
             "endpoint must not embed credentials; use exporter headers instead"
         )
-    if value.query:
+    if value.query is not None:
         raise ValueError(
             "endpoint must not include a query string; use exporter headers "
             "for authentication"
         )
+    if value.fragment is not None:
+        raise ValueError("endpoint must not include a fragment")
     return value
 
 
@@ -204,14 +207,34 @@ def resolve_agent_otel_config(
     )
 
 
+# RFC 7230 token: the only characters legal in an HTTP header name.
+_HEADER_NAME_RE = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+
+
+def _invalid_header_value(value: str) -> bool:
+    # CR/LF, control bytes, edge whitespace, or non-ASCII make httpx reject
+    # the request client-side, silently killing every delivery.
+    return value != value.strip() or any(
+        ord(ch) < 0x20 or ord(ch) > 0x7E for ch in value
+    )
+
+
 def validate_otel_header_items(headers: Mapping[str, Any]) -> None:
-    """Reject empty header names or non-string/empty header values."""
+    """Reject header names that are not HTTP tokens and unsendable values."""
     for key, value in headers.items():
-        if not isinstance(key, str) or not key.strip():
-            raise ValueError("OTel header names must be non-empty strings")
+        if not isinstance(key, str) or not _HEADER_NAME_RE.fullmatch(key):
+            raise ValueError(
+                "OTel header names must be valid HTTP header names "
+                "(letters, digits, and !#$%&'*+-.^_`|~)"
+            )
         raw_value = value.get_secret_value() if isinstance(value, SecretStr) else value
         if not isinstance(raw_value, str) or not raw_value.strip():
             raise ValueError(f"OTel header {key} must have a non-empty string value")
+        if _invalid_header_value(raw_value):
+            raise ValueError(
+                f"OTel header {key} value must contain only printable ASCII "
+                "without leading/trailing whitespace"
+            )
 
 
 def secret_otel_headers(
