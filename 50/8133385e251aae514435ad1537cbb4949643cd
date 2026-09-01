@@ -1,0 +1,45 @@
+tests/unit/test_check_pr_title.py
+  s_c5002332a8185a::t_904d478de09334 24,39,105-106,148
+scripts/commit_conventions.py
+  s_c5002332a8185a::t_b737a0c0575296 50,94,161-175,214,284-288
+  s_c5002332a8185a::t_062eb111165827 56,220
+  s_c5002332a8185a::t_c41d093747f842 289
+AGENTS.md
+  s_c5002332a8185a::t_6e12ec44edf1dc 296,376
+tests/unit/test_commit_conventions.py
+  s_c5002332a8185a::t_904d478de09334 218
+scripts/audit_commit_conventions.py
+  s_c5002332a8185a::t_4720744a277c8f 185-186,224-227
+.github/release-drafter.yml
+  s_c5002332a8185a::t_4d3ad86026af7c 285
+  s_c5002332a8185a::t_0b882eb721fa3e 60,86-91,189-190,192,283-284,286-288,290
+scripts/check_pr_title.py
+  s_c5002332a8185a::t_b737a0c0575296 127-133
+  s_c5002332a8185a::t_062eb111165827 84,86
+.github/commit-conventions.toml
+  s_c5002332a8185a::t_b737a0c0575296 78-97,165-167
+  s_c5002332a8185a::t_0b882eb721fa3e 44,257
+  s_c5002332a8185a::t_bc532aa7d760cb 164
+  s_c5002332a8185a::t_2e87a16b1fd0b2 109-110
+  s_c5002332a8185a::t_459043f25c1ed3 65
+  s_c5002332a8185a::t_02e627529e95c5 124-128
+  s_c5002332a8185a::t_062eb111165827 253-256
+CONTRIBUTING.md
+  s_c5002332a8185a::t_6e12ec44edf1dc 115,176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "508133385e251aae514435ad1537cbb4949643cd",
+  "prompts": {},
+  "sessions": {
+    "s_c5002332a8185a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "831b7546-2af0-4f8f-af70-e9256e652a68",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
