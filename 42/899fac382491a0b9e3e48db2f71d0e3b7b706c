@@ -1,0 +1,31 @@
+scripts/check_pr_title.py
+  s_788694ba18e91b::t_7bde68e57d2003 154-155,302,304-306
+  s_788694ba18e91b::t_81b0f1236a2f1c 303
+tests/unit/test_check_pr_title.py
+  s_788694ba18e91b::t_7bde68e57d2003 151-173
+.github/release-drafter.yml
+  s_788694ba18e91b::t_a776ff2a0ce8b4 177,182,187,192,197,202,207,212,217,222,227,232,237,242,247,252,265,270,275,280,285,290,295,300,305,310,315,320,325,330,335,340,345,350,357,362,372,380,383,386,389,392,395,398,401,404,407,410,413,416,419
+scripts/audit_commit_conventions.py
+  s_788694ba18e91b::t_81b0f1236a2f1c 231
+  s_788694ba18e91b::t_7bde68e57d2003 228-230,239-242
+tests/unit/test_commit_conventions.py
+  s_788694ba18e91b::t_7bde68e57d2003 16,28,54,175-176,230-243,251
+justfile
+  s_788694ba18e91b::t_4406320413f761 117-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "42899fac382491a0b9e3e48db2f71d0e3b7b706c",
+  "prompts": {},
+  "sessions": {
+    "s_788694ba18e91b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05e3d-7835-7a63-af40-c82e227bcf7b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
