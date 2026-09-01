@@ -171,6 +171,26 @@ def test_deprecation_replacement_markers_match_complete_words(title: str) -> Non
     assert check_title(title, CONVENTIONS).ok
 
 
+@pytest.mark.parametrize(
+    "title",
+    [
+        "deprecation(api): use",
+        "deprecation(api): old endpoint replaced by",
+        "deprecation(api): x superseded by",
+    ],
+)
+def test_deprecation_marker_must_be_followed_by_something(title: str) -> None:
+    """A marker naming nothing is the failure mode the rule exists to catch."""
+    assert "depr-no-replacement" in check_title(title, CONVENTIONS).codes
+
+
+def test_terminal_marker_needs_nothing_after_it() -> None:
+    """`with no replacement` is the whole statement, so it is exempt."""
+    assert check_title(
+        "deprecation(api): drop the v1 payload with no replacement", CONVENTIONS
+    ).ok
+
+
 def test_main_reads_the_title_from_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

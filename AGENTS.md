@@ -273,9 +273,14 @@ just gen-functions
 
 ### Enforcement cutoff
 
-Commit conventions are enforced from 2026-09-01. Every pull request opened or
-retitled on or after that date is checked by `Commit conventions / PR title`,
-and the autolabeler applies its labels when it opens.
+Commit conventions are enforced from 2026-09-01. From that date the
+`Commit conventions / PR title` check runs on every pull request, including one
+opened earlier, on any of open, retitle, push, reopen or ready-for-review. The
+autolabeler applies its labels on the same events.
+
+There is no grandfather clause and no skip label. None is needed: every open
+pull request was retitled to comply before the cutoff, so the check starts
+green across the board.
 
 Titles merged before that date were never checked and do not follow this
 vocabulary. 425 of 2548 merged pull requests carry no label at all, and one

@@ -299,9 +299,23 @@ def check_title(title: str, conventions: Conventions) -> Report:
 
 
 def _names_replacement(description: str, conventions: Conventions) -> bool:
-    return any(
+    """Whether the description points at something to move to.
+
+    A marker on its own is not enough. `deprecation(api): use` and a title that
+    trails off at `replaced by` both match a marker while naming nothing, so a
+    pointing marker has to be followed by at least one more word. Terminal
+    phrases are exempt: `with no replacement` IS the statement.
+
+    This stays a nudge, not a proof. Nothing here can tell `use tools.y` from
+    `use the old endpoint` — that needs a reader, not a regex.
+    """
+    if any(
         re.search(rf"\b{re.escape(marker.strip())}\b", description, re.IGNORECASE)
-        is not None
+        for marker in conventions.terminal_markers
+    ):
+        return True
+    return any(
+        re.search(rf"\b{re.escape(marker.strip())}\b\s+\S", description, re.IGNORECASE)
         for marker in conventions.replacement_markers
     )
 

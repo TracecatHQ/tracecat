@@ -267,14 +267,22 @@ type = "deprecation"
 
 # A `deprecation:` title has to say what to use instead, or the release notes tell
 # users something is going away and leave them with nowhere to go.
+#
+# Each of these has to be FOLLOWED by the thing to move to. A bare
+# `deprecation(api): use` or a title trailing off at `replaced by` names nothing,
+# which is the failure mode the rule exists to catch.
 replacement_markers = [
     "in favour of",
     "in favor of",
     "replaced by",
     "superseded by",
-    "use ",
-    "with no replacement",
+    "use",
 ]
+
+# Phrases that are the whole statement, so nothing follows them. Kept separate
+# because requiring a trailing word here would reject the one title that is
+# deliberately saying there is no replacement.
+terminal_markers = ["with no replacement"]
 
 [labels]
 # Applied when the title carries `!` before the colon.

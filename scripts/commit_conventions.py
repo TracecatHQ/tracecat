@@ -55,6 +55,7 @@ class Conventions:
     ambiguous_scope_notes: Mapping[str, str]
     deprecation_type: str
     replacement_markers: tuple[str, ...]
+    terminal_markers: tuple[str, ...]
     breaking_label: str
     extra_labels: tuple[str, ...]
     exclude_labels: tuple[str, ...]
@@ -212,6 +213,7 @@ def load_conventions(path: Path | None = None) -> Conventions:
         replacement_markers=_require_str_list(
             raw, "deprecation", "replacement_markers"
         ),
+        terminal_markers=_require_str_list(raw, "deprecation", "terminal_markers"),
         breaking_label=str(raw.get("labels", {}).get("breaking", "breaking")),
         extra_labels=_require_str_list(raw, "labels", "extra"),
         exclude_labels=_require_str_list(raw, "labels", "exclude"),
