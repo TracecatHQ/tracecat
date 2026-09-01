@@ -189,6 +189,21 @@ def test_json_log_format_preserves_unusual_mapping_keys() -> None:
     assert payload["attributes"]["details"] == {"('a', 'b')": 1}
 
 
+def test_json_log_format_keeps_mapping_keys_stable_on_fallback() -> None:
+    mapping_binding = "details={None: 'missing', 'None': 'literal'}"
+    normal = json.loads(_emit_log(LogFormat.JSON, bindings=mapping_binding))
+    fallback = json.loads(
+        _emit_log(
+            LogFormat.JSON,
+            bindings=f"{mapping_binding}, path='bad' + chr(0xDCFF)",
+        )
+    )
+
+    expected = {"None": "literal", "null": "missing"}
+    assert normal["attributes"]["details"] == expected
+    assert fallback["attributes"]["details"] == expected
+
+
 def test_json_log_format_replaces_recursive_attributes() -> None:
     payload = json.loads(
         _emit_log(
