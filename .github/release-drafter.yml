@@ -536,7 +536,7 @@ replacers:
   # additionally leave Dependencies for the Documentation section, since `docs`
   # is matched first. Normalising the prefix costs nothing and the un-normalised
   # line is only ever noticed once it has shipped.
-  - search: '/^- (\[[\w.-]+\]\s+)?(?:chore|fix|feat|docs|refactor)\(deps\)(!?): /gm'
+  - search: '/^- (\[[\w.-]+\]\s+)?(?:chore|fix|feat|refactor)\(deps\)(!?): /gm'
     replace: '- $1build(deps)$2: '
 
   # Capitalize the description. Replacers are plain JavaScript

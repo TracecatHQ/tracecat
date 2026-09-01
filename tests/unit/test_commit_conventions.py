@@ -363,9 +363,14 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
             id="feat-deps-is-normalised-too",
         ),
         pytest.param(
+            # Deliberately NOT normalised. Replacers run after categorization,
+            # and `docs` sorts before `deps`, so this line renders under
+            # Documentation whatever its prefix says. Rewriting it to
+            # `build(deps)` would leave a build line under a docs heading,
+            # which reads worse than leaving the author's own prefix alone.
             "- docs(deps): bump the docs toolchain (#2501)",
-            "- build(deps): Bump the docs toolchain (#2501)",
-            id="docs-deps-is-normalised-too",
+            "- docs(deps): Bump the docs toolchain (#2501)",
+            id="docs-deps-keeps-its-type-because-its-section-is-docs",
         ),
         pytest.param(
             "- security(deps): patch an unauthenticated RCE (#2300)",
@@ -502,6 +507,8 @@ CORPUS: Final = (
     "fix(functions): regex_extract corner case",
     "feat(cases+actions): add a case linking action",
     "feat(audit): stream audit logs via webhook",
+    "docs(self-hosting, cheatsheets): Add scaling guide",
+    "feat(UI): x",
     "fix(audit+api): ensure valid payloads and resource attribution",
     "feat(observability): platform audit logs",
     "feat(udfs): add a table lookup action",

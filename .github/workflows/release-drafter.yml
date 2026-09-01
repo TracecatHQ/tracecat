@@ -71,8 +71,21 @@ jobs:
             # issues, so an unverified number can relabel an unrelated issue.
             # `pulls/N` 404s on a plain issue, and matching the title closes
             # the rest of the gap.
-            pr_title=$(gh api "repos/${REPO}/pulls/${number}" --jq .title 2>/dev/null) \
-              || { echo "#${number}: not a pull request, skipping"; continue; }
+            # Distinguish "not a pull request" from "the API was unavailable".
+            # Swallowing both alike would let one rate-limited response
+            # silently and permanently skip a real pull request's labels,
+            # which is the failure this job exists to prevent. Only a 404
+            # means the number is not a pull request; anything else is a
+            # warning in the log rather than a silent skip.
+            if ! pr_title=$(gh api "repos/${REPO}/pulls/${number}" --jq .title \
+              2>/tmp/pr-lookup-err); then
+              if grep -q "HTTP 404" /tmp/pr-lookup-err; then
+                echo "#${number}: not a pull request, skipping"
+              else
+                echo "::warning::#${number}: lookup failed, skipping. $(cat /tmp/pr-lookup-err)"
+              fi
+              continue
+            fi
             if [ "${pr_title}" != "${title}" ]; then
               echo "#${number}: subject does not match the pull request title, skipping"
               continue

@@ -187,6 +187,11 @@ def classify_scope(scope: str, conventions: Conventions) -> str:
     return "vendor(absorbed into integrations)"
 
 
+# The scope shape the drafter's own regexes accept. A component outside it
+# cannot match any autolabeler rule, vendor fallback included.
+DRAFTER_SCOPE: Final = re.compile(r"[a-z0-9_-]+")
+
+
 def resolve_labels(parsed: ParsedTitle, conventions: Conventions) -> frozenset[str]:
     """Labels the current config would assign to a parsed title.
 
@@ -225,10 +230,18 @@ def resolve_labels(parsed: ParsedTitle, conventions: Conventions) -> frozenset[s
                 label = legacy.label
         if label is not None:
             labels.add(label)
-        # The drafter's vendor-fallback lookahead cannot span `+`, so a
-        # compound scope containing an unknown component gets no integrations
-        # label. Mirror that production behavior deliberately.
-        elif len(parsed.scope_parts) == 1 and part not in conventions.ambiguous_scopes:
+        # Two ways the drafter declines to absorb an unknown scope, both
+        # mirrored deliberately rather than improved on. Its vendor-fallback
+        # lookahead cannot span `+`, so a compound scope containing an unknown
+        # component gets no integrations label. And its scope group is
+        # `[a-z0-9_-]+`, so a malformed scope matches nothing at all: there are
+        # 7 in this repo's history, `docs(self-hosting, cheatsheets)` among
+        # them. Absorbing those here would label PRs the drafter never touches.
+        elif (
+            len(parsed.scope_parts) == 1
+            and part not in conventions.ambiguous_scopes
+            and DRAFTER_SCOPE.fullmatch(part)
+        ):
             labels.add(vendor_label)
 
     return frozenset(labels)

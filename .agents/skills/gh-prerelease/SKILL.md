@@ -261,9 +261,10 @@ assembled body, in order. Read them from the file the way you read
 They are not cosmetic, and they are not only scope aliases. They rewrite the
 type prefix too -- `chore(deps)` and `fix(deps)` become `build(deps)`, a scope
 that merely repeats its type is dropped, `feat!(api)` moves the bang to
-`feat(api)!` -- and they capitalize the first letter of every description. Skip
-them and every line this skill produces differs from the line the same commit
-gets in its stable release, at minimum by that capital letter.
+`feat(api)!` -- and they capitalize the first letter of most descriptions, all
+but the ones opening on a code identifier or a lowercased brand name. Skip them
+and this skill's output disagrees with the stable release notes for the same
+commits.
 
 #### 8e. Assemble the body
 
