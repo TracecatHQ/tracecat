@@ -123,6 +123,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     client = await get_temporal_client()
 
+    sentry_enabled = False
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
         logger.info("Initializing Sentry")
         app_env = config.TRACECAT__APP_ENV
@@ -142,7 +143,12 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             app_env=app_env,
             temporal_namespace=temporal_namespace,
         )
-    interceptors = [RuntimeErrorAttributionInterceptor()]
+        sentry_enabled = True
+    interceptors = [
+        RuntimeErrorAttributionInterceptor(
+            preserve_legacy_sentry_wrapper=sentry_enabled
+        )
+    ]
 
     # Run a worker for the activities and workflow
     activities = get_activities()

@@ -1,26 +1,38 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
 import pytest
 import sentry_sdk
+from sentry_sdk.client import Client
 from sentry_sdk.envelope import Envelope
 from sentry_sdk.integrations.atexit import AtexitIntegration
 from sentry_sdk.transport import Transport
-from sentry_sdk.types import Event
+from sentry_sdk.types import Event, Hint
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
-from temporalio.worker import ExecuteWorkflowInput, WorkflowInboundInterceptor
+from temporalio.worker import (
+    ExecuteWorkflowInput,
+    WorkflowInboundInterceptor,
+    WorkflowInterceptorClassInput,
+)
 
 from tracecat.dsl import interceptor as interceptor_module
 from tracecat.dsl.interceptor import (
+    RuntimeErrorAttributionInterceptor,
+    _LegacySentryCompatibleRuntimeErrorAttributionWorkflowInterceptor,
     _RuntimeErrorAttributionWorkflowInterceptor,
+    _SentryWrappedWorkflowError,
 )
 from tracecat.logger import logger
-from tracecat.observability.sentry import SentryTag, initialize_sentry
+from tracecat.observability.sentry import (
+    SentryTag,
+    _sanitize_platform_event,
+    initialize_sentry,
+)
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
@@ -114,9 +126,72 @@ def test_sentry_keeps_only_the_shutdown_flush_integration(
 ) -> None:
     del sentry_events
 
-    client = sentry_sdk.get_client()
+    client = cast(Client, sentry_sdk.get_client())
+    integrations = cast(Mapping[str, object], client.integrations)
 
     assert client.get_integration(AtexitIntegration) is not None
+    assert set(integrations) == {AtexitIntegration.identifier}
+
+
+def test_sentry_contexts_are_filtered_by_context_and_field() -> None:
+    event = cast(
+        Event,
+        {
+            "tags": {SentryTag.ERROR_OWNER.value: "platform"},
+            "contexts": {
+                "runtime": {
+                    "name": "CPython",
+                    "version": "3.12.8",
+                    "build": _SENSITIVE_VALUE,
+                },
+                "tracecat_workflow": {
+                    "run_id": "00000000-0000-4000-8000-000000000001",
+                    "type": "DSLWorkflow",
+                    "attempt": 1,
+                    "trigger_type": "manual",
+                    "payload": _SENSITIVE_VALUE,
+                },
+                "unreviewed": {"value": _SENSITIVE_VALUE},
+            },
+        },
+    )
+
+    sanitized = _sanitize_platform_event(event, cast(Hint, {}))
+
+    assert sanitized is not None
+    assert "contexts" in sanitized
+    assert sanitized["contexts"] == {
+        "runtime": {"name": "CPython", "version": "3.12.8"},
+        "tracecat_workflow": {
+            "run_id": "00000000-0000-4000-8000-000000000001",
+            "type": "DSLWorkflow",
+            "attempt": 1,
+            "trigger_type": "manual",
+        },
+    }
+    assert _SENSITIVE_VALUE not in json.dumps(sanitized)
+
+
+@pytest.mark.anyio
+async def test_marker_free_replay_preserves_legacy_sentry_wrapper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(workflow, "patched", lambda _: False)
+    raw_error = RuntimeError("Legacy workflow failure")
+    configured = RuntimeErrorAttributionInterceptor(preserve_legacy_sentry_wrapper=True)
+    inbound_class = configured.workflow_interceptor_class(
+        cast(WorkflowInterceptorClassInput, object())
+    )
+
+    assert (
+        inbound_class
+        is _LegacySentryCompatibleRuntimeErrorAttributionWorkflowInterceptor
+    )
+    inbound = inbound_class(_RaisingInbound(raw_error))
+    with pytest.raises(_SentryWrappedWorkflowError) as raised:
+        await inbound.execute_workflow(_workflow_input())
+
+    assert raised.value.__cause__ is raw_error
 
 
 @pytest.mark.anyio

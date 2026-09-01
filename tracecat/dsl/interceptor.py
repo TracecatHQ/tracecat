@@ -101,6 +101,8 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
     intentionally surfaced as ``platform/runtime.unclassified``.
     """
 
+    _preserve_legacy_sentry_wrapper = False
+
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
         try:
             return await super().execute_workflow(input)
@@ -110,18 +112,25 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
             ):
                 raise
 
-            # Old histories must retain their original terminal command. The
-            # interceptor only owns failures from executions that record this
-            # patch marker.
-            if not workflow.patched(
-                WorkflowPatch.RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR
-            ):
-                raise
-
             classifications = extract_error_classifications(
                 error,
                 include_implicit_context=False,
             )
+
+            # Marker-free histories that ran with the legacy Sentry interceptor
+            # recorded this ApplicationError wrapper. Reproduce it during replay
+            # without retaining the old interceptor or its reporting behavior.
+            if not workflow.patched(
+                WorkflowPatch.RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR
+            ):
+                if (
+                    self._preserve_legacy_sentry_wrapper
+                    and not isinstance(error, ApplicationError)
+                    and not classifications
+                ):
+                    raise _SentryWrappedWorkflowError(str(error)) from error
+                raise
+
             if classifications:
                 classification = select_error_classification(classifications)
                 self._stamp_owner(classification)
@@ -135,16 +144,6 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
                 cause=error,
             )
             self._stamp_owner(classification)
-            if not workflow.unsafe.is_replaying():
-                logger.warning(
-                    "Terminal workflow failure reached the attribution fallback",
-                    event="runtime_error_attribution_fallback",
-                    owner=classification.owner.value,
-                    kind=classification.kind.value,
-                    retry_disposition=classification.retry_disposition.value,
-                    workflow_type=workflow.info().workflow_type,
-                    error_type=type(error).__name__,
-                )
             self._report_failure(error, classification)
             raise application_error_from_classification(classification) from None
 
@@ -177,7 +176,20 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
 class RuntimeErrorAttributionInterceptor(Interceptor):
     """Always-on terminal workflow attribution backstop."""
 
+    def __init__(self, *, preserve_legacy_sentry_wrapper: bool = False) -> None:
+        self._preserve_legacy_sentry_wrapper = preserve_legacy_sentry_wrapper
+
     def workflow_interceptor_class(
         self, input: WorkflowInterceptorClassInput
     ) -> type[WorkflowInboundInterceptor] | None:
+        if self._preserve_legacy_sentry_wrapper:
+            return _LegacySentryCompatibleRuntimeErrorAttributionWorkflowInterceptor
         return _RuntimeErrorAttributionWorkflowInterceptor
+
+
+class _LegacySentryCompatibleRuntimeErrorAttributionWorkflowInterceptor(
+    _RuntimeErrorAttributionWorkflowInterceptor
+):
+    """Replay the legacy Sentry wrapper for marker-free workflow histories."""
+
+    _preserve_legacy_sentry_wrapper = True

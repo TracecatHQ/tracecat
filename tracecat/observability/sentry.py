@@ -36,7 +36,10 @@ class SentryTag(StrEnum):
 
 
 _ALLOWED_TAGS = frozenset(SentryTag)
-_ALLOWED_CONTEXTS = frozenset({"runtime", "tracecat_workflow"})
+_ALLOWED_CONTEXT_FIELDS = {
+    "runtime": frozenset({"name", "version"}),
+    "tracecat_workflow": frozenset({"run_id", "type", "attempt", "trigger_type"}),
+}
 
 
 def capture_platform_failure(
@@ -91,9 +94,15 @@ def _sanitize_platform_event(event: Event, hint: Hint) -> Event | None:
 
     event["tags"] = {key: value for key, value in tags.items() if key in _ALLOWED_TAGS}
     contexts = cast(MutableMapping[str, Any], event.get("contexts") or {})
-    event["contexts"] = {
-        key: value for key, value in contexts.items() if key in _ALLOWED_CONTEXTS
-    }
+    sanitized_contexts: dict[str, dict[str, Any]] = {}
+    for context_name, allowed_fields in _ALLOWED_CONTEXT_FIELDS.items():
+        context = contexts.get(context_name)
+        if not isinstance(context, MutableMapping):
+            continue
+        sanitized_contexts[context_name] = {
+            key: value for key, value in context.items() if key in allowed_fields
+        }
+    event["contexts"] = sanitized_contexts
     for field in ("breadcrumbs", "extra", "request", "user"):
         event.pop(field, None)
 

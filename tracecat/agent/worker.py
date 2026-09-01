@@ -118,6 +118,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     client = await get_temporal_client()
 
+    sentry_enabled = False
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
         logger.info("Initializing Sentry")
         app_env = config.TRACECAT__APP_ENV
@@ -131,7 +132,12 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             release=f"tracecat@{APP_VERSION}",
             service_name=config.TRACECAT__SERVICE_NAME,
         )
-    interceptors = [RuntimeErrorAttributionInterceptor()]
+        sentry_enabled = True
+    interceptors = [
+        RuntimeErrorAttributionInterceptor(
+            preserve_legacy_sentry_wrapper=sentry_enabled
+        )
+    ]
 
     activities = get_activities()
     logger.debug(
