@@ -48,6 +48,19 @@ AUTOLABEL_RULES: Final = tuple(
     for rule in DRAFTER["autolabeler"]
     for pattern in rule["title"]
 )
+TIER_A_TYPE_RULE: Final = re.compile(
+    re.escape(r"^(\[\w+\] )?(?:")
+    + r"(?P<alternatives>[a-z|]+)"
+    + re.escape(r")(\([^)]*\))?!?: ")
+)
+TIER_A_TYPE_ALTERNATIVES: Final = tuple(
+    sorted(
+        alternative
+        for _, pattern in AUTOLABEL_RULES
+        if (match := TIER_A_TYPE_RULE.fullmatch(pattern.pattern)) is not None
+        for alternative in match.group("alternatives").split("|")
+    )
+)
 
 
 def autolabel(title: str) -> frozenset[str]:
@@ -193,6 +206,12 @@ def test_every_autolabeler_label_is_in_the_vocabulary(
     assert label in conventions.all_labels()
 
 
+@pytest.mark.parametrize("type_", TIER_A_TYPE_ALTERNATIVES)
+def test_every_tier_a_type_is_declared(type_: str, conventions: Conventions) -> None:
+    """A drafter-only type leaves the backfill unable to label merged PRs."""
+    assert type_ in conventions.types or type_ in conventions.legacy_types
+
+
 def test_exclude_labels_match_the_toml(conventions: Conventions) -> None:
     assert set(DRAFTER["exclude-labels"]) == set(conventions.exclude_labels)
 
@@ -231,6 +250,9 @@ CORPUS: Final = (
     "security(deps): patch an unauthenticated RCE",
     "helm: bump the chart version",
     "deps: bump temporalio",
+    "tests: agent smoke",
+    "doc: fix a broken anchor",
+    "depr(integrations): tools.x in favour of tools.y",
 )
 
 

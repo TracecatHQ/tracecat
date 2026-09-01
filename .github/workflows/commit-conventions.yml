@@ -23,12 +23,13 @@ jobs:
       contents: read
     steps:
       # Check out the base branch, not the pull request. The rules a pull
-      # request is judged against must be the rules already on main, or a fork
-      # could rewrite them in the same change that violates them.
-      - name: Check out the base commit
+      # request is judged against must be the rules currently on the base
+      # branch. `base.ref` resolves in the upstream repository, so a fork still
+      # cannot rewrite them in the same change that violates them.
+      - name: Check out the base branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.ref }}
           persist-credentials: false
 
       # The checker is stdlib-only, but `tomllib` needs 3.11 or newer.

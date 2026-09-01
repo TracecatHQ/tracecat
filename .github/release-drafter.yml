@@ -32,8 +32,8 @@ exclude-labels:
 
 # Category order is three tiers:
 #   1-3   act on this: a breaking change, a security fix, a deprecation.
-#   4-14  product areas, so a reader can find the part of Tracecat they use.
-#   15-20 by kind, for everything no area claimed.
+#   4-15  product areas, so a reader can find the part of Tracecat they use.
+#   16-21 by kind, for everything no area claimed.
 #
 # Inside tier 2, features come before catalogs. A compound scope matches the
 # first category it hits, so `feat(cases+actions)` lands in Case management
@@ -85,34 +85,34 @@ categories:
     labels:
       - actions
 
-  # 8b
+  # 9
   - title: Functions
     labels:
       - functions
 
-  # 9
+  # 10
   - title: Integrations
     labels:
       - integrations
 
-  # 10
+  # 11
   - title: Engine
     labels:
       - engine
 
-  # 11
+  # 12
   - title: API
     labels:
       - api
       - rbac
       - enterprise
 
-  # 12
+  # 13
   - title: User interface
     labels:
       - ui
 
-  # 13
+  # 14
   - title: Infrastructure
     labels:
       - infra
@@ -120,37 +120,37 @@ categories:
       - migration
       - cicd
 
-  # 14
+  # 15
   - title: Documentation
     labels:
       - docs
 
-  # 15
+  # 16
   - title: Performance
     labels:
       - perf
 
-  # 16
+  # 17
   - title: Dependencies
     labels:
       - deps
 
-  # 17
+  # 18
   - title: Features
     labels:
       - feat
 
-  # 18
+  # 19
   - title: Fixes
     labels:
       - fix
 
-  # 19
+  # 20
   - title: Build system
     labels:
       - build
 
-  # 20
+  # 21
   - title: Other changes
     labels:
       - chore

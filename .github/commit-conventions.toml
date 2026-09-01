@@ -53,27 +53,38 @@ revert = "revert"      # Undo a previous change
 security = "security"  # Security fixes and hardening
 test = "tests"         # Tests only
 
-# Types the checker rejects, mapped to what to write instead.
+# Rejected type spellings with no historical autolabeler support, mapped to
+# what to write instead.
 #
 # `style` is deleted rather than renamed: it had zero uses, and ruff and biome
 # autoformat on commit, so formatting is never its own PR here.
 # An empty suggestion means there is no valid replacement.
 [type_aliases]
 style = "chore"
-tests = "test"
-doc = "docs"
-depr = "deprecation"
 wip = ""
 
-# Types that only exist in history. The autolabeler still maps them so old PRs
-# keep their section; the checker rejects them and names the replacement.
+# Types that only exist in history, including rejected spellings that Release
+# Drafter still recognizes. The autolabeler maps them so old PRs keep their
+# section; the checker rejects them and names the replacement.
+[legacy_types.depr]
+label = "deprecation"
+suggest = "deprecation"
+
 [legacy_types.deps]
 label = "deps"
 suggest = "build(deps)"
 
+[legacy_types.doc]
+label = "docs"
+suggest = "docs"
+
 [legacy_types.helm]
 label = "infra"
 suggest = "infra(helm)"
+
+[legacy_types.tests]
+label = "tests"
+suggest = "test"
 
 # Scopes that only exist in history, or that name a label rather than a scope.
 # Same contract as [legacy_types]: the autolabeler maps `label` so old PRs keep

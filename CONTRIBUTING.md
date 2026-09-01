@@ -97,6 +97,8 @@ We follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0
 
 One line describes the whole pipeline: the type picks a type label, the scope picks an area label, and the first release-notes category that matches one of those labels decides which section the change appears under.
 
+These rules are enforced from 2026-09-01. Pull requests opened or retitled on or after that date are checked automatically, and a failing check is a title edit away from green — no rebase, no force push. Anything merged before that date was never checked, so do not copy an older commit subject as an example: much of the history uses spellings the checker now rejects.
+
 Check a title before you open the pull request:
 
 ```bash

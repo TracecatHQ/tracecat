@@ -271,6 +271,31 @@ just gen-functions
 
 ## Pull requests
 
+### Enforcement cutoff
+
+Commit conventions are enforced from 2026-09-01. Every pull request opened or
+retitled on or after that date is checked by `Commit conventions / PR title`,
+and the autolabeler applies its labels when it opens.
+
+Titles merged before that date were never checked and do not follow this
+vocabulary. 425 of 2548 merged pull requests carry no label at all, and one
+concept is spelled three ways: `integrations` 201, `registry` 103,
+`integration` 76. That history is the reason `[scope_aliases]`,
+`[legacy_types]` and `[legacy_scopes]` exist — the autolabeler reads every old
+spelling so already-merged work still categorizes, while the checker accepts
+only the canonical one.
+
+Two consequences for agents:
+
+- Do not copy a pre-cutoff commit subject as an example of house style. Most of
+  `git log` predates these rules.
+- A rejected title is never a reason to widen the vocabulary to match history.
+  See "Never invent vocabulary" below.
+
+`git log` before the cutoff is immutable and stays non-compliant. Only the
+rendered release notes are normalized, by the `replacers:` block in
+`.github/release-drafter.yml`.
+
 ### Titles
 
 - The PR title is the changelog line. Release Drafter renders it verbatim into
@@ -348,8 +373,8 @@ just gen-functions
 - `actions` is the built-in `core.*` actions a user calls in a workflow;
   `functions` is the `FN.*` inline expression functions; `engine` is the
   Temporal workers and executors that run them. The first two are catalogs of
-  what the platform offers, and both land in Core actions; the third is the
-  machinery.
+  what the platform offers, and each has its own release-notes section; the
+  third is the machinery.
 - `cases` and `tables` are core platform features with their own scopes and
   their own sections. Neither folds into `api` or `engine`.
 - `engine` is what runs; `infra` is what it runs on. If the change could ship
