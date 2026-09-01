@@ -143,17 +143,17 @@ Until you publish a pulled workflow, its runs resolve actions against the worksp
 
 ## API reference
 
-Sync endpoints require `workspace_sync:sync`, and a service account with the scope can pull from CI. Credential endpoints require `org:settings:update`.
+Exporting a workspace requires `workspace_sync:sync`. Reading branches and commits, pulling, and publishing one workflow also accept `workflow:sync`, so a service account holding only `workflow:sync` can pull from CI.
 
-| Action | Endpoint |
-| --- | --- |
-| Save provider credentials | `POST /organization/vcs/{provider}/credentials` (`github` or `gitlab`) |
-| Bind a repository | `PATCH /workspaces/{workspace_id}` with `settings.git_provider` and `settings.git_repo_url` |
-| Preview an export | `POST /workflows/sync/export/preview` |
-| Export and open a pull request | `POST /workflows/sync/export` |
-| Push one workflow | `POST /workflows/{workflow_id}/publish` |
-| List branches and commits | `GET /workflows/sync/branches`, `GET /workflows/sync/commits?branch=` |
-| Pull a commit | `POST /workflows/sync/pull` with a required `commit_sha` |
+| Action | Endpoint | Scopes |
+| --- | --- | --- |
+| Save provider credentials | `POST /organization/vcs/{provider}/credentials` (`github` or `gitlab`) | `org:settings:update` |
+| Bind a repository | `PATCH /workspaces/{workspace_id}` with `settings.git_provider` and `settings.git_repo_url` | `workspace:update` |
+| Preview an export | `POST /workflows/sync/export/preview` | `workspace_sync:sync` |
+| Export and open a pull request | `POST /workflows/sync/export` | `workspace_sync:sync` |
+| Push one workflow | `POST /workflows/{workflow_id}/publish` | `workflow:update`, plus `workflow:sync` or `workspace_sync:sync` |
+| List branches and commits | `GET /workflows/sync/branches`, `GET /workflows/sync/commits?branch=` | `workflow:sync` or `workspace_sync:sync` |
+| Pull a commit | `POST /workflows/sync/pull` with a required `commit_sha` | `workflow:sync` or `workspace_sync:sync` |
 
 ## Related pages
 

@@ -430,19 +430,19 @@
     },
     {
       "source": "/automations/core-actions/case-comments",
-      "destination": "/automations/core-actions/case-actions/cases"
+      "destination": "/automations/core-actions/case-actions/comments"
     },
     {
       "source": "/automations/core-actions/case-attachments",
-      "destination": "/automations/core-actions/case-actions/cases"
+      "destination": "/automations/core-actions/case-actions/attachments"
     },
     {
       "source": "/automations/core-actions/case-tasks",
-      "destination": "/automations/core-actions/case-actions/cases"
+      "destination": "/automations/core-actions/case-actions/tasks"
     },
     {
       "source": "/automations/core-actions/case-tables",
-      "destination": "/automations/core-actions/case-actions/cases"
+      "destination": "/automations/core-actions/case-actions/linked-rows"
     },
     {
       "source": "/automations/core-actions/case-metrics",
