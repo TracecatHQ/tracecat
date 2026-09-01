@@ -50,6 +50,7 @@ REJECT: list[tuple[str, str]] = [
     ("feat(udfs): add a table lookup action", "unknown-scope"),
     ("feat(udf): add a table lookup action", "unknown-scope"),
     ("feat(core-actions): add a table lookup action", "unknown-scope"),
+    ("  feat(ui): x", "leading-whitespace"),
 ]
 
 
@@ -236,11 +237,50 @@ def test_deprecation_marker_must_be_followed_by_something(title: str) -> None:
     assert "depr-no-replacement" in check_title(title, CONVENTIONS).codes
 
 
+@pytest.mark.parametrize(
+    "title",
+    [
+        "deprecation(api): x replaced by ?",
+        "deprecation(api): use !",
+        "deprecation(api): use ,",
+        "deprecation(api): use ;",
+    ],
+)
+def test_deprecation_marker_must_be_followed_by_a_word(title: str) -> None:
+    """A bare punctuation mark points at nothing, and `\\S` accepted one.
+
+    `deprecation(api): use .` is not a case here: it fails on `trailing-period`
+    whatever this rule does, so it would pass the test with the rule removed.
+    """
+    assert "depr-no-replacement" in check_title(title, CONVENTIONS).codes
+
+
 def test_terminal_marker_needs_nothing_after_it() -> None:
     """`with no replacement` is the whole statement, so it is exempt."""
     assert check_title(
         "deprecation(api): drop the v1 payload with no replacement", CONVENTIONS
     ).ok
+
+
+def test_terminal_marker_only_exempts_the_end_of_the_description() -> None:
+    """`with no replacement yet` is a promise, not a statement of fact."""
+    report = check_title(
+        "deprecation(api): drop the v1 payload with no replacement yet", CONVENTIONS
+    )
+    assert "depr-no-replacement" in report.codes
+
+
+def test_leading_whitespace_fails_but_trailing_whitespace_does_not() -> None:
+    """The autolabeler anchors at `^` only, so the two ends are not symmetric.
+
+    GitHub stores a title verbatim -- #2856 is stored as
+    `"fix(agents): custom model name resolution "` -- so a leading space costs
+    the pull request every label and its release-notes heading, while a
+    trailing one is trimmed by the `^(- .*?)[ \\t]+$` replacer before a reader
+    sees it.
+    """
+    assert "leading-whitespace" in check_title("  feat(ui): x", CONVENTIONS).codes
+    assert check_title("feat(ui): x ", CONVENTIONS).ok
 
 
 def test_main_reads_the_title_from_the_environment(

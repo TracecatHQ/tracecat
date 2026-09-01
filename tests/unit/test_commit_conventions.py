@@ -358,6 +358,16 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
             id="build-deps-is-already-canonical",
         ),
         pytest.param(
+            "- feat(deps): bump orjson (#2500)",
+            "- build(deps): Bump orjson (#2500)",
+            id="feat-deps-is-normalised-too",
+        ),
+        pytest.param(
+            "- docs(deps): bump the docs toolchain (#2501)",
+            "- build(deps): Bump the docs toolchain (#2501)",
+            id="docs-deps-is-normalised-too",
+        ),
+        pytest.param(
             "- security(deps): patch an unauthenticated RCE (#2300)",
             "- security(deps): Patch an unauthenticated RCE (#2300)",
             id="security-deps-keeps-its-type",
@@ -404,7 +414,13 @@ def test_replacers_render_the_line(line: str, expected: str) -> None:
 
 
 def test_replacers_anchor_per_line() -> None:
-    """The `m` flag is what keeps a rule from rewriting only the first line."""
+    """The `m` flag is what keeps a rule from rewriting only the first line.
+
+    `g` is the other half of that and needs evidence of its own: both bullets
+    below take the SAME per-letter capitalizer, so dropping `g` leaves the
+    second one lowercase. Two bullets taking different rules would pass either
+    way, which is what this test used to do.
+    """
     body = "\n".join(
         (
             "## Integrations",
@@ -413,7 +429,7 @@ def test_replacers_anchor_per_line() -> None:
             "- fix(functions): regex_extract corner case (#2800)",
             "",
             "## Fixes",
-            "- fix(app): return 404 for missing workspaces (#3100)",
+            "- fix(app): add a 404 for missing workspaces (#3100)",
         )
     )
     assert render(body).splitlines() == [
@@ -423,7 +439,7 @@ def test_replacers_anchor_per_line() -> None:
         "- fix(functions): regex_extract corner case (#2800)",
         "",
         "## Fixes",
-        "- fix(app): Return 404 for missing workspaces (#3100)",
+        "- fix(app): Add a 404 for missing workspaces (#3100)",
     ]
 
 
