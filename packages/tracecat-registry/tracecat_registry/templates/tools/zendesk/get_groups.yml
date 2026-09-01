@@ -7,8 +7,13 @@ definition:
   namespace: tools.zendesk
   name: get_groups
   secrets:
+    - type: oauth
+      provider_id: zendesk
+      grant_type: client_credentials
+      optional: true
     - name: zendesk
       keys: ["ZENDESK_EMAIL", "ZENDESK_API_TOKEN"]
+      optional: true
   expects:
     subdomain:
       type: str
@@ -22,10 +27,10 @@ definition:
       description: Number of groups per page (max 100)
       default: 100
   steps:
-    - ref: encode_auth
+    - ref: resolve_auth
       action: core.transform.reshape
       args:
-        value: ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
+        value: ${{ (SECRETS.zendesk_oauth.ZENDESK_SERVICE_TOKEN && FN.format("Bearer {}", SECRETS.zendesk_oauth.ZENDESK_SERVICE_TOKEN)) || FN.format("Basic {}", FN.to_base64(FN.format("{}/token:{}", SECRETS.zendesk.ZENDESK_EMAIL, SECRETS.zendesk.ZENDESK_API_TOKEN))) }}
     - ref: build_params
       action: core.script.run_python
       args:
@@ -44,7 +49,7 @@ definition:
         url: https://${{ inputs.subdomain }}.zendesk.com/api/v2/groups.json
         method: GET
         headers:
-          Authorization: Basic ${{ steps.encode_auth.result }}
+          Authorization: ${{ steps.resolve_auth.result }}
           Accept: application/json
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.call_api.result.data }}
