@@ -1,7 +1,10 @@
+from ipaddress import ip_network
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from tracecat import config
 from tracecat.contexts import ctx_request_audit
 from tracecat.middleware.request import RequestLoggingMiddleware
 
@@ -124,6 +127,32 @@ def test_request_context_reduces_unknown_user_agent() -> None:
         )
 
     assert response.json() == {"user_agent": "other"}
+
+
+def test_client_ip_resolution_honors_custom_trusted_networks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A narrowed trust list stops private-range peers from speaking for clients."""
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
+        (ip_network("198.51.100.0/24"),),
+    )
+    app = FastAPI()
+    app.add_middleware(RequestLoggingMiddleware)
+
+    async def read_client_ip() -> dict[str, str | None]:
+        return {"client_ip": _read_audit_context()["client_ip"]}
+
+    app.add_api_route("/", read_client_ip)
+    app.state.logger = type("Logger", (), {"debug": lambda *_args, **_kwargs: None})()
+    with TestClient(app, client=("198.51.100.7", 50000)) as client:
+        trusted = client.get("/", headers={"X-Forwarded-For": "203.0.113.9"})
+    with TestClient(app, client=("10.0.0.5", 50000)) as client:
+        untrusted = client.get("/", headers={"X-Forwarded-For": "203.0.113.9"})
+
+    assert trusted.json() == {"client_ip": "203.0.113.9"}
+    assert untrusted.json() == {"client_ip": "10.0.0.5"}
 
 
 def test_invalid_forwarded_ip_falls_back_to_socket_peer() -> None:

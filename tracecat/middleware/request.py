@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from ipaddress import ip_address, ip_network
+from ipaddress import ip_address
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -10,12 +10,6 @@ from tracecat import config
 from tracecat.contexts import RequestAuditContext, ctx_request_audit
 
 # === Client IP resolution === #
-
-_TRUSTED_PROXY_NETWORKS = [
-    ip_network(cidr.strip())
-    for cidr in config.TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS.split(",")
-    if cidr.strip()
-]
 
 
 def _normalize_client_ip(value: str | None) -> str | None:
@@ -29,7 +23,9 @@ def _normalize_client_ip(value: str | None) -> str | None:
 
 def _is_trusted_proxy(value: str) -> bool:
     addr = ip_address(value)
-    return any(addr in network for network in _TRUSTED_PROXY_NETWORKS)
+    return any(
+        addr in network for network in config.TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS
+    )
 
 
 def _resolve_client_ip(request: Request) -> str | None:
