@@ -683,7 +683,11 @@ class DSLWorkflow:
             self.logger.info("DSL workflow completed")
             return await self._handle_return()
         except Exception as e:
-            if classification := extract_error_classification(e):
+            if classifications := extract_error_classifications(
+                e,
+                include_implicit_context=False,
+            ):
+                classification = select_error_classification(classifications)
                 raise_wrapped_application_error(
                     e,
                     fallback_classification=classification,

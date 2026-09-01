@@ -10,6 +10,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
+    RegistryError,
     TracecatValidationError,
 )
 from tracecat.identifiers.workflow import WorkflowID
@@ -251,6 +252,14 @@ async def resolve_registry_lock_activity(
             cause=e,
         )
         raise_application_error_from_classification(classification, e.detail)
+    except RegistryError as e:
+        classification = RuntimeErrorClassification.platform(
+            kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
+            message="Tracecat could not resolve the workflow registry",
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+            cause=e,
+        )
+        raise_application_error_from_classification(classification)
     except EntitlementRequired as e:
         classification = RuntimeErrorClassification.user(
             kind=RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,

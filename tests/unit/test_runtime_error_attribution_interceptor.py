@@ -40,3 +40,15 @@ def test_unclassified_raw_error_remains_non_retryable() -> None:
         _unclassified_retry_disposition(RuntimeError("Unknown failure"))
         is RetryDisposition.NON_RETRYABLE
     )
+
+
+def test_unclassified_sentry_wrapper_uses_raw_source_disposition() -> None:
+    try:
+        try:
+            raise RuntimeError("Unknown workflow failure")
+        except RuntimeError as error:
+            raise ApplicationError("Sentry workflow wrapper") from error
+    except ApplicationError as wrapped:
+        assert (
+            _unclassified_retry_disposition(wrapped) is RetryDisposition.NON_RETRYABLE
+        )

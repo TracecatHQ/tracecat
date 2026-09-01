@@ -23,6 +23,7 @@ from tracecat.dsl.action import (
     EvaluateLoopedSubflowInputActivityInput,
     NormalizeTriggerInputsActivityInputs,
     PrepareSubflowActivityInput,
+    ResolveSubflowBatchActivityInput,
     SubflowDefinitionNotFoundError,
     SynchronizeCollectionObjectActivityInput,
     _agent_preparation_error_classification,
@@ -202,6 +203,40 @@ def test_invalid_loop_expression_is_user_attributed() -> None:
     assert classification.owner is RuntimeErrorOwner.USER
     assert classification.kind is RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID
     assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+
+def test_subflow_batch_storage_failure_keeps_persistence_classification() -> None:
+    storage = MagicMock()
+    storage.store = AsyncMock(side_effect=HTTPClientError(error="connection reset"))
+    expression = "$" + "{{ for var.item in [1] }}"
+    trigger_expression = "$" + "{{ var.item }}"
+    inputs = ResolveSubflowBatchActivityInput(
+        task=ActionStatement(
+            ref="child",
+            action="core.workflow.execute",
+            for_each=expression,
+            args={"trigger_inputs": {"value": trigger_expression}},
+        ),
+        operand=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        batch_start=0,
+        batch_size=1,
+        key="test/subflow",
+    )
+
+    with (
+        patch("tracecat.dsl.action.get_object_storage", return_value=storage),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        DSLActivities.resolve_subflow_batch_activity(inputs)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert (
+        classification.kind
+        is RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE
+    )
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
 @pytest.mark.anyio

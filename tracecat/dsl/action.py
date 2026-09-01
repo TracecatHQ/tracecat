@@ -1183,7 +1183,8 @@ def _resolve_subflow_batch(
     trigger_inputs_stored: list[StoredObject] = []
     for i, trigger_input in enumerate(trigger_inputs_list):
         key = collection_item_key(input.key, i)
-        stored = run_sync(storage.store(key, trigger_input))
+        with activity_error_boundary(_result_persistence_error_classification):
+            stored = run_sync(storage.store(key, trigger_input))
         trigger_inputs_stored.append(stored)
 
     return ResolvedSubflowBatch(

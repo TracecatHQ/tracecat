@@ -457,8 +457,8 @@ class WorkflowSchedulesService(BaseWorkspaceService):
 
         Raises
         ------
-        TracecatNotFoundError
-            If the schedule is not found.
+        ApplicationError
+            If the schedule cannot be loaded, with a classified Temporal failure.
         """
         try:
             async with WorkflowSchedulesService.with_session(
