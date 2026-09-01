@@ -1,0 +1,21 @@
+.github/commit-conventions.toml
+  s_c5002332a8185a::t_a0367ea0c9cfea 83-86
+tests/unit/test_check_pr_title.py
+  s_c5002332a8185a::t_adce3d974e0dd9 124-160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "52335e7b361ec2109e5c1da09c7fdf5c6f946846",
+  "prompts": {},
+  "sessions": {
+    "s_c5002332a8185a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "831b7546-2af0-4f8f-af70-e9256e652a68",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
