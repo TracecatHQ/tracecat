@@ -3,17 +3,14 @@ from typing import Annotated
 from pydantic import Field
 from typing_extensions import Doc
 
-from tracecat_registry import RegistryOAuthSecret, ctx, registry, secrets
-from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
+from tracecat_registry import ActionIsInterfaceError, RegistryOAuthSecret, registry
 from tracecat_registry.core.ai import (
     LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
     MCP_MODEL_NAME_FIELD_DOC,
     MCP_MODEL_PROVIDER_FIELD_DOC,
     MCP_MODEL_SELECTION_FIELD_DOC,
-    resolve_model_selection,
 )
 from tracecat_registry.fields import AgentModel, ModelSelection
-from tracecat_registry.sdk.agents import AgentConfig, MCPServerConfig
 from tracecat_registry.types import AgentOutputRead
 
 wiz_mcp_oauth_secret = RegistryOAuthSecret(
@@ -34,7 +31,7 @@ wiz_mcp_oauth_secret = RegistryOAuthSecret(
     display_group="Wiz MCP",
     doc_url="https://www.wiz.io/blog/introducing-mcp-server-for-wiz",
     namespace="tools.wiz",
-    secrets=[wiz_mcp_oauth_secret, *PYDANTIC_AI_REGISTRY_SECRETS],
+    secrets=[wiz_mcp_oauth_secret],
 )
 async def mcp(
     user_prompt: Annotated[str, Doc("User prompt to the agent.")],
@@ -56,24 +53,4 @@ async def mcp(
     ] = None,
 ) -> AgentOutputRead:
     """Use AI to interact with Wiz."""
-    resolved_model = resolve_model_selection(
-        model=model, model_name=model_name, model_provider=model_provider
-    )
-    token = secrets.get(wiz_mcp_oauth_secret.token_name)
-    result = await ctx.agents.aio.run(
-        user_prompt=user_prompt,
-        config=AgentConfig(
-            model_name=resolved_model.model_name,
-            model_provider=resolved_model.model_provider,
-            catalog_id=resolved_model.catalog_id,
-            instructions=instructions,
-            mcp_servers=[
-                MCPServerConfig(
-                    name="wiz",
-                    url="https://mcp.app.wiz.io/",
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-            ],
-        ),
-    )
-    return result
+    raise ActionIsInterfaceError()

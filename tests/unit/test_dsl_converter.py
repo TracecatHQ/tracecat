@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 import temporalio.api.common.v1
 from temporalio.api.common.v1 import Payload
-from tracecat_registry.sdk.agents import AgentConfig as RegistryAgentConfig
 
 from tracecat.agent.types import AgentConfig as TracecatAgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
@@ -204,24 +203,6 @@ def _build_tracecat_agent_config_payload() -> Payload:
     if payload is None:
         raise AssertionError("Expected JSON payload for AgentConfig")
     return payload
-
-
-def test_converter_rejects_registry_agent_config_from_tracecat_agent_config_payload() -> (
-    None
-):
-    """Current converter still fails on mixed AgentConfig types.
-
-    The durable workflow fix avoids this by returning a workflow-safe payload
-    across the activity boundary instead of AgentConfig directly.
-    """
-    converter = PydanticORJSONPayloadConverter()
-    payload = _build_tracecat_agent_config_payload()
-
-    with pytest.raises(
-        RuntimeError,
-        match="Failed to decode payload for type AgentConfig",
-    ):
-        converter.from_payload(payload, RegistryAgentConfig)
 
 
 def test_converter_decodes_legacy_tracecat_agent_config_as_agent_config_payload() -> (

@@ -14,6 +14,7 @@ from tracecat_ee.agent.activities import (
     BuildAgentToolDefsResult,
     BuildToolDefsResult,
 )
+from tracecat_ee.agent.schemas import AgentActionArgs
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 from tests.shared import to_data
@@ -37,6 +38,10 @@ from tracecat.agent.worker import (
     new_sandbox_runner as new_agent_sandbox_runner,
 )
 from tracecat.auth.types import Role
+from tracecat.dsl.action import (
+    BuildAgentArgsActivityInput,
+    FinalizeSlackbotActivityInput,
+)
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.worker import get_activities as get_dsl_worker_activities
@@ -146,6 +151,64 @@ def create_mock_build_tool_definitions_activity() -> Callable[..., Any]:
     return mock_build_tool_definitions
 
 
+def create_mock_build_agent_args_activity(
+    captured_inputs: list[BuildAgentArgsActivityInput],
+) -> Callable[..., Any]:
+    @activity.defn(name="build_agent_args_activity")
+    async def mock_build_agent_args_activity(
+        input: BuildAgentArgsActivityInput,
+    ) -> AgentActionArgs:
+        captured_inputs.append(input)
+        return AgentActionArgs(
+            user_prompt="Investigate this alert",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            mcp_servers=[
+                {
+                    "type": "http",
+                    "name": "github",
+                    "url": "https://example.test/mcp",
+                    "id": "00000000-0000-0000-0000-000000000001",
+                }
+            ],
+        )
+
+    return mock_build_agent_args_activity
+
+
+def create_mock_slackbot_agent_args_activity() -> Callable[..., Any]:
+    @activity.defn(name="build_agent_args_activity")
+    async def mock_build_agent_args_activity(
+        input: BuildAgentArgsActivityInput,
+    ) -> AgentActionArgs:
+        assert input.action == "ai.slackbot"
+        return AgentActionArgs(
+            user_prompt="Prepared Slack prompt",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            actions=["tools.slack.post_message"],
+            interface_context={
+                "channel_id": "C01234567",
+                "thread_ts": None,
+                "ts": "1700000000.000001",
+            },
+        )
+
+    return mock_build_agent_args_activity
+
+
+def create_mock_finalize_slackbot_activity(
+    captured_inputs: list[FinalizeSlackbotActivityInput],
+) -> Callable[..., Any]:
+    @activity.defn(name="finalize_slackbot_activity")
+    async def mock_finalize_slackbot_activity(
+        input: FinalizeSlackbotActivityInput,
+    ) -> None:
+        captured_inputs.append(input)
+
+    return mock_finalize_slackbot_activity
+
+
 def create_mock_run_agent_activity(*, output: str) -> Callable[..., Any]:
     @activity.defn(name="run_agent_activity")
     async def mock_run_agent_activity(
@@ -248,6 +311,153 @@ class TestDSLAgentWiring:
 
         data = await to_data(result)
         assert data["output"] == "dsl-agent-wired"
+
+    @pytest.mark.anyio
+    @pytest.mark.integration
+    async def test_mcp_agent_interface_executes_on_agent_worker(
+        self,
+        test_role: Role,
+        temporal_client: Client,
+        test_worker_factory: Callable[..., Worker],
+        agent_worker_factory: Callable[..., Worker],
+    ) -> None:
+        captured_inputs: list[BuildAgentArgsActivityInput] = []
+        dsl_activities = _replace_activity(
+            list(get_dsl_worker_activities()),
+            create_mock_build_agent_args_activity(captured_inputs),
+        )
+        agent_activities = list(get_agent_worker_activities())
+        for replacement in (
+            create_mock_create_session_activity(),
+            create_mock_load_session_activity(),
+            create_mock_load_session_messages_activity(),
+            create_mock_build_tool_definitions_activity(),
+        ):
+            agent_activities = _replace_activity(agent_activities, replacement)
+        agent_activities.append(
+            create_mock_run_agent_activity(output="mcp-interface-wired")
+        )
+
+        dsl = DSLInput(
+            title="MCP agent interface wiring",
+            description="Verify MCP agent actions spawn a child agent workflow",
+            entrypoint=DSLEntrypoint(ref="agent"),
+            actions=[
+                ActionStatement(
+                    ref="agent",
+                    action="tools.github.mcp",
+                    args={
+                        "user_prompt": "Investigate this alert",
+                        "instructions": "Return a concise result",
+                        "model_name": "gpt-4o-mini",
+                        "model_provider": "openai",
+                    },
+                )
+            ],
+            returns="${{ ACTIONS.agent.result }}",
+        )
+        wf_id = WorkflowUUID.new_uuid4()
+
+        async with test_worker_factory(
+            temporal_client,
+            activities=dsl_activities,
+        ):
+            async with agent_worker_factory(
+                temporal_client,
+                task_queue=config.TRACECAT__AGENT_QUEUE,
+                activities=agent_activities,
+            ):
+                result = await temporal_client.execute_workflow(
+                    DSLWorkflow.run,
+                    DSLRunArgs(dsl=dsl, role=test_role, wf_id=wf_id),
+                    id=generate_exec_id(wf_id),
+                    task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                    execution_timeout=timedelta(seconds=60),
+                )
+
+        data = await to_data(result)
+        assert data["output"] == "mcp-interface-wired"
+        assert len(captured_inputs) == 1
+        assert captured_inputs[0].action == "tools.github.mcp"
+
+    @pytest.mark.anyio
+    @pytest.mark.integration
+    async def test_slackbot_interface_executes_and_finalizes_on_agent_worker(
+        self,
+        test_role: Role,
+        temporal_client: Client,
+        test_worker_factory: Callable[..., Worker],
+        agent_worker_factory: Callable[..., Worker],
+    ) -> None:
+        finalized: list[FinalizeSlackbotActivityInput] = []
+        dsl_activities = _replace_activity(
+            list(get_dsl_worker_activities()),
+            create_mock_slackbot_agent_args_activity(),
+        )
+        dsl_activities = _replace_activity(
+            dsl_activities,
+            create_mock_finalize_slackbot_activity(finalized),
+        )
+        agent_activities = list(get_agent_worker_activities())
+        for replacement in (
+            create_mock_create_session_activity(),
+            create_mock_load_session_activity(),
+            create_mock_load_session_messages_activity(),
+            create_mock_build_tool_definitions_activity(),
+        ):
+            agent_activities = _replace_activity(agent_activities, replacement)
+        agent_activities.append(
+            create_mock_run_agent_activity(output="slackbot-interface-wired")
+        )
+
+        dsl = DSLInput(
+            title="Slackbot interface wiring",
+            description="Verify Slackbot spawns and finalizes a child agent workflow",
+            entrypoint=DSLEntrypoint(ref="agent"),
+            actions=[
+                ActionStatement(
+                    ref="agent",
+                    action="ai.slackbot",
+                    args={
+                        "event": None,
+                        "prompt": "Investigate this alert",
+                        "instructions": "Reply in the channel",
+                        "channel_id": "C01234567",
+                        "model": {
+                            "model_name": "gpt-4o-mini",
+                            "model_provider": "openai",
+                        },
+                    },
+                )
+            ],
+            returns="${{ ACTIONS.agent.result }}",
+        )
+        wf_id = WorkflowUUID.new_uuid4()
+
+        async with test_worker_factory(
+            temporal_client,
+            activities=dsl_activities,
+        ):
+            async with agent_worker_factory(
+                temporal_client,
+                task_queue=config.TRACECAT__AGENT_QUEUE,
+                activities=agent_activities,
+            ):
+                result = await temporal_client.execute_workflow(
+                    DSLWorkflow.run,
+                    DSLRunArgs(dsl=dsl, role=test_role, wf_id=wf_id),
+                    id=generate_exec_id(wf_id),
+                    task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                    execution_timeout=timedelta(seconds=60),
+                )
+
+        data = await to_data(result)
+        assert data["output"] == "slackbot-interface-wired"
+        assert len(finalized) == 1
+        assert finalized[0].succeeded is True
+        assert finalized[0].interface_context["channel_id"] == "C01234567"
 
     @pytest.mark.anyio
     @pytest.mark.integration

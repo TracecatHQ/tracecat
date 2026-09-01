@@ -21,7 +21,6 @@ import tracecat_ee.agent.workflows.durable as durable_workflow_module
 
 pytestmark = [pytest.mark.temporal, pytest.mark.usefixtures("db")]
 
-from pydantic_ai.tools import ToolApproved, ToolDenied
 from temporalio import activity
 from temporalio import workflow as temporal_workflow
 from temporalio.api.enums.v1 import EventType
@@ -98,7 +97,7 @@ from tracecat.agent.subagents import (
     ResolvedAttachedSubagentRef,
 )
 from tracecat.agent.tokens import UserMCPServerClaim
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, ToolApproved, ToolDenied
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -3014,9 +3013,4 @@ class TestAgentWorkflowStateManagement:
     async def test_workflow_tracks_turns(self) -> None:
         """Test that workflow properly increments turn counter."""
         # This would be tested in full integration tests
-        pass
-
-    async def test_workflow_handles_max_turns(self) -> None:
-        """Test that workflow respects max turns limit (when implemented)."""
-        # Feature not yet implemented but should be tested when added
         pass

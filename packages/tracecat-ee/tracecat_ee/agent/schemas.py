@@ -69,6 +69,7 @@ class AgentActionArgs(BaseModel):
     base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
+    interface_context: dict[str, Any] | None = None
 
     @field_validator("agents", mode="before")
     @classmethod

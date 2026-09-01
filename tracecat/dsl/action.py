@@ -17,6 +17,7 @@ from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
 from tracecat.common import is_iterable
+from tracecat.contexts import ctx_role
 from tracecat.dsl.common import (
     MAX_LOOP_ITERATIONS,
     DSLInput,
@@ -25,7 +26,10 @@ from tracecat.dsl.common import (
     ResolvedSubflowBatch,
     ResolvedSubflowConfig,
 )
-from tracecat.dsl.enums import StreamErrorHandlingStrategy
+from tracecat.dsl.enums import (
+    MCP_AGENT_ACTION_PROVIDER_IDS,
+    StreamErrorHandlingStrategy,
+)
 from tracecat.dsl.error_transport import is_classified_action_error_payload
 from tracecat.dsl.schemas import (
     ActionStatement,
@@ -47,6 +51,7 @@ from tracecat.exceptions import (
     TracecatExpressionError,
     TracecatValidationError,
 )
+from tracecat.executor import registry_resolver
 from tracecat.executor.service import get_workspace_variables
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
@@ -59,6 +64,7 @@ from tracecat.expressions.eval import (
 from tracecat.expressions.schemas import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.mcp_validation import MCPValidationError
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
@@ -67,6 +73,7 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
+from tracecat.secrets import secrets_manager
 from tracecat.storage.collection import (
     materialize_collection_values,
     store_collection,
@@ -137,6 +144,127 @@ async def _resolve_mcp_integrations(
     except (MCPValidationError, TracecatValidationError) as e:
         raise TracecatValidationError(str(e)) from None
     return servers or []
+
+
+async def _resolve_mcp_agent_action(
+    action: str, *, role: Role
+) -> list[MCPServerConfig] | None:
+    """Resolve a legacy MCP agent action to its workspace MCP integration."""
+    provider_id = MCP_AGENT_ACTION_PROVIDER_IDS.get(action)
+    if provider_id is None:
+        return None
+
+    async with AgentPresetService.with_session(role=role) as preset_service:
+        integrations_service = IntegrationService(
+            preset_service.session,
+            role=role,
+        )
+        integrations = await integrations_service.list_mcp_integrations()
+        matches = [
+            integration
+            for integration in integrations
+            if (
+                integration.oauth_integration is not None
+                and integration.oauth_integration.provider_id == provider_id
+            )
+            or integration.slug == provider_id
+        ]
+        if role.user_id is not None:
+            user_matches = [
+                integration
+                for integration in matches
+                if integration.oauth_integration is not None
+                and integration.oauth_integration.user_id == role.user_id
+            ]
+            if user_matches:
+                matches = user_matches
+
+        if not matches:
+            raise ApplicationError(
+                f"MCP integration {provider_id!r} is not configured",
+                non_retryable=True,
+                type="MCPIntegrationNotFoundError",
+            )
+        if len(matches) > 1:
+            raise ApplicationError(
+                f"MCP integration {provider_id!r} is ambiguous",
+                non_retryable=True,
+                type="MCPIntegrationAmbiguousError",
+            )
+
+        servers = await preset_service.resolve_mcp_integration_refs(
+            [str(matches[0].id)]
+        )
+        return servers or []
+
+
+async def _slackbot_secret_context(
+    *, role: Role, registry_lock: RegistryLock | None
+) -> dict[str, str]:
+    if registry_lock is None:
+        raise ApplicationError(
+            "Registry lock is required for the Slackbot interface",
+            non_retryable=True,
+        )
+    if role.organization_id is None:
+        raise ApplicationError(
+            "Organization is required for the Slackbot interface",
+            non_retryable=True,
+        )
+
+    role_token = ctx_role.set(role)
+    try:
+        await registry_resolver.prefetch_lock(registry_lock, role.organization_id)
+        action_secrets = await registry_resolver.collect_action_secrets_from_manifest(
+            "ai.slackbot",
+            registry_lock,
+            role.organization_id,
+        )
+        resolved = await secrets_manager.get_action_secrets(
+            secret_exprs=set(),
+            action_secrets=action_secrets,
+        )
+    finally:
+        ctx_role.reset(role_token)
+    slack = resolved.get("slack")
+    if not isinstance(slack, dict) or not isinstance(
+        token := slack.get("SLACK_BOT_TOKEN"), str
+    ):
+        raise ApplicationError(
+            "Slack bot credentials are not configured",
+            non_retryable=True,
+            type="SlackCredentialsError",
+        )
+    return {"SLACK_BOT_TOKEN": token}
+
+
+async def _prepare_slackbot_agent_action(
+    evaled_args: dict[str, Any], *, input: BuildAgentArgsActivityInput
+) -> dict[str, Any]:
+    from tracecat_registry import secrets as registry_secrets
+    from tracecat_registry.integrations.agents.slack import prepare_slackbot
+
+    secret_context = await _slackbot_secret_context(
+        role=input.role,
+        registry_lock=input.registry_lock,
+    )
+    token = registry_secrets.set_context(secret_context)
+    try:
+        prepared = await prepare_slackbot(
+            event=evaled_args.get("event"),
+            prompt=evaled_args["prompt"],
+            instructions=evaled_args["instructions"],
+            channel_id=evaled_args["channel_id"],
+            actions=evaled_args.get("actions"),
+            limit_messages=evaled_args.get("limit_messages", 5),
+        )
+    finally:
+        registry_secrets.reset_context(token)
+
+    for key in ("event", "prompt", "channel_id", "limit_messages"):
+        evaled_args.pop(key, None)
+    evaled_args.update(prepared)
+    return evaled_args
 
 
 def _strip_string_values(args: dict[str, Any]) -> dict[str, Any]:
@@ -222,11 +350,20 @@ class FinalizeGatherActivityResult(BaseModel):
 
 
 class BuildAgentArgsActivityInput(BaseModel):
+    action: str = "ai.agent"
     args: dict[str, Any]
     operand: ExecutionContext
     role: Role
     task_environment: str | None
     default_environment: str
+    registry_lock: RegistryLock | None = None
+
+
+class FinalizeSlackbotActivityInput(BaseModel):
+    role: Role
+    registry_lock: RegistryLock
+    interface_context: dict[str, Any]
+    succeeded: bool
 
 
 class EvaluateTemplatedObjectActivityInput(BaseModel):
@@ -824,11 +961,42 @@ class DSLActivities:
         """Build AgentActionArgs via the shared _evaluate_agent_args helper."""
         with activity_error_boundary(_agent_preparation_error_classification):
             evaled_args = await _evaluate_agent_args(input)
+            if input.action == "ai.slackbot":
+                evaled_args = await _prepare_slackbot_agent_action(
+                    evaled_args,
+                    input=input,
+                )
             if mcp_integration_ids := evaled_args.pop("mcp_integrations", None):
                 evaled_args["mcp_servers"] = await _resolve_mcp_integrations(
                     mcp_integration_ids, role=input.role
                 )
+            elif mcp_servers := await _resolve_mcp_agent_action(
+                input.action,
+                role=input.role,
+            ):
+                evaled_args["mcp_servers"] = mcp_servers
             return AgentActionArgs(**evaled_args)
+
+    @staticmethod
+    @activity.defn
+    async def finalize_slackbot_activity(
+        input: FinalizeSlackbotActivityInput,
+    ) -> None:
+        from tracecat_registry import secrets as registry_secrets
+        from tracecat_registry.integrations.agents.slack import finalize_slackbot
+
+        secret_context = await _slackbot_secret_context(
+            role=input.role,
+            registry_lock=input.registry_lock,
+        )
+        token = registry_secrets.set_context(secret_context)
+        try:
+            await finalize_slackbot(
+                input.interface_context,
+                succeeded=input.succeeded,
+            )
+        finally:
+            registry_secrets.reset_context(token)
 
     @staticmethod
     @activity.defn

@@ -1,5 +1,15 @@
 from enum import StrEnum, auto
 
+MCP_AGENT_ACTION_PROVIDER_IDS = {
+    "tools.github.mcp": "github_mcp",
+    "tools.jira.mcp": "jira_mcp",
+    "tools.linear.mcp": "linear_mcp",
+    "tools.notion.mcp": "notion_mcp",
+    "tools.runreveal.mcp": "runreveal_mcp",
+    "tools.sentry.mcp": "sentry_mcp",
+    "tools.wiz.mcp": "wiz_mcp",
+}
+
 
 class PlatformAction(StrEnum):
     CHILD_WORKFLOW_EXECUTE = "core.workflow.execute"
@@ -10,23 +20,25 @@ class PlatformAction(StrEnum):
     AI_AGENT = "ai.agent"
     AI_PRESET_AGENT = "ai.preset_agent"
     AI_ACTION = "ai.action"
+    AI_SLACKBOT = "ai.slackbot"
     RUN_PYTHON = "core.script.run_python"
 
     @classmethod
     def is_agent(cls, action: str) -> bool:
-        return action in (
-            cls.AI_AGENT,
-            cls.AI_PRESET_AGENT,
-            cls.AI_ACTION,
+        return (
+            action
+            in (
+                cls.AI_AGENT,
+                cls.AI_PRESET_AGENT,
+                cls.AI_ACTION,
+                cls.AI_SLACKBOT,
+            )
+            or action in MCP_AGENT_ACTION_PROVIDER_IDS
         )
 
     @classmethod
     def is_streamable(cls, action: str) -> bool:
-        return action in (
-            cls.AI_AGENT,
-            cls.AI_PRESET_AGENT,
-            cls.AI_ACTION,
-        )
+        return cls.is_agent(action)
 
     @classmethod
     def interface_actions(cls) -> frozenset[str]:
@@ -40,7 +52,9 @@ class PlatformAction(StrEnum):
                 cls.AI_AGENT,
                 cls.AI_PRESET_AGENT,
                 cls.AI_ACTION,
+                cls.AI_SLACKBOT,
                 cls.RUN_PYTHON,
+                *MCP_AGENT_ACTION_PROVIDER_IDS,
             )
         )
 
