@@ -371,9 +371,10 @@ autolabeler:
     title:
       - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?!(?:agent-harness|case-triggers|observability|core-actions|integrations|organization|deployments|expressions|integration|invitations|enterprise|pagination|workspaces|admin-cli|approvals|artifacts|functions|migration|playbooks|scheduler|terraform|workflows|workspace|executor|frontend|playbook|registry|settings|temporal|tracecat|webhooks|workflow|actions|cluster|fargate|logging|prompts|runtime|sandbox|secrets|service|storage|workers|agents|canvas|claude|config|deploy|docker|engine|skills|tables|worker|admin|agent|audit|authz|build|cases|chart|inbox|infra|table|tiers|tools|auth|case|chat|core|deps|docs|helm|rbac|saml|sync|udfs|api|app|aws|cdk|cli|dev|dsl|eks|git|k8s|mcp|org|udf|vcs|ai|db|ee|ui|ux)\))[a-z0-9_-]+\)!?: /'
 
-# Rewrite historical scope spellings to canonical ones in the rendered notes,
-# so a release reads with one vocabulary. The type prefix stays visible: it is
-# the fastest signal a reader has for what kind of change a line is.
+# Presentation. Two passes: rewrite historical scope spellings to canonical
+# ones so a release reads with one vocabulary, then capitalize each
+# description. The type prefix stays visible and stays lowercase: it is the
+# fastest signal a reader has for what kind of change a line is.
 # Compound scopes are left alone; they are rare and already canonical.
 replacers:
   # -> (actions)
@@ -418,6 +419,70 @@ replacers:
   # -> (ui)
   - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:frontend|canvas|ux)\)(!?): /gm'
     replace: '- $1$2(ui)$3: '
+
+  # Capitalize the description. Replacers are plain JavaScript
+  # `String.replace`, and JS has no case-folding escape in a replacement
+  # string, so this is 26 rules rather than one. The prefix group is captured
+  # in a lookahead and replayed with `\1` to make it atomic: left optional it
+  # backtracks to empty and capitalizes the type instead of the description.
+  # Both the bot prefix and the conventional-commit prefix stay lowercase;
+  # only the description's first letter moves. The scope is `[^)\n]` and not
+  # `[^)]` because a character class matches newlines and a scope never spans
+  # one. The trailing lookahead spares a description that opens on a code
+  # identifier (regex_extract, tools.x, next.js), which reads as a typo once
+  # capitalized.
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1a(?!\w*[_.])/gm'
+    replace: '- $1A'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1b(?!\w*[_.])/gm'
+    replace: '- $1B'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1c(?!\w*[_.])/gm'
+    replace: '- $1C'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1d(?!\w*[_.])/gm'
+    replace: '- $1D'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1e(?!\w*[_.])/gm'
+    replace: '- $1E'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1f(?!\w*[_.])/gm'
+    replace: '- $1F'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1g(?!\w*[_.])/gm'
+    replace: '- $1G'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1h(?!\w*[_.])/gm'
+    replace: '- $1H'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1i(?!\w*[_.])/gm'
+    replace: '- $1I'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1j(?!\w*[_.])/gm'
+    replace: '- $1J'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1k(?!\w*[_.])/gm'
+    replace: '- $1K'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1l(?!\w*[_.])/gm'
+    replace: '- $1L'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1m(?!\w*[_.])/gm'
+    replace: '- $1M'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1n(?!\w*[_.])/gm'
+    replace: '- $1N'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1o(?!\w*[_.])/gm'
+    replace: '- $1O'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1p(?!\w*[_.])/gm'
+    replace: '- $1P'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1q(?!\w*[_.])/gm'
+    replace: '- $1Q'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1r(?!\w*[_.])/gm'
+    replace: '- $1R'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1s(?!\w*[_.])/gm'
+    replace: '- $1S'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1t(?!\w*[_.])/gm'
+    replace: '- $1T'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1u(?!\w*[_.])/gm'
+    replace: '- $1U'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1v(?!\w*[_.])/gm'
+    replace: '- $1V'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1w(?!\w*[_.])/gm'
+    replace: '- $1W'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1x(?!\w*[_.])/gm'
+    replace: '- $1X'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1y(?!\w*[_.])/gm'
+    replace: '- $1Y'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1z(?!\w*[_.])/gm'
+    replace: '- $1Z'
 
 template: |
   $CHANGES

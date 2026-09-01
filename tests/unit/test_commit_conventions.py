@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import re
+import string
 from pathlib import Path
 from typing import Final
 
@@ -75,6 +76,43 @@ def autolabel(title: str) -> frozenset[str]:
     return frozenset(
         label for label, pattern in AUTOLABEL_RULES if pattern.search(title)
     )
+
+
+# `replacers:` runs last, on the rendered body, so it is the only part of the
+# pipeline a reader sees directly. Release Drafter applies each rule with
+# JavaScript `String.prototype.replace`; these two helpers restate that in
+# Python `re` so the rules can be exercised without a release.
+JS_BACKREFERENCE: Final = re.compile(r"\$(\d+)")
+
+
+def _replacer_rules() -> tuple[tuple[re.Pattern[str], str, int], ...]:
+    rules: list[tuple[re.Pattern[str], str, int]] = []
+    for rule in DRAFTER["replacers"]:
+        match = JS_REGEX.match(str(rule["search"]))
+        assert match is not None, rule["search"]
+        flags = match.group("flags")
+        rules.append(
+            (
+                re.compile(
+                    match.group("pattern"),
+                    (re.MULTILINE if "m" in flags else 0)
+                    | (re.IGNORECASE if "i" in flags else 0),
+                ),
+                JS_BACKREFERENCE.sub(r"\\g<\1>", str(rule["replace"])),
+                0 if "g" in flags else 1,
+            )
+        )
+    return tuple(rules)
+
+
+REPLACER_RULES: Final = _replacer_rules()
+
+
+def render(body: str) -> str:
+    """The release body after every replacer has been applied, in order."""
+    for pattern, replacement, count in REPLACER_RULES:
+        body = pattern.sub(replacement, body, count=count)
+    return body
 
 
 def category_labels() -> frozenset[str]:
@@ -244,6 +282,91 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
         for node in module.body
     )
     assert not imports_yaml
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        pytest.param(
+            "- feat(integrations): add Recorded Future registry templates (#3348)",
+            "- feat(integrations): Add Recorded Future registry templates (#3348)",
+            id="prefix-stays-lowercase",
+        ),
+        pytest.param(
+            "- feat(registry): add plaintext alternative body (#3339)",
+            "- feat(integrations): Add plaintext alternative body (#3339)",
+            id="alias-and-capital-in-one-pass",
+        ),
+        pytest.param(
+            "- [codex] chore(deps): bump orjson (#3200)",
+            "- [codex] chore(deps): Bump orjson (#3200)",
+            id="bot-prefix-is-not-the-description",
+        ),
+        pytest.param(
+            "- feat(api)!: drop the v1 webhook payload (#3000)",
+            "- feat(api)!: Drop the v1 webhook payload (#3000)",
+            id="bang-survives",
+        ),
+        pytest.param(
+            "- fix: return 404 for missing workspaces (#3100)",
+            "- fix: Return 404 for missing workspaces (#3100)",
+            id="no-scope",
+        ),
+        pytest.param(
+            "- add plaintext alternative body (#2000)",
+            "- Add plaintext alternative body (#2000)",
+            id="pre-cutoff-title-has-no-prefix",
+        ),
+        pytest.param(
+            '- Revert "feat(mcp): add internal OIDC issuer" (#2900)',
+            '- Revert "feat(mcp): add internal OIDC issuer" (#2900)',
+            id="already-capital",
+        ),
+        pytest.param(
+            "- fix(functions): regex_extract corner case (#2800)",
+            "- fix(functions): regex_extract corner case (#2800)",
+            id="identifier-holds-an-underscore",
+        ),
+        pytest.param(
+            "- deprecation(integrations): tools.x in favour of tools.y (#2700)",
+            "- deprecation(integrations): tools.x in favour of tools.y (#2700)",
+            id="identifier-holds-a-dot",
+        ),
+    ],
+)
+def test_replacers_render_the_line(line: str, expected: str) -> None:
+    assert render(line) == expected
+
+
+def test_replacers_anchor_per_line() -> None:
+    """The `m` flag is what keeps a rule from rewriting only the first line."""
+    body = "\n".join(
+        (
+            "## Integrations",
+            "",
+            "- feat(registry): add a saved search export (#3400)",
+            "- fix(functions): regex_extract corner case (#2800)",
+            "",
+            "## Fixes",
+            "- fix(app): return 404 for missing workspaces (#3100)",
+        )
+    )
+    assert render(body).splitlines() == [
+        "## Integrations",
+        "",
+        "- feat(integrations): Add a saved search export (#3400)",
+        "- fix(functions): regex_extract corner case (#2800)",
+        "",
+        "## Fixes",
+        "- fix(app): Return 404 for missing workspaces (#3100)",
+    ]
+
+
+@pytest.mark.parametrize("letter", string.ascii_lowercase)
+def test_every_letter_has_a_capitalization_rule(letter: str) -> None:
+    """JS has no case-folding escape, so a dropped letter fails silently."""
+    line = f"- feat(api): {letter}xample change (#1)"
+    assert render(line) == f"- feat(api): {letter.upper()}xample change (#1)"
 
 
 # `scripts/audit_commit_conventions.py` resolves labels in Python instead of by
