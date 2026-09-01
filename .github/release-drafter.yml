@@ -547,60 +547,80 @@ replacers:
   # Both the bot prefix and the conventional-commit prefix stay lowercase;
   # only the description's first letter moves. The scope is `[^)\n]` and not
   # `[^)]` because a character class matches newlines and a scope never spans
-  # one. The trailing lookahead spares a description that opens on a code
-  # identifier (regex_extract, tools.x, next.js), which reads as a typo once
-  # capitalized.
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1a(?!\w*[_.])/gm'
+  # one.
+  #
+  # The guard in front of the letter spares a first word whose casing the
+  # author already chose. Three shapes, each of which reads as a typo once
+  # capitalized:
+  #
+  #   `_` or `.`       a code identifier: regex_extract, tools.x, next.js
+  #   an inner capital the author cased it themselves: gRPC, iOS
+  #   the list below   a name that is lowercase or all-caps, never Title case
+  #
+  # Shape alone cannot tell `mcp` (wants MCP) from `add` (wants Add), so the
+  # third one is an explicit list. It is closed and evidence-backed: every
+  # entry is either a scope or label name from `.github/commit-conventions.toml`
+  # or a tool or protocol that has actually opened a description in `git log`.
+  # A trailing `(?!\w)` keeps it to whole words, so `pnpm-workspace` is spared
+  # and `patch` is not.
+  #
+  #   aioboto3 api authz aws cdk chmod cli db dsl dtype ee eks kubectl
+  #   litellm llm mcp nsjail oidc otel pat pipx pnpm pymongo rbac saml
+  #   sqlalchemy stdio tf udf udfs ui uv ux vcs vt
+  #
+  # `k8s`, `docker` and `okta` are deliberately absent. Title case is their
+  # correct spelling, so the capitalizer should keep running on them.
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))a/gm'
     replace: '- $1A'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1b(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))b/gm'
     replace: '- $1B'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1c(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))c/gm'
     replace: '- $1C'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1d(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))d/gm'
     replace: '- $1D'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1e(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))e/gm'
     replace: '- $1E'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1f(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))f/gm'
     replace: '- $1F'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1g(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))g/gm'
     replace: '- $1G'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1h(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))h/gm'
     replace: '- $1H'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1i(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))i/gm'
     replace: '- $1I'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1j(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))j/gm'
     replace: '- $1J'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1k(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))k/gm'
     replace: '- $1K'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1l(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))l/gm'
     replace: '- $1L'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1m(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))m/gm'
     replace: '- $1M'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1n(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))n/gm'
     replace: '- $1N'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1o(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))o/gm'
     replace: '- $1O'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1p(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))p/gm'
     replace: '- $1P'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1q(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))q/gm'
     replace: '- $1Q'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1r(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))r/gm'
     replace: '- $1R'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1s(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))s/gm'
     replace: '- $1S'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1t(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))t/gm'
     replace: '- $1T'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1u(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))u/gm'
     replace: '- $1U'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1v(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))v/gm'
     replace: '- $1V'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1w(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))w/gm'
     replace: '- $1W'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1x(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))x/gm'
     replace: '- $1X'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1y(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))y/gm'
     replace: '- $1Y'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1z(?!\w*[_.])/gm'
+  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))z/gm'
     replace: '- $1Z'
 
 template: |

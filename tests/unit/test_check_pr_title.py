@@ -146,8 +146,13 @@ def _suggestion_cases() -> list[tuple[str, str]]:
     return cases
 
 
+SUGGESTION_CASES: list[tuple[str, str]] = _suggestion_cases()
+
+
 @pytest.mark.parametrize(
-    ("source", "title"), _suggestion_cases(), ids=[c[0] for c in _suggestion_cases()]
+    ("source", "title"),
+    SUGGESTION_CASES,
+    ids=[source for source, _ in SUGGESTION_CASES],
 )
 def test_every_suggestion_is_itself_valid(source: str, title: str) -> None:
     """An error message that names an invalid replacement sends the author round twice.

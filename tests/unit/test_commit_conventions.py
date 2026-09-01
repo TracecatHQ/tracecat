@@ -407,6 +407,37 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
             "- deprecation(integrations): tools.x in favour of tools.y (#2700)",
             id="identifier-holds-a-dot",
         ),
+        # The four below are live corruptions in published release bodies.
+        pytest.param(
+            "- feat(integrations): gRPC client (#1830)",
+            "- feat(integrations): gRPC client (#1830)",
+            id="inner-capital-is-the-author-s-choice",
+        ),
+        pytest.param(
+            "- feat(agents): mcp support for ai agents (#2609)",
+            "- feat(agents): mcp support for ai agents (#2609)",
+            id="scope-name-used-as-a-word",
+        ),
+        pytest.param(
+            "- ci(fix): uv venv install in registry install job",
+            "- ci(fix): uv venv install in registry install job",
+            id="tool-name-that-is-never-capitalized",
+        ),
+        pytest.param(
+            "- fix(infra): saml secrets arn policy",
+            "- fix(infra): saml secrets arn policy",
+            id="acronym-a-capital-letter-would-only-half-fix",
+        ),
+        pytest.param(
+            "- build(deps): patch dependabot alerts (#3192)",
+            "- build(deps): Patch dependabot alerts (#3192)",
+            id="ordinary-opener-that-starts-with-a-listed-name",
+        ),
+        pytest.param(
+            "- feat(integrations): k8s exec pods (#1039)",
+            "- feat(integrations): K8s exec pods (#1039)",
+            id="title-case-is-this-name-s-own-spelling",
+        ),
     ],
 )
 def test_replacers_render_the_line(line: str, expected: str) -> None:
