@@ -236,6 +236,12 @@ variable "otel_exporter_otlp_headers_arn" {
   default     = null
 }
 
+variable "audit_trusted_proxy_cidrs" {
+  type        = string
+  description = "Comma-separated CIDRs the API treats as its own proxy hops when resolving audit client IPs. Empty uses the built-in private-range default."
+  default     = ""
+}
+
 variable "log_level" {
   type        = string
   description = "Log level for the application"

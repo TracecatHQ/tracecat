@@ -21,6 +21,7 @@ services:
       - ${API_PORT:-8000}:8000
     environment:
       # App
+      TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS: ${TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS:-}
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
       TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}
@@ -504,6 +505,7 @@ services:
       target: development
     restart: on-failure:3
     environment:
+      TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS: ${TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS:-}
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
       TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}

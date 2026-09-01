@@ -29,6 +29,7 @@ services:
       - core-db
     environment:
       # App
+      TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS: ${TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS:-}
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
       TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}
@@ -526,6 +527,7 @@ services:
       - core-db
       - temporal
     environment:
+      TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS: ${TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS:-}
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
       TRACECAT__APP_ENV: production
