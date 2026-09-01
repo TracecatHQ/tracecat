@@ -41,17 +41,23 @@ _RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR_PATCH = (
 )
 
 
+class _SentryWrappedWorkflowError(ApplicationError):
+    """Mark Sentry's internal wrapper without changing its Temporal payload."""
+
+
 def _unclassified_retry_disposition(error: BaseException) -> RetryDisposition:
     """Preserve explicit Temporal retryability without guessing for raw errors."""
-    source_error = tuple(iter_error_chain(error, include_implicit_context=False))[-1]
-    if isinstance(source_error, ApplicationError):
-        return (
-            RetryDisposition.NON_RETRYABLE
-            if source_error.non_retryable
-            else RetryDisposition.RETRYABLE
-        )
-    if isinstance(source_error, TemporalTimeoutError):
-        return RetryDisposition.RETRYABLE
+    for current in iter_error_chain(error, include_implicit_context=False):
+        if isinstance(current, _SentryWrappedWorkflowError):
+            continue
+        if isinstance(current, ApplicationError):
+            return (
+                RetryDisposition.NON_RETRYABLE
+                if current.non_retryable
+                else RetryDisposition.RETRYABLE
+            )
+        if isinstance(current, TemporalTimeoutError):
+            return RetryDisposition.RETRYABLE
     return RetryDisposition.NON_RETRYABLE
 
 
@@ -166,7 +172,7 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                 logger.debug(
                     "Reraising exception as ApplicationError to fail workflow gracefully"
                 )
-                raise ApplicationError(str(e)) from e
+                raise _SentryWrappedWorkflowError(str(e)) from e
 
 
 class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
