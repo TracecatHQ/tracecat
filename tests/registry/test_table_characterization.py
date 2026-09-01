@@ -566,6 +566,69 @@ class TestUpdateRow:
         # updated_at should be >= original (may be same if very fast)
         assert result["updated_at"] >= original_updated_at
 
+    async def test_update_row_preserves_null_for_text_column(
+        self, db, session: AsyncSession, table_ctx: Role, test_table_name: str
+    ):
+        """Updating a TEXT column to None stores SQL NULL, not the string "None"."""
+        columns = [{"name": "email", "type": "TEXT"}]
+        await create_table(name=test_table_name, columns=columns)
+        inserted = await insert_row(
+            table=test_table_name,
+            row_data={"email": "test@example.com"},
+        )
+
+        result = await update_row(
+            table=test_table_name,
+            row_id=str(inserted["id"]),
+            row_data={"email": None},
+        )
+
+        assert result["email"] is None
+
+
+# =============================================================================
+# insert_row / insert_rows consistency characterization tests
+# =============================================================================
+
+
+@pytest.mark.anyio
+class TestInsertRowNullTextConsistency:
+    """insert_row and insert_rows must agree on how a null TEXT value is stored."""
+
+    async def test_insert_row_preserves_null_for_text_column(
+        self, db, session: AsyncSession, table_ctx: Role, test_table_name: str
+    ):
+        """insert_row with a None TEXT value stores SQL NULL, not the string "None"."""
+        columns = [{"name": "email", "type": "TEXT"}]
+        await create_table(name=test_table_name, columns=columns)
+
+        result = await insert_row(
+            table=test_table_name,
+            row_data={"email": None},
+        )
+
+        assert result["email"] is None
+
+    async def test_insert_row_and_insert_rows_agree_on_null_text(
+        self, db, session: AsyncSession, table_ctx: Role, test_table_name: str
+    ):
+        """insert_row and insert_rows must store the same value for a None TEXT
+        column. Before the fix, insert_row stored the string "None" while
+        insert_rows (batch_insert_rows) stored real SQL NULL for the same input.
+        """
+        columns = [{"name": "email", "type": "TEXT"}]
+        await create_table(name=test_table_name, columns=columns)
+
+        single = await insert_row(table=test_table_name, row_data={"email": None})
+        await insert_rows(table=test_table_name, rows_data=[{"email": None}])
+
+        rows = await search_rows(table=test_table_name)
+        assert isinstance(rows, list)
+        batch_row = next(r for r in rows if r["id"] != single["id"])
+
+        assert single["email"] is None
+        assert batch_row["email"] is None
+
 
 # =============================================================================
 # delete_row characterization tests
