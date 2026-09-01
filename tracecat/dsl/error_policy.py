@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, Never
 
-from temporalio.exceptions import ApplicationError, is_cancelled_exception
+from temporalio.exceptions import (
+    ApplicationError,
+    is_cancelled_exception,
+)
 
 from tracecat.dsl.error_transport import parse_classified_action_error_payload
 from tracecat.dsl.types import ActionErrorInfo, TaskExceptionInfo

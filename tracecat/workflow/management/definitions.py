@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from pydantic import ValidationError
 from sqlalchemy import case, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowDefinition
@@ -11,6 +11,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
+    RegistryLockInvalidDataError,
     TracecatValidationError,
 )
 from tracecat.identifiers.workflow import WorkflowID
@@ -245,18 +246,37 @@ async def resolve_registry_lock_activity(
         async with RegistryLockService.with_session(role=input.role) as service:
             lock = await service.resolve_lock_with_bindings(input.action_names)
     except BuiltinRegistryHasNoSelectionError as e:
-        raise ApplicationError(
-            str(e),
-            e.detail,
-            type=e.__class__.__name__,
-        ) from e
+        classification = RuntimeErrorClassification.platform(
+            kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
+            message="Tracecat is still preparing the workflow registry",
+            retry_disposition=RetryDisposition.RETRYABLE,
+            cause=e,
+        )
+        raise_application_error_from_classification(classification, e.detail)
+    except (RegistryLockInvalidDataError, ValidationError) as e:
+        classification = RuntimeErrorClassification.platform(
+            kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
+            message="Tracecat could not resolve the workflow registry",
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+            cause=e,
+        )
+        raise_application_error_from_classification(classification)
     except EntitlementRequired as e:
-        raise ApplicationError(
-            str(e),
-            e.detail,
-            non_retryable=True,
-            type=e.__class__.__name__,
-        ) from e
+        classification = RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
+            message=str(e),
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+            cause=e,
+        )
+        raise_application_error_from_classification(classification, e.detail)
+    except Exception as e:
+        classification = RuntimeErrorClassification.platform(
+            kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
+            message="Tracecat could not resolve the workflow registry",
+            retry_disposition=RetryDisposition.RETRYABLE,
+            cause=e,
+        )
+        raise_application_error_from_classification(classification)
     logger.info(
         "Resolved registry lock",
         num_origins=len(lock.origins),

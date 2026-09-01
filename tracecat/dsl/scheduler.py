@@ -8,7 +8,7 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, is_cancelled_exception
 
 from tracecat.auth.types import Role
 from tracecat.dsl.action import ScatterActionInput
@@ -87,6 +87,7 @@ with workflow.unsafe.imports_passed_through():
         build_error_transport_detail,
         extract_error_classification,
     )
+    from tracecat.temporal.patches import WorkflowPatch
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -104,6 +105,17 @@ def _get_collection_size(stored: StoredObject) -> int:
                 f"Expected CollectionObject or InlineObject with list data, "
                 f"got {type(stored).__name__}"
             )
+
+
+def _loop_limit_error(message: str) -> ApplicationError:
+    """Build a user-attributed failure for a workflow loop safety limit."""
+    return application_error_from_classification(
+        RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.WORKFLOW_LOOP_LIMIT_EXCEEDED,
+            message=message,
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+        )
+    )
 
 
 def _classified_action_error_info(
@@ -856,6 +868,10 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
+            if is_cancelled_exception(e) and workflow.patched(
+                WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION
+            ):
+                raise
             exc = e.error if isinstance(e, PlatformExecutionError) else e
             fail_workflow = isinstance(e, PlatformExecutionError)
             kind = e.__class__.__name__
@@ -880,11 +896,38 @@ class DSLScheduler:
             if indegree == 0:
                 self.queue.put_nowait(task_instance)
 
-        pending_tasks: set[asyncio.Task[None]] = set()
+        pending_tasks: dict[asyncio.Task[None], None] = {}
 
-        def discard_done_tasks() -> None:
-            done_tasks = {task for task in pending_tasks if task.done()}
-            pending_tasks.difference_update(done_tasks)
+        def reap_done_tasks() -> None:
+            # Workflow code must choose among concurrently completed tasks
+            # deterministically. Dict insertion order is their spawn order.
+            done_tasks = [task for task in pending_tasks if task.done()]
+            for done_task in done_tasks:
+                pending_tasks.pop(done_task)
+            first_error: BaseException | None = None
+            first_cancellation: BaseException | None = None
+            preserve_cancellation = False
+            for done_task in done_tasks:
+                try:
+                    task_error = done_task.exception()
+                except BaseException as error:
+                    task_error = error
+                if task_error is None:
+                    continue
+                if is_cancelled_exception(task_error):
+                    preserve_cancellation = (
+                        workflow.patched(WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION)
+                        or preserve_cancellation
+                    )
+                    if first_cancellation is None:
+                        first_cancellation = task_error
+                    continue
+                if first_error is None:
+                    first_error = task_error
+            if first_error is not None:
+                raise first_error
+            if first_cancellation is not None and preserve_cancellation:
+                raise first_cancellation
 
         while not self.task_exceptions and (not self.queue.empty() or pending_tasks):
             self.logger.trace(
@@ -894,7 +937,7 @@ class DSLScheduler:
             )
 
             # Clean up completed tasks
-            discard_done_tasks()
+            reap_done_tasks()
 
             spawned_since_yield = 0
             while (
@@ -905,7 +948,7 @@ class DSLScheduler:
                 task_instance = await self.queue.get()
                 self.logger.debug("Scheduling task", task=task_instance)
                 task = asyncio.create_task(self._schedule_task(task_instance))
-                pending_tasks.add(task)
+                pending_tasks[task] = None
                 spawned_since_yield += 1
                 if spawned_since_yield % _SCHEDULER_TASK_SPAWN_YIELD_EVERY == 0:
                     # High-fanout scatters can enqueue many ready tasks at once.
@@ -913,7 +956,7 @@ class DSLScheduler:
                     # monopolize the event loop long enough to trip Temporal's
                     # deadlock detector.
                     await asyncio.sleep(0)
-                    discard_done_tasks()
+                    reap_done_tasks()
             if self.task_exceptions:
                 break
             if not self.queue.empty() and len(pending_tasks) >= self.max_pending_tasks:
@@ -1143,12 +1186,9 @@ class DSLScheduler:
             isinstance(raw_max_iterations, int)
             and raw_max_iterations > MAX_DO_WHILE_ITERATIONS
         ):
-            raise ApplicationError(
-                (
-                    "Loop max_iterations exceeds platform cap: "
-                    f"{raw_max_iterations} > {MAX_DO_WHILE_ITERATIONS}."
-                ),
-                non_retryable=True,
+            raise _loop_limit_error(
+                "Loop max_iterations exceeds platform cap: "
+                f"{raw_max_iterations} > {MAX_DO_WHILE_ITERATIONS}."
             )
         args = LoopEndArgs(**stmt.args)
         loop_key = (region.start_ref, task.stream_id)
@@ -1184,12 +1224,9 @@ class DSLScheduler:
         if should_continue:
             next_index = current_index + 1
             if next_index >= args.max_iterations:
-                raise ApplicationError(
-                    (
-                        f"Loop '{task.ref}' exceeded max_iterations={args.max_iterations}. "
-                        "Update `condition` or increase `max_iterations`."
-                    ),
-                    non_retryable=True,
+                raise _loop_limit_error(
+                    f"Loop '{task.ref}' exceeded max_iterations={args.max_iterations}. "
+                    "Update `condition` or increase `max_iterations`."
                 )
             self._reset_loop_iteration_state(region, task.stream_id)
             self.loop_indices[loop_key] = next_index

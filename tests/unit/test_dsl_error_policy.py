@@ -433,6 +433,44 @@ def test_terminal_cancellation_does_not_erase_classified_causal_failure() -> Non
     assert len(error.details) == 2
 
 
+def test_terminal_error_named_cancelled_does_not_mask_unclassified_failure() -> None:
+    """An error type string alone does not prove Temporal cancellation."""
+    user_classification = RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
+        message="The child workflow could not be found",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    user_detail = _action_error_info(user_classification, ref="call_child")
+    cancelled_detail = ActionErrorInfo(
+        ref="slow_sibling",
+        message="Cancelled",
+        type=CancelledError.__name__,
+    )
+
+    error = _capture_workflow_application_error(
+        {
+            "call_child": TaskExceptionInfo(
+                exception=_capture_application_error(user_classification),
+                details=user_detail,
+            ),
+            "slow_sibling": TaskExceptionInfo(
+                exception=ApplicationError(
+                    "Cancelled",
+                    non_retryable=True,
+                    type=CancelledError.__name__,
+                ),
+                details=cancelled_detail,
+            ),
+        }
+    )
+
+    assert extract_error_classification(error) is None
+    assert error.details[0] == {
+        "call_child": user_detail,
+        "slow_sibling": cancelled_detail,
+    }
+
+
 def test_terminal_cancellation_preserves_every_causal_classification() -> None:
     user_classification = RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,

@@ -14,7 +14,6 @@ import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
 from temporalio.client import WorkflowFailureError
-from temporalio.exceptions import ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
@@ -45,9 +44,11 @@ from tracecat.registry.versions.schemas import (
     RegistryVersionCreate,
     RegistryVersionManifest,
 )
+from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseService
 from tracecat.storage import blob
+from tracecat.temporal.errors import extract_error_classifications
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -724,18 +725,20 @@ class BaseRegistrySyncService[
                 ),
             )
         except WorkflowFailureError as exc:
-            failure = exc.cause
-            while isinstance(failure, BaseException):
-                if isinstance(failure, ApplicationError) and (
-                    failure.type == "RegistrySyncValidationError"
-                ):
-                    raise self._sync_error_cls()(str(failure)) from exc
-                if not (
-                    (nested := getattr(failure, "cause", None))
-                    and isinstance(nested, BaseException)
-                ):
-                    break
-                failure = nested
+            validation_failure = next(
+                (
+                    classification
+                    for classification in extract_error_classifications(
+                        exc,
+                        include_implicit_context=False,
+                    )
+                    if classification.kind
+                    is RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED
+                ),
+                None,
+            )
+            if validation_failure is not None:
+                raise self._sync_error_cls()(validation_failure.message) from exc
 
             self.logger.error(
                 "Registry sync workflow failed",

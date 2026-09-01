@@ -9,7 +9,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 import tracecat.dsl.workflow as dsl_workflow_module
 from tracecat import config
@@ -27,14 +27,22 @@ from tracecat.dsl.schemas import (
     RunContext,
     TaskResult,
 )
-from tracecat.dsl.workflow import ERROR_OWNER_CONTROL_FLOW_PATCH, DSLWorkflow
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.storage.object import InlineObject
+from tracecat.temporal.errors import extract_error_classification
 from tracecat.temporal.exceptions import UserError
+from tracecat.temporal.patches import WorkflowPatch
 from tracecat.tiers.schemas import EffectiveLimits
-from tracecat.workflow.executions.enums import ExecutionType
+from tracecat.tiers.semaphore import AcquireResult
+from tracecat.workflow.executions.enums import ExecutionType, TriggerType
 
 
 def _effective_limits(
@@ -203,14 +211,59 @@ async def test_retry_until_enforces_action_execution_limit() -> None:
             new=AsyncMock(side_effect=[False, False, True]),
         ),
     ):
-        with pytest.raises(
-            ApplicationError,
-            match="Action execution limit exceeded",
-        ):
+        with pytest.raises(ApplicationError) as exc_info:
             await workflow.execute_task(task)
 
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.kind is RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED
     assert execute_task_mock.await_count == 2
     assert workflow._action_execution_count == 3
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("permit_scope", ["workflow", "action"])
+async def test_permit_wait_expiry_is_user_attributed_quota_exhaustion(
+    monkeypatch: pytest.MonkeyPatch,
+    permit_scope: str,
+) -> None:
+    workflow = _build_workflow()
+    execute_activity = AsyncMock(
+        return_value=AcquireResult(acquired=False, current_count=1)
+    )
+    monkeypatch.setattr(
+        config,
+        (
+            "TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS"
+            if permit_scope == "workflow"
+            else "TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS"
+        ),
+        0,
+    )
+
+    with (
+        patch(
+            "tracecat.dsl.workflow.workflow.info",
+            return_value=SimpleNamespace(workflow_id=workflow.wf_exec_id),
+        ),
+        patch("tracecat.dsl.workflow.workflow.now", return_value=datetime.now(UTC)),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_activity",
+            new=execute_activity,
+        ),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        if permit_scope == "workflow":
+            await workflow._acquire_workflow_permit(limit=1)
+        else:
+            await workflow._acquire_action_permit(action_id="wf:root:task", limit=1)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert exc_info.value.non_retryable is True
 
 
 @pytest.mark.anyio
@@ -249,6 +302,81 @@ async def test_execute_task_handles_timers_before_action_permit_acquisition() ->
     assert events[:2] == ["timers", "acquire"]
     assert acquire_mock.await_count == 1
     assert result.get_data() == {"ok": True}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("preserve_cancellation", [True, False])
+async def test_execute_task_preserves_temporal_cancellation_with_replay_gate(
+    preserve_cancellation: bool,
+) -> None:
+    workflow = _build_workflow()
+    task = ActionStatement(ref="cancelled_action", action="core.transform.reshape")
+    activity_error = _activity_error_from(CancelledError("cancelled by sibling"))
+
+    with (
+        patch.object(workflow, "_handle_timers", new=AsyncMock(return_value=None)),
+        patch.object(
+            workflow, "_run_action", new=AsyncMock(side_effect=activity_error)
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.patched",
+            return_value=preserve_cancellation,
+        ) as patched,
+    ):
+        if preserve_cancellation:
+            with pytest.raises(ActivityError) as exc_info:
+                await workflow._execute_task(task)
+            assert exc_info.value is activity_error
+        else:
+            with pytest.raises(ApplicationError) as exc_info:
+                await workflow._execute_task(task)
+            assert exc_info.value.type == CancelledError.__name__
+
+    patched.assert_called_once_with(WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION)
+
+
+@pytest.mark.anyio
+async def test_run_workflow_preserves_scheduler_cancellation() -> None:
+    workflow = _build_workflow()
+    task = ActionStatement(ref="noop", action="core.noop")
+    dsl = DSLInput(
+        title="Scheduler cancellation",
+        description="preserve native cancellation",
+        entrypoint=DSLEntrypoint(ref=task.ref),
+        actions=[task],
+    )
+    time_anchor = datetime.now(UTC)
+    run_args = DSLRunArgs(
+        role=workflow.role,
+        dsl=dsl,
+        wf_id=workflow.run_context.wf_id,
+        time_anchor=time_anchor,
+    )
+    workflow.dsl = dsl
+    workflow.dispatch_type = "push"
+    workflow.wf_run_id = str(workflow.run_context.wf_run_id)
+    workflow.start_to_close_timeout = run_args.timeout
+    cancellation = _activity_error_from(CancelledError("cancelled by sibling"))
+    scheduler = SimpleNamespace(start=AsyncMock(side_effect=cancellation))
+    workflow_info = SimpleNamespace(
+        start_time=time_anchor,
+        workflow_id=workflow.run_context.wf_exec_id,
+        run_id=str(workflow.run_context.wf_run_id),
+        execution_timeout=None,
+    )
+
+    with (
+        patch("tracecat.dsl.workflow.workflow.info", return_value=workflow_info),
+        patch(
+            "tracecat.dsl.workflow.get_trigger_type",
+            return_value=TriggerType.MANUAL,
+        ),
+        patch("tracecat.dsl.workflow.DSLScheduler", return_value=scheduler),
+        pytest.raises(ActivityError) as exc_info,
+    ):
+        await workflow._run_workflow(run_args)
+
+    assert exc_info.value is cancellation
 
 
 @pytest.mark.anyio
@@ -382,7 +510,7 @@ async def test_prepare_subflow_activity_failure_control_flow_is_replay_gated(
         assert "call_child" in task_exceptions
         assert "prepare failed" in task_exceptions["call_child"].details.message
         assert executed_refs == []
-    patched.assert_called_once_with(ERROR_OWNER_CONTROL_FLOW_PATCH)
+    patched.assert_called_once_with(WorkflowPatch.ERROR_OWNER_CONTROL_FLOW)
     assert not scheduler.stream_exceptions
 
 
@@ -572,6 +700,7 @@ async def test_run_skips_tier_limit_enforcement_when_flag_disabled() -> None:
     acquire_permit_mock = AsyncMock()
 
     with (
+        patch.object(workflow, "_initialize_run", return_value=None),
         patch.object(
             workflow,
             "_resolve_organization_id",

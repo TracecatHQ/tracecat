@@ -64,6 +64,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.dsl.client import get_temporal_client
+from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.executor.backends import ExecutorBackend
@@ -1950,16 +1951,18 @@ async def test_worker_factory(
         *,
         activities: list[Callable] | None = None,
         task_queue: str | None = None,
+        workflows: list[type] | None = None,
     ) -> Worker:
         """Create a worker with the same configuration as production."""
 
-        activities = activities or get_activities()
+        activities = get_activities() if activities is None else activities
         return Worker(
             client=client,
             task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],
             activities=activities,
-            workflows=[DSLWorkflow],
+            workflows=workflows or [DSLWorkflow],
             workflow_runner=new_sandbox_runner(),
+            interceptors=[RuntimeErrorAttributionInterceptor()],
             activity_executor=threadpool,
         )
 

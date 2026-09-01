@@ -50,6 +50,7 @@ class RuntimeErrorKind(StrEnum):
     TENANT_QUOTA_EXHAUSTED = "tenant.quota.exhausted"
     TENANT_ENTITLEMENT_DENIED = "tenant.entitlement.denied"
     INTEGRATION_RATE_LIMITED = "integration.rate_limited"
+    REGISTRY_SYNC_VALIDATION_FAILED = "registry.sync.validation_failed"
     RUNTIME_UNCLASSIFIED = "runtime.unclassified"
     STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE = (
         "storage.materialization.transport_unavailable"
@@ -69,6 +70,13 @@ class RuntimeErrorKind(StrEnum):
     WORKFLOW_TRIGGER_INPUT_INVALID = "workflow.trigger.input_invalid"
     WORKFLOW_SUBFLOW_INPUT_INVALID = "workflow.subflow.input_invalid"
     WORKFLOW_SUBFLOW_PREPARATION_FAILED = "workflow.subflow.preparation_failed"
+    WORKFLOW_BOOTSTRAP_INVALID_DATA = "workflow.bootstrap.invalid_data"
+    WORKFLOW_BOOTSTRAP_UNAVAILABLE = "workflow.bootstrap.unavailable"
+    WORKFLOW_EXPRESSION_INVALID = "workflow.expression.invalid"
+    WORKFLOW_LOOP_LIMIT_EXCEEDED = "workflow.loop.limit_exceeded"
+    WORKFLOW_RUNTIME_INVARIANT_VIOLATION = "workflow.runtime.invariant_violation"
+    WORKFLOW_AGENT_INPUT_INVALID = "workflow.agent.input_invalid"
+    WORKFLOW_AGENT_PREPARATION_FAILED = "workflow.agent.preparation_failed"
 
 
 class RuntimeErrorClassification(BaseModel):
