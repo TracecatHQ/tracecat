@@ -17,11 +17,7 @@ from temporalio.worker import ExecuteWorkflowInput, WorkflowInboundInterceptor
 
 from tracecat.dsl import interceptor as interceptor_module
 from tracecat.dsl.interceptor import (
-    RuntimeErrorAttributionInterceptor,
-    SentryInterceptor,
     _RuntimeErrorAttributionWorkflowInterceptor,
-    _SentryWorkflowInterceptor,
-    build_workflow_interceptors,
 )
 from tracecat.logger import logger
 from tracecat.observability.sentry import SentryTag, initialize_sentry
@@ -113,20 +109,6 @@ def _workflow_input() -> ExecuteWorkflowInput:
     )
 
 
-def test_worker_interceptor_order_places_sentry_outside_attribution() -> None:
-    interceptors = build_workflow_interceptors(sentry_enabled=True)
-
-    assert isinstance(interceptors[0], SentryInterceptor)
-    assert isinstance(interceptors[1], RuntimeErrorAttributionInterceptor)
-
-
-def test_worker_interceptor_order_keeps_attribution_without_sentry() -> None:
-    interceptors = build_workflow_interceptors(sentry_enabled=False)
-
-    assert len(interceptors) == 1
-    assert isinstance(interceptors[0], RuntimeErrorAttributionInterceptor)
-
-
 def test_sentry_keeps_only_the_shutdown_flush_integration(
     sentry_events: list[Event],
 ) -> None:
@@ -147,10 +129,9 @@ async def test_unclassified_platform_failure_is_attributed_then_captured_once(
     attribution = _RuntimeErrorAttributionWorkflowInterceptor(
         _RaisingInbound(raw_error)
     )
-    sentry = _SentryWorkflowInterceptor(attribution)
 
     with pytest.raises(ApplicationError):
-        await sentry.execute_workflow(_workflow_input())
+        await attribution.execute_workflow(_workflow_input())
     sentry_sdk.flush()
 
     assert len(sentry_events) == 1
@@ -199,10 +180,10 @@ async def test_user_failure_is_logged_without_a_sentry_event(
         retry_disposition=RetryDisposition.NON_RETRYABLE,
     )
     error = application_error_from_classification(classification)
-    sentry = _SentryWorkflowInterceptor(_RaisingInbound(error))
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
 
     with pytest.raises(ApplicationError):
-        await sentry.execute_workflow(_workflow_input())
+        await attribution.execute_workflow(_workflow_input())
     sentry_sdk.flush()
 
     assert sentry_events == []
@@ -223,13 +204,13 @@ async def test_reporting_failure_does_not_replace_the_workflow_error(
     error = application_error_from_classification(classification)
     monkeypatch.setattr(
         interceptor_module,
-        "_capture_platform_failure",
+        "capture_platform_failure",
         lambda *_: (_ for _ in ()).throw(RuntimeError("capture unavailable")),
     )
-    sentry = _SentryWorkflowInterceptor(_RaisingInbound(error))
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
 
     with pytest.raises(ApplicationError) as raised:
-        await sentry.execute_workflow(_workflow_input())
+        await attribution.execute_workflow(_workflow_input())
 
     assert raised.value is error
     assert sentry_events == []

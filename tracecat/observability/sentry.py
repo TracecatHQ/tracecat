@@ -1,6 +1,7 @@
 """Privacy-bounded Sentry configuration for explicit platform error capture."""
 
 from collections.abc import MutableMapping
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, cast
 
@@ -8,6 +9,18 @@ import sentry_sdk
 from sentry_sdk.integrations.atexit import AtexitIntegration
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
+
+from tracecat.runtime.errors import RuntimeErrorClassification
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowFailureEventContext:
+    """Privacy-reviewed workflow metadata attached to a platform event."""
+
+    run_id: str
+    workflow_type: str
+    attempt: int
+    trigger_type: str
 
 
 class SentryTag(StrEnum):
@@ -24,6 +37,47 @@ class SentryTag(StrEnum):
 
 _ALLOWED_TAGS = frozenset(SentryTag)
 _ALLOWED_CONTEXTS = frozenset({"runtime", "tracecat_workflow"})
+
+
+def capture_platform_failure(
+    error: BaseException,
+    classification: RuntimeErrorClassification,
+    context: WorkflowFailureEventContext,
+) -> None:
+    """Capture one classified platform event without workflow payload data."""
+    client = sentry_sdk.get_client()
+    if not client.is_active() or client.options.get("dsn") is None:
+        return
+
+    with sentry_sdk.isolation_scope() as scope:
+        scope.fingerprint = [
+            "tracecat-runtime-v1",
+            classification.kind.value,
+            "{{ default }}",
+        ]
+        scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
+        scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
+        scope.set_tag(
+            SentryTag.ERROR_RETRY_DISPOSITION.value,
+            classification.retry_disposition.value,
+        )
+        scope.set_tag(
+            SentryTag.ERROR_CAUSE_TYPE.value,
+            classification.cause_type or "unknown",
+        )
+        scope.set_tag(SentryTag.WORKFLOW_TYPE.value, context.workflow_type)
+        scope.set_tag(SentryTag.WORKFLOW_ATTEMPT.value, str(context.attempt))
+        scope.set_tag(SentryTag.TRIGGER_TYPE.value, context.trigger_type)
+        scope.set_context(
+            "tracecat_workflow",
+            {
+                "run_id": context.run_id,
+                "type": context.workflow_type,
+                "attempt": context.attempt,
+                "trigger_type": context.trigger_type,
+            },
+        )
+        sentry_sdk.capture_exception(error)
 
 
 def _sanitize_platform_event(event: Event, hint: Hint) -> Event | None:

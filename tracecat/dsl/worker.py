@@ -35,7 +35,7 @@ with workflow.unsafe.imports_passed_through():
         resolve_workflow_concurrency_limits_enabled_activity,
     )
     from tracecat.dsl.interceptor import (
-        build_workflow_interceptors,
+        RuntimeErrorAttributionInterceptor,
     )
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
@@ -123,9 +123,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     client = await get_temporal_client()
 
-    sentry_enabled = False
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
-        logger.info("Initializing Sentry interceptor")
+        logger.info("Initializing Sentry")
         app_env = config.TRACECAT__APP_ENV
         temporal_namespace = config.TEMPORAL__CLUSTER_NAMESPACE
         sentry_environment: str = (
@@ -143,10 +142,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             app_env=app_env,
             temporal_namespace=temporal_namespace,
         )
-        sentry_enabled = True
-    # Temporal makes the first interceptor outermost. The builder keeps Sentry
-    # outside attribution so it sees the final classification.
-    interceptors = build_workflow_interceptors(sentry_enabled=sentry_enabled)
+    interceptors = [RuntimeErrorAttributionInterceptor()]
 
     # Run a worker for the activities and workflow
     activities = get_activities()

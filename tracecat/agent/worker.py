@@ -47,7 +47,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import (
-        build_workflow_interceptors,
+        RuntimeErrorAttributionInterceptor,
     )
     from tracecat.logger import logger
     from tracecat.observability.sentry import initialize_sentry
@@ -118,9 +118,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     client = await get_temporal_client()
 
-    sentry_enabled = False
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
-        logger.info("Initializing Sentry interceptor")
+        logger.info("Initializing Sentry")
         app_env = config.TRACECAT__APP_ENV
         temporal_namespace = config.TEMPORAL__CLUSTER_NAMESPACE
         sentry_environment = (
@@ -132,10 +131,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             release=f"tracecat@{APP_VERSION}",
             service_name=config.TRACECAT__SERVICE_NAME,
         )
-        sentry_enabled = True
-    # Temporal makes the first interceptor outermost. The builder keeps Sentry
-    # outside attribution so it sees the final classification.
-    interceptors = build_workflow_interceptors(sentry_enabled=sentry_enabled)
+    interceptors = [RuntimeErrorAttributionInterceptor()]
 
     activities = get_activities()
     logger.debug(
