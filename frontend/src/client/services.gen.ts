@@ -64,6 +64,9 @@ import type {
   AdminListTiersData,
   AdminListTiersResponse,
   AdminListUsersResponse,
+  AdminMaintenanceGetCaseAgentSessionInteractionBackfillData,
+  AdminMaintenanceGetCaseAgentSessionInteractionBackfillResponse,
+  AdminMaintenanceStartCaseAgentSessionInteractionBackfillResponse,
   AdminPromoteOrgRepositoryVersionData,
   AdminPromoteOrgRepositoryVersionResponse,
   AdminPromoteToSuperuserData,
@@ -8013,6 +8016,43 @@ export const adminAgentListPlatformCatalog = (
       model_name: data.modelName,
       cursor: data.cursor,
       limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Start Case Agent Session Interaction Backfill
+ * Start or join the durable historical case-mutation backfill.
+ * @returns CaseAgentSessionInteractionBackfillStartResponse Successful Response
+ * @throws ApiError
+ */
+export const adminMaintenanceStartCaseAgentSessionInteractionBackfill =
+  (): CancelablePromise<AdminMaintenanceStartCaseAgentSessionInteractionBackfillResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/admin/maintenance/case-agent-session-interactions/backfill",
+    })
+  }
+
+/**
+ * Get Case Agent Session Interaction Backfill
+ * Poll a durable historical case-mutation backfill.
+ * @param data The data for the request.
+ * @param data.operationId
+ * @returns CaseAgentSessionInteractionBackfillStatusResponse Successful Response
+ * @throws ApiError
+ */
+export const adminMaintenanceGetCaseAgentSessionInteractionBackfill = (
+  data: AdminMaintenanceGetCaseAgentSessionInteractionBackfillData
+): CancelablePromise<AdminMaintenanceGetCaseAgentSessionInteractionBackfillResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/maintenance/case-agent-session-interactions/backfill/{operation_id}",
+    path: {
+      operation_id: data.operationId,
     },
     errors: {
       422: "Validation Error",

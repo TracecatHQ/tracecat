@@ -155,7 +155,10 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         ]
 
         # Collect all workflows
-        workflows = [RegistrySyncWorkflow, RegistryArtifactsBackfillWorkflow]
+        workflows = [
+            RegistrySyncWorkflow,
+            RegistryArtifactsBackfillWorkflow,
+        ]
 
         logger.debug(
             "Activities loaded",

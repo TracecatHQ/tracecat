@@ -1697,6 +1697,42 @@ export type CachePoint = {
 export type ttl = "5m" | "1h"
 
 /**
+ * Lifecycle state for the durable backfill operation.
+ */
+export type CaseAgentSessionBackfillStatus = "running" | "completed" | "failed"
+
+/**
+ * Aggregate result of the historical interaction backfill.
+ */
+export type CaseAgentSessionInteractionBackfillResponse = {
+  batches_processed: number
+  sessions_scanned: number
+  history_rows_scanned: number
+  mutation_candidates: number
+  inserted: number
+  existing: number
+  skipped: {
+    [key: string]: number
+  }
+}
+
+/**
+ * Response after starting or joining the durable backfill.
+ */
+export type CaseAgentSessionInteractionBackfillStartResponse = {
+  operation_id: string
+}
+
+/**
+ * Current state and optional result of the durable backfill.
+ */
+export type CaseAgentSessionInteractionBackfillStatusResponse = {
+  operation_id: string
+  status: CaseAgentSessionBackfillStatus
+  report?: CaseAgentSessionInteractionBackfillResponse | null
+}
+
+/**
  * Case artifact shown in artifact-capable chat surfaces.
  */
 export type CaseArtifact = {
@@ -12545,6 +12581,16 @@ export type AdminAgentListPlatformCatalogData = {
 
 export type AdminAgentListPlatformCatalogResponse = AgentCatalogListResponse
 
+export type AdminMaintenanceStartCaseAgentSessionInteractionBackfillResponse =
+  CaseAgentSessionInteractionBackfillStartResponse
+
+export type AdminMaintenanceGetCaseAgentSessionInteractionBackfillData = {
+  operationId: string
+}
+
+export type AdminMaintenanceGetCaseAgentSessionInteractionBackfillResponse =
+  CaseAgentSessionInteractionBackfillStatusResponse
+
 export type AdminRegistryListPlatformRepositoriesResponse =
   Array<RegistryRepositoryReadMinimal>
 
@@ -18178,6 +18224,31 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentCatalogListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/maintenance/case-agent-session-interactions/backfill": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        202: CaseAgentSessionInteractionBackfillStartResponse
+      }
+    }
+  }
+  "/admin/maintenance/case-agent-session-interactions/backfill/{operation_id}": {
+    get: {
+      req: AdminMaintenanceGetCaseAgentSessionInteractionBackfillData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseAgentSessionInteractionBackfillStatusResponse
         /**
          * Validation Error
          */

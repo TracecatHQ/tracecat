@@ -6441,6 +6441,102 @@ export const $CachePoint = {
   title: "CachePoint",
 } as const
 
+export const $CaseAgentSessionBackfillStatus = {
+  type: "string",
+  enum: ["running", "completed", "failed"],
+  title: "CaseAgentSessionBackfillStatus",
+  description: "Lifecycle state for the durable backfill operation.",
+} as const
+
+export const $CaseAgentSessionInteractionBackfillResponse = {
+  properties: {
+    batches_processed: {
+      type: "integer",
+      title: "Batches Processed",
+    },
+    sessions_scanned: {
+      type: "integer",
+      title: "Sessions Scanned",
+    },
+    history_rows_scanned: {
+      type: "integer",
+      title: "History Rows Scanned",
+    },
+    mutation_candidates: {
+      type: "integer",
+      title: "Mutation Candidates",
+    },
+    inserted: {
+      type: "integer",
+      title: "Inserted",
+    },
+    existing: {
+      type: "integer",
+      title: "Existing",
+    },
+    skipped: {
+      additionalProperties: {
+        type: "integer",
+      },
+      type: "object",
+      title: "Skipped",
+    },
+  },
+  type: "object",
+  required: [
+    "batches_processed",
+    "sessions_scanned",
+    "history_rows_scanned",
+    "mutation_candidates",
+    "inserted",
+    "existing",
+    "skipped",
+  ],
+  title: "CaseAgentSessionInteractionBackfillResponse",
+  description: "Aggregate result of the historical interaction backfill.",
+} as const
+
+export const $CaseAgentSessionInteractionBackfillStartResponse = {
+  properties: {
+    operation_id: {
+      type: "string",
+      format: "uuid",
+      title: "Operation Id",
+    },
+  },
+  type: "object",
+  required: ["operation_id"],
+  title: "CaseAgentSessionInteractionBackfillStartResponse",
+  description: "Response after starting or joining the durable backfill.",
+} as const
+
+export const $CaseAgentSessionInteractionBackfillStatusResponse = {
+  properties: {
+    operation_id: {
+      type: "string",
+      format: "uuid",
+      title: "Operation Id",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseAgentSessionBackfillStatus",
+    },
+    report: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseAgentSessionInteractionBackfillResponse",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["operation_id", "status"],
+  title: "CaseAgentSessionInteractionBackfillStatusResponse",
+  description: "Current state and optional result of the durable backfill.",
+} as const
+
 export const $CaseArtifact = {
   properties: {
     id: {
