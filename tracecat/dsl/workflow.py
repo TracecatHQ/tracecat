@@ -72,7 +72,6 @@ with workflow.unsafe.imports_passed_through():
         dsl_execution_error_from_exception,
         get_trigger_type,
     )
-    from tracecat.dsl.constants import PRESERVE_TEMPORAL_CANCELLATION_PATCH
     from tracecat.dsl.enums import (
         FailStrategy,
         LoopStrategy,
@@ -147,6 +146,7 @@ with workflow.unsafe.imports_passed_through():
         raise_wrapped_application_error,
     )
     from tracecat.temporal.exceptions import UserError
+    from tracecat.temporal.patches import WorkflowPatch
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
         AcquireWorkflowPermitInput,
@@ -188,10 +188,6 @@ with workflow.unsafe.imports_passed_through():
 
 
 _CHILD_RUN_ARG_PREP_YIELD_EVERY = 8
-ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH = "dsl-action-heartbeat-timeout-retry-v1"
-ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH = "dsl-error-owner-search-attribute-v1"
-ERROR_OWNER_CONTROL_FLOW_PATCH = "dsl-error-owner-control-flow-v1"
-ERROR_OWNER_AFTER_HANDLER_PATCH = "dsl-error-owner-after-handler-v1"
 
 
 def _raise_workflow_application_error(
@@ -463,7 +459,7 @@ class DSLWorkflow:
             return await self._run_workflow(args)
         except ApplicationError as e:
             stamp_owner_after_handler = workflow.patched(
-                ERROR_OWNER_AFTER_HANDLER_PATCH
+                WorkflowPatch.ERROR_OWNER_AFTER_HANDLER
             )
             if not stamp_owner_after_handler:
                 self._upsert_terminal_error_owner(e)
@@ -854,7 +850,7 @@ class DSLWorkflow:
         )
         if not classifications:
             return
-        if not workflow.patched(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH):
+        if not workflow.patched(WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE):
             return
 
         owner = select_error_classification(classifications).owner
@@ -870,7 +866,7 @@ class DSLWorkflow:
             and select_error_classification(classifications).owner
             is RuntimeErrorOwner.USER
         ):
-            return workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH)
+            return workflow.patched(WorkflowPatch.ERROR_OWNER_CONTROL_FLOW)
 
         current = error
         seen: set[int] = set()
@@ -966,7 +962,7 @@ class DSLWorkflow:
                     except Exception as e:
                         if self._has_user_error_cause(e):
                             raise
-                        if workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH):
+                        if workflow.patched(WorkflowPatch.ERROR_OWNER_CONTROL_FLOW):
                             raise
                         root_error, root_message = self._unwrap_temporal_failure_cause(
                             e
@@ -1253,7 +1249,7 @@ class DSLWorkflow:
         # Note that execute_task is called by the scheduler, so we don't have to return ApplicationError
         except (ActivityError, ChildWorkflowError, FailureError) as e:
             if is_cancelled_exception(e) and workflow.patched(
-                PRESERVE_TEMPORAL_CANCELLATION_PATCH
+                WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION
             ):
                 raise
             # These are deterministic and expected errors that
@@ -1905,7 +1901,7 @@ class DSLWorkflow:
                 task.retry_policy.max_attempts == 1
                 and isinstance(cause, TemporalTimeoutError)
                 and cause.type is TimeoutType.HEARTBEAT
-                and workflow.patched(ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH)
+                and workflow.patched(WorkflowPatch.ACTION_HEARTBEAT_TIMEOUT_RETRY)
             )
             if not should_retry_heartbeat:
                 raise

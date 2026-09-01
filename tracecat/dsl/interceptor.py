@@ -33,12 +33,8 @@ with workflow.unsafe.imports_passed_through():
         extract_error_classifications,
         iter_error_chain,
     )
+    from tracecat.temporal.patches import WorkflowPatch
     from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
-
-
-_RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR_PATCH = (
-    "runtime-error-attribution-interceptor-v1"
-)
 
 
 class _SentryWrappedWorkflowError(ApplicationError):
@@ -196,7 +192,9 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
             # Old histories must retain their original terminal command. The
             # interceptor only owns failures from executions that record this
             # patch marker.
-            if not workflow.patched(_RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR_PATCH):
+            if not workflow.patched(
+                WorkflowPatch.RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR
+            ):
                 raise
 
             classifications = extract_error_classifications(

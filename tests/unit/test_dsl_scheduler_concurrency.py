@@ -14,7 +14,6 @@ from tests.shared import capture_application_error as _capture_application_error
 from tracecat.auth.types import Role
 from tracecat.dsl import scheduler as scheduler_module
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
-from tracecat.dsl.constants import PRESERVE_TEMPORAL_CANCELLATION_PATCH
 from tracecat.dsl.error_transport import parse_classified_action_error_payload
 from tracecat.dsl.scheduler import DSLScheduler
 from tracecat.dsl.schemas import (
@@ -38,6 +37,7 @@ from tracecat.temporal.errors import (
     build_error_transport_detail,
     extract_error_classifications,
 )
+from tracecat.temporal.patches import WorkflowPatch
 
 
 def _build_scheduler(
@@ -147,7 +147,7 @@ async def test_scheduler_legacy_cancellation_does_not_hide_same_batch_error() ->
     ):
         await scheduler.start()
 
-    patched.assert_called_once_with(PRESERVE_TEMPORAL_CANCELLATION_PATCH)
+    patched.assert_called_once_with(WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION)
 
 
 @pytest.mark.anyio

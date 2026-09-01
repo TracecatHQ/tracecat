@@ -25,16 +25,13 @@ from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.types import TaskExceptionInfo
 from tracecat.dsl.worker import new_sandbox_runner
-from tracecat.dsl.workflow import (
-    ERROR_OWNER_AFTER_HANDLER_PATCH,
-    ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
-    DSLWorkflow,
-)
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import extract_error_classification
+from tracecat.temporal.patches import WorkflowPatch
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 pytestmark = [pytest.mark.temporal, pytest.mark.integration]
@@ -157,7 +154,7 @@ async def test_dsl_workflow_replays_legacy_subflow_failure_history(
 
     def legacy_patched(patch_id: str) -> bool:
         """Keep the captured history older than the owner-timing patch."""
-        if patch_id == ERROR_OWNER_AFTER_HANDLER_PATCH:
+        if patch_id == WorkflowPatch.ERROR_OWNER_AFTER_HANDLER:
             return False
         return current_patched(patch_id)
 
@@ -197,8 +194,8 @@ async def test_dsl_workflow_replays_legacy_subflow_failure_history(
     history = await handle.fetch_history()
     assert extract_error_classification(exc_info.value) is None
     patch_ids = await recorded_patch_ids(temporal_client, history)
-    assert ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH not in patch_ids
-    assert ERROR_OWNER_AFTER_HANDLER_PATCH not in patch_ids
+    assert WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE not in patch_ids
+    assert WorkflowPatch.ERROR_OWNER_AFTER_HANDLER not in patch_ids
 
     replay_result = await Replayer(
         workflows=[DSLWorkflow],

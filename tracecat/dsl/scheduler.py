@@ -33,10 +33,7 @@ with workflow.unsafe.imports_passed_through():
         DSLInput,
         edge_components_from_dep,
     )
-    from tracecat.dsl.constants import (
-        MAX_DO_WHILE_ITERATIONS,
-        PRESERVE_TEMPORAL_CANCELLATION_PATCH,
-    )
+    from tracecat.dsl.constants import MAX_DO_WHILE_ITERATIONS
     from tracecat.dsl.enums import (
         EdgeMarker,
         EdgeType,
@@ -90,6 +87,7 @@ with workflow.unsafe.imports_passed_through():
         build_error_transport_detail,
         extract_error_classification,
     )
+    from tracecat.temporal.patches import WorkflowPatch
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -871,7 +869,7 @@ class DSLScheduler:
             await self._handle_success_path(task)
         except Exception as e:
             if is_cancelled_exception(e) and workflow.patched(
-                PRESERVE_TEMPORAL_CANCELLATION_PATCH
+                WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION
             ):
                 raise
             exc = e.error if isinstance(e, PlatformExecutionError) else e
@@ -915,7 +913,7 @@ class DSLScheduler:
                 if task_error is None:
                     continue
                 if is_cancelled_exception(task_error) and not workflow.patched(
-                    PRESERVE_TEMPORAL_CANCELLATION_PATCH
+                    WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION
                 ):
                     continue
                 if first_error is None:

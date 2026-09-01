@@ -42,12 +42,7 @@ from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, ExecutionContext
 from tracecat.dsl.types import (
     ActionErrorInfo,
 )
-from tracecat.dsl.workflow import (
-    ERROR_OWNER_AFTER_HANDLER_PATCH,
-    ERROR_OWNER_CONTROL_FLOW_PATCH,
-    ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
-    DSLWorkflow,
-)
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.exceptions import TracecatExpressionError, TracecatValidationError
 from tracecat.expressions.schemas import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -69,6 +64,7 @@ from tracecat.temporal.errors import (
     extract_error_classification,
 )
 from tracecat.temporal.exceptions import UserError
+from tracecat.temporal.patches import WorkflowPatch
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
 
 
@@ -594,14 +590,14 @@ def test_subflow_user_classification_control_flow_is_replay_gated() -> None:
         return_value=False,
     ) as patched_mock:
         assert DSLWorkflow._has_user_error_cause(error) is False
-        patched_mock.assert_called_once_with(ERROR_OWNER_CONTROL_FLOW_PATCH)
+        patched_mock.assert_called_once_with(WorkflowPatch.ERROR_OWNER_CONTROL_FLOW)
 
     with patch(
         "tracecat.dsl.workflow.workflow.patched",
         return_value=True,
     ) as patched_mock:
         assert DSLWorkflow._has_user_error_cause(error) is True
-        patched_mock.assert_called_once_with(ERROR_OWNER_CONTROL_FLOW_PATCH)
+        patched_mock.assert_called_once_with(WorkflowPatch.ERROR_OWNER_CONTROL_FLOW)
 
 
 @pytest.mark.anyio
@@ -874,7 +870,7 @@ async def test_error_handler_failure_replaces_original_terminal_owner() -> None:
 
     assert exc_info.value is handler_error
     assert handler_error.__context__ is original_error
-    patched_mock.assert_called_once_with(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH)
+    patched_mock.assert_called_once_with(WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE)
     upsert_mock.assert_called_once()
     updates = upsert_mock.call_args.args[0]
     assert len(updates) == 1
@@ -1020,7 +1016,7 @@ def test_terminal_platform_owner_wins_for_alert_attribution() -> None:
     ):
         DSLWorkflow._upsert_terminal_error_owner(error)
 
-    patched_mock.assert_called_once_with(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH)
+    patched_mock.assert_called_once_with(WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE)
     upsert_mock.assert_called_once()
     updates = upsert_mock.call_args.args[0]
     assert len(updates) == 1
@@ -1045,14 +1041,14 @@ def test_terminal_owner_upsert_is_replay_gated() -> None:
     ):
         DSLWorkflow._upsert_terminal_error_owner(error)
 
-    patched_mock.assert_called_once_with(ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH)
+    patched_mock.assert_called_once_with(WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE)
     upsert_mock.assert_not_called()
 
 
 def test_error_handler_owner_timing_has_distinct_replay_patch() -> None:
-    assert ERROR_OWNER_AFTER_HANDLER_PATCH not in {
-        ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
-        ERROR_OWNER_CONTROL_FLOW_PATCH,
+    assert WorkflowPatch.ERROR_OWNER_AFTER_HANDLER not in {
+        WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE,
+        WorkflowPatch.ERROR_OWNER_CONTROL_FLOW,
     }
 
 

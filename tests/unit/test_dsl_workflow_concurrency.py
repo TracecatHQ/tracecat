@@ -27,11 +27,7 @@ from tracecat.dsl.schemas import (
     RunContext,
     TaskResult,
 )
-from tracecat.dsl.workflow import (
-    ERROR_OWNER_CONTROL_FLOW_PATCH,
-    PRESERVE_TEMPORAL_CANCELLATION_PATCH,
-    DSLWorkflow,
-)
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
@@ -39,6 +35,7 @@ from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import extract_error_classification
 from tracecat.temporal.exceptions import UserError
+from tracecat.temporal.patches import WorkflowPatch
 from tracecat.tiers.schemas import EffectiveLimits
 from tracecat.workflow.executions.enums import ExecutionType, TriggerType
 
@@ -285,7 +282,7 @@ async def test_execute_task_preserves_temporal_cancellation_with_replay_gate(
                 await workflow._execute_task(task)
             assert exc_info.value.type == CancelledError.__name__
 
-    patched.assert_called_once_with(PRESERVE_TEMPORAL_CANCELLATION_PATCH)
+    patched.assert_called_once_with(WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION)
 
 
 @pytest.mark.anyio
@@ -463,7 +460,7 @@ async def test_prepare_subflow_activity_failure_control_flow_is_replay_gated(
         assert "call_child" in task_exceptions
         assert "prepare failed" in task_exceptions["call_child"].details.message
         assert executed_refs == []
-    patched.assert_called_once_with(ERROR_OWNER_CONTROL_FLOW_PATCH)
+    patched.assert_called_once_with(WorkflowPatch.ERROR_OWNER_CONTROL_FLOW)
     assert not scheduler.stream_exceptions
 
 
