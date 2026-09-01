@@ -204,6 +204,20 @@ def test_json_log_format_keeps_mapping_keys_stable_on_fallback() -> None:
     assert fallback["attributes"]["details"] == expected
 
 
+def test_json_log_format_keeps_float_keys_stable_on_fallback() -> None:
+    mapping_binding = "details={1e-5: 'reading'}"
+    normal = json.loads(_emit_log(LogFormat.JSON, bindings=mapping_binding))
+    fallback = json.loads(
+        _emit_log(
+            LogFormat.JSON,
+            bindings=f"{mapping_binding}, path='bad' + chr(0xDCFF)",
+        )
+    )
+
+    assert normal["attributes"]["details"] == {"0.00001": "reading"}
+    assert fallback["attributes"]["details"] == {"0.00001": "reading"}
+
+
 def test_json_log_format_replaces_recursive_attributes() -> None:
     payload = json.loads(
         _emit_log(

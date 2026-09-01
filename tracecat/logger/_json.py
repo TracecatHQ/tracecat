@@ -4,7 +4,7 @@ import json
 import math
 import sys
 import traceback
-from datetime import UTC, date, time
+from datetime import UTC
 from enum import Enum
 from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict
 
@@ -102,15 +102,11 @@ def _fallback_value(value: object, ancestors: set[int] | None = None) -> object:
 
 def _fallback_key(value: object) -> str:
     """Match orjson's supported non-string key encoding."""
-    if value is None or (isinstance(value, float) and not math.isfinite(value)):
-        return "null"
-    if isinstance(value, bool):
-        return str(value).lower()
-    if isinstance(value, Enum):
-        return _fallback_key(value.value)
-    if isinstance(value, date | time):
-        return value.isoformat()
-    return str(value)
+    try:
+        encoded = orjson.dumps({value: None}, option=orjson.OPT_NON_STR_KEYS)
+    except TypeError:
+        return str(value)
+    return next(iter(json.loads(encoded)))
 
 
 def _encode_payload(payload: StructuredLog) -> str:
