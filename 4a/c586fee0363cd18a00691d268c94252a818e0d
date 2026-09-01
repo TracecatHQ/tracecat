@@ -1,0 +1,47 @@
+.agents/skills/gh-prerelease/SKILL.md
+  s_c5002332a8185a::t_9629a04e8693f5 242-244,246-260
+.github/commit-conventions.toml
+  s_c5002332a8185a::t_f6ced34fe5bcba 1-247
+.github/release-drafter.yml
+  s_c5002332a8185a::t_f247ef15d091ab 1-21,28-155,158-170,172,174-175,177,179-180,182,184-185,187,189-190,192,194-195,197,199-200,202,204-205,207,209-210,212,214-215,217,219-220,222,224-225,227,229-230,232,234-235,237,239-240,242,244-245,247,249-251,253,255-258,260,262-263,265,267-268,270,272-273,275,277-278,280,282-285,287-290,292-295,297-300,302-305,307-310,312-315,317-320,322-325,327-330,332-335,337-340,342-362,364-410,415-416,418-419
+.github/workflows/commit-conventions.yml
+  s_c5002332a8185a::t_93fb89446ed095 1-86
+.github/workflows/lint-python.yml
+  s_c5002332a8185a::t_32e28e5fd8237a 9,20,39,45
+AGENTS.md
+  s_c5002332a8185a::t_6341c6258df260 276-389,393-412,455-456
+CONTRIBUTING.md
+  s_c5002332a8185a::t_067627cef73130 92,95,98-184,186
+justfile
+  s_c5002332a8185a::t_7c54a03f56aa3b 116-124
+pyproject.toml
+  s_c5002332a8185a::t_3fe9de0ffa706e 188-190,224-226
+scripts/audit_commit_conventions.py
+  s_c5002332a8185a::t_dfaa8788cd1f86 1-629
+scripts/check_pr_title.py
+  s_c5002332a8185a::t_856bb50e0c3015 1-434
+scripts/commit_conventions.py
+  s_c5002332a8185a::t_44ff2a824856d0 1-266
+tests/unit/test_check_pr_title.py
+  s_c5002332a8185a::t_d33f83e819882c 1-201
+tests/unit/test_commit_conventions.py
+  s_c5002332a8185a::t_850ef74295dce0 1-251
+.github/workflows/release-drafter.yml
+  s_c5002332a8185a::t_cb4a76d2bb2660 7-8,11,14-89,91-94,98-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4ac586fee0363cd18a00691d268c94252a818e0d",
+  "prompts": {},
+  "sessions": {
+    "s_c5002332a8185a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "831b7546-2af0-4f8f-af70-e9256e652a68",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
