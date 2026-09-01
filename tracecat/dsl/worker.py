@@ -40,9 +40,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
     from tracecat.storage.blob import close_storage_client_cache
     from tracecat.storage.collection import CollectionActivities
-    from tracecat.temporal.search_attributes import (
-        ensure_error_owner_search_attribute,
-    )
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
     from tracecat.tiers.activities import TierActivities
     from tracecat.workflow.management.definitions import (
@@ -121,7 +118,6 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     _logger._is_worker_process = True
 
     client = await get_temporal_client()
-    await ensure_error_owner_search_attribute(client)
 
     interceptors: list[Interceptor] = [RuntimeErrorAttributionInterceptor()]
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
