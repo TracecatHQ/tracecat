@@ -299,8 +299,28 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
         ),
         pytest.param(
             "- [codex] chore(deps): bump orjson (#3200)",
-            "- [codex] chore(deps): Bump orjson (#3200)",
+            "- [codex] build(deps): Bump orjson (#3200)",
             id="bot-prefix-is-not-the-description",
+        ),
+        pytest.param(
+            "- fix(deps): pin patched versions (#2462)",
+            "- build(deps): Pin patched versions (#2462)",
+            id="fix-deps-is-packaging-work",
+        ),
+        pytest.param(
+            "- build(deps): patch dependabot alerts (#2400)",
+            "- build(deps): Patch dependabot alerts (#2400)",
+            id="build-deps-is-already-canonical",
+        ),
+        pytest.param(
+            "- security(deps): patch an unauthenticated RCE (#2300)",
+            "- security(deps): Patch an unauthenticated RCE (#2300)",
+            id="security-deps-keeps-its-type",
+        ),
+        pytest.param(
+            "- fix(api): return the deps manifest (#2200)",
+            "- fix(api): Return the deps manifest (#2200)",
+            id="only-the-deps-scope-is-normalised",
         ),
         pytest.param(
             "- feat(api)!: drop the v1 webhook payload (#3000)",
