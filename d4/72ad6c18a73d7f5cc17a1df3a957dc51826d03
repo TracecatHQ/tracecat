@@ -1,0 +1,24 @@
+tests/unit/test_commit_conventions.py
+  s_c5002332a8185a::t_77d42f0b52fd78 411-426,429-440
+  s_c5002332a8185a::t_30e3a913b7fbfa 410,427-428
+tests/unit/test_check_pr_title.py
+  s_c5002332a8185a::t_222daed14adcd5 149-151,153-155
+.github/release-drafter.yml
+  s_c5002332a8185a::t_11dcae2404ae39 550-573,575,577,579,581,583,585,587,589,591,593,595,597,599,601,603,605,607,609,611,613,615,617,619,621,623
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d472ad6c18a73d7f5cc17a1df3a957dc51826d03",
+  "prompts": {},
+  "sessions": {
+    "s_c5002332a8185a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "831b7546-2af0-4f8f-af70-e9256e652a68",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
