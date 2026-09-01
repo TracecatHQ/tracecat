@@ -242,6 +242,17 @@ variable "log_level" {
   default     = "INFO"
 }
 
+variable "log_format" {
+  type        = string
+  description = "Process-wide Tracecat log rendering format"
+  default     = "json"
+
+  validation {
+    condition     = contains(["console", "json"], lower(trimspace(var.log_format)))
+    error_message = "log_format must be console or json."
+  }
+}
+
 variable "temporal_log_level" {
   type    = string
   default = "warn"
