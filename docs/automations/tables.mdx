@@ -155,7 +155,11 @@ A workflow that repeats the index step on every run must guard it, and downstrea
 
 Use `core.table.*` actions when you want your workflows to work with tables directly.
 
-- [Tables](/automations/core-actions/memory-actions/tables) to create tables, inspect metadata, insert rows, search rows, and export data
+- [Tables](/automations/core-actions/memory-actions/tables) to create tables, inspect metadata, and update table settings
+- [Columns](/automations/core-actions/memory-actions/columns) to add, update, and delete columns
+- [Lookups](/automations/core-actions/memory-actions/lookups) to look up and search rows
+- [Rows](/automations/core-actions/memory-actions/rows) to insert, update, and delete rows
+- [Export](/automations/core-actions/memory-actions/export) to download a table
 - Use `core.table.insert_row` with `upsert: true` when you want to update an existing row that matches a unique index
 
 `core.table.create_table` takes `columns` as a JSON array of column objects.
