@@ -39,6 +39,7 @@ module "ecs" {
   # Network configuration from network module
   vpc_id                  = module.network.vpc_id
   public_subnet_ids       = module.network.public_subnet_ids
+  public_subnet_cidrs     = var.public_subnet_cidrs
   private_subnet_ids      = module.network.private_subnet_ids
   private_route_table_ids = module.network.private_route_table_ids
 
@@ -73,6 +74,7 @@ module "ecs" {
   platform_otel_enabled                         = var.platform_otel_enabled
   otel_exporter_otlp_endpoint                   = var.otel_exporter_otlp_endpoint
   otel_exporter_otlp_headers_arn                = var.otel_exporter_otlp_headers_arn
+  audit_trusted_proxy_cidrs                     = var.audit_trusted_proxy_cidrs
   log_level                                     = var.log_level
   log_format                                    = var.log_format
   temporal_log_level                            = var.temporal_log_level

@@ -82,6 +82,11 @@ variable "public_subnet_ids" {
   description = "The IDs of the public subnets"
 }
 
+variable "public_subnet_cidrs" {
+  type        = list(string)
+  description = "The CIDR blocks of the public subnets"
+}
+
 variable "private_subnet_ids" {
   type        = list(string)
   description = "The IDs of the private subnets"
@@ -265,6 +270,12 @@ variable "otel_exporter_otlp_headers_arn" {
   type        = string
   description = "Optional Secrets Manager ARN containing OTLP exporter headers for API and worker tracing"
   default     = null
+}
+
+variable "audit_trusted_proxy_cidrs" {
+  type        = string
+  description = "Comma-separated CIDRs the API treats as its own proxy hops when resolving audit client IPs. Empty uses the built-in private-range default."
+  default     = ""
 }
 
 variable "log_level" {

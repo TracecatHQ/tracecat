@@ -187,6 +187,40 @@ def test_env_ports_uses_default_when_unset_or_blank(
     assert env_ports("TEST_PORTS_ENV", default=(80, 443)) == (80, 443)
 
 
+@pytest.mark.parametrize("raw_value", [None, "", "  "])
+def test_env_networks_uses_default_when_unset_or_blank(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_value: str | None,
+) -> None:
+    if raw_value is None:
+        monkeypatch.delenv("TEST_NETWORKS_ENV", raising=False)
+    else:
+        monkeypatch.setenv("TEST_NETWORKS_ENV", raw_value)
+    default = env_networks(
+        "TEST_NETWORKS_ENV", default=tracecat_config.TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS
+    )
+
+    assert default == tracecat_config.TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS
+
+
+def test_audit_trusted_proxy_env_is_wired_to_deployments() -> None:
+    """Both audit consumers (api, mcp) must receive the override in every target."""
+    name = "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS"
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        source = path.read_text()
+        for service in ("api", "mcp"):
+            match = re.search(
+                rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+                source,
+            )
+            assert match is not None, f"{path.name}: no {service} service block"
+            assert name in match.group("body"), f"{path.name}: {service}"
+    fargate = REPO_ROOT / "deployments/fargate"
+    assert name in (fargate / "modules/ecs/locals.tf").read_text()
+    for tf in ("variables.tf", "main.tf", "modules/ecs/variables.tf"):
+        assert "audit_trusted_proxy_cidrs" in (fargate / tf).read_text(), tf
+
+
 def test_sandbox_policy_env_vars_are_wired_to_compose_files() -> None:
     missing_by_file = {
         str(path.relative_to(REPO_ROOT)): sorted(

@@ -668,11 +668,14 @@ TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS = [
 """Additional PyPI index URLs (comma-separated). Used as fallback sources for package installation."""
 
 
-def env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
+def env_networks(
+    name: str, *, default: tuple[IPv4Network | IPv6Network, ...] = ()
+) -> tuple[IPv4Network | IPv6Network, ...]:
     """Parse a comma-separated environment variable into validated IP networks.
 
     Args:
         name: Environment variable name.
+        default: Networks returned when the variable is unset or blank.
 
     Returns:
         Parsed IPv4 and IPv6 networks in configured order.
@@ -681,6 +684,8 @@ def env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
         ValueError: If any configured value is not a valid CIDR or IP address.
     """
     raw_value = os.environ.get(name, "")
+    if not raw_value.strip():
+        return default
     networks: list[IPv4Network | IPv6Network] = []
     for value in raw_value.split(","):
         stripped = value.strip()
@@ -714,6 +719,22 @@ def env_ports(name: str, *, default: tuple[int, ...]) -> tuple[int, ...]:
             ports.append(port)
     return tuple(ports)
 
+
+TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
+    "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
+    default=(
+        ip_network("127.0.0.0/8"),
+        ip_network("::1/128"),
+        ip_network("10.0.0.0/8"),
+        ip_network("172.16.0.0/12"),
+        ip_network("192.168.0.0/16"),
+        ip_network("169.254.0.0/16"),
+        ip_network("fc00::/7"),
+    ),
+)
+"""CIDRs of proxies behind which the API runs (Caddy, the UI container, a load
+balancer). X-Forwarded-For entries from these hops are skipped when resolving
+the client IP for audit attribution."""
 
 TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS = env_networks(
     "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS"

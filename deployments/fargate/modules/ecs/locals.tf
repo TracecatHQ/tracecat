@@ -66,6 +66,9 @@ locals {
     # Agent timeout ceiling: every process that parses workflow DSL or
     # enforces the clamp must agree, so it rides the common env.
     TRACECAT__AGENT_SANDBOX_TIMEOUT = var.agent_sandbox_timeout
+    # Audit client-IP attribution: both api and mcp resolve X-Forwarded-For,
+    # so it rides the common env. Empty uses the built-in private-range default.
+    TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = var.audit_trusted_proxy_cidrs
   }
 
   tracecat_platform_otel_env = {

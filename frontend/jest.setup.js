@@ -16,7 +16,9 @@ global.ReadableStream = ReadableStream
 global.WritableStream = WritableStream
 
 // jsdom does not implement scrollIntoView (used by cmdk selection)
-Element.prototype.scrollIntoView = jest.fn()
+if (typeof Element !== "undefined") {
+  Element.prototype.scrollIntoView = jest.fn()
+}
 
 // jsdom does not implement ResizeObserver (used by useOverflowBadges and other
 // layout-measuring hooks). Provide a no-op stub so components that observe
