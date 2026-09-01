@@ -106,6 +106,11 @@ async def test_executor_worker_continues_after_registry_cache_warmup_failure(
     monkeypatch.setattr(worker, "shutdown_executor_backend", shutdown_backend)
     monkeypatch.setattr(worker, "close_storage_client_cache", close_storage_cache)
     monkeypatch.setattr(worker, "get_temporal_client", get_temporal_client)
+    monkeypatch.setattr(
+        worker,
+        "ensure_error_owner_search_attribute",
+        AsyncMock(),
+    )
     monkeypatch.setattr(worker, "Worker", _FakeWorker)
     monkeypatch.setattr(worker, "new_sandbox_runner", lambda: object())
     monkeypatch.setattr(worker.logger, "warning", warning)
@@ -182,6 +187,11 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
     monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS", "")
     monkeypatch.setenv("TEMPORAL__CLUSTER_QUEUE", "test-dsl-queue")
     monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        worker,
+        "ensure_error_owner_search_attribute",
+        AsyncMock(),
+    )
     monkeypatch.setattr(worker, "get_activities", lambda: [])
     monkeypatch.setattr(worker, "Worker", _FakeWorker)
     monkeypatch.setattr(worker, "new_sandbox_runner", lambda: object())
@@ -208,6 +218,11 @@ async def test_dsl_worker_rejects_single_workflow_task_slot(
     monkeypatch.delenv("SENTRY_DSN", raising=False)
     monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS", "1")
     monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        worker,
+        "ensure_error_owner_search_attribute",
+        AsyncMock(),
+    )
     monkeypatch.setattr(worker, "get_activities", lambda: [])
     monkeypatch.setattr(worker, "Worker", temporal_worker)
 
@@ -230,6 +245,11 @@ async def test_dsl_worker_rejects_zero_activity_slots(
     monkeypatch.delenv("SENTRY_DSN", raising=False)
     monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_ACTIVITIES", "0")
     monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        worker,
+        "ensure_error_owner_search_attribute",
+        AsyncMock(),
+    )
     monkeypatch.setattr(worker, "get_activities", lambda: [])
     monkeypatch.setattr(worker, "Worker", temporal_worker)
 
