@@ -167,6 +167,28 @@ def test_json_log_format_preserves_surrogate_escaped_strings() -> None:
     assert payload["attributes"]["path"] == "bad\udcff"
 
 
+def test_json_log_format_normalizes_non_finite_floats() -> None:
+    payload = json.loads(
+        _emit_log(
+            LogFormat.JSON,
+            bindings="reading=float('nan'), ceiling=float('inf')",
+        )
+    )
+
+    assert payload["attributes"] == {"ceiling": None, "reading": None}
+
+
+def test_json_log_format_preserves_unusual_mapping_keys() -> None:
+    payload = json.loads(
+        _emit_log(
+            LogFormat.JSON,
+            bindings="details={('a', 'b'): 1}",
+        )
+    )
+
+    assert payload["attributes"]["details"] == {"('a', 'b')": 1}
+
+
 def test_json_log_format_preserves_correlation_fields() -> None:
     payload = json.loads(
         _emit_log(
