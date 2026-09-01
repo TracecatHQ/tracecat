@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -9,9 +10,20 @@ from temporalio.exceptions import ApplicationError
 from tracecat.dsl import action
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import ExecutionContext, TaskResult
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.storage import blob as blob_module
 from tracecat.storage.blob import get_storage_client
-from tracecat.storage.object import CollectionObject, InlineObject, ObjectRef
+from tracecat.storage.object import (
+    CollectionObject,
+    InlineObject,
+    ObjectRef,
+    StoredObject,
+)
+from tracecat.temporal.errors import extract_error_classification
 
 
 def _close_run_sync_runner() -> None:
@@ -81,7 +93,85 @@ async def test_materialize_context_marks_storage_transport_errors_retryable(
         await materialize_context(ctx)
 
     assert exc_info.value.non_retryable is False
-    assert exc_info.value.type == "StorageMaterializationError"
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert (
+        classification.kind
+        is RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE
+    )
+    assert exc_info.value.type == classification.kind.value
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert classification.cause_type == "HTTPClientError"
+    assert exc_info.value.__cause__ is None
+
+
+@pytest.mark.anyio
+async def test_materialize_context_classifies_non_transport_errors_as_platform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def raise_integrity_error(*_args: object, **_kwargs: object) -> object:
+        raise ValueError("stored object checksum did not match")
+
+    monkeypatch.setattr(action, "retrieve_stored_object", raise_integrity_error)
+
+    ctx = ExecutionContext(ACTIONS={}, TRIGGER=InlineObject(data={"trigger": 1}))
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await materialize_context(ctx)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert classification.cause_type == "ValueError"
+    assert exc_info.value.non_retryable is True
+    assert exc_info.value.type == classification.kind.value
+    assert "checksum" not in exc_info.value.message
+    assert exc_info.value.__cause__ is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "ctx",
+    [
+        pytest.param(
+            ExecutionContext(
+                ACTIONS={
+                    "stale-action": cast(
+                        TaskResult,
+                        {"result": {"type": "inline", "data": "value"}},
+                    )
+                },
+                TRIGGER=None,
+            ),
+            id="malformed-task-result",
+        ),
+        pytest.param(
+            ExecutionContext(
+                ACTIONS={},
+                TRIGGER=cast(StoredObject, {"type": "external"}),
+            ),
+            id="malformed-stored-object",
+        ),
+    ],
+)
+async def test_materialize_context_envelopes_serialized_validation_errors(
+    ctx: ExecutionContext,
+) -> None:
+    with pytest.raises(ApplicationError) as exc_info:
+        await materialize_context(ctx)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert classification.cause_type == "ValidationError"
+    assert exc_info.value.non_retryable is True
+    assert exc_info.value.type == classification.kind.value
+    assert exc_info.value.__cause__ is None
 
 
 @pytest.mark.anyio

@@ -149,6 +149,14 @@ pattern = '^__pep440_version__ = "(?P<version>[^"]+)"'
 [tool.hatch.metadata]
 allow-direct-references = true
 
+[tool.hatch.build.targets.wheel]
+# Ship the package, including non-Python data files such as built-in skill
+# SKILL.md / reference markdown so importlib.resources can find them at runtime.
+packages = ["tracecat"]
+artifacts = [
+    "tracecat/agent/skill/builtin/**/*.md",
+]
+
 [tool.ruff]
 line-length = 88
 fix = true

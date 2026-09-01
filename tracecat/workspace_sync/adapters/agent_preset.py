@@ -663,7 +663,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
                 new_catalog_id = str(local_catalog_id)
                 new_args = dict(action.args)
-                new_args["catalog_id"] = new_catalog_id
+                if "catalog_id" in new_args:
+                    new_args["catalog_id"] = new_catalog_id
                 if "base_url" in new_args:
                     new_args["base_url"] = None
                 if nested_model is not None:

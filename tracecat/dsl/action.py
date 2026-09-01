@@ -38,8 +38,15 @@ from tracecat.dsl.schemas import (
     TaskResult,
 )
 from tracecat.dsl.types import ActionErrorInfo
-from tracecat.dsl.validation import normalize_trigger_inputs
-from tracecat.exceptions import TracecatExpressionError, TracecatValidationError
+from tracecat.dsl.validation import (
+    format_input_schema_validation_error,
+    normalize_trigger_inputs,
+)
+from tracecat.exceptions import (
+    TracecatException,
+    TracecatExpressionError,
+    TracecatValidationError,
+)
 from tracecat.executor.service import get_workspace_variables
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
@@ -76,8 +83,10 @@ from tracecat.storage.object import (
 )
 from tracecat.storage.utils import is_retryable_storage_transport_error
 from tracecat.temporal.errors import (
+    activity_error_boundary,
     build_error_transport_detail,
     extract_error_classification,
+    raise_application_error_from_classification,
     raise_wrapped_application_error,
 )
 from tracecat.temporal.exceptions import UserError
@@ -126,7 +135,7 @@ async def _resolve_mcp_integrations(
             await svc.load_selected_mcp_integrations(mcp_integration_ids)
             servers = await svc.resolve_mcp_integration_refs(mcp_integration_ids)
     except (MCPValidationError, TracecatValidationError) as e:
-        raise ApplicationError(str(e), non_retryable=True) from e
+        raise TracecatValidationError(str(e)) from None
     return servers or []
 
 
@@ -356,6 +365,115 @@ async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskR
     )
 
 
+def _materialization_error_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify one StoredObject materialization failure."""
+    retryable = is_retryable_storage_transport_error(error)
+    return RuntimeErrorClassification.platform(
+        kind=(
+            RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE
+            if retryable
+            else RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA
+        ),
+        message="Tracecat could not retrieve stored workflow data",
+        retry_disposition=(
+            RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
+        ),
+        cause=error,
+    )
+
+
+def _trigger_input_storage_initialization_error_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify failure to initialize trigger-input object storage."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
+        message="Tracecat could not initialize workflow input storage",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def _trigger_input_persistence_error_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify one normalized trigger-input persistence failure."""
+    retryable = is_retryable_storage_transport_error(error)
+    return RuntimeErrorClassification.platform(
+        kind=(
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE
+            if retryable
+            else RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION
+        ),
+        message="Tracecat could not persist normalized workflow inputs",
+        retry_disposition=(
+            RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
+        ),
+        cause=error,
+    )
+
+
+def _expression_error_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify authored expression failures separately from runtime defects."""
+    if isinstance(error, (TracecatExpressionError, TracecatValidationError)):
+        return RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID,
+            message="The workflow expression could not be evaluated",
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+            cause=error,
+        )
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
+        message="Tracecat could not evaluate the workflow expression",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def _result_persistence_error_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify result persistence without changing the call-site retry budget."""
+    transport_failure = is_retryable_storage_transport_error(error)
+    return RuntimeErrorClassification.platform(
+        kind=(
+            RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE
+            if transport_failure
+            else RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION
+        ),
+        message="Tracecat could not persist the workflow result",
+        retry_disposition=(
+            RetryDisposition.RETRYABLE
+            if transport_failure
+            else RetryDisposition.NON_RETRYABLE
+        ),
+        cause=error,
+    )
+
+
+def _agent_preparation_error_classification(
+    error: Exception,
+) -> RuntimeErrorClassification:
+    """Classify agent argument preparation at its typed activity boundary."""
+    if isinstance(error, (TracecatException, ValidationError, UserError)):
+        return RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.WORKFLOW_AGENT_INPUT_INVALID,
+            message="The agent action inputs are invalid",
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+            cause=error,
+        )
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.WORKFLOW_AGENT_PREPARATION_FAILED,
+        message="Tracecat could not prepare the agent action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
 async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionContext:
     """Retrieve StoredObjects and replace with raw values in context copy.
 
@@ -380,47 +498,33 @@ async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionCon
     """
     result: MaterializedExecutionContext = {}
 
-    # Track action refs to map results back after parallel materialization
     action_refs: list[str] = []
     trigger_task_idx: int | None = None
+    with activity_error_boundary(_materialization_error_classification):
+        logger.debug("Materializing context", ctx=ctx, typ=type(ctx))
 
-    logger.debug("Materializing context", ctx=ctx, typ=type(ctx))
+        # Validate every serialized value before constructing coroutine objects.
+        # If a later payload is stale or malformed, this avoids leaking earlier
+        # coroutine objects that were never awaited.
+        validated_actions: list[tuple[str, TaskResult]] = []
+        if actions := ctx.get("ACTIONS"):
+            for ref, task_result in actions.items():
+                validated_actions.append((ref, TaskResult.model_validate(task_result)))
 
-    # Parallelize all StoredObject materializations using GatheringTaskGroup
-    coros = []
-    # Materialize ACTIONS - each value is a TaskResult with StoredObject result
-    if actions := ctx.get("ACTIONS"):
-        for ref, task_result in actions.items():
-            action_refs.append(ref)
-            validated = TaskResult.model_validate(task_result)
-            coros.append(_materialize_task_result(validated))
+        validated_trigger: StoredObject | None = None
+        if trigger := ctx.get("TRIGGER"):
+            validated_trigger = StoredObjectValidator.validate_python(trigger)
 
-    # Materialize TRIGGER - always a StoredObject with uniform envelope
-    if trigger := ctx.get("TRIGGER"):
-        trigger_task_idx = len(action_refs)  # Index after all action tasks
-        validated = StoredObjectValidator.validate_python(trigger)
-        coros.append(retrieve_stored_object(validated))
+        action_refs.extend(ref for ref, _ in validated_actions)
+        coros = [
+            _materialize_task_result(task_result)
+            for _, task_result in validated_actions
+        ]
+        if validated_trigger is not None:
+            trigger_task_idx = len(action_refs)
+            coros.append(retrieve_stored_object(validated_trigger))
 
-    # Collect results and map back to their refs
-    try:
         materialized_results = await asyncio.gather(*coros)
-    except Exception as e:
-        retryable = is_retryable_storage_transport_error(e)
-        logger.warning(
-            "Error materializing context",
-            error=e,
-            retryable=retryable,
-        )
-        if retryable:
-            raise ApplicationError(
-                "Failed to materialize context",
-                non_retryable=False,
-                type="StorageMaterializationError",
-            ) from e
-        raise ApplicationError(
-            "Failed to materialize context",
-            non_retryable=True,
-        ) from e
 
     # Reconstruct ACTIONS dict with materialized results
     if action_refs:
@@ -510,8 +614,8 @@ class DSLActivities:
         Always returns StoredObject (InlineObject or ExternalObject depending on config/size).
         Temporal serializes Pydantic models automatically.
         """
-        storage = get_object_storage()
-        return await storage.store(key, data)
+        with activity_error_boundary(_result_persistence_error_classification):
+            return await get_object_storage().store(key, data)
 
     @staticmethod
     @activity.defn
@@ -529,23 +633,22 @@ class DSLActivities:
         which will cause the activity to fail fast and surface an explicit error
         to the calling workflow.
         """
-        # Materialize any StoredObjects in operand
-        materialized = run_sync(materialize_context(operand))
+        with activity_error_boundary(_materialization_error_classification):
+            materialized = run_sync(materialize_context(operand))
 
-        expr_str = expression.strip()
+        with activity_error_boundary(_expression_error_classification):
+            expr_str = expression.strip()
 
-        # Fail fast on empty / whitespace‐only expressions so that users receive a
-        # clear error instead of silently evaluating to ``False``.
-        if not expr_str:
-            raise TracecatExpressionError("Expression cannot be empty")
+            # Fail fast on empty / whitespace‐only expressions so that users receive a
+            # clear error instead of silently evaluating to ``False``.
+            if not expr_str:
+                raise TracecatExpressionError("Expression cannot be empty")
 
-        # Evaluate the expression. Any parsing / evaluation errors raised inside
-        # ``TemplateExpression`` are propagated unchanged so that Temporal marks
-        # the activity as failed.
-        # Internally, this will raise a ``TracecatExpressionError`` if the expression
-        # is malformed/invalid.
-        expr = TemplateExpression(expr_str, operand=materialized)
-        return expr.result()
+            # Evaluate the expression. Any parsing / evaluation errors raised inside
+            # ``TemplateExpression`` are propagated unchanged so that Temporal marks
+            # the activity as failed.
+            expr = TemplateExpression(expr_str, operand=materialized)
+            return expr.result()
 
     @staticmethod
     @activity.defn
@@ -557,11 +660,12 @@ class DSLActivities:
         Materializes any StoredObjects in operand before evaluation. This ensures
         that expressions evaluate against raw values even when results are externalized.
         """
-        # Materialize any StoredObjects in operand
-        materialized = run_sync(materialize_context(input.operand))
-        result = eval_templated_object(input.obj, operand=materialized)
-        stored = run_sync(get_object_storage().store(input.key, result))
-        return stored
+        with activity_error_boundary(_materialization_error_classification):
+            materialized = run_sync(materialize_context(input.operand))
+        with activity_error_boundary(_expression_error_classification):
+            result = eval_templated_object(input.obj, operand=materialized)
+        with activity_error_boundary(_result_persistence_error_classification):
+            return run_sync(get_object_storage().store(input.key, result))
 
     @staticmethod
     @activity.defn
@@ -578,7 +682,20 @@ class DSLActivities:
 
         Returns CollectionObject if externalized, InlineObject otherwise.
         """
-        return _evaluate_scatter_input(input)
+        with activity_error_boundary(_materialization_error_classification):
+            materialized = run_sync(materialize_context(input.operand))
+        with activity_error_boundary(_expression_error_classification):
+            result = eval_templated_object(input.collection, operand=materialized)
+            if result is None:
+                items: list[Any] = []
+            elif not is_iterable(result):
+                raise TracecatExpressionError(
+                    "The scatter expression must evaluate to an iterable"
+                )
+            else:
+                items = list(result)
+        with activity_error_boundary(_result_persistence_error_classification):
+            return run_sync(_store_list_result(input.key, items))
 
     @staticmethod
     @activity.defn
@@ -586,16 +703,18 @@ class DSLActivities:
         input: EvaluateLoopedSubflowInputActivityInput,
     ) -> int:
         """Evaluate for_each expression to get iteration count for looped subflows."""
-        # Materialize any StoredObjects in operand
-        materialized = run_sync(materialize_context(input.operand))
-
-        # Get iterables from for_each expression
-        iterators = get_iterables_from_expression(
-            expr=input.for_each, operand=materialized
-        )
-
-        # Return total count
-        return len(list(zip(*iterators, strict=False)))
+        with activity_error_boundary(_materialization_error_classification):
+            materialized = run_sync(materialize_context(input.operand))
+        with activity_error_boundary(_expression_error_classification):
+            try:
+                iterators = get_iterables_from_expression(
+                    expr=input.for_each, operand=materialized
+                )
+            except ValueError as error:
+                raise TracecatExpressionError(
+                    "The loop expression must evaluate to iterable values"
+                ) from error
+            return len(list(zip(*iterators, strict=False)))
 
     @staticmethod
     @activity.defn
@@ -612,7 +731,8 @@ class DSLActivities:
             - configs: Single config if all identical, list if varying per iteration
             - trigger_inputs: CollectionObject of evaluated trigger_inputs
         """
-        return _resolve_subflow_batch(input)
+        with activity_error_boundary(_subflow_error_classification):
+            return _resolve_subflow_batch(input)
 
     @staticmethod
     @activity.defn
@@ -633,17 +753,23 @@ class DSLActivities:
         if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
             refs: list[dict[str, Any]] = []
             for i, obj in enumerate(input.collection):
-                value = await storage.retrieve(obj)
-                stored = await storage.store(collection_item_key(input.key, i), value)
+                with activity_error_boundary(_materialization_error_classification):
+                    value = await storage.retrieve(obj)
+                with activity_error_boundary(_result_persistence_error_classification):
+                    stored = await storage.store(
+                        collection_item_key(input.key, i), value
+                    )
                 refs.append(stored.model_dump())
-            return await store_collection(
-                input.key,
-                refs,
-                element_kind="stored_object",
-            )
-        else:
+            with activity_error_boundary(_result_persistence_error_classification):
+                return await store_collection(
+                    input.key,
+                    refs,
+                    element_kind="stored_object",
+                )
+
+        with activity_error_boundary(_materialization_error_classification):
             values = [await storage.retrieve(obj) for obj in input.collection]
-            return InlineObject(data=values, typename="list")
+        return InlineObject(data=values, typename="list")
 
     @staticmethod
     @activity.defn
@@ -659,7 +785,8 @@ class DSLActivities:
         Returns the CollectionObject handle and any partitioned errors.
         """
         storage = get_object_storage()
-        values = [await storage.retrieve(obj) for obj in input.collection]
+        with activity_error_boundary(_materialization_error_classification):
+            values = [await storage.retrieve(obj) for obj in input.collection]
 
         if input.drop_nulls:
             values = [v for v in values if v is not None]
@@ -678,12 +805,15 @@ class DSLActivities:
                 results = list(values)
                 errors = []
             case _:
-                raise ApplicationError(
-                    f"Invalid error handling strategy: {input.error_strategy}",
-                    non_retryable=True,
+                classification = RuntimeErrorClassification.platform(
+                    kind=RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
+                    message="Tracecat could not finalize the workflow gather",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
                 )
+                raise_application_error_from_classification(classification)
 
-        stored = await _store_list_result(input.key, results)
+        with activity_error_boundary(_result_persistence_error_classification):
+            stored = await _store_list_result(input.key, results)
         return FinalizeGatherActivityResult(result=stored, errors=errors)
 
     @staticmethod
@@ -692,12 +822,13 @@ class DSLActivities:
         input: BuildAgentArgsActivityInput,
     ) -> AgentActionArgs:
         """Build AgentActionArgs via the shared _evaluate_agent_args helper."""
-        evaled_args = await _evaluate_agent_args(input)
-        if mcp_integration_ids := evaled_args.pop("mcp_integrations", None):
-            evaled_args["mcp_servers"] = await _resolve_mcp_integrations(
-                mcp_integration_ids, role=input.role
-            )
-        return AgentActionArgs(**evaled_args)
+        with activity_error_boundary(_agent_preparation_error_classification):
+            evaled_args = await _evaluate_agent_args(input)
+            if mcp_integration_ids := evaled_args.pop("mcp_integrations", None):
+                evaled_args["mcp_servers"] = await _resolve_mcp_integrations(
+                    mcp_integration_ids, role=input.role
+                )
+            return AgentActionArgs(**evaled_args)
 
     @staticmethod
     @activity.defn
@@ -705,8 +836,9 @@ class DSLActivities:
         input: BuildAgentArgsActivityInput,
     ) -> PresetAgentActionArgs:
         """Build PresetAgentActionArgs via the shared _evaluate_agent_args helper."""
-        evaled_args = await _evaluate_agent_args(input)
-        return PresetAgentActionArgs(**evaled_args)
+        with activity_error_boundary(_agent_preparation_error_classification):
+            evaled_args = await _evaluate_agent_args(input)
+            return PresetAgentActionArgs(**evaled_args)
 
     @staticmethod
     @activity.defn
@@ -718,11 +850,12 @@ class DSLActivities:
         Materializes any StoredObjects in operand before evaluation. This ensures
         that expressions evaluate against raw values even when results are externalized.
         """
-        # Materialize any StoredObjects in operand
-        materialized = run_sync(materialize_context(input.operand))
-        result = eval_templated_object(input.obj, operand=materialized)
-        stored = run_sync(get_object_storage().store(input.key, result))
-        return stored
+        with activity_error_boundary(_materialization_error_classification):
+            materialized = run_sync(materialize_context(input.operand))
+        with activity_error_boundary(_expression_error_classification):
+            result = eval_templated_object(input.obj, operand=materialized)
+        with activity_error_boundary(_result_persistence_error_classification):
+            return run_sync(get_object_storage().store(input.key, result))
 
     @staticmethod
     @activity.defn
@@ -730,32 +863,59 @@ class DSLActivities:
         inputs: NormalizeTriggerInputsActivityInputs,
     ) -> StoredObject:
         """Return trigger inputs with defaults applied according to DSL expects."""
-        try:
-            value = {}
+        with activity_error_boundary(
+            _trigger_input_storage_initialization_error_classification
+        ):
             storage = get_object_storage()
-            if inputs.trigger_inputs is not None:
+
+        value = {}
+        if inputs.trigger_inputs is not None:
+            with activity_error_boundary(_materialization_error_classification):
                 value = run_sync(storage.retrieve(inputs.trigger_inputs))
+        try:
             normalized = normalize_trigger_inputs(inputs.input_schema, value)
-            stored = run_sync(storage.store(inputs.key, normalized))
-            return stored
         except ValidationError as e:
-            logger.info("Validation error when normalizing trigger inputs", error=e)
-            raise ApplicationError(
-                "Failed to validate trigger inputs",
-                ValidationDetail.list_from_pydantic(e),
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
-        except Exception as e:
-            logger.warning(
-                "Unexpected error cause when normalizing trigger inputs",
-                error=e,
+            details = ValidationDetail.list_from_pydantic(e)
+            message = format_input_schema_validation_error(details)
+            classification = RuntimeErrorClassification.user(
+                kind=RuntimeErrorKind.WORKFLOW_TRIGGER_INPUT_INVALID,
+                message=message,
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                cause=e,
             )
-            raise ApplicationError(
-                "Unexpected error when normalizing trigger inputs",
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
+            diagnostic = ActionErrorInfo(
+                ref="__workflow_trigger__",
+                message=message,
+                type=type(e).__name__,
+            )
+            logger.info(
+                "Validation error when normalizing trigger inputs",
+                error_type=type(e).__name__,
+                error_count=len(details),
+            )
+            raise_application_error_from_classification(
+                classification,
+                {
+                    diagnostic.ref: build_error_transport_detail(
+                        classification,
+                        diagnostic,
+                    ).model_dump(mode="json")
+                },
+            )
+        except Exception as e:
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
+                message="Tracecat could not normalize the workflow trigger",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                cause=e,
+            )
+            raise_wrapped_application_error(
+                e,
+                fallback_classification=classification,
+                include_implicit_context=False,
+            )
+        with activity_error_boundary(_trigger_input_persistence_error_classification):
+            return run_sync(storage.store(inputs.key, normalized))
 
     @staticmethod
     @activity.defn
@@ -833,6 +993,13 @@ def _subflow_error_classification(error: Exception) -> RuntimeErrorClassificatio
                 retry_disposition=retry_disposition,
                 cause=error,
             )
+        case TracecatExpressionError() | TracecatValidationError():
+            return RuntimeErrorClassification.user(
+                kind=RuntimeErrorKind.WORKFLOW_SUBFLOW_INPUT_INVALID,
+                message="The child workflow inputs are invalid",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                cause=error,
+            )
         case ApplicationError() if UserError.matches(error):
             return RuntimeErrorClassification.user(
                 kind=RuntimeErrorKind.WORKFLOW_SUBFLOW_INPUT_INVALID,
@@ -880,28 +1047,6 @@ def _raise_classified_subflow_application_error(
         fallback_classification=classification,
         details=(detail, *legacy_details),
     )
-
-
-def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
-    """Evaluate scatter collection expression and store as CollectionObject.
-
-    Returns CollectionObject if externalized, InlineObject otherwise.
-    """
-    # Materialize any StoredObjects in operand
-    materialized = run_sync(materialize_context(input.operand))
-    result = eval_templated_object(input.collection, operand=materialized)
-
-    # Treat None as empty collection (will be handled by empty check below)
-    if result is None:
-        result = []
-    elif not is_iterable(result):
-        raise ApplicationError(
-            f"Scatter collection is not iterable: {type(result)}: {result}",
-            non_retryable=True,
-        )
-
-    items = list(result)
-    return run_sync(_store_list_result(input.key, items))
 
 
 def _patch_object(
@@ -980,7 +1125,12 @@ def _resolve_subflow_batch(
     materialized = run_sync(materialize_context(input.operand))
 
     # Get iterables from for_each expression
-    iterators = get_iterables_from_expression(expr=task.for_each, operand=materialized)
+    try:
+        iterators = get_iterables_from_expression(
+            expr=task.for_each, operand=materialized
+        )
+    except (TracecatExpressionError, ValueError) as error:
+        raise UserError("The child workflow loop expression is invalid") from error
 
     # Collect all items and slice to batch
     all_items = list(zip(*iterators, strict=False))
@@ -1033,7 +1183,8 @@ def _resolve_subflow_batch(
     trigger_inputs_stored: list[StoredObject] = []
     for i, trigger_input in enumerate(trigger_inputs_list):
         key = collection_item_key(input.key, i)
-        stored = run_sync(storage.store(key, trigger_input))
+        with activity_error_boundary(_result_persistence_error_classification):
+            stored = run_sync(storage.store(key, trigger_input))
         trigger_inputs_stored.append(stored)
 
     return ResolvedSubflowBatch(

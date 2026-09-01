@@ -52,6 +52,7 @@ locals {
     TEMPORAL__CLUSTER_NAMESPACE                      = local.temporal_namespace
     TEMPORAL__CLUSTER_URL                            = local.temporal_cluster_url
     TRACECAT__APP_ENV                                = var.tracecat_app_env
+    TRACECAT__LOG_FORMAT                             = var.log_format
     TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID             = data.aws_caller_identity.current.account_id
     TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN          = aws_iam_role.executor_task.arn
     TRACECAT__FEATURE_FLAGS                          = var.feature_flags # Requires Tracecat Enterprise license to modify.
@@ -237,7 +238,6 @@ locals {
         TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS         = var.llm_gateway_healthcheck_pool_timeout_seconds
         TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD            = var.llm_gateway_healthcheck_failure_threshold
         TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS  = var.llm_gateway_status_log_interval_seconds
-        TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG      = var.agent_otel_platform_override_config
         TRACECAT__LITELLM_BASE_URL                         = "http://litellm-service:4000"
         TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"
         TRACECAT__DISABLE_NSJAIL                           = "true"
@@ -294,9 +294,12 @@ locals {
     for k, v in merge(
       {
         LOG_LEVEL               = var.log_level
+        TRACECAT__APP_ENV       = var.tracecat_app_env
         TRACECAT__DB_SSLMODE    = "require"
         TRACECAT__DB_ENDPOINT   = local.core_db_hostname
         TRACECAT__FEATURE_FLAGS = var.feature_flags
+        TRACECAT__LOG_FORMAT    = var.log_format
+        TRACECAT__SERVICE_NAME  = "migrations"
       },
       local.tracecat_db_configs
     ) :
