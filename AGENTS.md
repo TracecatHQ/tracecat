@@ -395,14 +395,35 @@ Removing something takes three PRs, usually across three releases:
   (the autolabeler cannot write to them) and to add nuance the title cannot
   express.
 - Before hand-labeling, list existing repo labels with `gh label list` and
-  pick from that set. Do not invent new labels unless the user explicitly asks
-  for one.
+  pick from that set. See "Never invent vocabulary" below.
 - `gh pr edit` subcommands fail on this repo because of the Projects-classic
   deprecation. Apply labels with
   `gh api repos/TracecatHQ/tracecat/issues/<pr-number>/labels -f "labels[]=<label>"`.
 
+### Never invent vocabulary
+
+- The vocabulary is closed. Use only the types, scopes and labels that already
+  exist in `.github/commit-conventions.toml` and `gh label list`. This applies
+  equally to labels, conventional-commit types, and scopes.
+- Do not add entries to `[types]`, `[scopes]`, `[scope_aliases]` or
+  `[legacy_scopes]`, and do not run `gh label create`, even when a change seems
+  not to fit. It usually does fit: a vendor name belongs in `integrations` with
+  the vendor named in the description, and a change that needs a third scope is
+  a PR that should be split.
+- A failing check is the system working, not a reason to widen the vocabulary.
+  `feat(jira): ...` is meant to fail; the fix is
+  `feat(integrations): add Jira issue search`, not a new `jira` scope.
+- If you believe a label, type or scope is genuinely missing, stop and say so.
+  Name what you think is missing and why, then leave it to a human. New
+  vocabulary needs discussion and review from the engineering and GTM teams
+  before anyone adds it through the GitHub UI, because scopes and labels decide
+  release-note section headings, which are user-facing. An agent that invents a
+  scope mid-task ships a heading nobody agreed to.
+
 ### Changing the conventions
 
+- This section is for humans making an approved change. Agents should read the
+  rule above first.
 - `.github/commit-conventions.toml` is the source of truth. Edit it, then
   regenerate and re-verify: `just check-pr-title`, and
   `uv run pytest tests/unit/test_commit_conventions.py`, which fails if the
