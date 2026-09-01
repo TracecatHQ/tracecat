@@ -449,22 +449,6 @@
       "destination": "/automations/core-actions/case-actions/cases"
     },
     {
-      "source": "/automations/core-actions/case-actions/comments",
-      "destination": "/automations/core-actions/case-actions/cases"
-    },
-    {
-      "source": "/automations/core-actions/case-actions/attachments",
-      "destination": "/automations/core-actions/case-actions/cases"
-    },
-    {
-      "source": "/automations/core-actions/case-actions/tasks",
-      "destination": "/automations/core-actions/case-actions/cases"
-    },
-    {
-      "source": "/automations/core-actions/case-actions/linked-rows",
-      "destination": "/automations/core-actions/case-actions/cases"
-    },
-    {
       "source": "/automations/core-actions/case-actions/metrics",
       "destination": "/automations/core-actions/case-actions/cases"
     },
