@@ -44,6 +44,7 @@ REGISTRY_POLICY_ENV_VARS = {
     "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
 }
 TRACED_COMPOSE_SERVICES = ("api", "worker", "executor")
+SENTRY_WORKFLOW_COMPOSE_SERVICES = ("worker", "agent-worker", "executor")
 PLATFORM_OTEL_COMPOSE_ENV = (
     "TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}",
     "OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}",
@@ -314,6 +315,22 @@ def test_platform_otel_env_is_forwarded_to_traced_compose_services(
         assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV not in service_body
     else:
         assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV in service_body
+
+
+@pytest.mark.parametrize("path", TRACED_COMPOSE_ENV_FILES, ids=lambda path: path.name)
+@pytest.mark.parametrize("service", SENTRY_WORKFLOW_COMPOSE_SERVICES)
+def test_sentry_dsn_is_forwarded_to_workflow_compose_services(
+    path: Path, service: str
+) -> None:
+    source = path.read_text()
+    service_match = re.search(
+        rf"^  {re.escape(service)}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)",
+        source,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert service_match is not None
+
+    assert "SENTRY_DSN: ${SENTRY_DSN:-}" in service_match.group("body")
 
 
 def test_bound_env_clamps_below_lower(monkeypatch: pytest.MonkeyPatch) -> None:
