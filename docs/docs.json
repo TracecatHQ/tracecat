@@ -147,29 +147,79 @@
         ]
       },
       {
-        "tab": "Integrations",
+        "tab": "Core Actions",
         "groups": [
           {
-            "group": "Core actions",
-            "icon": "boxes",
+            "group": "Request",
+            "icon": "globe",
             "expanded": true,
             "pages": [
               "automations/core-actions/request-actions/http",
               "automations/core-actions/request-actions/sql",
               "automations/core-actions/request-actions/ssh",
               "automations/core-actions/request-actions/grpc",
-              "automations/core-actions/request-actions/email",
+              "automations/core-actions/request-actions/email"
+            ]
+          },
+          {
+            "group": "Transform",
+            "icon": "shuffle",
+            "expanded": true,
+            "pages": [
               "automations/core-actions/transform-actions/reshape",
               "automations/core-actions/transform-actions/python-script",
               "automations/core-actions/transform-actions/data-transforms",
-              "automations/core-actions/transform-actions/require",
-              "automations/core-actions/workflow-actions/run-subflow",
-              "automations/core-actions/workflow-actions/scatter-gather-loops",
-              "automations/core-actions/workflow-actions/while-loops",
-              "automations/core-actions/case-actions/cases",
-              "automations/core-actions/memory-actions/tables"
+              "automations/core-actions/transform-actions/require"
             ]
           },
+          {
+            "group": "Workflow",
+            "icon": "workflow",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/workflow-actions/run-subflow",
+              "automations/core-actions/workflow-actions/scatter-gather-loops",
+              "automations/core-actions/workflow-actions/while-loops"
+            ]
+          },
+          {
+            "group": "Agent",
+            "icon": "sparkles",
+            "expanded": true,
+            "pages": [
+              "agents/ai-agent",
+              "agents/ai-action"
+            ]
+          },
+          {
+            "group": "Case",
+            "icon": "ticket-check",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/case-actions/cases",
+              "automations/core-actions/case-actions/comments",
+              "automations/core-actions/case-actions/attachments",
+              "automations/core-actions/case-actions/tasks",
+              "automations/core-actions/case-actions/linked-rows"
+            ]
+          },
+          {
+            "group": "Table",
+            "icon": "table",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/memory-actions/tables",
+              "automations/core-actions/memory-actions/columns",
+              "automations/core-actions/memory-actions/lookups",
+              "automations/core-actions/memory-actions/rows",
+              "automations/core-actions/memory-actions/export"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
           {
             "group": "Integrations",
             "icon": "wrench",

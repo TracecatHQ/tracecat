@@ -454,6 +454,13 @@ pages:
       - id: core.cases.delete_case
         examples:
           - cases-delete
+      - id: core.cases.get_case_metrics
+        examples:
+          - cases-metrics
+
+  - slug: case-actions/comments
+    title: Comments
+    actions:
       - id: core.cases.create_comment
         examples:
           - cases-create-comment
@@ -472,6 +479,10 @@ pages:
       - id: core.cases.get_comment_thread
         examples:
           - cases-get-comment-thread
+
+  - slug: case-actions/attachments
+    title: Attachments
+    actions:
       - id: core.cases.upload_attachment
         examples:
           - cases-upload-attachment
@@ -493,6 +504,10 @@ pages:
       - id: core.cases.delete_attachment
         examples:
           - cases-delete-attachment
+
+  - slug: case-actions/tasks
+    title: Tasks
+    actions:
       - id: core.cases.create_task
         examples:
           - cases-create-task
@@ -508,6 +523,10 @@ pages:
       - id: core.cases.delete_task
         examples:
           - cases-delete-task
+
+  - slug: case-actions/linked-rows
+    title: Linked rows
+    actions:
       - id: core.cases.link_row
         info: |
           <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
@@ -534,9 +553,6 @@ pages:
           <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
         examples:
           - cases-get-linked-rows
-      - id: core.cases.get_case_metrics
-        examples:
-          - cases-metrics
 
   - slug: memory-actions/tables
     title: Tables
@@ -670,6 +686,10 @@ pages:
       - id: core.table.update_table
         examples:
           - tables-rename
+
+  - slug: memory-actions/columns
+    title: Columns
+    actions:
       - id: core.table.create_column
         examples:
           - tables-schema
@@ -688,6 +708,10 @@ pages:
       - id: core.table.delete_column
         examples:
           - tables-drop-column
+
+  - slug: memory-actions/lookups
+    title: Lookups
+    actions:
       - id: core.table.lookup
         examples:
           - tables-lookup
@@ -700,6 +724,10 @@ pages:
       - id: core.table.search_rows
         examples:
           - tables-search
+
+  - slug: memory-actions/rows
+    title: Rows
+    actions:
       - id: core.table.insert_row
         examples:
           - tables-write
@@ -712,6 +740,10 @@ pages:
       - id: core.table.delete_row
         examples:
           - tables-write
+
+  - slug: memory-actions/export
+    title: Export
+    actions:
       - id: core.table.download
         examples:
           - tables-download
