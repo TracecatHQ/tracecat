@@ -193,6 +193,7 @@ locals {
         TRACECAT__API_URL                             = local.internal_api_url
         TRACECAT__DB_ENDPOINT                         = local.core_db_hostname
         TRACECAT__SERVICE_NAME                        = "executor"
+        SENTRY_DSN                                    = var.sentry_dsn
         TRACECAT__EXECUTOR_BACKEND                    = "direct"
         TRACECAT__EXECUTOR_QUEUE                      = var.executor_queue
         TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = var.executor_registry_cache_max_entries
