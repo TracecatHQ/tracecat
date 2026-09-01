@@ -1,3 +1,4 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -22,7 +23,7 @@ def test_request_context_values_are_normalized() -> None:
 
     app.add_api_route("/", read_context)
     app.state.logger = type("Logger", (), {"debug": lambda *_args, **_kwargs: None})()
-    with TestClient(app, client=("203.0.113.10", 50000)) as client:
+    with TestClient(app, client=("10.0.0.5", 50000)) as client:
         response = client.get(
             "/",
             headers={
@@ -38,6 +39,73 @@ def test_request_context_values_are_normalized() -> None:
         "client_ip": "198.51.100.20",
         "user_agent": "tracecat/1.0",
     }
+
+
+@pytest.mark.parametrize(
+    ("peer", "forwarded_for", "expected"),
+    [
+        # Trusted peer: rightmost untrusted hop wins; the client-sent
+        # leftmost entry is ignored.
+        ("10.0.0.5", "6.6.6.6, 203.0.113.7", "203.0.113.7"),
+        # Untrusted peer talking directly: its spoofed header is ignored.
+        ("203.0.113.10", "6.6.6.6", "203.0.113.10"),
+        # Fully trusted chain (internal traffic): leftmost hop attributed.
+        ("10.0.0.5", "10.0.8.4", "10.0.8.4"),
+    ],
+)
+def test_client_ip_resolution_walks_trusted_proxies(
+    peer: str, forwarded_for: str, expected: str
+) -> None:
+    app = FastAPI()
+    app.add_middleware(RequestLoggingMiddleware)
+
+    async def read_client_ip() -> dict[str, str | None]:
+        return {"client_ip": _read_audit_context()["client_ip"]}
+
+    app.add_api_route("/", read_client_ip)
+    app.state.logger = type("Logger", (), {"debug": lambda *_args, **_kwargs: None})()
+    with TestClient(app, client=(peer, 50000)) as client:
+        response = client.get("/", headers={"X-Forwarded-For": forwarded_for})
+
+    assert response.json() == {"client_ip": expected}
+
+
+@pytest.mark.parametrize(
+    ("user_agent", "expected"),
+    [
+        (
+            "Mozilla/5.0 Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+            "edge/131.0.0.0",
+        ),
+        (
+            "Mozilla/5.0 AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
+            "chrome/131.0.0.0",
+        ),
+        ("Mozilla/5.0 Firefox/133.0", "firefox/133.0"),
+        (
+            "Mozilla/5.0 Version/18.0 Safari/605.1.15",
+            "safari/18.0",
+        ),
+        (
+            "mozilla/5.0 version/18.0 safari/605.1.15",
+            "safari/18.0",
+        ),
+        ("Mozilla/5.0 SyntheticBrowser/1.0", "browser/other"),
+    ],
+)
+def test_request_context_identifies_browser(user_agent: str, expected: str) -> None:
+    app = FastAPI()
+    app.add_middleware(RequestLoggingMiddleware)
+
+    async def read_user_agent() -> dict[str, str | None]:
+        return {"user_agent": _read_audit_context()["user_agent"]}
+
+    app.add_api_route("/", read_user_agent)
+    app.state.logger = type("Logger", (), {"debug": lambda *_args, **_kwargs: None})()
+    with TestClient(app) as client:
+        response = client.get("/", headers={"User-Agent": user_agent})
+
+    assert response.json() == {"user_agent": expected}
 
 
 def test_request_context_reduces_unknown_user_agent() -> None:

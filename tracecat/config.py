@@ -408,6 +408,17 @@ SAML_VERIFY_SSL_ENTITY = env_bool("SAML_VERIFY_SSL_ENTITY", default=True)
 SAML_VERIFY_SSL_METADATA = env_bool("SAML_VERIFY_SSL_METADATA", default=True)
 """Whether to verify SSL certificates for SAML metadata operations."""
 
+# === Audit config === #
+TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = os.environ.get(
+    "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS"
+) or (
+    "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,"
+    "169.254.0.0/16,fc00::/7"
+)
+"""Comma-separated CIDRs of proxies behind which the API runs (Caddy, the UI
+container, a load balancer). X-Forwarded-For entries from these hops are
+skipped when resolving the client IP for audit attribution."""
+
 # === CORS config === #
 # NOTE: If you are using Tracecat self-hosted, please replace with your
 # own domain by setting the comma separated TRACECAT__ALLOW_ORIGINS env var.

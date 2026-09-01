@@ -39,6 +39,7 @@ module "ecs" {
   # Network configuration from network module
   vpc_id                  = module.network.vpc_id
   public_subnet_ids       = module.network.public_subnet_ids
+  public_subnet_cidrs     = var.public_subnet_cidrs
   private_subnet_ids      = module.network.private_subnet_ids
   private_route_table_ids = module.network.private_route_table_ids
 

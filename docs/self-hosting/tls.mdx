@@ -72,7 +72,12 @@ BASE_DOMAIN=:80
 PUBLIC_APP_URL=https://tracecat.example.com
 PUBLIC_API_URL=https://tracecat.example.com/api
 TRACECAT__ALLOW_ORIGINS=https://tracecat.example.com
+TRACECAT__TRUSTED_PROXY_CIDRS="10.0.1.0/24 10.0.2.0/24"
 ```
+
+Set `TRACECAT__TRUSTED_PROXY_CIDRS` to the load balancer subnet CIDRs so Caddy can derive the client address from `X-Forwarded-For` without trusting requests from other networks. Separate multiple CIDRs with spaces.
+
+You must configure the VM firewall or security group so only the load balancer can reach Caddy's port 80. On AWS, set the instance security group's inbound source to the Application Load Balancer's security group. Do not allow the full load balancer subnets to reach port 80 because another host in a trusted subnet could forge `X-Forwarded-For`.
 
 Point the load balancer's HTTPS listener at Caddy's HTTP port (80), and redirect HTTP to HTTPS at the load balancer.
 
