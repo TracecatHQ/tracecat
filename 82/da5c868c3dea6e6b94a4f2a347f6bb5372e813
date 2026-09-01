@@ -1,0 +1,20 @@
+AGENTS.md
+  s_c5002332a8185a::t_d620036cf0c4c8 403-422,425-426
+  s_c5002332a8185a::t_c11796d1231e24 398
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "82da5c868c3dea6e6b94a4f2a347f6bb5372e813",
+  "prompts": {},
+  "sessions": {
+    "s_c5002332a8185a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "831b7546-2af0-4f8f-af70-e9256e652a68",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
