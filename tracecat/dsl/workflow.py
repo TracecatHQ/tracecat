@@ -191,6 +191,7 @@ ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH = "dsl-action-heartbeat-timeout-retry-v1"
 ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH = "dsl-error-owner-search-attribute-v1"
 ERROR_OWNER_CONTROL_FLOW_PATCH = "dsl-error-owner-control-flow-v1"
 ERROR_OWNER_AFTER_HANDLER_PATCH = "dsl-error-owner-after-handler-v1"
+PRESERVE_TEMPORAL_CANCELLATION_PATCH = "dsl-preserve-temporal-cancellation-v1"
 
 
 def _raise_workflow_application_error(
@@ -1249,6 +1250,10 @@ class DSLWorkflow:
         # NOTE: By the time we receive an exception, we've exhausted all retry attempts
         # Note that execute_task is called by the scheduler, so we don't have to return ApplicationError
         except (ActivityError, ChildWorkflowError, FailureError) as e:
+            if is_cancelled_exception(e) and workflow.patched(
+                PRESERVE_TEMPORAL_CANCELLATION_PATCH
+            ):
+                raise
             # These are deterministic and expected errors that
             err_type = e.__class__.__name__
             msg = self.ERROR_TYPE_TO_MESSAGE.get(err_type, "Workflow execution failed")

@@ -9,7 +9,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 import tracecat.dsl.workflow as dsl_workflow_module
 from tracecat import config
@@ -27,7 +27,11 @@ from tracecat.dsl.schemas import (
     RunContext,
     TaskResult,
 )
-from tracecat.dsl.workflow import ERROR_OWNER_CONTROL_FLOW_PATCH, DSLWorkflow
+from tracecat.dsl.workflow import (
+    ERROR_OWNER_CONTROL_FLOW_PATCH,
+    PRESERVE_TEMPORAL_CANCELLATION_PATCH,
+    DSLWorkflow,
+)
 from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
@@ -251,6 +255,37 @@ async def test_execute_task_handles_timers_before_action_permit_acquisition() ->
     assert events[:2] == ["timers", "acquire"]
     assert acquire_mock.await_count == 1
     assert result.get_data() == {"ok": True}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("preserve_cancellation", [True, False])
+async def test_execute_task_preserves_temporal_cancellation_with_replay_gate(
+    preserve_cancellation: bool,
+) -> None:
+    workflow = _build_workflow()
+    task = ActionStatement(ref="cancelled_action", action="core.transform.reshape")
+    activity_error = _activity_error_from(CancelledError("cancelled by sibling"))
+
+    with (
+        patch.object(workflow, "_handle_timers", new=AsyncMock(return_value=None)),
+        patch.object(
+            workflow, "_run_action", new=AsyncMock(side_effect=activity_error)
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.patched",
+            return_value=preserve_cancellation,
+        ) as patched,
+    ):
+        if preserve_cancellation:
+            with pytest.raises(ActivityError) as exc_info:
+                await workflow._execute_task(task)
+            assert exc_info.value is activity_error
+        else:
+            with pytest.raises(ApplicationError) as exc_info:
+                await workflow._execute_task(task)
+            assert exc_info.value.type == CancelledError.__name__
+
+    patched.assert_called_once_with(PRESERVE_TEMPORAL_CANCELLATION_PATCH)
 
 
 @pytest.mark.anyio

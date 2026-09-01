@@ -7,7 +7,6 @@ from typing import Any, Never
 
 from temporalio.exceptions import (
     ApplicationError,
-    CancelledError,
     is_cancelled_exception,
 )
 
@@ -159,10 +158,8 @@ def build_terminal_application_error(
 
 
 def _is_cancellation_fallout(error: BaseException) -> bool:
-    """Recognize native and workflow-transported sibling cancellation."""
-    if is_cancelled_exception(error):
-        return True
-    return isinstance(error, ApplicationError) and error.type == CancelledError.__name__
+    """Recognize cancellation from its native Temporal failure chain."""
+    return is_cancelled_exception(error)
 
 
 def adapt_error_handler_details(
