@@ -3,36 +3,51 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import AsyncGenerator, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Never
 
 import pytest
-from temporalio import activity
+from temporalio import activity, workflow
+from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, Worker
 
 from tests.shared import recorded_patch_ids
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl import workflow as workflow_module
+from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import DSLActivities, PrepareSubflowActivityInput
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.init_activities import (
     resolve_workflow_concurrency_limits_enabled_activity,
 )
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
-from tracecat.dsl.schemas import ActionStatement
-from tracecat.dsl.types import TaskExceptionInfo
+from tracecat.dsl.schemas import ActionStatement, RunActionInput
+from tracecat.dsl.types import ActionErrorInfo, TaskExceptionInfo
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.runtime.errors import RuntimeErrorKind
-from tracecat.storage.object import InlineObject
-from tracecat.temporal.errors import extract_error_classification
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.storage.object import InlineObject, StoredObject
+from tracecat.temporal.errors import (
+    build_error_transport_detail,
+    extract_error_classification,
+    raise_application_error_from_classification,
+)
 from tracecat.temporal.patches import WorkflowPatch
+from tracecat.workflow.executions.enums import TemporalSearchAttr
 from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.management.schemas import GetErrorHandlerWorkflowIDActivityInputs
 
 pytestmark = [pytest.mark.temporal, pytest.mark.integration]
 
@@ -78,6 +93,80 @@ def _raise_legacy_workflow_application_error(
 
 def _ignore_terminal_error_owner(_error: ApplicationError) -> None:
     """Reproduce the absence of terminal owner attribution before ENG-1407."""
+
+
+@pytest.fixture
+async def replay_env() -> AsyncGenerator[WorkflowEnvironment, None]:
+    """Run replay capture against an isolated real Temporal server."""
+    async with await WorkflowEnvironment.start_local(
+        data_converter=get_data_converter(compression_enabled=False),
+        search_attributes=[TemporalSearchAttr.ERROR_OWNER.key],
+        dev_server_log_level="error",
+    ) as environment:
+        yield environment
+
+
+@activity.defn(name="execute_action_activity")
+async def _classified_action_failure_activity(
+    input: RunActionInput,
+    _role: Role,
+) -> None:
+    """Record a stable user-owned action failure in Temporal history."""
+    classification = RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        message="The synthetic action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    raise_application_error_from_classification(
+        classification,
+        build_error_transport_detail(
+            classification,
+            ActionErrorInfo(
+                ref=input.task.ref,
+                message=classification.message,
+                type="SyntheticActionError",
+            ),
+        ),
+    )
+
+
+@activity.defn(
+    name=_activity_name(WorkflowsManagementService.get_error_handler_workflow_id)
+)
+async def _legacy_missing_error_handler(
+    _input: GetErrorHandlerWorkflowIDActivityInputs,
+) -> None:
+    """Reproduce the platform-classified handler lookup failure being replaced."""
+    raise_application_error_from_classification(
+        RuntimeErrorClassification.platform(
+            kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+            message="Tracecat could not resolve the configured error handler",
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+        )
+    )
+
+
+@workflow.defn(name="DSLWorkflow", sandboxed=False)
+class _LegacyHandlerTerminalWorkflow(DSLWorkflow):
+    """Capture the former handler-terminal behavior under the production type."""
+
+    @workflow.run
+    async def run(self, args: DSLRunArgs) -> StoredObject:
+        return await super().run(args)
+
+    async def _handle_application_error(
+        self,
+        args: DSLRunArgs,
+        error: ApplicationError,
+        *,
+        stamp_terminal_owner: bool,
+    ) -> Never:
+        del stamp_terminal_owner
+        try:
+            await self._get_error_handler_workflow_id(args)
+        except Exception as handler_error:
+            raise handler_error from None
+        raise AssertionError("The synthetic handler lookup should fail")
 
 
 @pytest.mark.anyio
@@ -199,6 +288,120 @@ async def test_dsl_workflow_replays_legacy_subflow_failure_history(
     patch_ids = await recorded_patch_ids(temporal_client, history)
     assert WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE not in patch_ids
     assert WorkflowPatch.ERROR_OWNER_AFTER_HANDLER not in patch_ids
+
+    replay_result = await Replayer(
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+        data_converter=temporal_client.data_converter,
+        interceptors=[RuntimeErrorAttributionInterceptor()],
+    ).replay_workflow(history, raise_on_replay_failure=False)
+    assert replay_result.replay_failure is None
+
+
+@pytest.mark.anyio
+async def test_dsl_workflow_replays_handler_terminal_replacement_history(
+    replay_env: WorkflowEnvironment,
+) -> None:
+    """Preserving the causal failure keeps the terminal command topology stable."""
+    temporal_client = replay_env.client
+    task_queue = f"dsl-handler-replay-{uuid.uuid4()}"
+    wf_id = WorkflowUUID.new_uuid4()
+    run_args = DSLRunArgs(
+        role=Role(
+            type="service",
+            service_id="tracecat-runner",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+        ),
+        wf_id=wf_id,
+        dsl=DSLInput(
+            title="Error handler replay probe",
+            description="Capture the former handler terminal replacement",
+            entrypoint=DSLEntrypoint(ref="run"),
+            actions=[
+                ActionStatement(
+                    ref="run",
+                    action="core.noop",
+                    args={},
+                )
+            ],
+            error_handler="synthetic-missing-handler",
+        ),
+        trigger_inputs=InlineObject(data={"source": "replay-test"}),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test"},
+            actions={"core.noop": "tracecat_registry"},
+        ),
+        time_anchor=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    async with (
+        Worker(
+            client=temporal_client,
+            task_queue=task_queue,
+            activities=[
+                _disable_workflow_concurrency_limits,
+                _legacy_missing_error_handler,
+            ],
+            workflows=[_LegacyHandlerTerminalWorkflow],
+            workflow_runner=new_sandbox_runner(),
+            interceptors=[RuntimeErrorAttributionInterceptor()],
+        ),
+        Worker(
+            client=temporal_client,
+            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            activities=[_classified_action_failure_activity],
+        ),
+    ):
+        handle = await temporal_client.start_workflow(
+            "DSLWorkflow",
+            run_args,
+            id=generate_exec_id(wf_id),
+            task_queue=task_queue,
+            execution_timeout=timedelta(seconds=30),
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await handle.result()
+
+    recorded_classification = extract_error_classification(exc_info.value)
+    assert recorded_classification is not None
+    assert recorded_classification.owner is RuntimeErrorOwner.PLATFORM
+    history = await handle.fetch_history()
+    activity_failure_events = [
+        event
+        for event in history.events
+        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED
+    ]
+    assert len(activity_failure_events) == 2
+    handler_failure_event = activity_failure_events[-1]
+    terminal_events = [
+        event.event_type
+        for event in history.events
+        if event.event_id > handler_failure_event.event_id
+        if (
+            event.event_type == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED
+            or (
+                event.event_type
+                == EventType.EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES
+                and TemporalSearchAttr.ERROR_OWNER.value
+                in event.upsert_workflow_search_attributes_event_attributes.search_attributes.indexed_fields
+            )
+        )
+    ]
+    assert terminal_events == [
+        EventType.EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES,
+        EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,
+    ]
+    recorded_error = await temporal_client.data_converter.decode_failure(
+        history.events[-1].workflow_execution_failed_event_attributes.failure
+    )
+    terminal_classification = extract_error_classification(recorded_error)
+    assert terminal_classification is not None
+    assert terminal_classification.owner is RuntimeErrorOwner.PLATFORM
+    assert terminal_classification.kind is RuntimeErrorKind.RUNTIME_UNCLASSIFIED
+    assert (await handle.describe()).typed_search_attributes.get(
+        TemporalSearchAttr.ERROR_OWNER.key
+    ) == RuntimeErrorOwner.PLATFORM.value
 
     replay_result = await Replayer(
         workflows=[DSLWorkflow],
