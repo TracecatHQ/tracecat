@@ -911,6 +911,36 @@ async def test_handle_connection_bounds_protocol_error_stream_emission(
 
 
 @pytest.mark.anyio
+async def test_handle_connection_preserves_protocol_error_when_stream_sink_fails() -> (
+    None
+):
+    handler = _make_handler()
+    stream = _FakeStream()
+    stream.error.side_effect = ConnectionError("stream unavailable")
+    handler._stream_sink = stream
+    reader = asyncio.StreamReader()
+    reader.feed_data(build_message(MessageType.EVENT, b"{"))
+    reader.feed_eof()
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    result = await handler.handle_connection(
+        reader,
+        cast(asyncio.StreamWriter, writer),
+    )
+
+    assert result.error == "Runtime sent an invalid event envelope"
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert result.terminal_stream_error_emitted is False
+    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    writer.close.assert_called_once()
+    writer.wait_closed.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_handle_connection_deadline_cancels_slack_terminal_cleanup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -422,6 +422,12 @@ class LoopbackHandler:
                 "Timeout emitting stream error",
                 session_id=self.input.session_id,
             )
+        except Exception as e:
+            logger.warning(
+                "Failed to emit stream error",
+                error_type=type(e).__name__,
+                session_id=self.input.session_id,
+            )
 
     def mark_cancelled(self, reason: str) -> None:
         """Record that the active runtime turn is expected to stop early.
