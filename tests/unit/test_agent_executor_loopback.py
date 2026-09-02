@@ -12,6 +12,7 @@ import orjson
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
+import tracecat.agent.executor.loopback as loopback_module
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE, MessageType, build_message
 from tracecat.agent.common.stream_types import (
@@ -868,6 +869,42 @@ async def test_handle_connection_classifies_invalid_runtime_frame_as_protocol_fa
     assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
     stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
     assert result.terminal_stream_error_emitted is True
+    writer.close.assert_called_once()
+    writer.wait_closed.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_handle_connection_bounds_protocol_error_stream_emission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def stalled_error(_error: str) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        loopback_module,
+        "TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS",
+        0.01,
+    )
+    handler = _make_handler()
+    stream = _FakeStream()
+    stream.error.side_effect = stalled_error
+    handler._stream_sink = stream
+    reader = asyncio.StreamReader()
+    reader.feed_data(build_message(MessageType.EVENT, b"{"))
+    reader.feed_eof()
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    result = await handler.handle_connection(
+        reader,
+        cast(asyncio.StreamWriter, writer),
+    )
+
+    assert result.error == "Runtime sent an invalid event envelope"
+    assert result.classification is not None
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    assert result.terminal_stream_error_emitted is False
+    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
     writer.close.assert_called_once()
     writer.wait_closed.assert_awaited_once()
 

@@ -99,6 +99,8 @@ class ClaudeSessionLine(TypedDict):
 
 type SinkOperation = Callable[[LoopbackEventSink], Awaitable[None]]
 
+TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS = 5.0
+
 
 @dataclass(kw_only=True, slots=True)
 class LoopbackInput:
@@ -404,6 +406,23 @@ class LoopbackHandler:
         await self._close_external_stream()
         self._result.terminal_stream_error_emitted = True
 
+    async def _emit_terminal_stream_error_best_effort(
+        self,
+        stream_sink: LoopbackEventSink,
+        error: str,
+    ) -> None:
+        """Bound terminal stream delivery on failure paths."""
+        try:
+            await asyncio.wait_for(
+                self._emit_terminal_stream_error(stream_sink, error),
+                timeout=TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Timeout emitting stream error",
+                session_id=self.input.session_id,
+            )
+
     def mark_cancelled(self, reason: str) -> None:
         """Record that the active runtime turn is expected to stop early.
 
@@ -545,7 +564,7 @@ class LoopbackHandler:
             self._result.error = "Runtime sent an invalid event envelope"
             self._result.classification = agent_executor_protocol_failed(e)
             if self._stream_sink:
-                await self._emit_terminal_stream_error(
+                await self._emit_terminal_stream_error_best_effort(
                     self._stream_sink,
                     self._result.error,
                 )
@@ -554,16 +573,10 @@ class LoopbackHandler:
             self._result.error = f"Connection error: {e}"
             self._result.classification = agent_executor_unavailable(e)
             if self._stream_sink:
-                try:
-                    await asyncio.wait_for(
-                        self._emit_terminal_stream_error(
-                            self._stream_sink,
-                            self._result.error,
-                        ),
-                        timeout=5.0,
-                    )
-                except TimeoutError:
-                    logger.warning("Timeout emitting stream error")
+                await self._emit_terminal_stream_error_best_effort(
+                    self._stream_sink,
+                    self._result.error,
+                )
         finally:
             # External channels finish with the runtime. The durable workflow
             # owns Redis completion after approval persistence or finalization.
