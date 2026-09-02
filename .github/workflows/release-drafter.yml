@@ -111,15 +111,28 @@ jobs:
           done
 
   draft:
-    # One draft job at a time. This job now reads the drafted body, rewrites it
-    # and PATCHes it back, so two pushes racing could have an older run
-    # overwrite a newer body and drop whatever the newer push added, until some
-    # later push happened to repair it. `cancel-in-progress: false` queues
-    # rather than cancels, and GitHub keeps only the newest pending run per
-    # group, so the last PATCH is always the newest one.
+    # One draft job at a time. This job reads the drafted body, rewrites it and
+    # PATCHes it back, so without a group two pushes could interleave that
+    # read/modify/write and lose whatever the other added.
     #
-    # Only this job. The backfill just adds labels and is idempotent, so racing
-    # it is harmless, and cancelling it would silently skip labelling a push.
+    # What the group guarantees is that no two PATCHes overlap. It does NOT
+    # guarantee the newest push writes last: the group is acquired after each
+    # run's own `backfill`, those run unserialized, and an older run whose
+    # backfill finishes late can therefore reach the group after a newer run
+    # has already written.
+    #
+    # That is survivable because Release Drafter regenerates the body from the
+    # merged pull requests each time it runs, so a late writer still produces
+    # current CONTENT. The one thing that can lag is the version of
+    # dedupe_release_notes.py in that run's checkout, and only until the next
+    # push to main runs the newer one. Rejecting superseded runs outright would
+    # trade that for a worse failure: if the newest run then failed, no run
+    # would update the draft at all.
+    #
+    # `cancel-in-progress: false` so pushes queue rather than cancel, since
+    # cancelling would take that run's backfill with it and silently skip
+    # labelling a push. The guard is on this job alone: the backfill only adds
+    # labels and is idempotent, so racing it is harmless.
     concurrency:
       group: release-draft-${{ github.ref }}
       cancel-in-progress: false

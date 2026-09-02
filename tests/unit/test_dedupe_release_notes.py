@@ -135,14 +135,20 @@ def test_lines_without_a_pull_request_number_are_never_dropped() -> None:
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
-def test_crlf_bodies_are_handled(newline: str) -> None:
-    """GitHub stores release bodies with CRLF, which breaks `$`-anchored matching."""
+def test_bodies_are_handled_whatever_the_line_endings(newline: str) -> None:
+    """GitHub stores most release bodies with CRLF, so the raw body must work.
+
+    Passed straight to `dedupe`, not normalised first: normalising here would
+    make the CRLF case byte-identical to the LF one and test nothing.
+    `splitlines` is what actually absorbs the `\r`.
+    """
     body = newline.join(
         ("## Security", "", "- fix: x (#1)", "", "## Fixes", "", "- fix: x (#1)", "")
     )
-    out = dedupe(body.replace("\r\n", "\n"))
+    out = dedupe(body)
     assert out.count("(#1)") == 1
     assert "\r" not in out
+    assert out.startswith("## Security")
 
 
 def test_the_first_section_wins_even_when_the_text_differs() -> None:
