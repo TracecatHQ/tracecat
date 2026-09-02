@@ -40,6 +40,7 @@ from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.artifacts.projection as artifact_projection
 from tracecat import config
+from tracecat.agent.adapter.vercel import is_text_ui_part
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import (
     BooleanApprovalDecision,
@@ -221,8 +222,6 @@ def _finalize_auto_title_task(
 
 
 def _extract_vercel_user_prompt(ui_message: Any) -> str | None:
-    from tracecat.agent.adapter.vercel import is_text_ui_part
-
     text_parts = [part["text"] for part in ui_message.parts if is_text_ui_part(part)]
     return "\n".join(text_parts) or None
 

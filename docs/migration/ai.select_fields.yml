@@ -24,10 +24,14 @@ definition:
       type: str | None
       description: Additional instructions for the agent.
       default: null
+    model:
+      type: dict[str, Any]
+      description: Model selection with `model_name` and `model_provider`, matching the `model` argument of `ai.agent`.
   steps:
     - ref: run_agent
       action: ai.agent
       args:
+        model: ${{ inputs.model }}
         user_prompt: >-
           Given this JSON object, select between ${{ inputs.min_fields }} and ${{ inputs.max_fields }} fields ranked by relevance according to this criteria: ${{ inputs.criteria_prompt }}
 
