@@ -8365,7 +8365,7 @@ async def test_run_agent_preset_uses_session_stream_cursor(
             preset_version: int | None = None,
         ) -> SimpleNamespace:
             assert slug == "triage"
-            assert preset_version is None
+            assert preset_version == 3
             return version
 
     class _SessionService:
@@ -8416,6 +8416,7 @@ async def test_run_agent_preset_uses_session_stream_cursor(
         workspace_id=str(workspace_id),
         preset_slug="triage",
         prompt="check alerts",
+        preset_version=3,
     )
 
     assert result == "agent response"
@@ -8428,6 +8429,21 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     # Producer (run_turn) and consumer (_collect) must share the minted id.
     assert captured["stream_id"] is not None
     assert captured["stream_id"] == captured["active_stream_id"]
+
+
+@pytest.mark.anyio
+async def test_run_agent_preset_marks_numeric_version_deprecated() -> None:
+    tool = next(
+        tool
+        for tool in await mcp_server.mcp.list_tools()
+        if tool.name == "run_agent_preset"
+    )
+
+    preset_version_schema = tool.parameters["properties"]["preset_version"]
+
+    assert preset_version_schema["deprecated"] is True
+    assert "Deprecated compatibility input" in preset_version_schema["description"]
+    assert "current head" in preset_version_schema["description"]
 
 
 @pytest.mark.anyio

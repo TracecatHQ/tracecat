@@ -67,7 +67,7 @@ class RunAgentArgs(BaseModel):
     preset_slug: str | None = None
     """Slug for the preset configuration (if using a preset)."""
     preset_version: int | None = None
-    """Optional preset version number to pin for this execution."""
+    """Deprecated compatibility input. Preset execution uses the current head."""
     max_requests: int | None = None
     """Maximum number of requests for the agent."""
     max_tool_calls: int | None = None
