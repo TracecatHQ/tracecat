@@ -280,6 +280,51 @@ class TestBuildToolDefinitionsActivity:
         assert app_error.details[0] == {"origin": "tracecat_registry"}
 
     @pytest.mark.anyio
+    async def test_classifies_custom_registry_entitlement_denial(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        class _LockService:
+            async def resolve_lock_with_bindings(self, _actions: set[str]) -> None:
+                raise EntitlementRequired("custom_registry")
+
+        class _AsyncContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _AsyncContext(),
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=[]),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.non_retryable is True
+
+    @pytest.mark.anyio
     async def test_strict_mcp_discovery_failure_fails_scope_compilation(
         self,
         monkeypatch: pytest.MonkeyPatch,

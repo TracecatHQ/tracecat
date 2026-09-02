@@ -472,6 +472,11 @@ class AgentActivities:
                 e.detail,
                 type=e.__class__.__name__,
             ) from e
+        except EntitlementRequired as e:
+            raise_application_error_from_classification(
+                tenant_entitlement_denied(e),
+                e.detail,
+            )
 
         return BuildToolDefsResult(
             tool_definitions=defs,
