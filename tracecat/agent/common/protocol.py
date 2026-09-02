@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeGuard, get_args
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
@@ -136,18 +136,12 @@ type RuntimeEventType = Literal[
     "log",
 ]
 
-_RUNTIME_EVENT_TYPES = frozenset(
-    {
-        "stream_event",
-        "message",
-        "session_line",
-        "session_update",
-        "result",
-        "error",
-        "done",
-        "log",
-    }
-)
+_RUNTIME_EVENT_TYPES: frozenset[str] = frozenset(get_args(RuntimeEventType.__value__))
+
+
+def _is_runtime_event_type(value: object) -> TypeGuard[RuntimeEventType]:
+    """Narrow a wire value using the canonical runtime event type definition."""
+    return isinstance(value, str) and value in _RUNTIME_EVENT_TYPES
 
 
 @dataclass(kw_only=True, slots=True)
@@ -192,7 +186,7 @@ class RuntimeEventEnvelope:
     def from_dict(cls, data: dict[str, Any]) -> RuntimeEventEnvelope:
         """Construct from dict (orjson parsed)."""
         raw_type = data.get("type")
-        if not isinstance(raw_type, str) or raw_type not in _RUNTIME_EVENT_TYPES:
+        if not _is_runtime_event_type(raw_type):
             raise ValueError("Unknown runtime event envelope type")
 
         raw_event = data.get("event")
@@ -206,7 +200,7 @@ class RuntimeEventEnvelope:
             event = UnifiedStreamEvent.from_dict(raw_event)
 
         return cls(
-            type=cast(RuntimeEventType, raw_type),
+            type=raw_type,
             event=event,
             message=data.get("message"),
             session_line=data.get("session_line"),
