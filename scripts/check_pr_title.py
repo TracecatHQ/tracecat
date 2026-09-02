@@ -227,6 +227,32 @@ def _check_scope(raw: str, conventions: Conventions) -> tuple[Violation, ...]:
     return tuple(violations)
 
 
+def _canonical_scope(raw: str, conventions: Conventions) -> str | None:
+    """The canonical spelling of a quoted title's scope, or `None`.
+
+    An old spelling and a retired one each have a single answer, and it is the
+    answer this checker would give anyway. An ambiguous or unknown scope has
+    none: `app` and `workflows` are rejected precisely because nothing can pick
+    between their two readings, and guessing one into a suggestion is worse
+    than handing the shape back.
+    """
+    parts: list[str] = []
+    for part in raw.split(SCOPE_SEPARATOR):
+        if part in conventions.scopes:
+            resolved = part
+        elif (alias := conventions.scope_aliases.get(part)) is not None:
+            resolved = alias
+        elif (legacy := conventions.legacy_scopes.get(part)) is not None:
+            resolved = legacy.suggest
+        else:
+            return None
+        # Two spellings can collapse onto one area: `registry+integration` is
+        # `integrations` twice, and naming that would fail `duplicate-scope`.
+        if resolved not in parts:
+            parts.append(resolved)
+    return SCOPE_SEPARATOR.join(parts)
+
+
 def _revert_suggestion(inner: str, conventions: Conventions) -> str:
     """The `revert(...)` title that should replace a GitHub revert wrapper.
 
@@ -235,6 +261,14 @@ def _revert_suggestion(inner: str, conventions: Conventions) -> str:
     breaking the reverted change was, and the revert is labelled `chore` by the
     autolabeler either way. An author who judges the revert itself breaking can
     add it back.
+
+    Every candidate goes back through `check_title` before it is named. The
+    quoted title merged before the cutoff, so nothing ever validated it:
+    reverting `feat(registry): add x` verbatim would name
+    `revert(registry): add x`, which fails `unknown-scope` and sends the author
+    round twice. `test_every_suggestion_is_itself_valid` guards that trap for
+    the suggestions that come out of the conventions file; this one is built at
+    runtime from an unchecked title, so it is verified rather than assumed.
     """
     body = inner.strip()
     if conventions.allow_bot_prefix:
@@ -245,13 +279,27 @@ def _revert_suggestion(inner: str, conventions: Conventions) -> str:
         return "revert(<scope>): <description>"
 
     description = match.group("rest").strip()
-    if not description:
+    # Checked without a scope first: whatever makes `revert: <description>`
+    # fail -- an empty description, a trailing period -- fails in every scoped
+    # form of it too, and there is then nothing worth carrying over.
+    if not description or not check_title(f"revert: {description}", conventions).ok:
         return "revert(<scope>): <description>"
 
     scope = match.group("scope")
-    if scope:
-        return f"revert({scope}): {description}"
-    return f"revert: {description}"
+    if not scope:
+        return f"revert: {description}"
+
+    canonical = _canonical_scope(scope, conventions)
+    if canonical is None:
+        return f"revert(<scope>): {description}"
+
+    suggestion = f"revert({canonical}): {description}"
+    if not check_title(suggestion, conventions).ok:
+        # A scope that resolves and still fails: three areas that stay three
+        # after the collapse, say. The description survives, and the scope is
+        # the author's to pick.
+        return f"revert(<scope>): {description}"
+    return suggestion
 
 
 def check_title(title: str, conventions: Conventions) -> Report:

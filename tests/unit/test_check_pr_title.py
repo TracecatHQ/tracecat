@@ -8,7 +8,14 @@ reworded.
 from __future__ import annotations
 
 import pytest
-from check_pr_title import EXIT_CONFIG, EXIT_INVALID, EXIT_OK, check_title, main
+from check_pr_title import (
+    EXIT_CONFIG,
+    EXIT_INVALID,
+    EXIT_OK,
+    _revert_suggestion,
+    check_title,
+    main,
+)
 from commit_conventions import Conventions, load_conventions
 
 CONVENTIONS: Conventions = load_conventions()
@@ -237,24 +244,71 @@ def test_revert_wrapper_is_rejected_on_its_own_terms() -> None:
             "`revert: return 404 for missing workspaces`",
         ),
         ('Revert "an unparseable title"', "`revert(<scope>): <description>`"),
+        (
+            'Revert "feat(registry): add a saved search export"',
+            "`revert(integrations): add a saved search export`",
+        ),
+        (
+            'Revert "feat(udfs): add a table lookup action"',
+            "`revert(actions): add a table lookup action`",
+        ),
+        (
+            'Revert "feat(registry+integration): add a saved search export"',
+            "`revert(integrations): add a saved search export`",
+        ),
+        (
+            'Revert "refactor(app): update case filtering"',
+            "`revert(<scope>): update case filtering`",
+        ),
+        (
+            'Revert "feat(jira): add issue search"',
+            "`revert(<scope>): add issue search`",
+        ),
+        ('Revert "feat(ui+api+ee): x"', "`revert(<scope>): x`"),
+        ('Revert "feat(ui): x."', "`revert(<scope>): <description>`"),
     ],
-    ids=["scoped", "unscoped", "unparseable"],
+    ids=[
+        "scoped",
+        "unscoped",
+        "unparseable",
+        "alias-resolves",
+        "retired-scope-resolves",
+        "two-spellings-of-one-area-collapse",
+        "ambiguous-scope-is-the-authors-to-pick",
+        "vendor-scope-is-the-authors-to-pick",
+        "too-many-scopes-survive-canonicalisation",
+        "unusable-description",
+    ],
 )
 def test_revert_wrapper_hands_over_the_replacement(title: str, suggestion: str) -> None:
     """The reverted title carries the scope, so the author gets it back.
 
     A message that only named the shape would make every revert a lookup, and
-    the answer is already sitting inside the quotes.
+    the answer is already sitting inside the quotes. The scope is canonicalised
+    on the way through: the quoted title merged before the cutoff, so it may
+    spell an area the way nobody is allowed to spell it any more.
     """
     messages = " ".join(v.message for v in check_title(title, CONVENTIONS).violations)
     assert suggestion in messages
 
 
-def test_the_suggested_revert_title_is_itself_valid() -> None:
-    """The same trap `test_every_suggestion_is_itself_valid` guards elsewhere."""
-    suggested = "revert(agents): stopgap resolution of tracecat registry alias"
-    report = check_title(suggested, CONVENTIONS)
-    assert report.ok, report.codes
+@pytest.mark.parametrize("inner", [*ACCEPT, *(title for title, _ in REJECT)])
+def test_every_revert_suggestion_is_itself_valid(inner: str) -> None:
+    """The runtime half of `test_every_suggestion_is_itself_valid`.
+
+    That test covers the replacements written into the conventions file. This
+    one covers the replacement assembled from the quoted title, which merged
+    before the cutoff and was therefore never checked: `Revert "feat(registry):
+    add x"` used to name `revert(registry): add x`, which fails
+    `unknown-scope`. Either the suggestion is a title the author can paste, or
+    it visibly asks for a scope -- never a third thing that looks usable and
+    fails.
+    """
+    suggestion = _revert_suggestion(inner, CONVENTIONS)
+    if suggestion.startswith("revert(<scope>): "):
+        return
+    report = check_title(suggestion, CONVENTIONS)
+    assert report.ok, f"{inner!r} suggests {suggestion!r}, which fails: {report.codes}"
 
 
 @pytest.mark.parametrize(
