@@ -10155,7 +10155,14 @@ export const $CatalogMappingAffectedPreset = {
       title: "Preset Name",
     },
     version: {
-      type: "integer",
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Version",
     },
     path: {
@@ -18292,7 +18299,14 @@ export const $McpIntegrationMappingAffectedPreset = {
       title: "Preset Name",
     },
     version: {
-      type: "integer",
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Version",
     },
     path: {

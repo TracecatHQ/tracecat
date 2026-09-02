@@ -2765,7 +2765,7 @@ export type CaseViewedEventRead = {
 export type CatalogMappingAffectedPreset = {
   preset_slug: string
   preset_name: string
-  version: number
+  version: number | null
   path: string
 }
 
@@ -5637,7 +5637,7 @@ export type status5 =
 export type McpIntegrationMappingAffectedPreset = {
   preset_slug: string
   preset_name: string
-  version: number
+  version: number | null
   path: string
 }
 

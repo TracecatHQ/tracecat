@@ -107,12 +107,14 @@ export function MappingRequirementsCard({
  * "Affects ..." summary line.
  */
 export function mappingAffectsSummary(requirement: {
-  affected_presets: { preset_name: string; version: number }[]
+  affected_presets: { preset_name: string; version: number | null }[]
   affected_workflows: { workflow_title: string; action_ref: string }[]
 }): string {
   return [
-    ...requirement.affected_presets.map(
-      (preset) => `${preset.preset_name} version ${preset.version}`
+    ...requirement.affected_presets.map((preset) =>
+      preset.version === null
+        ? `${preset.preset_name} head`
+        : `${preset.preset_name} version ${preset.version}`
     ),
     ...requirement.affected_workflows.map(
       (workflow) => `${workflow.workflow_title} action ${workflow.action_ref}`

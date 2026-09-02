@@ -4473,7 +4473,7 @@ async def test_agent_preset_sync_requires_an_ambiguous_catalog_choice_per_pull(
         assert {candidate.catalog_id for candidate in requirement.candidates} == {
             row.id for row in catalog_rows
         }
-        assert [affected.version for affected in requirement.affected_presets] == [1]
+        assert [affected.version for affected in requirement.affected_presets] == [None]
         assert (
             await session.scalar(
                 select(AgentPreset).where(
@@ -5028,7 +5028,7 @@ async def test_mcp_integration_hint_mismatch_requires_a_mapping_choice(
         slug_match.id,
         other.id,
     ]
-    assert [affected.version for affected in requirement.affected_presets] == [1]
+    assert [affected.version for affected in requirement.affected_presets] == [None]
     assert [
         diagnostic.details["code"]
         for diagnostic in prepared.diagnostics

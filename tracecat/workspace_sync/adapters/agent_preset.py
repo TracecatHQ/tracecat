@@ -400,7 +400,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     path=self.source_path(source_id),
                     preset_slug=preset.slug,
                     preset_name=preset.name,
-                    version_number=1,
+                    version_number=None,
                     model_key=ModelKey(
                         preset.model_provider,
                         preset.model_name,
@@ -787,9 +787,14 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """Append per-reference diagnostics when no candidate is available."""
         for reference in references:
             if isinstance(reference, AgentPresetCatalogReference):
+                preset_revision = (
+                    "head"
+                    if reference.version_number is None
+                    else f"version {reference.version_number}"
+                )
                 message = (
-                    f"Agent preset {reference.preset_slug!r} version "
-                    f"{reference.version_number} requires model "
+                    f"Agent preset {reference.preset_slug!r} {preset_revision} "
+                    "requires model "
                     f"{reference.model_key.model_provider!r} / "
                     f"{reference.model_key.model_name!r}, but no matching "
                     "enabled model is configured for this workspace."
@@ -884,7 +889,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                         path=self.source_path(source_id),
                         preset_slug=preset.slug,
                         preset_name=preset.name,
-                        version_number=1,
+                        version_number=None,
                         meta=meta,
                     )
                 )
