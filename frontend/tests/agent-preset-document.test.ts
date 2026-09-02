@@ -316,11 +316,22 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
     )
   })
 
-  it("excludes resolved subagent uuids", () => {
+  it("excludes derived subagent version metadata", () => {
     const { config } = renderVersion(buildVersion())
     expect(config).not.toContain("preset_id")
     expect(config).not.toContain("preset_version_id")
-    expect(config).toContain("preset_version: 2")
+    expect(config).not.toContain("preset_version")
+  })
+
+  it("matches an unresolved draft against a resolved version", () => {
+    const draftSubagents = DRAFT_SUBAGENTS.map(
+      ({ preset_version: _presetVersion, ...subagent }) => subagent
+    )
+
+    expect(
+      renderPayload(buildPayload({ agents: { subagents: draftSubagents } }))
+        .config
+    ).toBe(renderVersion(buildVersion()).config)
   })
 
   it("ignores the removed legacy enabled field", () => {

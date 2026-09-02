@@ -56,8 +56,6 @@ export interface AgentPresetSubagentEntry {
   name: string | null
   /** Preset slug the subagent is backed by. */
   preset: string
-  /** Pinned preset version, or null to track the latest. */
-  presetVersion: number | null
   /** Maximum turns allowed for this subagent, or null for the default. */
   maxTurns: number | null
   /** Description override, or null. */
@@ -204,7 +202,6 @@ function normalizeSubagents(
     .map((subagent) => ({
       name: subagent.name ?? null,
       preset: subagent.preset,
-      presetVersion: subagent.preset_version ?? null,
       maxTurns: subagent.max_turns ?? null,
       description: subagent.description ?? null,
     }))
@@ -399,7 +396,6 @@ export function buildAgentPresetVirtualFiles(input: AgentPresetDocumentInput): {
       agents: input.subagents.map((subagent) => ({
         name: subagent.name,
         preset: subagent.preset,
-        preset_version: subagent.presetVersion,
         max_turns: subagent.maxTurns,
         description: subagent.description,
       })),
