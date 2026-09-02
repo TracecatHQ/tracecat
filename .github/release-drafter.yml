@@ -179,82 +179,82 @@ autolabeler:
   # Example: build(deps): bump base images
   - label: build
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:build)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:build)(\([^)]*\))?!?: /'
 
   # Example: chore: update release drafter configuration
   - label: chore
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:chore)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:chore)(\([^)]*\))?!?: /'
 
   # Example: ci(workflows): pin actions to immutable SHAs
   - label: cicd
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:ci)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:ci)(\([^)]*\))?!?: /'
 
   # Example: deprecation(integrations): tools.x.list_signals in favour of tools.x.search_alerts
   - label: deprecation
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:deprecation|depr)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:deprecation|depr)(\([^)]*\))?!?: /'
 
   # Example: chore(deps): bump orjson
   - label: deps
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:deps)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:deps)(\([^)]*\))?!?: /'
 
   # Example: docs: clarify secret environment use cases
   - label: docs
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:docs|doc)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:docs|doc)(\([^)]*\))?!?: /'
 
   # Example: feat(integrations): add 1Password SDK and Events API
   - label: feat
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:feat)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:feat)(\([^)]*\))?!?: /'
 
   # Example: fix(agents): preserve runtime error attribution
   - label: fix
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:fix)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:fix)(\([^)]*\))?!?: /'
 
   # Example: infra(fargate): raise executor memory limits
   - label: infra
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:infra|helm)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:infra|helm)(\([^)]*\))?!?: /'
 
   # Example: perf(engine): batch workflow event writes
   - label: perf
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:perf)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:perf)(\([^)]*\))?!?: /'
 
   # Example: refactor(api): split the workspace router
   - label: refactor
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:refactor)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:refactor)(\([^)]*\))?!?: /'
 
   # Example: release: 1.0.0-beta.49
   - label: release
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:release)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:release)(\([^)]*\))?!?: /'
 
   # Example: revert(ui): restore the preset button
   - label: revert
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:revert)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:revert)(\([^)]*\))?!?: /'
 
   # Example: security(deps): patch an unauthenticated RCE
   - label: security
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:security)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:security)(\([^)]*\))?!?: /'
 
   # Example: test(engine): cover retry backoff
   - label: tests
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?:tests|test)(\([^)]*\))?!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:tests|test)(\([^)]*\))?!?: /'
 
   # Example: feat(api)!: drop the v1 webhook payload
   - label: breaking
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+(\([^)]*\))?!: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+(\([^)]*\))?!: /'
 
   # GitHub's own revert titles carry no conventional-commit prefix.
   # Example: Revert "feat(mcp): add internal OIDC issuer"
@@ -267,109 +267,109 @@ autolabeler:
   # Example: fix(agents): preserve runtime error attribution
   - label: agents
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:agent-harness|artifacts|prompts|agents|claude|agent|inbox|tools|chat)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:agent-harness|artifacts|prompts|agents|claude|agent|inbox|tools|chat)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: fix(api): return 404 for missing workspaces
   - label: api
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|auth|saml|api|cli|org)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|auth|saml|api|cli|org)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: build(admin-cli): ship the operator CLI wheel
   - label: build
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:admin-cli|build)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:admin-cli|build)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: feat(cases): add case duplication
   - label: cases
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:case-triggers|cases|case)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:case-triggers|cases|case)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: feat(actions): add a table lookup action
   - label: actions
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:core-actions|actions|core|udfs|udf)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:core-actions|actions|core|udfs|udf)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: fix(functions): regex_extract corner case
   - label: functions
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*functions(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*functions(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: build(deps): patch dependabot alerts
   - label: deps
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:deps)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:deps)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: fix(docs): repair broken anchors
   - label: docs
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:playbooks|playbook|docs)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:playbooks|playbook|docs)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: fix(engine): retry transient action failures
   - label: engine
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:expressions|approvals|scheduler|executor|temporal|workflow|runtime|sandbox|workers|engine|worker|dsl)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:expressions|approvals|scheduler|executor|temporal|workflow|runtime|sandbox|workers|engine|worker|dsl)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: feat(enterprise): gate SAML behind a tier
   - label: enterprise
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:enterprise|tiers|ee)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:enterprise|tiers|ee)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: fix(infra): wire LiteLLM URL into managed AI runtimes
   - label: infra
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:deployments|migration|terraform|cluster|fargate|storage|deploy|docker|chart|infra|helm|aws|cdk|eks|k8s|db)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:deployments|migration|terraform|cluster|fargate|storage|deploy|docker|chart|infra|helm|aws|cdk|eks|k8s|db)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: feat(integrations): add Jira issue search
   - label: integrations
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:integrations|integration|registry|sync|git|vcs)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:integrations|integration|registry|sync|git|vcs)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: feat(audit): stream audit logs via webhook
   - label: audit
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:audit)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:audit)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: fix(logging): redact secrets in executor logs
   - label: logging
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:observability|logging)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:observability|logging)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: feat(mcp): add server health checks
   - label: mcp
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:mcp)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:mcp)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: feat(rbac): add workspace-scoped roles
   - label: rbac
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:authz|rbac)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:authz|rbac)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: feat(skills): add a triage skill
   - label: skills
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:skills)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:skills)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: feat(tables): add unique indexes
   - label: tables
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:tables|table)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:tables|table)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: feat(ui): replace preset button with @ mentions
   - label: ui
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:frontend|canvas|ui|ux)(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:frontend|canvas|ui|ux)(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # `workflows` is the one scope whose area depends on the type:
   # ci(workflows) is GitHub Actions, feat(workflows) is the product engine.
   # Example: ci(workflows): pin actions to immutable SHAs
   - label: cicd
     title:
-      - '/^(\[[\w.-]+\]\s+)?ci\((?:[a-z0-9_-]+\+)*workflows(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?ci\((?:[a-z0-9_-]+\+)*workflows(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Example: feat(workflows): add a workflow alias resolver
   - label: engine
     title:
-      - '/^(\[[\w.-]+\]\s+)?(?!ci\()[a-z]+\((?:[a-z0-9_-]+\+)*workflows(?:\+[a-z0-9_-]+)*\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?!ci\()[a-z]+\((?:[a-z0-9_-]+\+)*workflows(?:\+[a-z0-9_-]+)*\)!?: /'
 
   # Vendor absorption. Any scope that is neither canonical, an alias, nor on
   # the ambiguous list is read as a vendor name and filed under Integrations,
@@ -379,7 +379,7 @@ autolabeler:
   # Example: feat(splunk): add saved search export
   - label: integrations
     title:
-      - '/^(\[[\w.-]+\]\s+)?[a-z]+\((?!(?:agent-harness|case-triggers|observability|core-actions|integrations|organization|deployments|expressions|integration|invitations|enterprise|pagination|workspaces|admin-cli|approvals|artifacts|functions|migration|playbooks|scheduler|terraform|workflows|workspace|executor|frontend|playbook|registry|settings|temporal|tracecat|webhooks|workflow|actions|cluster|fargate|logging|prompts|runtime|sandbox|secrets|service|storage|workers|agents|canvas|claude|config|deploy|docker|engine|skills|tables|worker|admin|agent|audit|authz|build|cases|chart|inbox|infra|table|tiers|tools|auth|case|chat|core|deps|docs|helm|rbac|saml|sync|udfs|api|app|aws|cdk|cli|dev|dsl|eks|git|k8s|mcp|org|udf|vcs|ai|db|ee|ui|ux)\))[a-z0-9_-]+\)!?: /'
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?!(?:agent-harness|case-triggers|observability|core-actions|integrations|organization|deployments|expressions|integration|invitations|enterprise|pagination|workspaces|admin-cli|approvals|artifacts|functions|migration|playbooks|scheduler|terraform|workflows|workspace|executor|frontend|playbook|registry|settings|temporal|tracecat|webhooks|workflow|actions|cluster|fargate|logging|prompts|runtime|sandbox|secrets|service|storage|workers|agents|canvas|claude|config|deploy|docker|engine|skills|tables|worker|admin|agent|audit|authz|build|cases|chart|inbox|infra|table|tiers|tools|auth|case|chat|core|deps|docs|helm|rbac|saml|sync|udfs|api|app|aws|cdk|cli|dev|dsl|eks|git|k8s|mcp|org|udf|vcs|ai|db|ee|ui|ux)\))[a-z0-9_-]+\)!?: /'
 
 # Presentation. Two passes: rewrite historical scope spellings to canonical
 # ones so a release reads with one vocabulary, then capitalize each
@@ -413,68 +413,68 @@ replacers:
   # A compound type. Only the first component survives: `feat+fix(ui)` is a
   # feature that also fixed something, and the section it belongs in is
   # Features.
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)(?:\+[a-z]+)+(\([^)\n]*\))?(!?): /gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+)(?:\+[a-z]+)+(\([^)\n]*\))?(!?): /gm'
     replace: '- $1$2$3$4: '
 
   # The same, capitalised, plus a bare `Feat:`. JavaScript has no case-folding
   # escape in a replacement string, so this is one rule per type, as with the
   # capitalizer below. The lookahead is `[(!:]` and deliberately not `\s`: a
   # prose bullet that opens on `Fix mouse scrolling ...` must be left alone.
-  - search: '/^- (\[[\w.-]+\]\s+)?Build(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Build(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1build'
-  - search: '/^- (\[[\w.-]+\]\s+)?Chore(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Chore(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1chore'
-  - search: '/^- (\[[\w.-]+\]\s+)?Ci(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Ci(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1ci'
-  - search: '/^- (\[[\w.-]+\]\s+)?Deprecation(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Deprecation(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1deprecation'
-  - search: '/^- (\[[\w.-]+\]\s+)?Docs(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Docs(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1docs'
-  - search: '/^- (\[[\w.-]+\]\s+)?Feat(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Feat(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1feat'
-  - search: '/^- (\[[\w.-]+\]\s+)?Fix(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Fix(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1fix'
-  - search: '/^- (\[[\w.-]+\]\s+)?Infra(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Infra(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1infra'
-  - search: '/^- (\[[\w.-]+\]\s+)?Perf(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Perf(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1perf'
-  - search: '/^- (\[[\w.-]+\]\s+)?Refactor(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Refactor(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1refactor'
-  - search: '/^- (\[[\w.-]+\]\s+)?Release(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Release(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1release'
-  - search: '/^- (\[[\w.-]+\]\s+)?Revert(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Revert(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1revert'
-  - search: '/^- (\[[\w.-]+\]\s+)?Security(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Security(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1security'
-  - search: '/^- (\[[\w.-]+\]\s+)?Test(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Test(?:\+[A-Za-z]+)*(?=[(!:])/gm'
     replace: '- $1test'
 
   # A bang in front of the scope. `feat!(engine)` is what a writer reaches for
   # when the type feels like the breaking part; the legal position is after the
   # closing paren.
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)!(\([^)\n]*\)): /gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+)!(\([^)\n]*\)): /gm'
     replace: '- $1$2$3!: '
 
   # A Linear ticket id in front of the type. It names the issue, not the
   # change, and the pull request number is already at the other end of the line.
-  - search: '/^- (\[[\w.-]+\]\s+)?[A-Z]{2,}-\d+[ \t]+(?=[a-z]+(?:\([^)\n]*\))?!?: )/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?[A-Z]{2,}-\d+[ \t]+(?=[a-z]+(?:\([^)\n]*\))?!?: )/gm'
     replace: '- $1'
   # The same id wedged between the scope and the colon. This is the shape
   # check_pr_title.py names in its own error text: with no colon after the
   # scope, nothing downstream sees a prefix at all.
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?)[ \t]+[A-Z]{2,}-\d+: /gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?)[ \t]+[A-Z]{2,}-\d+: /gm'
     replace: '- $1$2: '
   # A missing colon after the scope. Must stay below the two ticket rules:
   # without them `feat(cases) ENG-1597: x` would gain a second colon rather
   # than lose the ticket.
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+\([^)\n]*\)!?)[ \t]+(?=[A-Za-z0-9`\[])/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+\([^)\n]*\)!?)[ \t]+(?=[A-Za-z0-9`\[])/gm'
     replace: '- $1$2: '
   # A doubled colon.
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?):{2,}[ \t]/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?):{2,}[ \t]/gm'
     replace: '- $1$2: '
   # More than one space after the colon, which hides the description from the
   # capitalizer entirely.
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?:)[ \t]{2,}/gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?:)[ \t]{2,}/gm'
     replace: '- $1$2 '
 
   # Retired type spellings. `[legacy_types]` in commit-conventions.toml already
@@ -482,16 +482,16 @@ replacers:
   # replacement in its error text; these rules make the rendered line agree.
   # `deps(ui)` keeps the scope by folding it into a compound rather than
   # dropping it, so no information is lost.
-  - search: '/^- (\[[\w.-]+\]\s+)?deps\(([a-z0-9_+-]+)\)(!?): /gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?deps\(([a-z0-9_+-]+)\)(!?): /gm'
     replace: '- $1build(deps+$2)$3: '
-  - search: '/^- (\[[\w.-]+\]\s+)?deps(!?): /gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?deps(!?): /gm'
     replace: '- $1build(deps)$2: '
   # `tests` must not match `test`, and `doc` must not match `docs`: both need
   # the character after the type to be `(`, `!` or `:`, which the trailing
   # groups already require.
-  - search: '/^- (\[[\w.-]+\]\s+)?tests(\([^)\n]*\))?(!?): /gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?tests(\([^)\n]*\))?(!?): /gm'
     replace: '- $1test$2$3: '
-  - search: '/^- (\[[\w.-]+\]\s+)?doc(\([^)\n]*\))?(!?): /gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?doc(\([^)\n]*\))?(!?): /gm'
     replace: '- $1docs$2$3: '
 
   # Scope aliases. The alias must be a whole `+`-delimited component, so
@@ -511,46 +511,46 @@ replacers:
   # Aliases from different groups are unaffected: each rule is its own pass,
   # so `feat(ux+ee)` still lands on `feat(ui+enterprise)`.
   # -> (actions)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:core-actions|core|udfs|udf)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:core-actions|core|udfs|udf)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1actions$2'
   # -> (agents)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:agent-harness|artifacts|prompts|claude|agent|inbox|tools|chat)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:agent-harness|artifacts|prompts|claude|agent|inbox|tools|chat)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1agents$2'
   # -> (api)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|auth|saml|cli|org)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|auth|saml|cli|org)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1api$2'
   # -> (build)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:admin-cli)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:admin-cli)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1build$2'
   # -> (cases)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:case-triggers|case)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:case-triggers|case)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1cases$2'
   # -> (docs)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:playbooks|playbook)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:playbooks|playbook)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1docs$2'
   # -> (engine)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:expressions|approvals|scheduler|executor|temporal|workflow|runtime|sandbox|workers|worker|dsl)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:expressions|approvals|scheduler|executor|temporal|workflow|runtime|sandbox|workers|worker|dsl)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1engine$2'
   # -> (enterprise)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:tiers|ee)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:tiers|ee)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1enterprise$2'
   # -> (infra)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:deployments|migration|terraform|cluster|fargate|storage|deploy|docker|chart|helm|aws|cdk|eks|k8s|db)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:deployments|migration|terraform|cluster|fargate|storage|deploy|docker|chart|helm|aws|cdk|eks|k8s|db)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1infra$2'
   # -> (integrations)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:integration|registry|sync|git|vcs)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:integration|registry|sync|git|vcs)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1integrations$2'
   # -> (logging)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:observability)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:observability)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1logging$2'
   # -> (rbac)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:authz)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:authz)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1rbac$2'
   # -> (tables)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:table)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:table)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1tables$2'
   # -> (ui)
-  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:frontend|canvas|ux)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:frontend|canvas|ux)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1ui$2'
 
   # Drop a scope that is a type name rather than an area. `ci(fix)`,
@@ -562,13 +562,13 @@ replacers:
   # each is a real scope or scope alias as well as a type, so `ci(docs)` and
   # `ci(helm)` mean something. The list is every remaining type name, and the
   # drift test asserts it stays in step with the TOML.
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:deprecation|refactor|security|release|revert|chore|tests|depr|feat|perf|test|doc|fix|ci)\)(!?): /gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+)\((?:deprecation|refactor|security|release|revert|chore|tests|depr|feat|perf|test|doc|fix|ci)\)(!?): /gm'
     replace: '- $1$2$3: '
 
   # Drop a scope that only repeats its type. `infra(fargate)` is a fine title,
   # but the alias rules above rewrite it to `infra(infra)`, which reads as a
   # stutter. Must stay below those rules; it exists to clean up after them.
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\(\2\)(!?): /gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+)\(\2\)(!?): /gm'
     replace: '- $1$2$3: '
 
   # A dependency bump is packaging work, whatever prompted it. History spells
@@ -586,7 +586,7 @@ replacers:
   # would leave a `build(deps)` line under a Documentation heading, which reads
   # worse than the author's own prefix. See the test case in
   # tests/unit/test_commit_conventions.py.
-  - search: '/^- (\[[\w.-]+\]\s+)?(?:chore|fix|feat|refactor)\(deps\)(!?): /gm'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?(?:chore|fix|feat|refactor)\(deps\)(!?): /gm'
     replace: '- $1build(deps)$2: '
 
   # Capitalize the description. Replacers are plain JavaScript
@@ -611,7 +611,7 @@ replacers:
   # third one is an explicit list. It is closed and evidence-backed: every
   # entry is either a scope or label name from `.github/commit-conventions.toml`
   # or a tool or protocol that has actually opened a description in `git log`.
-  # A trailing `(?!\w)` keeps it to whole words, so `pnpm-workspace` is spared
+  # A trailing `(?![A-Za-z0-9_])` keeps it to whole words, so `pnpm-workspace` is spared
   # and `patch` is not.
   #
   #   aioboto3 api authz aws cdk chmod cli db dsl dtype ee eks kubectl
@@ -620,57 +620,57 @@ replacers:
   #
   # `k8s`, `docker` and `okta` are deliberately absent. Title case is their
   # correct spelling, so the capitalizer should keep running on them.
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))a/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))a/gm'
     replace: '- $1A'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))b/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))b/gm'
     replace: '- $1B'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))c/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))c/gm'
     replace: '- $1C'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))d/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))d/gm'
     replace: '- $1D'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))e/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))e/gm'
     replace: '- $1E'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))f/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))f/gm'
     replace: '- $1F'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))g/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))g/gm'
     replace: '- $1G'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))h/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))h/gm'
     replace: '- $1H'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))i/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))i/gm'
     replace: '- $1I'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))j/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))j/gm'
     replace: '- $1J'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))k/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))k/gm'
     replace: '- $1K'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))l/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))l/gm'
     replace: '- $1L'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))m/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))m/gm'
     replace: '- $1M'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))n/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))n/gm'
     replace: '- $1N'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))o/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))o/gm'
     replace: '- $1O'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))p/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))p/gm'
     replace: '- $1P'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))q/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))q/gm'
     replace: '- $1Q'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))r/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))r/gm'
     replace: '- $1R'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))s/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))s/gm'
     replace: '- $1S'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))t/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))t/gm'
     replace: '- $1T'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))u/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))u/gm'
     replace: '- $1U'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))v/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))v/gm'
     replace: '- $1V'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))w/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))w/gm'
     replace: '- $1W'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))x/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))x/gm'
     replace: '- $1X'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))y/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))y/gm'
     replace: '- $1Y'
-  - search: '/^- (?=((?:\[[\w.-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?!\w*[_.]|\w*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?!\w))z/gm'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))z/gm'
     replace: '- $1Z'
 
 template: |

@@ -34,7 +34,11 @@ EXIT_INVALID: Final = 1
 EXIT_CONFIG: Final = 2
 
 # `[codex] `, `[dependabot] ` and friends.
-BOT_PREFIX: Final = re.compile(r"^\[[\w.-]+\]\s+")
+# Spelled in ASCII on purpose. JavaScript `\\w` is ASCII-only and Python's is
+# Unicode-aware, so `[\\w.-]` here and in release-drafter.yml would mean two
+# different things: `[\u0431\u043e\u0442] feat(ui): x` passed this checker and got no
+# labels from the drafter.
+BOT_PREFIX: Final = re.compile(r"^\[[A-Za-z0-9._-]+\]\s+")
 # GitHub's own revert titles.
 REVERT_WRAPPER: Final = re.compile(r'^Revert\s+".*"\s*$')
 # `type`, optional `(scope)`, optional `!`, then a mandatory colon.

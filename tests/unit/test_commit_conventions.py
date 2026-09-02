@@ -43,11 +43,19 @@ CONVENTIONS: Final = load_conventions()
 DRAFTER: Final = yaml.safe_load(DRAFTER_PATH.read_text(encoding="utf-8"))
 
 
+# Release Drafter runs these under JavaScript, where `\w`, `\d`, `\s` and `\b`
+# are ASCII-only. Python's are Unicode-aware, so compiling without re.ASCII
+# makes this harness *more* permissive than production and blind to exactly the
+# drift it exists to catch: `[\u0431\u043e\u0442] feat(ui): x` matched here and
+# not in the drafter.
+JS_SEMANTICS: Final = re.ASCII
+
+
 def _compile(raw: str) -> re.Pattern[str]:
     match = JS_REGEX.match(raw)
     if match is None:
-        return re.compile(re.escape(raw))
-    flags = re.IGNORECASE if "i" in match.group("flags") else 0
+        return re.compile(re.escape(raw), JS_SEMANTICS)
+    flags = JS_SEMANTICS | (re.IGNORECASE if "i" in match.group("flags") else 0)
     return re.compile(match.group("pattern"), flags)
 
 
@@ -57,10 +65,14 @@ AUTOLABEL_RULES: Final = tuple(
     for pattern in rule["title"]
 )
 TIER_A_TYPE_RULE: Final = re.compile(
-    re.escape(r"^(\[[\w.-]+\]\s+)?(?:")
+    re.escape(r"^(\[[A-Za-z0-9._-]+\]\s+)?(?:")
     + r"(?P<alternatives>[a-z|]+)"
     + re.escape(r")(\([^)]*\))?!?: ")
 )
+# Derived by matching the literal above against the compiled rules, so a change
+# to how the bot prefix is spelled in the YAML silently empties it. An empty
+# parametrisation *skips*, which is indistinguishable from passing -- hence the
+# assertion below.
 TIER_A_TYPE_ALTERNATIVES: Final = tuple(
     sorted(
         alternative
@@ -68,6 +80,12 @@ TIER_A_TYPE_ALTERNATIVES: Final = tuple(
         if (match := TIER_A_TYPE_RULE.fullmatch(pattern.pattern)) is not None
         for alternative in match.group("alternatives").split("|")
     )
+)
+
+
+assert TIER_A_TYPE_ALTERNATIVES, (
+    "no Tier A type rule matched TIER_A_TYPE_RULE -- the literal in it has "
+    "drifted from the autolabeler rules in release-drafter.yml"
 )
 
 
@@ -95,7 +113,8 @@ def _replacer_rules() -> tuple[tuple[re.Pattern[str], str, int], ...]:
             (
                 re.compile(
                     match.group("pattern"),
-                    (re.MULTILINE if "m" in flags else 0)
+                    JS_SEMANTICS
+                    | (re.MULTILINE if "m" in flags else 0)
                     | (re.IGNORECASE if "i" in flags else 0),
                 ),
                 JS_BACKREFERENCE.sub(r"\\g<\1>", str(rule["replace"])),
