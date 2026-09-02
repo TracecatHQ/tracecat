@@ -1,0 +1,25 @@
+.github/release-drafter.yml
+  s_c5002332a8185a::t_69bcea57e9e0fc 556-567
+tests/unit/test_commit_conventions.py
+  s_c5002332a8185a::t_38b135d436ff50 574
+  s_c5002332a8185a::t_9ace9631374ce4 375-397,564-573,575-576,580-588
+  s_c5002332a8185a::t_f7ed5742576bb9 484
+  s_c5002332a8185a::t_660c9f4ee7d2e2 577-579
+  s_c5002332a8185a::t_a6a3b669fb09bd 589-590
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "6a213e43dfbcf9afc2841d143d0fda90e2dccf94",
+  "prompts": {},
+  "sessions": {
+    "s_c5002332a8185a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "831b7546-2af0-4f8f-af70-e9256e652a68",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
