@@ -413,6 +413,24 @@ replacers:
   - search: '/^(- .*\S)[ \t]{2,}(\(#\d+\))$/gm'
     replace: '$1 $2'
 
+  # GitHub's own revert title. `check_pr_title.py` rejects it now, so this is
+  # for the 373 releases of history behind that cutoff and for anything that
+  # slips through. The wrapper carries no type of its own; the one it quotes is
+  # discarded and replaced by `revert`, which is why the type here is
+  # `[A-Za-z]+` and the rule survives `Revert "Fix(ui): ..."`. The reverted
+  # `!` is dropped with it: the autolabeler files these under `chore`, so a
+  # bang would show a Breaking marker on a line no Breaking label put there.
+  # Both rules run ahead of the scope aliases and the capitalizer on purpose,
+  # so `Revert "feat(registry): add x"` reaches them as an ordinary
+  # `revert(registry): add x` line and lands on `revert(integrations): Add x`.
+  # Scoped first: the unscoped rule cannot match a `(scope)` title, but the
+  # order makes that independent of the regex.
+  # Example: Revert "fix(agents): stopgap resolution of the registry alias"
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Revert "[A-Za-z]+\(([a-z0-9_+-]+)\)!?: (.+)"([ \t]*\(#\d+\))?$/gm'
+    replace: '- $1revert($2): $3$4'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Revert "[A-Za-z]+!?: (.+)"([ \t]*\(#\d+\))?$/gm'
+    replace: '- $1revert: $2$3'
+
   # A compound type. Only the first component survives: `feat+fix(ui)` is a
   # feature that also fixed something, and the section it belongs in is
   # Features.

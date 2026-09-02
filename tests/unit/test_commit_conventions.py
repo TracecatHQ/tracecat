@@ -224,9 +224,17 @@ def test_bang_yields_breaking(conventions: Conventions) -> None:
     assert conventions.scopes["api"] in labels
 
 
-def test_revert_wrapper_is_labelled() -> None:
+def test_revert_wrapper_is_still_labelled_after_the_checker_rejects_it() -> None:
+    """The Tier A rule is deliberately not gated on `allow_revert_wrapper`.
+
+    Turning the flag off stops new pull requests using this title; it cannot
+    retitle the merged ones, and an unlabelled merged PR renders with no
+    heading. Both halves of the answer belong here: history keeps its label,
+    and a new title carrying the same words is rejected outright.
+    """
     labels = autolabel('Revert "feat(mcp): add internal OIDC issuer"')
     assert labels, "GitHub revert titles must not render headerless"
+    assert not CONVENTIONS.allow_revert_wrapper
 
 
 @pytest.mark.parametrize(
@@ -522,8 +530,38 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
             id="pre-cutoff-title-has-no-prefix",
         ),
         pytest.param(
-            '- Revert "feat(mcp): add internal OIDC issuer" (#2900)',
-            '- Revert "feat(mcp): add internal OIDC issuer" (#2900)',
+            # `check_pr_title.py` rejects this title now, so the rule is for the
+            # 373 releases of history behind that cutoff. The quoted type is
+            # discarded, the scope is kept, and the description reaches the
+            # capitalizer -- which is the whole reason the rule sits above it.
+            '- Revert "fix(agents): stopgap resolution of tracecat registry alias" (#2376)',
+            "- revert(agents): Stopgap resolution of tracecat registry alias (#2376)",
+            id="github-revert-wrapper-gets-a-type",
+        ),
+        pytest.param(
+            '- Revert "fix: return 404 for missing workspaces" (#2900)',
+            "- revert: Return 404 for missing workspaces (#2900)",
+            id="revert-wrapper-with-no-scope",
+        ),
+        pytest.param(
+            # The scope aliases run below this rule, so an old spelling inside
+            # the quotes resolves like any other.
+            '- Revert "feat(registry): add a saved search export" (#2901)',
+            "- revert(integrations): Add a saved search export (#2901)",
+            id="revert-wrapper-scope-still-resolves-its-alias",
+        ),
+        pytest.param(
+            # Nothing to lift a type out of, so the line is left alone rather
+            # than guessed at.
+            '- Revert "add plaintext alternative body" (#2902)',
+            '- Revert "add plaintext alternative body" (#2902)',
+            id="revert-wrapper-quoting-a-pre-cutoff-title-is-left-alone",
+        ),
+        pytest.param(
+            # Every capitalizer rule matches a lowercase letter, so a
+            # description the author already capitalized has nothing to match.
+            "- feat(ui): Case comment replies (#2600)",
+            "- feat(ui): Case comment replies (#2600)",
             id="already-capital",
         ),
         pytest.param(
@@ -703,6 +741,7 @@ CORPUS: Final = (
     "feat(splunk+ui): add saved search export",
     "[codex] chore(deps): bump orjson",
     'Revert "feat(mcp): add internal OIDC issuer"',
+    "revert(agents): stopgap resolution of tracecat registry alias",
     "release: 1.0.0-beta.49",
     "deprecation(integrations): x in favour of y",
     "build(deps): patch dependabot alerts",

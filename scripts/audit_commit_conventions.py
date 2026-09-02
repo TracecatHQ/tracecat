@@ -142,7 +142,12 @@ def parse_title(title: str, conventions: Conventions) -> ParsedTitle | None:
     Returns None when the title matches none of this.
     """
     stripped = title.strip()
-    if conventions.allow_revert_wrapper and _REVERT_WRAPPER.match(stripped):
+    # Not gated on `allow_revert_wrapper`. This script reports on merged pull
+    # requests, and the Tier A `Revert "` autolabeler rule is unconditional so
+    # that pre-cutoff reverts keep their label. Reading the flag here would make
+    # every historical revert unparseable the moment the checker started
+    # rejecting new ones.
+    if _REVERT_WRAPPER.match(stripped):
         return ParsedTitle(
             type="revert", scope_parts=(), breaking=False, revert_wrapper=True
         )

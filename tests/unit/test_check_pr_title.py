@@ -8,7 +8,14 @@ reworded.
 from __future__ import annotations
 
 import pytest
-from check_pr_title import EXIT_CONFIG, EXIT_INVALID, EXIT_OK, check_title, main
+from check_pr_title import (
+    EXIT_CONFIG,
+    EXIT_INVALID,
+    EXIT_OK,
+    _revert_suggestion,
+    check_title,
+    main,
+)
 from commit_conventions import Conventions, load_conventions
 
 CONVENTIONS: Conventions = load_conventions()
@@ -19,7 +26,7 @@ ACCEPT = [
     "feat(api)!: drop the v1 webhook payload",
     "feat(ui+api): case comment replies",
     "[codex] chore(deps): bump orjson",
-    'Revert "feat(mcp): add internal OIDC issuer"',
+    "revert(agents): stopgap resolution of tracecat registry alias",
     "release: 1.0.0-beta.49",
     "deprecation(integrations): tools.x.list_signals in favour of tools.x.search_alerts",
     "build(deps): patch dependabot alerts",
@@ -54,6 +61,10 @@ REJECT: list[tuple[str, str]] = [
     ("feat(udf): add a table lookup action", "unknown-scope"),
     ("feat(core-actions): add a table lookup action", "unknown-scope"),
     ("  feat(ui): x", "leading-whitespace"),
+    (
+        'Revert "fix(agents): stopgap resolution of tracecat registry alias"',
+        "revert-wrapper",
+    ),
 ]
 
 
@@ -80,6 +91,7 @@ def test_rejects_invalid_titles(title: str, code: str) -> None:
         ("feat(udfs): add a table lookup action", "actions"),
         ("feat(udf): add a table lookup action", "actions"),
         ("feat(core-actions): add a table lookup action", "actions"),
+        ('Revert "fix(agents): stopgap resolution"', "revert(agents)"),
     ],
 )
 def test_hint_names_the_replacement(title: str, hint: str) -> None:
@@ -205,11 +217,98 @@ def test_over_length_warns_but_does_not_fail() -> None:
     assert [w.code for w in report.warnings] == ["too-long"]
 
 
-def test_revert_wrapper_skips_the_length_warning() -> None:
+def test_revert_wrapper_is_rejected_on_its_own_terms() -> None:
+    """`Revert "fix(x): y"` has no colon where a prefix would put one.
+
+    Falling through to the generic parsing would report `missing-prefix`, whose
+    message names a missing colon after the scope -- a different mistake, and a
+    fix that does not apply here. The length warning is dropped with it: the
+    wrapper is long by construction, and the author is being told to write a
+    different title anyway.
+    """
     inner = "feat(integrations): " + "x" * CONVENTIONS.max_length
     report = check_title(f'Revert "{inner}"', CONVENTIONS)
-    assert report.ok
+    assert report.codes == ("revert-wrapper",)
     assert not report.warnings
+
+
+@pytest.mark.parametrize(
+    ("title", "suggestion"),
+    [
+        (
+            'Revert "fix(agents): stopgap resolution of tracecat registry alias"',
+            "`revert(agents): stopgap resolution of tracecat registry alias`",
+        ),
+        (
+            'Revert "fix: return 404 for missing workspaces"',
+            "`revert: return 404 for missing workspaces`",
+        ),
+        ('Revert "an unparseable title"', "`revert(<scope>): <description>`"),
+        (
+            'Revert "feat(registry): add a saved search export"',
+            "`revert(integrations): add a saved search export`",
+        ),
+        (
+            'Revert "feat(udfs): add a table lookup action"',
+            "`revert(actions): add a table lookup action`",
+        ),
+        (
+            'Revert "feat(registry+integration): add a saved search export"',
+            "`revert(integrations): add a saved search export`",
+        ),
+        (
+            'Revert "refactor(app): update case filtering"',
+            "`revert(<scope>): update case filtering`",
+        ),
+        (
+            'Revert "feat(jira): add issue search"',
+            "`revert(<scope>): add issue search`",
+        ),
+        ('Revert "feat(ui+api+ee): x"', "`revert(<scope>): x`"),
+        ('Revert "feat(ui): x."', "`revert(<scope>): <description>`"),
+    ],
+    ids=[
+        "scoped",
+        "unscoped",
+        "unparseable",
+        "alias-resolves",
+        "retired-scope-resolves",
+        "two-spellings-of-one-area-collapse",
+        "ambiguous-scope-is-the-authors-to-pick",
+        "vendor-scope-is-the-authors-to-pick",
+        "too-many-scopes-survive-canonicalisation",
+        "unusable-description",
+    ],
+)
+def test_revert_wrapper_hands_over_the_replacement(title: str, suggestion: str) -> None:
+    """The reverted title carries the scope, so the author gets it back.
+
+    A message that only named the shape would make every revert a lookup, and
+    the answer is already sitting inside the quotes. The scope is canonicalised
+    on the way through: the quoted title merged before the cutoff, so it may
+    spell an area the way nobody is allowed to spell it any more.
+    """
+    messages = " ".join(v.message for v in check_title(title, CONVENTIONS).violations)
+    assert suggestion in messages
+
+
+@pytest.mark.parametrize("inner", [*ACCEPT, *(title for title, _ in REJECT)])
+def test_every_revert_suggestion_is_itself_valid(inner: str) -> None:
+    """The runtime half of `test_every_suggestion_is_itself_valid`.
+
+    That test covers the replacements written into the conventions file. This
+    one covers the replacement assembled from the quoted title, which merged
+    before the cutoff and was therefore never checked: `Revert "feat(registry):
+    add x"` used to name `revert(registry): add x`, which fails
+    `unknown-scope`. Either the suggestion is a title the author can paste, or
+    it visibly asks for a scope -- never a third thing that looks usable and
+    fails.
+    """
+    suggestion = _revert_suggestion(inner, CONVENTIONS)
+    if suggestion.startswith("revert(<scope>): "):
+        return
+    report = check_title(suggestion, CONVENTIONS)
+    assert report.ok, f"{inner!r} suggests {suggestion!r}, which fails: {report.codes}"
 
 
 @pytest.mark.parametrize(

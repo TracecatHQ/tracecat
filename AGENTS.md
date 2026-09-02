@@ -343,6 +343,11 @@ rendered release notes are normalized, by the `replacers:` block in
   type.
 - Malformed titles like `feat(cases) ENG-1597: ...` (no colon after the scope)
   get no automatic label and render without a heading in the draft release.
+- GitHub's revert button generates `Revert "fix(agents): ..."`, and the checker
+  rejects it for the same reason: no type, so no section. Retitle to
+  `revert(<scope>): <description>`, keeping the scope of the change being
+  reverted. The `revert-wrapper` error reads the quoted title and spells the
+  replacement out.
 
 ### Scopes
 
