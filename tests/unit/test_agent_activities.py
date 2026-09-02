@@ -24,6 +24,7 @@ from tracecat_ee.agent.activities import (
     BuildAgentScopeToolDefsArgs,
     BuildAgentToolDefsArgs,
     BuildToolDefsArgs,
+    BuildToolDefsResult,
     EmitSessionDoneInputs,
     EmitSessionErrorInputs,
 )
@@ -33,6 +34,10 @@ from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.error_policy import (
+    agent_executor_timed_out,
+    user_agent_execution_failed,
+)
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -41,8 +46,14 @@ from tracecat.agent.executor.activity import (
     _hydrate_sdk_session_history,
     run_agent_activity,
 )
-from tracecat.agent.executor.loopback import LoopbackResult
+from tracecat.agent.executor.loopback import (
+    LoopbackHandler,
+    LoopbackInput,
+    LoopbackResult,
+)
+from tracecat.agent.runtime.claude_code.broker import ConcurrentSessionTurnError
 from tracecat.agent.runtime.session_paths import job_uv_state_dir
+from tracecat.agent.sandbox.llm_proxy import LLMProxyError, LLMSocketProxy
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -64,10 +75,16 @@ from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.temporal.errors import extract_error_classification
 
 
 @pytest.fixture
@@ -152,6 +169,42 @@ class TestSessionActivities:
 
 class TestBuildToolDefinitionsActivity:
     @pytest.mark.anyio
+    async def test_classifies_tool_approval_entitlement_denial(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        class _TierContext:
+            async def __aenter__(self) -> object:
+                return object()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities.TierService,
+            "with_session",
+            lambda: _TierContext(),
+        )
+        monkeypatch.setattr(
+            agent_activities.EntitlementService,
+            "check_entitlement",
+            AsyncMock(side_effect=EntitlementRequired("agent_addons")),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities._check_tool_approval_entitlement(mock_role)
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.non_retryable is True
+
+    @pytest.mark.anyio
     async def test_maps_tool_definition_errors_to_application_error(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -172,9 +225,13 @@ class TestBuildToolDefinitionsActivity:
             await AgentActivities().build_tool_definitions(args)
 
         app_error = exc_info.value
-        assert app_error.type == "AgentToolDefinitionError"
+        classification = extract_error_classification(app_error)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
         assert app_error.non_retryable is True
-        assert app_error.message == "Cannot request more than 100 tools"
+        assert app_error.message == "Agent configuration is invalid"
+        assert "Cannot request more than 100 tools" not in str(app_error)
 
     @pytest.mark.anyio
     async def test_maps_builtin_sync_pending_to_application_error(
@@ -221,6 +278,51 @@ class TestBuildToolDefinitionsActivity:
         assert app_error.type == "BuiltinRegistryHasNoSelectionError"
         assert app_error.non_retryable is False
         assert app_error.details[0] == {"origin": "tracecat_registry"}
+
+    @pytest.mark.anyio
+    async def test_classifies_custom_registry_entitlement_denial(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        class _LockService:
+            async def resolve_lock_with_bindings(self, _actions: set[str]) -> None:
+                raise EntitlementRequired("custom_registry")
+
+        class _AsyncContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _AsyncContext(),
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=[]),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
     async def test_strict_mcp_discovery_failure_fails_scope_compilation(
@@ -289,10 +391,11 @@ class TestBuildToolDefinitionsActivity:
             await AgentActivities().build_tool_definitions(args)
 
         assert discover_fail_flags == [True]
-        assert exc_info.value.message == (
-            "Failed to discover configured MCP tools for agent scope"
-        )
-        assert exc_info.value.type == "AgentToolDefinitionError"
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+        assert exc_info.value.message == "Agent configuration is invalid"
         assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
@@ -633,6 +736,42 @@ class TestBuildToolDefinitionsActivity:
         assert set(result.scopes["analyst"].tool_definitions) == {"core.child"}
         assert build_calls == [["core.root"], ["core.child"]]
 
+    @pytest.mark.anyio
+    async def test_duplicate_compile_scope_is_platform_invariant(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        activities = AgentActivities()
+        monkeypatch.setattr(
+            activities,
+            "_build_scope_tool_definitions",
+            AsyncMock(
+                return_value=BuildToolDefsResult(
+                    tool_definitions={},
+                    registry_lock=RegistryLock(origins={}, actions={}),
+                )
+            ),
+        )
+        duplicate_scope = BuildAgentScopeToolDefsArgs(
+            scope="root",
+            tool_filters=ToolFilters(),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await activities.build_agent_tool_definitions(
+                BuildAgentToolDefsArgs(
+                    role=mock_role,
+                    scopes=[duplicate_scope, duplicate_scope],
+                )
+            )
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
+        assert exc_info.value.non_retryable is True
+
 
 class TestCreateSessionActivity:
     """Tests for create_session_activity."""
@@ -850,9 +989,11 @@ class TestCreateSessionActivity:
         else:
             with pytest.raises(ApplicationError) as exc_info:
                 await create_session_activity(input)
-            assert exc_info.value.message == (
-                "Agent session was created with a different agents binding"
-            )
+            classification = extract_error_classification(exc_info.value)
+            assert classification is not None
+            assert classification.owner is RuntimeErrorOwner.USER
+            assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+            assert exc_info.value.message == "Agent configuration is invalid"
             assert exc_info.value.non_retryable is True
 
         if expected_backfill:
@@ -922,7 +1063,12 @@ class TestCreateSessionActivity:
         with pytest.raises(ApplicationError) as exc_info:
             await create_session_activity(input)
 
-        assert str(mock_session_id) in exc_info.value.message
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+        assert exc_info.value.message == "Agent configuration is invalid"
+        assert str(mock_session_id) not in str(exc_info.value)
         assert exc_info.value.non_retryable is True
         mock_service.get_session.assert_awaited_once_with(mock_session_id)
         mock_service.get_or_create_session.assert_not_called()
@@ -1381,6 +1527,7 @@ class TestRunAgentActivity:
         expected_result = AgentExecutorResult(
             success=False,
             error="Agent execution failed: timeout",
+            classification=user_agent_execution_failed(),
         )
 
         with (
@@ -1397,6 +1544,7 @@ class TestRunAgentActivity:
             result = await run_agent_activity(mock_executor_input)
 
             assert result.success is False
+            assert result.classification == user_agent_execution_failed()
 
     @pytest.mark.anyio
     async def test_sends_heartbeats(self, mock_executor_input: AgentExecutorInput):
@@ -1507,6 +1655,140 @@ class TestSandboxedAgentExecutorHelpers:
 
         assert result.success is False
         assert result.error == "runtime failed"
+        assert result.terminal_stream_error_emitted is True
+
+    async def _run_broker_leaf(
+        self,
+        *,
+        executor: SandboxedAgentExecutor,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        concurrent: bool = False,
+    ) -> AgentExecutorResult:
+        executor._job_dir = tmp_path
+        executor._llm_proxy = cast(
+            LLMSocketProxy,
+            SimpleNamespace(start=AsyncMock()),
+        )
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor.input.session_id,
+                workspace_id=executor.input.workspace_id,
+            )
+        )
+        monkeypatch.setattr(
+            handler,
+            "emit_terminal_error",
+            AsyncMock(return_value=True),
+        )
+
+        class FakeBroker:
+            @asynccontextmanager
+            async def session_turn_lease(self, _session_id: str):
+                if concurrent:
+                    raise ConcurrentSessionTurnError("active turn")
+                yield
+
+            async def run_turn_in_session_lease(
+                self, _request: Any, _handler: Any
+            ) -> None:
+                await asyncio.Event().wait()
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                return None
+
+        async def wait_for_cancel_signal(**_kwargs: Any) -> None:
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+        monkeypatch.setattr(executor, "_watch_cancel_signal", wait_for_cancel_signal)
+
+        result = AgentExecutorResult(
+            success=False,
+            terminal_stream_error_emitted=False,
+        )
+        await executor._run_with_broker(
+            result=result,
+            handler=handler,
+            init_payload=executor._build_runtime_init_payload(),
+            socket_dir=tmp_path / "sockets",
+            llm_socket_path=tmp_path / "sockets" / "llm.sock",
+            artifact_working_set=None,
+            otel_socket_path=None,
+        )
+        return result
+
+    @pytest.mark.anyio
+    async def test_fatal_proxy_classification_reaches_executor_result(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._fatal_error = LLMProxyError(
+            message="raw gateway timeout",
+            classification=agent_executor_timed_out(TimeoutError("secret")),
+        )
+        executor._fatal_error_event.set()
+
+        result = await self._run_broker_leaf(
+            executor=executor,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+        )
+
+        assert result.classification is not None
+        assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
+        assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
+        assert "secret" not in result.classification.message
+        assert result.terminal_stream_error_emitted is True
+
+    @pytest.mark.anyio
+    async def test_elapsed_deadline_is_platform_timeout(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input, timeout_seconds=0)
+
+        result = await self._run_broker_leaf(
+            executor=executor,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+        )
+
+        assert result.classification is not None
+        assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
+        assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
+        assert result.terminal_stream_error_emitted is True
+
+    @pytest.mark.anyio
+    async def test_concurrent_turn_is_platform_unavailable(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
+
+        result = await self._run_broker_leaf(
+            executor=executor,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+            concurrent=True,
+        )
+
+        assert result.classification is not None
+        assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert result.terminal_stream_error_emitted is True
 
     @pytest.mark.anyio
@@ -1689,12 +1971,17 @@ class TestSandboxedAgentExecutorCancellation:
             executor,
             monkeypatch=monkeypatch,
             tmp_path=tmp_path,
-            loopback_result=LoopbackResult(success=False, error="runtime crashed"),
+            loopback_result=LoopbackResult(
+                success=False,
+                error="runtime crashed",
+                classification=user_agent_execution_failed(),
+            ),
         )
 
         assert result.cancelled is True
         assert result.cancelled_reason == "user_cancel"
         assert result.error == "runtime crashed"
+        assert result.classification == user_agent_execution_failed()
         assert result.success is False
 
     @pytest.mark.anyio

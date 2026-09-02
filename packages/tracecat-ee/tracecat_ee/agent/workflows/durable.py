@@ -11,10 +11,12 @@ from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
+    is_cancelled_exception,
 )
 from temporalio.exceptions import (
     CancelledError as TemporalCancelledError,
 )
+from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from pydantic_ai.messages import ToolCallPart
@@ -28,6 +30,14 @@ with workflow.unsafe.imports_passed_through():
         SandboxSubagentConfig,
     )
     from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+    from tracecat.agent.error_policy import (
+        agent_executor_timed_out,
+        agent_executor_unavailable,
+        agent_preparation_failed,
+        agent_session_initialization_failed,
+        agent_workflow_internal_error,
+        invalid_agent_configuration,
+    )
     from tracecat.agent.executor.activity import (
         AgentExecutorInput,
         AgentExecutorResult,
@@ -99,6 +109,13 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.executor.activities import ExecutorActivities
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
+    from tracecat.runtime.errors import RuntimeErrorClassification
+    from tracecat.temporal.errors import (
+        extract_error_classifications,
+        iter_error_chain,
+        raise_application_error_from_classification,
+        raise_wrapped_application_error,
+    )
     from tracecat.workflow.executions.correlation import (
         build_agent_session_correlation_id,
     )
@@ -125,7 +142,6 @@ with workflow.unsafe.imports_passed_through():
 
 ROOT_AGENT_SCOPE = "root"
 AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
-AGENT_EXECUTOR_PRE_STREAM_ERROR = "AgentExecutorPreStreamError"
 AGENT_RUNTIME_EXECUTION_ERROR = "AgentRuntimeExecutionError"
 BUILD_AGENT_TOOL_DEFINITIONS_PATCH = (
     "tracecat_ee.agent.workflows.durable.build_agent_tool_definitions"
@@ -155,6 +171,40 @@ def _activity_error_message(error: ActivityError) -> str:
     if cause is not None:
         return str(cause)
     return str(error)
+
+
+def _agent_activity_classification(
+    error: ActivityError,
+) -> RuntimeErrorClassification:
+    """Classify an untyped pre-executor activity failure at its workflow boundary."""
+    if classifications := extract_error_classifications(
+        error,
+        include_implicit_context=False,
+    ):
+        classification = classifications[0]
+        return classification
+    cause = error.cause or error
+    retryable = not (isinstance(cause, ApplicationError) and cause.non_retryable)
+    return agent_preparation_failed(cause, retryable=retryable)
+
+
+def _executor_activity_classification(
+    error: ActivityError,
+) -> RuntimeErrorClassification:
+    """Classify activity transport failures that return no executor result."""
+    if classifications := extract_error_classifications(
+        error,
+        include_implicit_context=False,
+    ):
+        classification = classifications[0]
+        return classification
+    cause = error.cause or error
+    if any(
+        isinstance(current, TemporalTimeoutError)
+        for current in iter_error_chain(error, include_implicit_context=False)
+    ):
+        return agent_executor_timed_out(cause)
+    return agent_executor_unavailable(cause)
 
 
 def _agent_token_ttl_seconds(activity_timeout_seconds: int) -> int:
@@ -531,11 +581,9 @@ class DurableAgentWorkflow:
         self._status: Literal["running", "waiting_for_results", "done"] = "running"
         self._turn: int = 0
         if args.role.workspace_id is None:
-            raise ApplicationError("Role must have a workspace ID", non_retryable=True)
+            raise_application_error_from_classification(invalid_agent_configuration())
         if args.role.organization_id is None:
-            raise ApplicationError(
-                "Role must have an organization ID", non_retryable=True
-            )
+            raise_application_error_from_classification(invalid_agent_configuration())
         self.workspace_id = args.role.workspace_id
         self.organization_id = args.role.organization_id
         self.session_id = args.agent_args.session_id
@@ -546,6 +594,7 @@ class DurableAgentWorkflow:
         self.max_tool_calls = args.agent_args.max_tool_calls
         self._cancel_requested: bool = False
         self._cancel_reason: str | None = None
+        self._executor_terminal_stream_error_emitted: bool | None = None
 
     def _upsert_tracecat_search_attributes(self) -> None:
         """Ensure direct agent runs have core Tracecat search attributes.
@@ -661,9 +710,8 @@ class DurableAgentWorkflow:
             cfg = preset_config
         else:
             if args.agent_args.config is None:
-                raise ApplicationError(
-                    "Config must be provided if preset_slug is not set",
-                    non_retryable=True,
+                raise_application_error_from_classification(
+                    invalid_agent_configuration()
                 )
             cfg = args.agent_args.config
 
@@ -809,10 +857,8 @@ class DurableAgentWorkflow:
         for resolved_subagent in subagents:
             child_cfg = agent_config_from_payload(resolved_subagent.config)
             if has_manual_tool_approvals(child_cfg.tool_approvals):
-                raise ApplicationError(
-                    f"Subagent preset '{resolved_subagent.binding.preset}' uses manual approvals, "
-                    "which are not supported for subagents yet.",
-                    non_retryable=True,
+                raise_application_error_from_classification(
+                    invalid_agent_configuration()
                 )
             await self._apply_custom_model_provider_config(child_cfg)
             scope_spec = AgentScopeSpec(
@@ -847,9 +893,8 @@ class DurableAgentWorkflow:
 
         root_build_result = build_result.scopes.get(ROOT_AGENT_SCOPE)
         if root_build_result is None:
-            raise ApplicationError(
-                "Batched agent tool compilation did not return the root scope",
-                non_retryable=True,
+            raise_application_error_from_classification(
+                agent_preparation_failed(retryable=False)
             )
 
         _apply_tool_approvals(root_spec, root_build_result)
@@ -869,15 +914,12 @@ class DurableAgentWorkflow:
             scope_spec = subagent_spec.scope
             child_build_result = build_result.scopes.get(scope_spec.name)
             if child_build_result is None:
-                raise ApplicationError(
-                    f"Batched agent tool compilation did not return scope '{scope_spec.name}'",
-                    non_retryable=True,
+                raise_application_error_from_classification(
+                    agent_preparation_failed(retryable=False)
                 )
             if has_manual_tool_approvals(child_build_result.tool_approvals):
-                raise ApplicationError(
-                    f"Subagent preset '{subagent_spec.resolved.binding.preset}' uses manual approvals, "
-                    "which are not supported for subagents yet.",
-                    non_retryable=True,
+                raise_application_error_from_classification(
+                    invalid_agent_configuration()
                 )
             _apply_tool_approvals(scope_spec, child_build_result)
             route_resolution = _llm_route_for_config(
@@ -914,39 +956,78 @@ class DurableAgentWorkflow:
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
-        if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
-            self._upsert_tracecat_search_attributes()
-        logger.debug(
-            "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
-        )
-        logger.debug("AGENT CONTEXT", agent_context=AgentContext.get())
-        if workflow.unsafe.is_replaying():
-            logger.debug("Workflow is replaying")
-        else:
-            logger.debug("Starting agent", prompt=args.agent_args.user_prompt)
-
         try:
+            if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
+                self._upsert_tracecat_search_attributes()
+            logger.debug(
+                "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
+            )
+            logger.debug("AGENT CONTEXT", agent_context=AgentContext.get())
+            if workflow.unsafe.is_replaying():
+                logger.debug("Workflow is replaying")
+            else:
+                logger.debug("Starting agent", prompt=args.agent_args.user_prompt)
+
             cfg = await self._build_config(args)
             # Success needs no write: last_error was already cleared at turn
             # start, and last_error is the only persisted run-outcome signal.
             return await self._run_with_agent_executor(args, cfg)
         except ActivityError as e:
+            if is_cancelled_exception(e):
+                raise
+            classification = _agent_activity_classification(e)
             # Pre-stream failure: persist last_error and stream it (the loopback
             # was not yet wired up to surface it inline).
             await self._finalize_session_error(
-                _activity_error_message(e),
+                classification.message,
                 should_stream=workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH),
             )
-            raise
+            raise_wrapped_application_error(
+                e,
+                fallback_classification=classification,
+                include_implicit_context=False,
+            )
         except ApplicationError as e:
+            classifications = extract_error_classifications(
+                e,
+                include_implicit_context=False,
+            )
+            classification = (
+                classifications[0]
+                if classifications
+                else agent_preparation_failed(e, retryable=not e.non_retryable)
+            )
             # Runtime errors stream inline via the loopback, so persist-only.
             # Pre-stream errors (tool-definition / pre-runtime) stream too.
-            should_stream = e.type == AGENT_TOOL_DEFINITION_ERROR or (
-                e.type != AGENT_RUNTIME_EXECUTION_ERROR
-                and workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH)
+            should_stream = (
+                not self._executor_terminal_stream_error_emitted
+                if self._executor_terminal_stream_error_emitted is not None
+                else e.type == AGENT_TOOL_DEFINITION_ERROR
+                or (
+                    e.type != AGENT_RUNTIME_EXECUTION_ERROR
+                    and workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH)
+                )
             )
-            await self._finalize_session_error(e.message, should_stream=should_stream)
-            raise
+            await self._finalize_session_error(
+                classification.message,
+                should_stream=should_stream,
+            )
+            raise_wrapped_application_error(
+                e,
+                fallback_classification=classification,
+                include_implicit_context=False,
+            )
+        except Exception as e:
+            if is_cancelled_exception(e):
+                raise
+            # This is an intentional invariant fallback for workflow-owned code.
+            # Executor and activity failures are classified at narrower boundaries.
+            classification = agent_workflow_internal_error(e)
+            await self._finalize_session_error(
+                classification.message,
+                should_stream=workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH),
+            )
+            raise_application_error_from_classification(classification)
         finally:
             # Terminal boundary only: approval-pause awaits inside the executor
             # loop and never reaches here. Clear the active-turn pointers so the
@@ -1273,9 +1354,8 @@ class DurableAgentWorkflow:
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not create_result.success:
-            raise ApplicationError(
-                f"Failed to create agent session: {create_result.error}",
-                non_retryable=True,
+            raise_application_error_from_classification(
+                agent_session_initialization_failed(retryable=True)
             )
 
         # Build internal tool context for builder assistant sessions
@@ -1377,56 +1457,70 @@ class DurableAgentWorkflow:
             logger.info("Executing agent turn", turn=self._turn)
 
             # Run one executor activity turn with update-driven cancellation.
-            if not workflow.patched(AGENT_REQUEST_CANCEL_PATCH):
-                result = await workflow.execute_activity(
-                    run_agent_activity,
-                    executor_input,
-                    task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-                    start_to_close_timeout=timedelta(seconds=activity_timeout_seconds),
-                    heartbeat_timeout=timedelta(seconds=60),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                )
-            else:
-                activity_handle = workflow.start_activity(
-                    run_agent_activity,
-                    executor_input,
-                    cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
-                    task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-                    start_to_close_timeout=timedelta(seconds=activity_timeout_seconds),
-                    heartbeat_timeout=timedelta(seconds=60),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                )
-                # ActivityHandle is an asyncio.Task subclass, so .done() is
-                # valid. Neither wait_condition nor the handle poll emits
-                # history commands, so this race stays replay-safe.
-                await workflow.wait_condition(
-                    lambda handle=activity_handle: (
-                        handle.done() or self._cancel_requested
+            try:
+                if not workflow.patched(AGENT_REQUEST_CANCEL_PATCH):
+                    result = await workflow.execute_activity(
+                        run_agent_activity,
+                        executor_input,
+                        task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
+                        start_to_close_timeout=timedelta(
+                            seconds=activity_timeout_seconds
+                        ),
+                        heartbeat_timeout=timedelta(seconds=60),
+                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
-                )
-                if not activity_handle.done():
-                    activity_handle.cancel()
-                try:
-                    result = await activity_handle
-                except ActivityError as e:
-                    if self._cancel_requested and isinstance(
-                        e.cause, TemporalCancelledError
-                    ):
-                        # The activity was cancelled without returning a
-                        # loopback result (never picked up, still in setup, or
-                        # hard-cancelled), so no executor wrote the cancelled/
-                        # done frames to the per-turn stream. Emit them here or
-                        # the client's SSE reader blocks until disconnect.
-                        return await self._cancelled_turn_output(
-                            AgentExecutorResult(
-                                success=True,
-                                cancelled=True,
-                                cancelled_reason=self._cancel_reason or "user_cancel",
-                            ),
-                            info,
-                            emit_cancelled=True,
+                else:
+                    activity_handle = workflow.start_activity(
+                        run_agent_activity,
+                        executor_input,
+                        cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+                        task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
+                        start_to_close_timeout=timedelta(
+                            seconds=activity_timeout_seconds
+                        ),
+                        heartbeat_timeout=timedelta(seconds=60),
+                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    )
+                    # ActivityHandle is an asyncio.Task subclass, so .done() is
+                    # valid. Neither wait_condition nor the handle poll emits
+                    # history commands, so this race stays replay-safe.
+                    await workflow.wait_condition(
+                        lambda handle=activity_handle: (
+                            handle.done() or self._cancel_requested
                         )
+                    )
+                    if not activity_handle.done():
+                        activity_handle.cancel()
+                    try:
+                        result = await activity_handle
+                    except ActivityError as e:
+                        if self._cancel_requested and isinstance(
+                            e.cause, TemporalCancelledError
+                        ):
+                            # The activity was cancelled without returning a
+                            # loopback result (never picked up, still in setup, or
+                            # hard-cancelled), so no executor wrote the cancelled/
+                            # done frames to the per-turn stream. Emit them here or
+                            # the client's SSE reader blocks until disconnect.
+                            return await self._cancelled_turn_output(
+                                AgentExecutorResult(
+                                    success=True,
+                                    cancelled=True,
+                                    cancelled_reason=self._cancel_reason
+                                    or "user_cancel",
+                                ),
+                                info,
+                                emit_cancelled=True,
+                            )
+                        raise
+            except ActivityError as e:
+                if is_cancelled_exception(e):
                     raise
+                raise_wrapped_application_error(
+                    e,
+                    fallback_classification=_executor_activity_classification(e),
+                    include_implicit_context=False,
+                )
 
             if result.cancelled:
                 logger.info(
@@ -1445,12 +1539,14 @@ class DurableAgentWorkflow:
                 terminal_stream_error_emitted = (
                     result.terminal_stream_error_emitted is not False
                 )
-                raise ApplicationError(
-                    f"Agent execution failed: {result.error}",
-                    type=AGENT_RUNTIME_EXECUTION_ERROR
-                    if terminal_stream_error_emitted
-                    else AGENT_EXECUTOR_PRE_STREAM_ERROR,
-                    non_retryable=True,
+                self._executor_terminal_stream_error_emitted = (
+                    terminal_stream_error_emitted
+                )
+                # A missing classification can only come from a legacy history or
+                # a broken executor contract. Treat it as a platform invariant,
+                # never infer ownership from the free-form error string.
+                raise_application_error_from_classification(
+                    result.classification or agent_workflow_internal_error()
                 )
 
             if result.approval_requested:

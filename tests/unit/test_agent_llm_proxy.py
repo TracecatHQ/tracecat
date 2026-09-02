@@ -12,9 +12,15 @@ import pytest
 
 from tracecat.agent.observability import LLMGatewayLoadTracker
 from tracecat.agent.sandbox.llm_proxy import (
+    LLMProxyError,
     LLMRoute,
     LLMRoutingPlan,
     LLMSocketProxy,
+)
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
 )
 
 
@@ -37,6 +43,15 @@ class _FakeWriter:
 
     async def wait_closed(self) -> None:
         return None
+
+
+class _FailingResponseStream(httpx.AsyncByteStream):
+    def __init__(self, request: httpx.Request) -> None:
+        self._request = request
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        raise httpx.ReadError("provider disconnected", request=self._request)
+        yield b""  # pragma: no cover
 
 
 def _routing_plan(
@@ -144,7 +159,7 @@ async def test_forward_request_streams_litellm_response(
 async def test_forward_request_returns_upstream_error_response(
     tmp_path: Path,
 ) -> None:
-    errors: list[str] = []
+    errors: list[LLMProxyError] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         assert str(request.url) == "http://litellm:4000/v1/messages/count_tokens"
@@ -190,7 +205,7 @@ async def test_forward_request_returns_upstream_error_response(
 async def test_forward_request_emits_error_for_critical_upstream_http_error(
     tmp_path: Path,
 ) -> None:
-    errors: list[str] = []
+    errors: list[LLMProxyError] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         assert str(request.url) == "http://litellm:4000/v1/messages"
@@ -230,17 +245,351 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
     assert response_text.startswith("HTTP/1.1 429 Too Many Requests")
     assert "provider quota exhausted" in response_text
     assert len(errors) == 1
-    assert "LiteLLM request failed (429 Too Many Requests)" in errors[0]
-    assert "Rate limit exceeded" in errors[0]
-    assert "provider quota exhausted" in errors[0]
-    assert "request_id=trace-test-123" in errors[0]
+    error = errors[0]
+    assert "LiteLLM request failed (429 Too Many Requests)" in error.message
+    assert "Rate limit exceeded" in error.message
+    assert "provider quota exhausted" in error.message
+    assert "request_id=trace-test-123" in error.message
+    assert error.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert error.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert error.classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status_code", "expected_kind"),
+    [
+        (401, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
+        (403, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
+        (500, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
+        (504, RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT),
+    ],
+)
+async def test_forward_request_classifies_platform_http_failures_at_source(
+    tmp_path: Path,
+    status_code: int,
+    expected_kind: RuntimeErrorKind,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code, request=request, json={"error": "failure"})
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Content-Type": "application/json"},
+                "body": b'{"messages":[]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert errors[0].classification.kind is expected_kind
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status_code", "expected_retry_disposition"),
+    [
+        (403, RetryDisposition.NON_RETRYABLE),
+        (503, RetryDisposition.NON_RETRYABLE),
+        (429, RetryDisposition.RETRYABLE),
+        (408, RetryDisposition.RETRYABLE),
+        (504, RetryDisposition.RETRYABLE),
+    ],
+)
+async def test_forward_request_classifies_direct_provider_http_failure_as_user_owned(
+    tmp_path: Path,
+    status_code: int,
+    expected_retry_disposition: RetryDisposition,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://customer-provider.example/v1/messages"
+        return httpx.Response(
+            status_code,
+            request=request,
+            json={"error": "unavailable"},
+        )
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(
+            direct_routes={
+                "customer-alias": LLMRoute(
+                    base_url="https://customer-provider.example",
+                    model_provider="custom-model-provider",
+                )
+            }
+        ),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Content-Type": "application/json"},
+                "body": b'{"model":"customer-alias","messages":[]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.USER
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert errors[0].classification.retry_disposition is expected_retry_disposition
+
+
+@pytest.mark.anyio
+async def test_forward_request_classifies_connect_failure_as_platform(
+    tmp_path: Path,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("gateway unavailable", request=request)
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Content-Type": "application/json"},
+                "body": b'{"messages":[]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("direct", "expected_owner", "expected_kind"),
+    [
+        (
+            False,
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+        ),
+        (True, RuntimeErrorOwner.USER, RuntimeErrorKind.AGENT_EXECUTION_FAILED),
+    ],
+)
+async def test_forward_request_classifies_error_body_read_failure_by_route(
+    tmp_path: Path,
+    direct: bool,
+    expected_owner: RuntimeErrorOwner,
+    expected_kind: RuntimeErrorKind,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            500,
+            request=request,
+            stream=_FailingResponseStream(request),
+        )
+
+    direct_routes = (
+        {
+            "customer-alias": LLMRoute(
+                base_url="https://customer-provider.example",
+                model_provider="custom-model-provider",
+            )
+        }
+        if direct
+        else None
+    )
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(direct_routes=direct_routes),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+    body = b'{"model":"customer-alias","messages":[]}' if direct else b'{"messages":[]}'
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Content-Type": "application/json"},
+                "body": body,
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert writer.buffer.decode("utf-8").startswith("HTTP/1.1 502 ")
+    assert len(errors) == 1
+    assert errors[0].classification.owner is expected_owner
+    assert errors[0].classification.kind is expected_kind
+    assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("direct", "expected_owner", "expected_kind"),
+    [
+        (
+            False,
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+        ),
+        (True, RuntimeErrorOwner.USER, RuntimeErrorKind.AGENT_EXECUTION_FAILED),
+    ],
+)
+async def test_forward_request_does_not_write_second_response_after_body_failure(
+    tmp_path: Path,
+    direct: bool,
+    expected_owner: RuntimeErrorOwner,
+    expected_kind: RuntimeErrorKind,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json", "Content-Length": "100"},
+            request=request,
+            stream=_FailingResponseStream(request),
+        )
+
+    direct_routes = (
+        {
+            "customer-alias": LLMRoute(
+                base_url="https://customer-provider.example",
+                model_provider="custom-model-provider",
+            )
+        }
+        if direct
+        else None
+    )
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(direct_routes=direct_routes),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+    body = b'{"model":"customer-alias","messages":[]}' if direct else b'{"messages":[]}'
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Content-Type": "application/json"},
+                "body": body,
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert response_text.count("HTTP/1.1") == 1
+    assert len(errors) == 1
+    assert errors[0].classification.owner is expected_owner
+    assert errors[0].classification.kind is expected_kind
+    assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["connect", "timeout"])
+async def test_forward_request_classifies_direct_transport_failure_as_user_owned(
+    tmp_path: Path,
+    failure: str,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://customer-provider.example/v1/messages"
+        if failure == "connect":
+            raise httpx.ConnectError("provider unavailable", request=request)
+        raise httpx.ReadTimeout("provider timed out", request=request)
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(
+            direct_routes={
+                "customer-alias": LLMRoute(
+                    base_url="https://customer-provider.example",
+                    model_provider="custom-model-provider",
+                )
+            }
+        ),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Content-Type": "application/json"},
+                "body": b'{"model":"customer-alias","messages":[]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.USER
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
 @pytest.mark.anyio
 async def test_write_stream_response_emits_error_after_headers_sent(
     tmp_path: Path,
 ) -> None:
-    errors: list[str] = []
+    errors: list[LLMProxyError] = []
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
         routing_plan=_routing_plan(),
@@ -266,7 +615,11 @@ async def test_write_stream_response_emits_error_after_headers_sent(
     assert response_text.startswith("HTTP/1.1 200 OK")
     assert "event: error" in response_text
     assert "provider stream disconnected" in response_text
-    assert errors == ["LiteLLM stream failed: provider stream disconnected"]
+    assert [error.message for error in errors] == [
+        "LiteLLM stream failed: provider stream disconnected"
+    ]
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
 
 
 @pytest.mark.anyio
@@ -278,7 +631,7 @@ async def test_write_stream_response_surfaces_friendly_read_timeout(
         "tracecat.agent.sandbox.llm_proxy.app_config.TRACECAT__LLM_PROXY_READ_TIMEOUT",
         600.0,
     )
-    errors: list[str] = []
+    errors: list[LLMProxyError] = []
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
         routing_plan=_routing_plan(),
@@ -308,7 +661,81 @@ async def test_write_stream_response_surfaces_friendly_read_timeout(
     assert response_text.startswith("HTTP/1.1 200 OK")
     assert "event: error" in response_text
     assert expected_message in response_text
-    assert errors == [expected_message]
+    assert [error.message for error in errors] == [expected_message]
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["disconnect", "timeout"])
+async def test_write_stream_response_keeps_direct_transport_failure_retryable(
+    tmp_path: Path,
+    failure: str,
+) -> None:
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    writer = _FakeWriter()
+
+    async def broken_stream() -> AsyncIterator[bytes]:
+        yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+        request = httpx.Request("POST", "https://customer-provider.example")
+        if failure == "timeout":
+            raise httpx.ReadTimeout("provider timed out", request=request)
+        raise httpx.ReadError("provider disconnected", request=request)
+
+    await socket_proxy._write_response(
+        cast(asyncio.StreamWriter, writer),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": "text/event-stream"},
+        body_chunks=broken_stream(),
+        trace_request_id="trace-test-direct-transport",
+        path="/v1/messages",
+        route_is_direct=True,
+    )
+
+    assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.USER
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("content_type", ["application/json", "text/event-stream"])
+async def test_write_response_ignores_transport_failure_after_client_disconnect(
+    tmp_path: Path,
+    content_type: str,
+) -> None:
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    writer = _FakeWriter()
+
+    async def disconnected_stream() -> AsyncIterator[bytes]:
+        writer.close()
+        request = httpx.Request("POST", "http://litellm:4000/v1/messages")
+        raise httpx.ReadError("provider disconnected", request=request)
+        yield b""  # pragma: no cover
+
+    await socket_proxy._write_response(
+        cast(asyncio.StreamWriter, writer),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": content_type},
+        body_chunks=disconnected_stream(),
+        trace_request_id="trace-test-client-disconnect",
+        path="/v1/messages",
+    )
+
+    assert writer.buffer.count(b"HTTP/1.1") == 1
+    assert errors == []
 
 
 @pytest.mark.anyio
