@@ -984,9 +984,7 @@ class TestAgentPresetService:
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={
-                    "agents": AgentSubagentsConfig.model_validate(
-                        {"enabled": True, "subagents": []}
-                    )
+                    "agents": AgentSubagentsConfig.model_validate({"subagents": []})
                 }
             )
         )
@@ -1292,7 +1290,6 @@ class TestAgentPresetService:
                             "slug": "lock-parent",
                             "agents": AgentSubagentsConfig.model_validate(
                                 {
-                                    "enabled": True,
                                     "subagents": [{"preset": child.slug}],
                                 }
                             ),
@@ -1336,7 +1333,6 @@ class TestAgentPresetService:
                                 instructions="Concurrent parent update",
                                 agents=AgentSubagentsConfig.model_validate(
                                     {
-                                        "enabled": True,
                                         "subagents": [{"preset": child.slug}],
                                     }
                                 ),
@@ -2846,7 +2842,6 @@ class TestAgentPresetService:
                     "slug": "restored-parent",
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": child.slug}],
                         }
                     ),
@@ -3299,7 +3294,6 @@ class TestAgentPresetService:
                     "slug": "parent-agent",
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": child.slug}],
                         }
                     ),
@@ -3344,7 +3338,6 @@ class TestAgentPresetService:
                     "slug": "historical-parent",
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": child.slug}],
                         }
                     ),
@@ -3376,7 +3369,6 @@ class TestAgentPresetService:
                         "slug": "new-parent",
                         "agents": AgentSubagentsConfig.model_validate(
                             {
-                                "enabled": True,
                                 "subagents": [{"preset": child.slug}],
                             }
                         ),
@@ -3402,7 +3394,6 @@ class TestAgentPresetService:
                     "slug": "referencing-parent",
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": original_child.slug}],
                         }
                     ),
@@ -3697,7 +3688,6 @@ class TestAgentPresetService:
                 "slug": "parent-agent",
                 "agents": AgentSubagentsConfig.model_validate(
                     {
-                        "enabled": True,
                         "subagents": [{"preset": child.slug}],
                     }
                 ),
@@ -3750,7 +3740,6 @@ class TestAgentPresetService:
                         "slug": "race-parent",
                         "agents": AgentSubagentsConfig.model_validate(
                             {
-                                "enabled": True,
                                 "subagents": [{"preset": child.slug}],
                             }
                         ),
@@ -3782,7 +3771,6 @@ class TestAgentPresetService:
                     "slug": "reused-slug",
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [
                                 {
                                     "preset": "reused-slug",
@@ -3826,7 +3814,6 @@ class TestAgentPresetService:
                     "slug": "latest-parent",
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": child.slug}],
                         }
                     ),
@@ -3888,7 +3875,6 @@ class TestAgentPresetService:
                 AgentPresetUpdate(
                     agents=AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": child.slug}],
                         }
                     )
@@ -3935,7 +3921,6 @@ class TestAgentPresetService:
                 AgentPresetUpdate(
                     agents=AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": child.slug}],
                         }
                     )

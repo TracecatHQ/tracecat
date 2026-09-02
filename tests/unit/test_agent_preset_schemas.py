@@ -42,7 +42,7 @@ def make_agent_preset(
         model_name="gpt-4o-mini",
         current_version_id=None,
         tool_approvals=tool_approvals,
-        agents=agents or {"enabled": False},
+        agents=agents or {},
         enable_internet_access=enable_internet_access,
         created_at=timestamp,
         updated_at=timestamp,
@@ -251,7 +251,7 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
             name="Parent preset",
             slug="parent-preset",
             tool_approvals={"core.http_request": True},
-            agents={"enabled": True, "subagents": []},
+            agents={"subagents": []},
         )
     )
 
@@ -270,7 +270,7 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
 
 def test_build_subagent_eligibility_allows_no_attached_children() -> None:
     eligibility = build_subagent_eligibility(
-        agents_config={"enabled": True, "subagents": []},
+        agents_config={"subagents": []},
         tool_approvals={"core.http_request": False},
     )
 
@@ -279,29 +279,21 @@ def test_build_subagent_eligibility_allows_no_attached_children() -> None:
     assert eligibility.message is None
 
 
-def test_agents_config_ignores_removed_legacy_enabled_field() -> None:
-    config = AgentSubagentsConfig.model_validate(
-        {"enabled": False, "subagents": [{"preset": "analyst"}]}
-    )
+def test_agents_config_rejects_removed_enabled_field() -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        AgentSubagentsConfig.model_validate(
+            {"enabled": False, "subagents": [{"preset": "analyst"}]}
+        )
 
-    assert config.subagents[0].preset == "analyst"
-    assert config.model_dump(mode="json") == {
-        "subagents": [
-            {
-                "preset": "analyst",
-                "preset_version": None,
-                "name": None,
-                "description": None,
-                "max_turns": None,
-            }
-        ]
-    }
+
+def test_agents_config_rejects_misspelled_subagents_field() -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        AgentSubagentsConfig.model_validate({"subagent": [{"preset": "analyst"}]})
 
 
 def test_build_subagent_eligibility_rejects_nested_subagents() -> None:
     eligibility = build_subagent_eligibility(
         agents_config={
-            "enabled": True,
             "subagents": [{"preset": "nested-child"}],
         },
         tool_approvals={},

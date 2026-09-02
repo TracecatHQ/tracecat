@@ -1454,7 +1454,6 @@ class TestClaudeAgentRuntimeRun:
                 update={
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": "analyst"}],
                         }
                     ),
@@ -1629,7 +1628,6 @@ class TestClaudeAgentRuntimeRun:
                     "enable_internet_access": False,
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": "web"}],
                         }
                     ),
@@ -1715,7 +1713,6 @@ class TestClaudeAgentRuntimeRun:
                     "enable_internet_access": True,
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": "web"}],
                         }
                     ),

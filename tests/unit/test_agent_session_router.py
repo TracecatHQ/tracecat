@@ -74,7 +74,7 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "mcp_integrations": None,
         "agent_preset_id": uuid.uuid4(),
         "agent_preset_version_id": uuid.uuid4(),
-        "agents_binding": {"enabled": False},
+        "agents_binding": {},
         "harness_type": HarnessType.CLAUDE_CODE,
         "created_at": now,
         "updated_at": now,

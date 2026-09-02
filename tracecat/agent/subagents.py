@@ -72,8 +72,7 @@ type AnyAttachedSubagentRef = ResolvedAttachedSubagentRef | AttachedSubagentRef
 class AgentSubagentsConfig(BaseModel):
     """User-facing preset-backed subagents."""
 
-    # Ignore the removed ``enabled`` toggle when reading legacy JSON payloads.
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     subagents: list[AnyAttachedSubagentRef] = Field(default_factory=list)
 
@@ -81,8 +80,7 @@ class AgentSubagentsConfig(BaseModel):
 class ResolvedAgentsConfig(BaseModel):
     """Persisted immutable resolved child refs."""
 
-    # Ignore the removed ``enabled`` toggle in persisted legacy bindings.
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     subagents: list[ResolvedAttachedSubagentRef] = Field(default_factory=list)
 

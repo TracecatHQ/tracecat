@@ -530,7 +530,6 @@ async def test_create_session_prefers_provided_agents_binding_for_pinned_preset(
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
     agents_binding = ResolvedAgentsConfig.model_validate(
         {
-            "enabled": True,
             "subagents": [
                 {
                     "preset": "child",
@@ -574,9 +573,7 @@ async def test_create_session_persists_internal_agents_binding_without_preset() 
     agents_binding_mock = AsyncMock(return_value=None)
     service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
-    agents_binding = ResolvedAgentsConfig.model_validate(
-        {"enabled": True, "subagents": []}
-    )
+    agents_binding = ResolvedAgentsConfig.model_validate({"subagents": []})
 
     created = await service.create_session(
         AgentSessionCreate(
@@ -607,7 +604,7 @@ async def test_update_session_preserves_null_version_when_preset_changes() -> No
         entity_id=uuid.uuid4(),
         agent_preset_id=old_preset_id,
         agent_preset_version_id=old_version_id,
-        agents_binding={"enabled": True, "subagents": []},
+        agents_binding={"subagents": []},
     )
     validate_mock = AsyncMock(return_value=None)
     agents_binding_mock = AsyncMock(return_value=None)
@@ -646,7 +643,7 @@ async def test_update_session_clears_agents_binding_when_preset_removed() -> Non
         entity_id=uuid.uuid4(),
         agent_preset_id=old_preset_id,
         agent_preset_version_id=old_version_id,
-        agents_binding={"enabled": True, "subagents": []},
+        agents_binding={"subagents": []},
     )
 
     updated = await service.update_session(
@@ -740,7 +737,7 @@ async def test_update_session_clears_pinned_version_to_follow_current() -> None:
         entity_id=preset_id,
         agent_preset_id=preset_id,
         agent_preset_version_id=uuid.uuid4(),
-        agents_binding={"enabled": True, "subagents": []},
+        agents_binding={"subagents": []},
     )
     validate_mock = AsyncMock()
     agents_binding_mock = AsyncMock(return_value=None)

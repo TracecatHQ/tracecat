@@ -444,13 +444,12 @@ class TestBuildAgentArgsActivity:
         assert result.model_settings == {"reasoning_effort": "medium"}
 
     @pytest.mark.anyio
-    async def test_ignores_legacy_enabled_in_agents_config(self, role: Role):
+    async def test_builds_agents_config(self, role: Role):
         args = {
             "user_prompt": "Hello",
             "model_name": "claude-sonnet-4-5-20250929",
             "model_provider": "anthropic",
             "agents": {
-                "enabled": True,
                 "subagents": [
                     {
                         "preset": "qa-child-agent",

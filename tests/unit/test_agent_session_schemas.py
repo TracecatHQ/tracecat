@@ -36,7 +36,7 @@ def test_agent_session_create_ignores_agents_binding_payload() -> None:
             "title": "New session",
             "entity_type": AgentSessionEntity.AGENT_PRESET,
             "entity_id": str(uuid.uuid4()),
-            "agents_binding": {"enabled": True, "subagents": []},
+            "agents_binding": {"subagents": []},
         }
     )
 
@@ -47,7 +47,7 @@ def test_agent_session_update_ignores_agents_binding_payload() -> None:
     session_update = AgentSessionUpdate.model_validate(
         {
             "title": "Updated session",
-            "agents_binding": {"enabled": True, "subagents": []},
+            "agents_binding": {"subagents": []},
         }
     )
 

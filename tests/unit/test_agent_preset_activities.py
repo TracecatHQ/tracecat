@@ -129,7 +129,7 @@ async def test_resolve_preset_subagent_allows_no_attached_children() -> None:
         id=preset_version_id,
         preset_id=preset_id,
         version=8,
-        agents={"enabled": True, "subagents": []},
+        agents={"subagents": []},
         tool_approvals={},
     )
     service.resolve_agent_preset_version = AsyncMock(return_value=version)
@@ -155,6 +155,7 @@ async def test_resolve_preset_subagent_allows_no_attached_children() -> None:
 
     service.resolve_agent_preset_version.assert_awaited_once_with(
         preset_id=preset_id,
+        include_deleted=True,
     )
     assert result["subagents"][0]["preset_version_id"] == str(preset_version_id)
     assert result["subagents"][0]["preset_version"] == 8
@@ -170,7 +171,7 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
         id=preset_version_id,
         preset_id=preset_id,
         version=4,
-        agents={"enabled": False},
+        agents={},
         tool_approvals={},
     )
     service = SimpleNamespace(
@@ -217,6 +218,7 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
 
     service.resolve_agent_preset_version.assert_awaited_once_with(
         preset_id=preset_id,
+        include_deleted=True,
     )
     assert result.subagents[0].binding.preset_version_id == preset_version_id
     assert result.subagents[0].binding.preset_version == 4
@@ -232,7 +234,7 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
         id=preset_version_id,
         preset_id=preset_id,
         version=4,
-        agents={"enabled": False},
+        agents={},
         tool_approvals={},
     )
     service = SimpleNamespace(
@@ -278,6 +280,7 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
 
     service.resolve_agent_preset_version.assert_awaited_once_with(
         preset_version_id=preset_version_id,
+        include_deleted=True,
     )
     assert result.subagents[0].binding.preset_version_id == preset_version_id
 
@@ -290,7 +293,7 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
         id=uuid.uuid4(),
         preset_id=uuid.uuid4(),
         version=1,
-        agents={"enabled": False},
+        agents={},
         tool_approvals={"core.http_request": True},
     )
     service = SimpleNamespace(
@@ -321,7 +324,6 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
                 role=role,
                 agents=AgentSubagentsConfig.model_validate(
                     {
-                        "enabled": True,
                         "subagents": [{"preset": "approval-child"}],
                     }
                 ),
@@ -356,7 +358,6 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
                 role=role,
                 agents=AgentSubagentsConfig.model_validate(
                     {
-                        "enabled": True,
                         "subagents": [{"preset": "Bad Alias"}],
                     }
                 ),
