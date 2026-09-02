@@ -111,6 +111,19 @@ jobs:
           done
 
   draft:
+    # One draft job at a time. This job now reads the drafted body, rewrites it
+    # and PATCHes it back, so two pushes racing could have an older run
+    # overwrite a newer body and drop whatever the newer push added, until some
+    # later push happened to repair it. `cancel-in-progress: false` queues
+    # rather than cancels, and GitHub keeps only the newest pending run per
+    # group, so the last PATCH is always the newest one.
+    #
+    # Only this job. The backfill just adds labels and is idempotent, so racing
+    # it is harmless, and cancelling it would silently skip labelling a push.
+    concurrency:
+      group: release-draft-${{ github.ref }}
+      cancel-in-progress: false
+
     # Ordered after the backfill so the notes reflect labels applied this push,
     # but not gated on it. The backfill is best-effort label hygiene; the draft
     # is the release path. A transient `gh api` failure in the backfill must not
