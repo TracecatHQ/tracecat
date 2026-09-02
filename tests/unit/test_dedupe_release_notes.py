@@ -151,6 +151,23 @@ def test_bodies_are_handled_whatever_the_line_endings(newline: str) -> None:
     assert out.startswith("## Security")
 
 
+@pytest.mark.parametrize(
+    "separator",
+    ["\u2028", "\u0085", "\x0c", "\r"],
+    ids=["line-sep", "next-line", "form-feed", "bare-cr"],
+)
+def test_exotic_separators_do_not_split_an_entry(separator: str) -> None:
+    """`splitlines` breaks on all of these; a split entry loses its number.
+
+    Both halves would then look like prose, so neither would be recognised as a
+    duplicate and both copies would survive.
+    """
+    title = f"- fix(ui): a{separator}b (#1)"
+    body = "\n".join(("## Fixes", "", title, "", "## Other changes", "", title, ""))
+    out = dedupe(body)
+    assert out.count("(#1)") == 1, out
+
+
 def test_the_first_section_wins_even_when_the_text_differs() -> None:
     """Identity is the pull request number; the rendered text can differ."""
     body = "\n".join(

@@ -178,6 +178,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           RELEASE_ID: ${{ steps.draft.outputs.id }}
+          TAG_NAME: ${{ steps.draft.outputs.tag_name }}
         run: |
           set -euo pipefail
 
@@ -197,9 +198,27 @@ jobs:
           fi
 
           echo "removed $((before - after)) duplicate entries, ${after} remain"
-          jq -Rs '{body: .}' < /tmp/deduped.md > /tmp/payload.json
+
+          # `tag_name` has to be resent. A draft release PATCHed without it is
+          # treated as untagged: GitHub replaces the tag with an
+          # `untagged-<hash>` placeholder, which silently unnames the release
+          # anyone would publish 1.0.0 from. Release Drafter resends it on its
+          # own update for the same reason.
+          if [ -z "${TAG_NAME}" ]; then
+            echo "::warning::the draft step reported no tag, skipping to avoid untagging it"
+            exit 0
+          fi
+
+          jq -Rs --arg tag "${TAG_NAME}" '{body: ., tag_name: $tag}' \
+            < /tmp/deduped.md > /tmp/payload.json
           gh api --method PATCH "repos/${REPO}/releases/${RELEASE_ID}" \
             --input /tmp/payload.json --silent
+
+          restored=$(gh api "repos/${REPO}/releases/${RELEASE_ID}" --jq .tag_name)
+          if [ "${restored}" != "${TAG_NAME}" ]; then
+            echo "::error::draft tag is '${restored}', expected '${TAG_NAME}'"
+            exit 1
+          fi
 
   # Same-repo PRs only: fork PRs get a read-only token, so the autolabeler
   # cannot write to them. Fork PRs are labelled by the backfill job once they
