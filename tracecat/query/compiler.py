@@ -110,7 +110,7 @@ def _validate_scalar(
 def _matches_kind_value(kind: FieldKind, value: FilterScalar) -> bool:
     match kind:
         case FieldKind.TEXT | FieldKind.ENUM | FieldKind.TAG:
-            return isinstance(value, str)
+            return isinstance(value, str) and "\x00" not in value
         case FieldKind.NUMBER:
             if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
                 return False

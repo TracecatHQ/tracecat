@@ -467,6 +467,25 @@ def test_rejects_wrong_kind_value(kind: FieldKind, value: Any) -> None:
         compile_filter(Condition(field="value", op=FilterOp.EQ, value=value), resolver)
 
 
+@pytest.mark.parametrize("kind", [FieldKind.TEXT, FieldKind.ENUM, FieldKind.TAG])
+def test_rejects_nul_in_string_values(kind: FieldKind) -> None:
+    resolver = StubResolver(
+        {
+            "value": ResolvedField(
+                expr=_expression(kind),
+                kind=kind,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+
+    with pytest.raises(TracecatValidationError, match="field 'value'"):
+        compile_filter(
+            Condition(field="value", op=FilterOp.IN, value=["before\x00after"]),
+            resolver,
+        )
+
+
 def test_normalizes_direct_expression_values() -> None:
     field_id = "00000000-0000-0000-0000-000000000001"
     scenarios: list[tuple[FieldKind, ColumnElement[Any], Any, object]] = [
