@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
@@ -125,6 +125,31 @@ class RuntimeInitPayload:
         return result
 
 
+type RuntimeEventType = Literal[
+    "stream_event",
+    "message",
+    "session_line",
+    "session_update",
+    "result",
+    "error",
+    "done",
+    "log",
+]
+
+_RUNTIME_EVENT_TYPES = frozenset(
+    {
+        "stream_event",
+        "message",
+        "session_line",
+        "session_update",
+        "result",
+        "error",
+        "done",
+        "log",
+    }
+)
+
+
 @dataclass(kw_only=True, slots=True)
 class RuntimeEventEnvelope:
     """Envelope for events sent from runtime to orchestrator.
@@ -143,16 +168,7 @@ class RuntimeEventEnvelope:
     when persisting messages to ensure proper authorization.
     """
 
-    type: Literal[
-        "stream_event",
-        "message",
-        "session_line",
-        "session_update",
-        "result",
-        "error",
-        "done",
-        "log",
-    ]
+    type: RuntimeEventType
     event: UnifiedStreamEvent | None = None  # For type="stream_event"
     message: dict[str, Any] | None = None  # For type="message" (serialized Message)
     session_line: str | None = None  # For type="session_line" (raw JSONL line)
@@ -175,12 +191,22 @@ class RuntimeEventEnvelope:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeEventEnvelope:
         """Construct from dict (orjson parsed)."""
+        raw_type = data.get("type")
+        if not isinstance(raw_type, str) or raw_type not in _RUNTIME_EVENT_TYPES:
+            raise ValueError("Unknown runtime event envelope type")
+
+        raw_event = data.get("event")
+        if raw_type == "stream_event" and not isinstance(raw_event, dict):
+            raise ValueError("Runtime stream event payload must be a JSON object")
+        if raw_event is not None and not isinstance(raw_event, dict):
+            raise ValueError("Runtime event payload must be a JSON object")
+
         event = None
-        if data.get("event"):
-            event = UnifiedStreamEvent.from_dict(data["event"])
+        if raw_event is not None:
+            event = UnifiedStreamEvent.from_dict(raw_event)
 
         return cls(
-            type=data["type"],
+            type=cast(RuntimeEventType, raw_type),
             event=event,
             message=data.get("message"),
             session_line=data.get("session_line"),

@@ -783,6 +783,8 @@ async def test_process_runtime_events_classifies_disconnect_and_marks_streamed()
     [
         b"{",
         orjson.dumps({"event": {"type": StreamEventType.TEXT_DELTA.value}}),
+        orjson.dumps({"type": "unknown"}),
+        orjson.dumps({"type": "stream_event", "event": []}),
     ],
 )
 async def test_handle_connection_classifies_invalid_runtime_envelope_as_protocol_failure(
