@@ -16,15 +16,13 @@ from tracecat.query.errors import (
     TracecatQueryTimeoutError,
 )
 
-_POSTGRES_STATEMENT_TIMEOUT_MAX_MS = 2_147_483_647
-
 
 def _validate_statement_timeout_ms(statement_timeout_ms: int) -> None:
     if isinstance(statement_timeout_ms, bool) or not isinstance(
         statement_timeout_ms, int
     ):
         raise TypeError("statement_timeout_ms must be an integer")
-    if not 1 <= statement_timeout_ms <= _POSTGRES_STATEMENT_TIMEOUT_MAX_MS:
+    if not 1 <= statement_timeout_ms <= config.POSTGRES_STATEMENT_TIMEOUT_MAX_MS:
         raise ValueError(
             "statement_timeout_ms must be between 1 and 2147483647 milliseconds"
         )

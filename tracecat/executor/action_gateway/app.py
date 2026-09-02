@@ -17,11 +17,19 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
 from pydantic_core import to_jsonable_python
 
+from tracecat.api.common import (
+    query_overflow_exception_handler,
+    query_timeout_exception_handler,
+)
 from tracecat.contexts import ctx_role
 from tracecat.executor.action_gateway.policy import (
     enforce_agent_script_gateway_access,
 )
 from tracecat.logger import logger
+from tracecat.query.errors import (
+    TracecatQueryOverflowError,
+    TracecatQueryTimeoutError,
+)
 
 router = APIRouter(
     prefix="/internal",
@@ -170,8 +178,6 @@ def _add_exception_handlers(app: FastAPI) -> None:
         auth_pool_exhausted_exception_handler,
         generic_exception_handler,
         http_exception_handler,
-        query_overflow_exception_handler,
-        query_timeout_exception_handler,
         tracecat_exception_handler,
     )
     from tracecat.db.exceptions import AuthPoolExhaustedError
@@ -179,10 +185,6 @@ def _add_exception_handlers(app: FastAPI) -> None:
         EntitlementRequired,
         ScopeDeniedError,
         TracecatException,
-    )
-    from tracecat.query.errors import (
-        TracecatQueryOverflowError,
-        TracecatQueryTimeoutError,
     )
 
     app.add_exception_handler(Exception, generic_exception_handler)

@@ -1091,10 +1091,14 @@ TRACECAT__LIMIT_AGG_GROUPS_DEFAULT = bound_env(
 )
 """Default number of groups returned by an aggregation query."""
 
+POSTGRES_STATEMENT_TIMEOUT_MAX_MS = 2_147_483_647
+"""Largest PostgreSQL statement timeout accepted in milliseconds."""
+
 TRACECAT__AGG_STATEMENT_TIMEOUT_MS = bound_env(
     "TRACECAT__AGG_STATEMENT_TIMEOUT_MS",
     30_000,
     lower=1,
+    upper=POSTGRES_STATEMENT_TIMEOUT_MAX_MS,
 )
 """PostgreSQL statement timeout for aggregation queries, in milliseconds."""
 

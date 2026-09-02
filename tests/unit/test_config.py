@@ -468,6 +468,13 @@ def test_agent_executor_drain_default_covers_all_supported_timeouts(
             (250, 2000, 15_000),
             id="operator-overrides",
         ),
+        pytest.param(
+            {
+                "TRACECAT__AGG_STATEMENT_TIMEOUT_MS": "2147483648",
+            },
+            (100, 1000, 2_147_483_647),
+            id="timeout-clamped-to-postgres-maximum",
+        ),
     ],
 )
 def test_aggregation_query_config(
