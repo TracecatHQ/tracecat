@@ -219,6 +219,53 @@ async def test_emit_terminal_error_emits_failed_compaction_when_pending(
 
 
 @pytest.mark.anyio
+async def test_emit_terminal_error_bounds_stalled_stream_sink(
+    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
+) -> None:
+    async def stalled_error(_error: str) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        loopback_module,
+        "TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS",
+        0.01,
+    )
+    handler = LoopbackHandler(input=loopback_input)
+    fake_stream = _FakeStream()
+    fake_stream.error.side_effect = stalled_error
+    handler._stream_sink = fake_stream
+
+    emitted = await handler.emit_terminal_error("provider request failed")
+
+    assert emitted is False
+    assert handler.build_result().terminal_stream_error_emitted is False
+    fake_stream.error.assert_awaited_once_with("provider request failed")
+
+
+@pytest.mark.anyio
+async def test_emit_terminal_error_bounds_stalled_stream_sink_initialization(
+    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
+) -> None:
+    async def stalled_initialization() -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        loopback_module,
+        "TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS",
+        0.01,
+    )
+    handler = LoopbackHandler(input=loopback_input)
+    initialize_stream_sink = AsyncMock(side_effect=stalled_initialization)
+    monkeypatch.setattr(handler, "_initialize_stream_sink", initialize_stream_sink)
+
+    emitted = await handler.emit_terminal_error("provider request failed")
+
+    assert emitted is False
+    assert handler.build_result().terminal_stream_error_emitted is False
+    initialize_stream_sink.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_prepare_initializes_stream_sink_once(
     monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
 ) -> None:

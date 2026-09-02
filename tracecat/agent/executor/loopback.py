@@ -481,16 +481,26 @@ class LoopbackHandler:
         """Emit a terminal error through the resolved stream sink.
 
         This is used by executor-level crash/timeout paths that happen outside
-        normal loopback event processing.
+        normal loopback event processing. Bound the entire best-effort operation,
+        including sink initialization, so a stalled stream cannot replace the
+        executor's authoritative failure with an activity timeout.
         """
         try:
-            if self._stream_sink is None:
-                self._stream_sink = await self._initialize_stream_sink()
-            await self._emit_terminal_stream_error(self._stream_sink, error)
-            return self._result.terminal_stream_error_emitted
-        except Exception:
+            async with asyncio.timeout(TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS):
+                if self._stream_sink is None:
+                    self._stream_sink = await self._initialize_stream_sink()
+                await self._emit_terminal_stream_error(self._stream_sink, error)
+                return self._result.terminal_stream_error_emitted
+        except TimeoutError:
+            logger.warning(
+                "Timeout emitting terminal stream error",
+                session_id=self.input.session_id,
+            )
+            return False
+        except Exception as e:
             logger.warning(
                 "Failed to emit terminal stream error",
+                error_type=type(e).__name__,
                 session_id=self.input.session_id,
             )
             return False
