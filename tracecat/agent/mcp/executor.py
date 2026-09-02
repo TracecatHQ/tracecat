@@ -118,6 +118,7 @@ async def execute_action(
         action_name,
         args,
         registry_lock,
+        environment=claims.environment,
         agent_session_id=claims.session_id,
     )
     stored = await _execute_action_workflow(

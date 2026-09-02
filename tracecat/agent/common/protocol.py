@@ -55,6 +55,8 @@ class RuntimeInitPayload:
     sdk_session_data: str | None = None  # JSONL content for resume
     is_approval_continuation: bool = False  # True when resuming after approval decision
     is_fork: bool = False
+    max_requests: int | None = None
+    max_tool_calls: int | None = None
 
     # Sandbox-safe Claude OTel env (exporters, protocols, intervals, content
     # gates, resource attrs, and the OTEL_EXPORTER_OTLP_HEADERS bearer for
@@ -98,6 +100,8 @@ class RuntimeInitPayload:
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
             is_fork=data.get("is_fork", False),
+            max_requests=data.get("max_requests"),
+            max_tool_calls=data.get("max_tool_calls"),
             agent_otel_sandbox_env=data.get("agent_otel_sandbox_env"),
         )
 
@@ -126,6 +130,10 @@ class RuntimeInitPayload:
             result["sdk_session_id"] = self.sdk_session_id
         if self.sdk_session_data is not None:
             result["sdk_session_data"] = self.sdk_session_data
+        if self.max_requests is not None:
+            result["max_requests"] = self.max_requests
+        if self.max_tool_calls is not None:
+            result["max_tool_calls"] = self.max_tool_calls
         if self.agent_otel_sandbox_env is not None:
             result["agent_otel_sandbox_env"] = self.agent_otel_sandbox_env
         return result
@@ -183,6 +191,7 @@ class RuntimeEventEnvelope:
     # For type="result" - final usage data from Claude SDK ResultMessage
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+    consumed_tool_calls: int | None = None
     result_duration_ms: int | None = None
     result_output: Any = None
     # For type="log" - structured log forwarding from sandbox
@@ -220,6 +229,11 @@ class RuntimeEventEnvelope:
         result_num_turns = optional_integer(
             data,
             "result_num_turns",
+            path="runtime_event",
+        )
+        consumed_tool_calls = optional_integer(
+            data,
+            "consumed_tool_calls",
             path="runtime_event",
         )
         result_duration_ms = optional_integer(
@@ -271,6 +285,7 @@ class RuntimeEventEnvelope:
             error=error,
             result_usage=result_usage,
             result_num_turns=result_num_turns,
+            consumed_tool_calls=consumed_tool_calls,
             result_duration_ms=result_duration_ms,
             result_output=data.get(
                 "result_output",
@@ -302,6 +317,8 @@ class RuntimeEventEnvelope:
             result["result_usage"] = self.result_usage
         if self.result_num_turns is not None:
             result["result_num_turns"] = self.result_num_turns
+        if self.consumed_tool_calls is not None:
+            result["consumed_tool_calls"] = self.consumed_tool_calls
         if self.result_duration_ms is not None:
             result["result_duration_ms"] = self.result_duration_ms
         if self.result_output is not None:
@@ -371,6 +388,7 @@ class RuntimeEventEnvelope:
         cls,
         usage: dict[str, Any] | None = None,
         num_turns: int | None = None,
+        consumed_tool_calls: int | None = None,
         duration_ms: int | None = None,
         output: Any = None,
     ) -> RuntimeEventEnvelope:
@@ -379,6 +397,7 @@ class RuntimeEventEnvelope:
             type="result",
             result_usage=usage,
             result_num_turns=num_turns,
+            consumed_tool_calls=consumed_tool_calls,
             result_duration_ms=duration_ms,
             result_output=output,
         )

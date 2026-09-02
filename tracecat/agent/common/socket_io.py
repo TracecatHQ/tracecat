@@ -173,6 +173,7 @@ class SocketStreamWriter:
         self,
         usage: dict[str, Any] | None = None,
         num_turns: int | None = None,
+        consumed_tool_calls: int | None = None,
         duration_ms: int | None = None,
         output: Any = None,
     ) -> None:
@@ -181,6 +182,7 @@ class SocketStreamWriter:
             RuntimeEventEnvelope.from_result(
                 usage=usage,
                 num_turns=num_turns,
+                consumed_tool_calls=consumed_tool_calls,
                 duration_ms=duration_ms,
                 output=output,
             )
