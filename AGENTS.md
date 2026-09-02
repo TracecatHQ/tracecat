@@ -394,7 +394,9 @@ rendered release notes are normalized, by the `replacers:` block in
   absorbs vendor scopes into `integrations` so merged PRs categorize, but the
   checker rejects them.
 - At most two scopes, joined with `+`, e.g. `feat(cases+actions): add a case
-  linking action`. A change lands in the first section its labels match, so
+  linking action`. A change lands in the highest-ranked section its labels
+  match -- Release Drafter would list it in every one, and a workflow step
+  reduces that to the first -- so
   that example appears under Case management, not Core actions. Needing three
   scopes usually means the PR should be split.
 - Scopes that used to mean two different things are rejected outright: `app`,

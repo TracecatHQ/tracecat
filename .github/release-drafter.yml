@@ -12,8 +12,14 @@
 #   held render at the top of the notes with no heading.
 # - The autolabeler guarantees each PR receives at least one category label
 #   derived from its conventional-commit type, so nothing renders headerless.
-# - Categories are matched in order: each PR lands in the first category that
-#   matches one of its labels.
+# - Categories are ranked, not merely listed. Release Drafter itself puts a PR
+#   under EVERY category its labels match -- its source calls that intentional
+#   -- and offers no first-match option and no per-category exclude. The
+#   `Keep each pull request in one section` step in the release-drafter
+#   workflow applies the ranking afterwards, keeping the first occurrence,
+#   which is the highest-ranked one because sections are emitted in the order
+#   declared here. Reordering this list therefore changes which section a
+#   change lands in.
 #
 # The autolabeler is deliberately more forgiving than
 # scripts/check_pr_title.py. The checker only accepts canonical types and
