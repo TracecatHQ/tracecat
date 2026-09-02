@@ -362,7 +362,7 @@ rendered release notes are normalized, by the `replacers:` block in
   | `deps` | Dependency bumps |
   | `docs` | Documentation and playbooks |
   | `engine` | The Temporal workers, executors, and scheduler that run workflows |
-  | `enterprise` | Enterprise edition and tiers |
+  | `enterprise` | Enterprise edition and tiers; pair it with the area it changes |
   | `functions` | The FN.* inline expression functions |
   | `infra` | Databases, deployments, and cloud infrastructure |
   | `integrations` | Third-party vendor connectors and registry templates |
@@ -382,6 +382,11 @@ rendered release notes are normalized, by the `replacers:` block in
   third is the machinery.
 - `cases` and `tables` are core platform features with their own scopes and
   their own sections. Neither folds into `api` or `engine`.
+- `enterprise` says who may use a change, not what the change is, so it never
+  decides the section. Pair it with the area: `feat(enterprise+cases)` lands in
+  Case management, and a bare `feat(enterprise)` falls to Features. It used to
+  sit in the API category, which filed every paid feature under API rather than
+  the area it changed.
 - `engine` is what runs; `infra` is what it runs on. If the change could ship
   by redeploying the same image, it is `infra`.
 - `audit` is the security audit log: what a workspace records about who did

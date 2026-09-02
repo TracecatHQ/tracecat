@@ -301,3 +301,9 @@ breaking = "breaking"
 extra = ["migration", "self-hosted"]
 # A PR carrying either label is left out of the release notes entirely.
 exclude = ["release", "skip changelog"]
+# Labels that describe a change without deciding where it belongs. They are
+# applied, searchable and rendered in the title, but claim no category, so the
+# rest of the title routes the change: `feat(enterprise+cases)` lands in Case
+# management and a bare `feat(enterprise)` in Features. Giving `enterprise` a
+# section would file every paid feature away from the product area it changed.
+no_section = ["enterprise"]
