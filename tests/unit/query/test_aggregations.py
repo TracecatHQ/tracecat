@@ -206,20 +206,18 @@ def test_aggregation_spec_rejects_output_key_collisions(
 
 
 @pytest.mark.parametrize(
-    ("first", "second"),
+    "alias",
     [
-        ("a" * 63 + "x", "a" * 63 + "y"),
-        ("é" * 31, "é" * 32),
+        "a" * 64,
+        "é" * 32,
     ],
 )
-def test_aggregation_spec_rejects_postgres_truncated_alias_collisions(
-    first: str,
-    second: str,
+def test_aggregation_spec_rejects_aliases_over_postgres_identifier_limit(
+    alias: str,
 ) -> None:
-    with pytest.raises(ValidationError, match="PostgreSQL identifier truncation"):
+    with pytest.raises(ValidationError, match="63-byte identifier limit"):
         AggregationSpec(
-            group_by=[GroupBySpec(field="status", alias=first)],
-            aggs=[AggSpec(function=AggFunction.COUNT, alias=second)],
+            group_by=[GroupBySpec(field="status", alias=alias)],
         )
 
 
@@ -566,6 +564,52 @@ def test_multi_valued_group_requires_entity_id() -> None:
                 )
             },
         )
+
+
+def test_multi_valued_aggregate_target_protects_other_aggregates_from_fanout() -> None:
+    spec = AggregationSpec(
+        group_by=[],
+        aggs=[
+            AggSpec(function=AggFunction.COUNT, field="tags"),
+            AggSpec(function=AggFunction.SUM, field="amount"),
+        ],
+    )
+
+    with pytest.raises(TracecatValidationError, match="multi-valued field"):
+        _compile(
+            spec,
+            {
+                "tags": _field(
+                    "tag_ref", sa.String(), FieldKind.TAG, is_multi_valued=True
+                ),
+                "amount": _field("amount", sa.Integer(), FieldKind.NUMBER),
+            },
+            entity_id=sa.column("case_id", sa.Uuid()),
+        )
+
+
+def test_multi_valued_aggregate_target_deduplicates_counts_and_having() -> None:
+    spec = AggregationSpec(
+        group_by=[],
+        aggs=[
+            AggSpec(function=AggFunction.COUNT),
+            AggSpec(function=AggFunction.COUNT, field="tags"),
+        ],
+        min_count=2,
+    )
+
+    sql = _compile(
+        spec,
+        {"tags": _field("tag_ref", sa.String(), FieldKind.TAG, is_multi_valued=True)},
+        entity_id=sa.column("case_id", sa.Uuid()),
+    )
+
+    assert "count(DISTINCT case_id) AS count" in sql
+    assert (
+        "count(DISTINCT case_id) FILTER (WHERE tag_ref IS NOT NULL) AS count_tags"
+        in sql
+    )
+    assert "HAVING count(DISTINCT case_id) >= 2" in sql
 
 
 def test_default_ordering_uses_first_bucket_even_when_not_first_group() -> None:

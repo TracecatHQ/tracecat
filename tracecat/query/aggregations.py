@@ -13,12 +13,6 @@ IANA_TIMEZONES = frozenset(available_timezones())
 type TimeBucket = Literal["hour", "day", "week", "month"]
 
 
-def _postgres_identifier(value: str) -> str:
-    """Return an identifier as PostgreSQL stores it after byte truncation."""
-    encoded = value.encode("utf-8")[:POSTGRES_IDENTIFIER_MAX_BYTES]
-    return encoded.decode("utf-8", errors="ignore")
-
-
 class AggFunction(StrEnum):
     """Aggregate functions supported by the shared query compiler."""
 
@@ -154,16 +148,23 @@ class AggregationSpec(_AggregationModel):
     def validate_output_keys(self) -> Self:
         output_keys = [group.output_key for group in self.group_by]
         output_keys.extend(agg.output_key for agg in self.aggs)
-        normalized_output_keys = [_postgres_identifier(key) for key in output_keys]
-        duplicates = sorted(
+        overlong_keys = sorted(
             key
-            for key in set(normalized_output_keys)
-            if normalized_output_keys.count(key) > 1
+            for key in output_keys
+            if len(key.encode("utf-8")) > POSTGRES_IDENTIFIER_MAX_BYTES
+        )
+        if overlong_keys:
+            raise ValueError(
+                "Aggregation output keys must not exceed PostgreSQL's 63-byte "
+                "identifier limit; overlong keys: "
+                + ", ".join(repr(key) for key in overlong_keys)
+            )
+        duplicates = sorted(
+            key for key in set(output_keys) if output_keys.count(key) > 1
         )
         if duplicates:
             raise ValueError(
-                "Aggregation output keys must be unique after PostgreSQL identifier "
-                "truncation; duplicate keys: "
+                "Aggregation output keys must be unique; duplicate keys: "
                 + ", ".join(repr(key) for key in duplicates)
             )
         if self.order_by is not None and self.order_by not in output_keys:

@@ -71,7 +71,7 @@ def compile_aggregation(
         resolved_fields: Trusted aggregation expressions keyed by field address.
         limit: Maximum number of groups the caller will return.
         entity_id: Stable row identity used to de-duplicate counts when a
-            multi-valued grouping dimension explodes one entity into many rows.
+            multi-valued field explodes one entity into many rows.
 
     Returns:
         The compiled SQLAlchemy select.
@@ -96,11 +96,13 @@ def compile_aggregation(
         )
         for agg in spec.aggs
     ]
-    has_multi_valued_group = any(field.is_multi_valued for _, field in resolved_groups)
+    has_multi_valued_join = any(
+        field.is_multi_valued for _, field in resolved_groups
+    ) or any(field is not None and field.is_multi_valued for _, field in resolved_aggs)
     entity_id_expression = None if entity_id is None else _column_expression(entity_id)
-    if has_multi_valued_group and entity_id_expression is None:
+    if has_multi_valued_join and entity_id_expression is None:
         raise TracecatValidationError(
-            "Aggregation with a multi-valued group requires an entity id expression"
+            "Aggregation with a multi-valued field requires an entity id expression"
         )
 
     group_expressions = [
@@ -110,7 +112,7 @@ def compile_aggregation(
         _compile_aggregate(
             agg,
             field,
-            has_multi_valued_group=has_multi_valued_group,
+            has_multi_valued_join=has_multi_valued_join,
             entity_id=entity_id_expression,
         )
         for agg, field in resolved_aggs
@@ -127,7 +129,7 @@ def compile_aggregation(
 
     if spec.min_count is not None:
         row_count = _compile_row_count(
-            has_multi_valued_group=has_multi_valued_group,
+            has_multi_valued_join=has_multi_valued_join,
             entity_id=entity_id_expression,
         )
         compiled = compiled.having(row_count >= spec.min_count)
@@ -220,13 +222,13 @@ def _compile_aggregate(
     spec: AggSpec,
     resolved: ResolvedAggregationField | None,
     *,
-    has_multi_valued_group: bool,
+    has_multi_valued_join: bool,
     entity_id: ColumnElement[Any] | None,
 ) -> sa.Label[Any]:
     if resolved is None:
         assert spec.function is AggFunction.COUNT
         expression = _compile_row_count(
-            has_multi_valued_group=has_multi_valued_group,
+            has_multi_valued_join=has_multi_valued_join,
             entity_id=entity_id,
         )
         return expression.label(spec.output_key)
@@ -234,19 +236,19 @@ def _compile_aggregate(
     field_expression = _column_expression(resolved.expr)
     _validate_aggregate_target(spec, resolved.kind, field_expression.type)
 
-    if has_multi_valued_group and spec.function in {
+    if has_multi_valued_join and spec.function in {
         AggFunction.SUM,
         AggFunction.MEAN,
         AggFunction.MEDIAN,
     }:
         raise _aggregation_error(
             spec.field,
-            f"{spec.function.value} is not allowed with a multi-valued group",
+            f"{spec.function.value} is not allowed with a multi-valued field",
         )
 
     match spec.function:
         case AggFunction.COUNT:
-            if has_multi_valued_group:
+            if has_multi_valued_join:
                 assert entity_id is not None
                 expression = sa.func.count(sa.distinct(entity_id)).filter(
                     field_expression.is_not(None)
@@ -321,10 +323,10 @@ def _validate_aggregate_target(
 
 def _compile_row_count(
     *,
-    has_multi_valued_group: bool,
+    has_multi_valued_join: bool,
     entity_id: ColumnElement[Any] | None,
 ) -> ColumnElement[int]:
-    if has_multi_valued_group:
+    if has_multi_valued_join:
         assert entity_id is not None
         return sa.func.count(sa.distinct(entity_id))
     return sa.func.count()
