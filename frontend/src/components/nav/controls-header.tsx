@@ -47,6 +47,7 @@ import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCaseTag } from "@/components/cases/add-case-tag"
 import { AddCustomField } from "@/components/cases/add-custom-field"
+import { CaseAgentRunsAction } from "@/components/cases/case-agent-runs-action"
 import {
   PRIORITIES,
   SEVERITIES,
@@ -1834,6 +1835,7 @@ function CaseDetailActions({
   return (
     <>
       <CaseStatusControl caseId={caseId} workspaceId={workspaceId} />
+      <CaseAgentRunsAction caseId={caseId} workspaceId={workspaceId} />
       {caseData ? (
         <CaseVersionHistory
           workspaceId={workspaceId}

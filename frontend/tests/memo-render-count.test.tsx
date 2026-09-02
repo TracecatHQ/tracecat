@@ -82,6 +82,24 @@ jest.mock("@/lib/hooks", () => ({
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: jest.fn(() => true),
+}))
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: jest.fn(() => ({
+    hasEntitlement: () => false,
+    isLoading: false,
+    hasEntitlementData: true,
+  })),
+}))
+jest.mock("@/hooks/use-agent-presets", () => ({
+  useAgentPresets: jest.fn(() => ({
+    presets: [],
+    presetsIsLoading: false,
+    presetsError: null,
+    refetchPresets: jest.fn(),
+  })),
+}))
 
 import { ToolInput, ToolOutput } from "@/components/ai-elements/tool"
 // Import after mocks are set up

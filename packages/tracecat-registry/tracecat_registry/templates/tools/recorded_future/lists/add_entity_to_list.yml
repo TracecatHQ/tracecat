@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Add entity to list
+  description: Add an entity to the list listId. Calls POST /list/{listId}/entity/add directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/lists-add-entity
+  namespace: tools.recorded_future
+  name: add_entity_to_list
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    listId:
+      type: str
+      description: Id of list or named watch list.
+    entity:
+      # Generic: Recorded Future documents this field as a union of either
+      # {id} or {type, name}, so there is no single field set to name.
+      type: dict[str, Any]
+      description: >-
+        Entity to add, given either as {"id": "<entity id>"} or as {"type": "<entity type>", "name": "<entity name>"}. Different lists have different limitations in terms of entity types, some lists have no limitations in terms of entity types, consult the specific list you are trying to update.
+    context:
+      type: dict[str, Any] | None
+      description: Context to store with the list entry.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/list/${{ FN.url_encode(inputs.listId) }}/entity/add
+        method: POST
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+          Content-Type: application/json
+        payload:
+          entity: ${{ inputs.entity }}
+          context: ${{ inputs.context }}
+  returns: ${{ steps.request.result }}

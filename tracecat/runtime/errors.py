@@ -7,10 +7,10 @@ Runtime errors have independent product dimensions:
 * ``retry_disposition`` describes whether another attempt is allowed.
 * Workflow control flow remains owned by the workflow definition and engine.
 
-The contract intentionally excludes transport details, execution identifiers,
-raw platform diagnostics, and routing instructions. Future envelope versions
-must use a new ``schema`` literal and a discriminated union rather than adding a
-second version field.
+The classification intentionally excludes transport details, execution
+identifiers, raw platform diagnostics, and routing instructions. Future
+classification versions must use a new ``schema`` literal and a discriminated
+union rather than adding a second version field.
 
 Attribution is scoped to each Temporal Workflow Execution. A terminal
 platform-attributed child failure remains independently attributable and
@@ -20,13 +20,13 @@ alertable even when its parent handles that failure and completes. Diagnostic
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-ERROR_ENVELOPE_SCHEMA = "tracecat.error.v1"
+RUNTIME_ERROR_CLASSIFICATION_SCHEMA = "tracecat.error.v1"
 
 
 class RuntimeErrorOwner(StrEnum):
@@ -50,6 +50,7 @@ class RuntimeErrorKind(StrEnum):
     TENANT_QUOTA_EXHAUSTED = "tenant.quota.exhausted"
     TENANT_ENTITLEMENT_DENIED = "tenant.entitlement.denied"
     INTEGRATION_RATE_LIMITED = "integration.rate_limited"
+    REGISTRY_SYNC_VALIDATION_FAILED = "registry.sync.validation_failed"
     RUNTIME_UNCLASSIFIED = "runtime.unclassified"
     STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE = (
         "storage.materialization.transport_unavailable"
@@ -65,10 +66,20 @@ class RuntimeErrorKind(StrEnum):
     EXECUTOR_SANDBOX_INFRASTRUCTURE_FAILED = "executor.sandbox.infrastructure_failed"
     WORKFLOW_DEFINITION_NOT_FOUND = "workflow.definition.not_found"
     WORKFLOW_DEFINITION_LOOKUP_UNAVAILABLE = "workflow.definition.lookup_unavailable"
+    WORKFLOW_DEFINITION_INVALID_DATA = "workflow.definition.invalid_data"
+    WORKFLOW_TRIGGER_INPUT_INVALID = "workflow.trigger.input_invalid"
+    WORKFLOW_SUBFLOW_INPUT_INVALID = "workflow.subflow.input_invalid"
     WORKFLOW_SUBFLOW_PREPARATION_FAILED = "workflow.subflow.preparation_failed"
+    WORKFLOW_BOOTSTRAP_INVALID_DATA = "workflow.bootstrap.invalid_data"
+    WORKFLOW_BOOTSTRAP_UNAVAILABLE = "workflow.bootstrap.unavailable"
+    WORKFLOW_EXPRESSION_INVALID = "workflow.expression.invalid"
+    WORKFLOW_LOOP_LIMIT_EXCEEDED = "workflow.loop.limit_exceeded"
+    WORKFLOW_RUNTIME_INVARIANT_VIOLATION = "workflow.runtime.invariant_violation"
+    WORKFLOW_AGENT_INPUT_INVALID = "workflow.agent.input_invalid"
+    WORKFLOW_AGENT_PREPARATION_FAILED = "workflow.agent.preparation_failed"
 
 
-class ErrorEnvelope(BaseModel):
+class RuntimeErrorClassification(BaseModel):
     """Versioned error attribution and retry metadata.
 
     User messages must be masked before construction. Platform messages must be
@@ -80,20 +91,15 @@ class ErrorEnvelope(BaseModel):
 
     # The alias is the public contract. The suffix avoids overriding Pydantic's
     # deprecated ``BaseModel.schema()`` method while keeping the wire key exact.
-    schema_: Literal["tracecat.error.v1"] = Field(
-        default=ERROR_ENVELOPE_SCHEMA,
-        alias="schema",
-    )
+    # The field is deliberately required: validation itself then rejects
+    # undiscriminated payloads, and a required field always survives
+    # ``exclude_unset`` serialization onto the Temporal wire.
+    schema_: Literal["tracecat.error.v1"] = Field(alias="schema")
     owner: RuntimeErrorOwner
     kind: RuntimeErrorKind
     message: str
     retry_disposition: RetryDisposition
     cause_type: str | None = None
-
-    def model_post_init(self, context: Any, /) -> None:
-        """Keep the wire discriminator during exclude-unset serialization."""
-        del context
-        self.__pydantic_fields_set__.add("schema_")
 
     @classmethod
     def user(
@@ -103,16 +109,14 @@ class ErrorEnvelope(BaseModel):
         message: str,
         retry_disposition: RetryDisposition,
         cause: BaseException | None = None,
-    ) -> ErrorEnvelope:
+    ) -> RuntimeErrorClassification:
         """Construct a user-attributed error from an explicit enum kind."""
-        cls._require_kind(kind)
-        cls._require_retry_disposition(retry_disposition)
-        return cls(
-            owner=RuntimeErrorOwner.USER,
+        return cls._build(
+            RuntimeErrorOwner.USER,
             kind=kind,
             message=message,
             retry_disposition=retry_disposition,
-            cause_type=type(cause).__name__ if cause is not None else None,
+            cause=cause,
         )
 
     @classmethod
@@ -123,48 +127,74 @@ class ErrorEnvelope(BaseModel):
         message: str,
         retry_disposition: RetryDisposition,
         cause: BaseException | None = None,
-    ) -> ErrorEnvelope:
+    ) -> RuntimeErrorClassification:
         """Construct a platform-attributed error from an explicit enum kind."""
-        cls._require_kind(kind)
-        cls._require_retry_disposition(retry_disposition)
-        return cls(
-            owner=RuntimeErrorOwner.PLATFORM,
+        return cls._build(
+            RuntimeErrorOwner.PLATFORM,
             kind=kind,
             message=message,
             retry_disposition=retry_disposition,
-            cause_type=type(cause).__name__ if cause is not None else None,
+            cause=cause,
         )
 
-    @staticmethod
-    def _require_kind(kind: RuntimeErrorKind) -> None:
-        if not isinstance(kind, RuntimeErrorKind):
-            raise TypeError("kind must be a RuntimeErrorKind enum member")
-
-    @staticmethod
-    def _require_retry_disposition(
+    @classmethod
+    def _build(
+        cls,
+        owner: RuntimeErrorOwner,
+        *,
+        kind: RuntimeErrorKind,
+        message: str,
         retry_disposition: RetryDisposition,
-    ) -> None:
-        if not isinstance(retry_disposition, RetryDisposition):
-            raise TypeError("retry_disposition must be a RetryDisposition enum member")
+        cause: BaseException | None,
+    ) -> RuntimeErrorClassification:
+        return cls.model_validate(
+            {
+                "schema": RUNTIME_ERROR_CLASSIFICATION_SCHEMA,
+                "owner": owner,
+                "kind": kind,
+                "message": message,
+                "retry_disposition": retry_disposition,
+                "cause_type": type(cause).__name__ if cause is not None else None,
+            }
+        )
 
 
 class TracecatRuntimeError(Exception):
-    """Exception carrying an already-classified runtime error envelope."""
+    """Exception carrying an already-classified runtime error."""
 
-    def __init__(self, envelope: ErrorEnvelope) -> None:
-        super().__init__(envelope.message)
-        self.envelope = envelope
+    def __init__(self, classification: RuntimeErrorClassification) -> None:
+        super().__init__(classification.message)
+        self.classification = classification
 
 
-def parse_error_envelope(value: object) -> ErrorEnvelope | None:
-    """Parse only payloads carrying the explicit envelope discriminator."""
-    if isinstance(value, ErrorEnvelope):
+def select_error_classification(
+    classifications: Iterable[RuntimeErrorClassification],
+) -> RuntimeErrorClassification:
+    """Select the first platform-owned classification, otherwise the first."""
+    candidates = tuple(classifications)
+    if not candidates:
+        raise ValueError("Cannot select from an empty error classification collection")
+    return next(
+        (
+            classification
+            for classification in candidates
+            if classification.owner is RuntimeErrorOwner.PLATFORM
+        ),
+        candidates[0],
+    )
+
+
+def parse_error_classification(value: object) -> RuntimeErrorClassification | None:
+    """Parse only payloads carrying the explicit classification discriminator.
+
+    The required ``schema`` field makes validation the discriminator check:
+    payloads without it fail to parse.
+    """
+    if isinstance(value, RuntimeErrorClassification):
         return value
     if not isinstance(value, Mapping):
         return None
-    if value.get("schema") != ERROR_ENVELOPE_SCHEMA:
-        return None
     try:
-        return ErrorEnvelope.model_validate(value)
+        return RuntimeErrorClassification.model_validate(value)
     except ValidationError:
         return None

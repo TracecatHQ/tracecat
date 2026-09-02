@@ -64,6 +64,13 @@ class CaseVersionField(StrEnum):
     DESCRIPTION = "description"
 
 
+class CaseAgentSessionInteractionOperation(StrEnum):
+    """Operations that associate an agent session with a case."""
+
+    CREATE = "create"
+    UPDATE = "update"
+
+
 class CaseEventType(StrEnum):
     """Case activity type values."""
 

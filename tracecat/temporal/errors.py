@@ -1,77 +1,158 @@
-"""Temporal transport for the versioned Tracecat runtime error contract."""
+"""Temporal transport for the versioned Tracecat runtime error contract.
+
+Classified failures travel as ``ErrorTransportDetail`` values: a required
+discriminator, a ``RuntimeErrorClassification``, and an optional
+workflow-specific diagnostic. Terminal workflow errors use the established
+``{ref: ErrorTransportDetail}`` map. The transport stays diagnostic-agnostic;
+workflow layers specialize and validate their own diagnostic models.
+Classification is structural — a payload either parses as one of those shapes
+or it is unclassified; there is no partially classified state. Bare legacy
+payloads (pre-classification histories) therefore fall through as unclassified
+by construction.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+import asyncio
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any, Literal, Never
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from temporalio.exceptions import ApplicationError, FailureError
 
-from tracecat.dsl.types import ActionErrorInfo
+from tracecat.logger import logger
 from tracecat.runtime.errors import (
-    ErrorEnvelope,
     RetryDisposition,
+    RuntimeErrorClassification,
     TracecatRuntimeError,
-    parse_error_envelope,
 )
 
-TEMPORAL_ERROR_DETAILS_SCHEMA = "tracecat.temporal_error.v1"
-_ACTION_ERROR_MAP_ADAPTER = TypeAdapter(dict[str, ActionErrorInfo])
+ERROR_TRANSPORT_DETAIL_SCHEMA = "tracecat.temporal_error.v1"
 
 
-class TemporalErrorDetails(BaseModel):
-    """Strict adapter for envelopes without an ``ActionErrorInfo`` payload."""
+class ErrorTransportDetail[DiagnosticT](BaseModel):
+    """A classified transport detail with an optional typed diagnostic."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, serialize_by_alias=True)
 
-    schema_: Literal["tracecat.temporal_error.v1"] = Field(
-        default=TEMPORAL_ERROR_DETAILS_SCHEMA,
-        alias="schema",
+    # Required so validation itself rejects undiscriminated payloads and the
+    # discriminator always survives ``exclude_unset`` serialization.
+    schema_: Literal["tracecat.temporal_error.v1"] = Field(alias="schema")
+    classification: RuntimeErrorClassification
+    diagnostic: DiagnosticT | None = None
+
+
+# The two classified transport shapes: a single detail, or the established
+# terminal workflow ``{ref: detail}`` map. Anything else —
+# including bare legacy diagnostic payloads — is unclassified. The transport
+# parser deliberately treats the diagnostic as opaque; workflow-specific
+# adapters validate it before consumption or preservation.
+type OpaqueErrorTransportDetail = ErrorTransportDetail[object]
+type ClassifiedErrorPayload = (
+    OpaqueErrorTransportDetail | dict[str, OpaqueErrorTransportDetail]
+)
+
+_CLASSIFIED_ERROR_PAYLOAD_ADAPTER: TypeAdapter[ClassifiedErrorPayload] = TypeAdapter(
+    ClassifiedErrorPayload
+)
+
+
+def build_error_transport_detail[DiagnosticT](
+    classification: RuntimeErrorClassification,
+    diagnostic: DiagnosticT | None = None,
+) -> ErrorTransportDetail[DiagnosticT]:
+    """Build a transport detail from a classification and typed diagnostic."""
+    return ErrorTransportDetail[DiagnosticT].model_validate(
+        {
+            "schema": ERROR_TRANSPORT_DETAIL_SCHEMA,
+            "classification": classification,
+            "diagnostic": diagnostic,
+        }
     )
-    envelope: ErrorEnvelope
 
 
-def _application_error_from_envelope(
-    envelope: ErrorEnvelope,
+@contextmanager
+def activity_error_boundary(
+    classify: Callable[[Exception], RuntimeErrorClassification],
+) -> Iterator[None]:
+    """Classify an exception at one platform-owned activity call boundary."""
+    try:
+        yield
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        if extract_error_classifications(
+            error,
+            include_implicit_context=False,
+        ):
+            raise
+        classification = classify(error)
+        logger.warning(
+            "Activity error boundary classified failure",
+            error_type=type(error).__name__,
+            kind=classification.kind,
+            retry_disposition=classification.retry_disposition,
+        )
+        raise_wrapped_application_error(
+            error,
+            fallback_classification=classification,
+            include_implicit_context=False,
+        )
+
+
+def parse_classified_error_payload(
+    payload: Any,
+) -> ClassifiedErrorPayload | None:
+    """Parse a transport payload into its classified shape, or None."""
+    if isinstance(payload, ErrorTransportDetail):
+        payload = payload.model_dump(mode="json")
+    try:
+        return _CLASSIFIED_ERROR_PAYLOAD_ADAPTER.validate_python(payload)
+    except ValidationError:
+        return None
+
+
+def is_classified_error_payload(payload: Any) -> bool:
+    """Return whether a transport payload is explicitly classified."""
+    return bool(_classifications_from_payload(payload))
+
+
+def application_error_from_classification(
+    classification: RuntimeErrorClassification,
     *details: Any,
     next_retry_delay: timedelta | None = None,
 ) -> ApplicationError:
-    """Build an ``ApplicationError`` with transport fields derived from its envelope.
+    """Build an ``ApplicationError`` from a runtime error classification.
 
-    Existing details remain in their original order. If they already contain a
-    fully validated envelope, they are left unchanged; otherwise a strict
-    non-action detail is appended. Temporal's error type mirrors the stable
-    product kind and is never supplied as a second classification input.
+    The passed classification is authoritative for message, type, and
+    retryability; detail order never overrides the caller's selection. Existing
+    details remain in their original order. If none is classified, a transport
+    detail without action diagnostics is appended.
     """
-    existing_envelope = _envelope_from_details(details)
-    resolved_envelope = existing_envelope or envelope
-    transported_details, embedded = _serialized_error_details(
-        details,
-        envelope=None if existing_envelope is not None else envelope,
-    )
-    if existing_envelope is None and not embedded:
-        adapter = TemporalErrorDetails(envelope=envelope)
-        transported_details = (*transported_details, adapter.model_dump(mode="json"))
+    transported_details = tuple(_serialized_detail(detail) for detail in details)
+    if _classification_from_details(details) is None:
+        transported_details = (
+            *transported_details,
+            build_error_transport_detail(classification).model_dump(mode="json"),
+        )
 
-    non_retryable = (
-        resolved_envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
-    )
+    non_retryable = classification.retry_disposition is RetryDisposition.NON_RETRYABLE
     if non_retryable and next_retry_delay is not None:
         raise ValueError("A non-retryable error cannot set next_retry_delay")
 
     return ApplicationError(
-        resolved_envelope.message,
+        classification.message,
         *transported_details,
-        type=resolved_envelope.kind.value,
+        type=classification.kind.value,
         non_retryable=non_retryable,
         next_retry_delay=next_retry_delay,
     )
 
 
-def raise_application_error_from_envelope(
-    envelope: ErrorEnvelope,
+def raise_application_error_from_classification(
+    classification: RuntimeErrorClassification,
     *details: Any,
     next_retry_delay: timedelta | None = None,
 ) -> Never:
@@ -81,8 +162,8 @@ def raise_application_error_from_envelope(
     here ensures callers cannot accidentally attach a sensitive caught exception
     through implicit chaining.
     """
-    raise _application_error_from_envelope(
-        envelope,
+    raise application_error_from_classification(
+        classification,
         *details,
         next_retry_delay=next_retry_delay,
     ) from None
@@ -91,127 +172,168 @@ def raise_application_error_from_envelope(
 def raise_wrapped_application_error(
     error: BaseException,
     *,
-    fallback: ErrorEnvelope,
+    fallback_classification: RuntimeErrorClassification,
     details: Sequence[Any] = (),
+    include_implicit_context: bool = True,
 ) -> Never:
-    """Raise a history-safe wrapper while preserving existing classification."""
-    details_envelope = (
-        _envelope_from_details(error.details)
+    """Raise a history-safe application error preserving classification.
+
+    Args:
+        error: The error to wrap.
+        fallback_classification: Classification to use when the error has none.
+        details: Explicit history-safe transport details for the wrapped error.
+        include_implicit_context: Whether incidental ``__context__`` may supply
+            the preserved classification. Boundary callers should disable this
+            so an unrelated error raised while handling a classified failure
+            cannot inherit the older classification.
+    """
+    details_classification = (
+        _classification_from_details(error.details)
         if isinstance(error, ApplicationError)
         else None
     )
-    existing_envelope = details_envelope or extract_error_envelope(error)
-    envelope = existing_envelope or fallback
+    chain_classifications = extract_error_classifications(
+        error,
+        include_implicit_context=include_implicit_context,
+    )
+    classification = (
+        details_classification
+        or (chain_classifications[0] if chain_classifications else None)
+        or fallback_classification
+    )
     if isinstance(error, ApplicationError):
         wrapped_details = (
             tuple(error.details)
-            if details_envelope is not None and not details
+            if details_classification is not None and not details
             else tuple(details)
         )
         next_retry_delay = (
             error.next_retry_delay
-            if envelope.retry_disposition is RetryDisposition.RETRYABLE
+            if classification.retry_disposition is RetryDisposition.RETRYABLE
             else None
         )
     else:
         wrapped_details = tuple(details)
         next_retry_delay = None
 
-    raise_application_error_from_envelope(
-        envelope,
+    raise_application_error_from_classification(
+        classification,
         *wrapped_details,
         next_retry_delay=next_retry_delay,
     )
 
 
-def extract_error_envelope(error: BaseException) -> ErrorEnvelope | None:
-    """Extract the first valid envelope from an exception chain."""
-    for current in _error_chain(error):
+def extract_error_classification(
+    error: BaseException,
+) -> RuntimeErrorClassification | None:
+    """Extract the first valid classification from an exception chain."""
+    for current in iter_error_chain(error):
         if isinstance(current, TracecatRuntimeError):
-            return current.envelope
-        if isinstance(current, ApplicationError):
-            if envelope := _envelope_from_details(current.details):
-                return envelope
-    return None
-
-
-def _envelope_from_details(details: Sequence[Any]) -> ErrorEnvelope | None:
-    for detail in details:
-        if envelope := _envelope_from_detail(detail):
-            return envelope
-    return None
-
-
-def _serialized_error_details(
-    details: Sequence[Any], envelope: ErrorEnvelope | None
-) -> tuple[tuple[Any, ...], bool]:
-    """Serialize details for transport, reporting whether an envelope is embedded."""
-    serialized: list[Any] = []
-    embedded = False
-    for detail in details:
-        if isinstance(detail, TemporalErrorDetails):
-            serialized.append(detail.model_dump(mode="json"))
-            embedded = True
-        elif isinstance(detail, ActionErrorInfo) and (
-            detail.envelope is not None or envelope is not None
+            return current.classification
+        if (
+            isinstance(current, ApplicationError)
+            and (classification := _classification_from_details(current.details))
+            is not None
         ):
-            classified = ActionErrorInfo(
-                ref=detail.ref,
-                message=detail.message,
-                type=detail.type,
-                expr_context=detail.expr_context,
-                attempt=detail.attempt,
-                stream_id=detail.stream_id,
-                children=detail.children,
-                envelope=detail.envelope or envelope,
+            return classification
+    return None
+
+
+def extract_error_classifications(
+    error: BaseException,
+    *,
+    include_implicit_context: bool = True,
+) -> tuple[RuntimeErrorClassification, ...]:
+    """Extract every valid classification in exception-chain transport order.
+
+    Args:
+        error: The exception whose classification should be extracted.
+        include_implicit_context: Whether to traverse Python's incidental
+            ``__context__`` chain in addition to Temporal and explicit causes.
+    """
+    classifications: list[RuntimeErrorClassification] = []
+    seen: set[RuntimeErrorClassification] = set()
+    for current in iter_error_chain(
+        error,
+        include_implicit_context=include_implicit_context,
+    ):
+        if isinstance(current, TracecatRuntimeError):
+            _append_unique_classification(
+                classifications,
+                seen,
+                current.classification,
             )
-            serialized.append(classified.model_dump(mode="json"))
-            embedded = True
-        else:
-            serialized.append(detail)
-    return tuple(serialized), embedded
+        if isinstance(current, ApplicationError):
+            for classification in extract_error_classifications_from_details(
+                current.details
+            ):
+                _append_unique_classification(classifications, seen, classification)
+    return tuple(classifications)
 
 
-def _envelope_from_detail(detail: Any) -> ErrorEnvelope | None:
-    if isinstance(detail, ActionErrorInfo):
-        return detail.envelope or _envelope_from_details(detail.children or ())
-    if isinstance(detail, TemporalErrorDetails):
-        return detail.envelope
-    if not isinstance(detail, Mapping):
-        return None
-
-    if detail.get("schema") == TEMPORAL_ERROR_DETAILS_SCHEMA:
-        if parse_error_envelope(detail.get("envelope")) is None:
-            return None
-        try:
-            return TemporalErrorDetails.model_validate(detail).envelope
-        except ValidationError:
-            return None
-
-    try:
-        parsed = ActionErrorInfo.model_validate(detail)
-    except ValidationError:
-        try:
-            _ACTION_ERROR_MAP_ADAPTER.validate_python(detail)
-        except ValidationError:
-            return None
-        for action_error in detail.values():
-            if envelope := _envelope_from_detail(action_error):
-                return envelope
-        return None
-
-    if parsed.envelope is not None:
-        return parse_error_envelope(detail.get("envelope"))
-    if parsed.children is None:
-        return None
-
-    children = detail.get("children")
-    if not isinstance(children, Sequence):
-        return None
-    return _envelope_from_details(children)
+def extract_error_classifications_from_details(
+    details: Sequence[Any],
+) -> tuple[RuntimeErrorClassification, ...]:
+    """Extract classifications only from explicitly classified details."""
+    classifications: list[RuntimeErrorClassification] = []
+    seen: set[RuntimeErrorClassification] = set()
+    for detail in details:
+        for classification in _classifications_from_payload(detail):
+            _append_unique_classification(classifications, seen, classification)
+    return tuple(classifications)
 
 
-def _error_chain(error: BaseException) -> Iterator[BaseException]:
+def _classification_from_details(
+    details: Sequence[Any],
+) -> RuntimeErrorClassification | None:
+    for detail in details:
+        if classifications := _classifications_from_payload(detail):
+            return classifications[0]
+    return None
+
+
+def _classifications_from_payload(
+    payload: Any,
+) -> tuple[RuntimeErrorClassification, ...]:
+    match parse_classified_error_payload(payload):
+        case None:
+            return ()
+        case ErrorTransportDetail() as parsed:
+            return (parsed.classification,)
+        case parsed:
+            return tuple(
+                transport_detail.classification for transport_detail in parsed.values()
+            )
+
+
+def _serialized_detail(detail: Any) -> Any:
+    if isinstance(detail, ErrorTransportDetail):
+        return detail.model_dump(mode="json")
+    return detail
+
+
+def _append_unique_classification(
+    classifications: list[RuntimeErrorClassification],
+    seen: set[RuntimeErrorClassification],
+    classification: RuntimeErrorClassification,
+) -> None:
+    if classification not in seen:
+        seen.add(classification)
+        classifications.append(classification)
+
+
+def iter_error_chain(
+    error: BaseException,
+    *,
+    include_implicit_context: bool = True,
+) -> Iterator[BaseException]:
+    """Walk an exception chain once, following Temporal and Python causes.
+
+    Args:
+        error: The exception to start from.
+        include_implicit_context: Whether to traverse Python's incidental
+            ``__context__`` chain in addition to Temporal and explicit causes.
+    """
     current: BaseException | None = error
     seen: set[int] = set()
     while current is not None:
@@ -227,8 +349,10 @@ def _error_chain(error: BaseException) -> Iterator[BaseException]:
             current = current.cause
         elif isinstance(current.__cause__, BaseException):
             current = current.__cause__
-        elif not current.__suppress_context__ and isinstance(
-            current.__context__, BaseException
+        elif (
+            include_implicit_context
+            and not current.__suppress_context__
+            and isinstance(current.__context__, BaseException)
         ):
             current = current.__context__
         else:

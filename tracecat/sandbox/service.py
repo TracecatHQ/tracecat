@@ -23,11 +23,14 @@ from tracecat.logger import logger
 from tracecat.sandbox.exceptions import (
     PackageInstallError,
     SandboxExecutionError,
+    SandboxInfrastructureError,
+    raise_for_sandbox_error_code,
 )
 from tracecat.sandbox.executor import RUN_PYTHON_ACTION_GATEWAY_SOCKET, NsjailExecutor
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
+    SandboxErrorCode,
     SandboxNetworkPurpose,
     SandboxNetworkRequest,
 )
@@ -145,7 +148,7 @@ class SandboxService:
         if socket_path is None:
             return None
         if not socket_path.exists():
-            raise SandboxExecutionError(
+            raise SandboxInfrastructureError(
                 f"Action Gateway socket is unavailable: {socket_path}"
             )
         return socket_path
@@ -245,6 +248,11 @@ class SandboxService:
                 error=result.error,
                 stderr=result.stderr[:500],
             )
+            if result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+                raise_for_sandbox_error_code(
+                    result.error_code,
+                    "Package installation sandbox failed before starting",
+                )
             raise PackageInstallError(
                 f"Failed to install packages: {result.error or 'Unknown error'}"
             )
@@ -521,6 +529,7 @@ class SandboxService:
                     stdout=result.stdout[:500] if result.stdout else None,
                     stderr=result.stderr[:500] if result.stderr else None,
                 )
+                raise_for_sandbox_error_code(result.error_code, error_msg)
                 raise SandboxExecutionError(error_msg)
 
             return result.output

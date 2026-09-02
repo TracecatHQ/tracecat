@@ -1,0 +1,67 @@
+type: action
+definition:
+  title: Get secure score control profile
+  description: >-
+    Retrieve the properties and relationships of a secureScoreControlProfile
+    object. Least privileged permission: SecurityEvents.Read.All for both
+    delegated (work or school account) and application; higher privileged:
+    SecurityEvents.ReadWrite.All. Delegated access is not supported for personal
+    Microsoft accounts. Available in the global service, US Government L4 and US
+    Government L5 (DOD); not available in China operated by 21Vianet. If a status
+    code other than 2xx or 404 is returned from a provider, or if a provider
+    times out, Microsoft Graph responds `206 Partial Content` with the provider's
+    response in a warning header.
+    Microsoft's endpoint reference does not state a separate licensing requirement.
+  display_group: Microsoft Graph Security
+  doc_url: https://learn.microsoft.com/en-us/graph/api/securescorecontrolprofile-get?view=graph-rest-1.0
+  namespace: tools.microsoft_graph_security
+  name: get_secure_score_control_profile
+  secrets:
+    - type: oauth
+      provider_id: microsoft_graph_security
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph_security
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: authorization_code
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
+        `microsoft_graph_security.base_url`, then
+        `microsoft_graph.base_url`, then https://graph.microsoft.com/v1.0.
+        National clouds: https://graph.microsoft.us/v1.0 (US Government L4) and
+        https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD).
+      default: null
+    auth_mode:
+      type: enum["application", "delegated", "auto"]
+      description: >-
+        Credential to use. `application` requires
+        MICROSOFT_GRAPH_SECURITY_SERVICE_TOKEN, then MICROSOFT_GRAPH_SERVICE_TOKEN;
+        `delegated` requires MICROSOFT_GRAPH_SECURITY_USER_TOKEN, then
+        MICROSOFT_GRAPH_USER_TOKEN; `auto` tries all four in that order.
+      default: application
+    secureScoreControlProfileId:
+      type: str
+      description: >-
+        The `id` of the secureScoreControlProfile, for example "DLPEnabled".
+  steps:
+    - ref: call_graph
+      action: tools.microsoft_graph_sdk.call_method
+      args:
+        oauth_provider: microsoft_graph_security
+        path: /security/secureScoreControlProfiles/${{ FN.url_encode(inputs.secureScoreControlProfileId) }}
+        method: GET
+        base_url: ${{ inputs.base_url || VARS.microsoft_graph_security.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
+        auth_mode: ${{ inputs.auth_mode }}
+  returns: ${{ steps.call_graph.result }}

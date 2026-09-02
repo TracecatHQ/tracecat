@@ -208,7 +208,6 @@ variable "temporal_namespace" {
   default     = "default"
 }
 
-
 ### Container Env Vars
 # NOTE: sensitive variables are stored in secrets manager
 # and specified directly in the task definition via a secret reference
@@ -219,10 +218,45 @@ variable "tracecat_app_env" {
   default     = "production"
 }
 
+variable "platform_otel_enabled" {
+  type        = bool
+  description = "Enable platform-owned OpenTelemetry tracing for the API, worker, and executor services"
+  default     = false
+}
+
+variable "otel_exporter_otlp_endpoint" {
+  type        = string
+  description = "Base OTLP/HTTP collector endpoint for platform traces"
+  default     = null
+}
+
+variable "otel_exporter_otlp_headers_arn" {
+  type        = string
+  description = "Optional Secrets Manager ARN containing OTLP exporter headers for API and worker tracing"
+  default     = null
+}
+
+variable "audit_trusted_proxy_cidrs" {
+  type        = string
+  description = "Comma-separated CIDRs the API treats as its own proxy hops when resolving audit client IPs. Empty uses the built-in private-range default."
+  default     = ""
+}
+
 variable "log_level" {
   type        = string
   description = "Log level for the application"
   default     = "INFO"
+}
+
+variable "log_format" {
+  type        = string
+  description = "Process-wide Tracecat log rendering format"
+  default     = "json"
+
+  validation {
+    condition     = contains(["console", "json"], lower(trimspace(var.log_format)))
+    error_message = "log_format must be console or json."
+  }
 }
 
 variable "temporal_log_level" {
@@ -679,18 +713,6 @@ variable "agent_executor_max_concurrent_activities" {
   default     = 3
 }
 
-variable "agent_otel_platform_override_config" {
-  type        = string
-  description = "Typed Agent OTel configuration JSON. Unset uses org configuration; present overrides it."
-  default     = null
-}
-
-variable "agent_otel_platform_override_headers_arn" {
-  type        = string
-  description = "AWS Secrets Manager ARN containing Agent OTel platform override headers JSON."
-  default     = null
-}
-
 variable "llm_proxy_read_timeout" {
   type        = string
   description = "LLM proxy read timeout in seconds (default: 600)"
@@ -783,6 +805,12 @@ variable "temporal_num_history_shards" {
   type        = string
   description = "Number of history shards for Temporal"
   default     = "512"
+}
+
+variable "temporal_default_namespace_retention" {
+  type        = string
+  description = "Workflow history retention for the Temporal namespace created by auto-setup. Applied at namespace creation only."
+  default     = "24h"
 }
 
 variable "caddy_cpu" {

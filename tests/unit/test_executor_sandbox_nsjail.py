@@ -1048,7 +1048,7 @@ async def test_cancelled_nsjail_operation_kills_process_group(
         return process
 
     with patch(
-        "tracecat.sandbox.executor.asyncio.create_subprocess_exec",
+        "tracecat.sandbox.nsjail_protocol.asyncio.create_subprocess_exec",
         side_effect=capture_subprocess,
     ):
         match operation:
@@ -1068,11 +1068,15 @@ async def test_cancelled_nsjail_operation_kills_process_group(
         try:
             await process_started.wait()
             for _ in range(100):
-                if descendant_pid_path.exists():
+                try:
+                    descendant_pid = int(descendant_pid_path.read_text())
+                except (FileNotFoundError, ValueError):
+                    await asyncio.sleep(0.01)
+                else:
                     break
-                await asyncio.sleep(0.01)
-            assert descendant_pid_path.is_file()
-            descendant_pid = int(descendant_pid_path.read_text())
+            else:
+                pytest.fail("nsjail descendant did not publish its PID")
+            assert descendant_pid is not None
 
             execution.cancel()
 

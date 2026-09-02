@@ -182,6 +182,7 @@ def _build_approved_tool_run_input(
     run_id: uuid.UUID,
     execution_id: uuid.UUID,
     logical_time: datetime,
+    agent_session_id: uuid.UUID,
 ):
     action_name = normalize_mcp_tool_name(tool_call.tool_name)
     return build_run_input(
@@ -192,6 +193,7 @@ def _build_approved_tool_run_input(
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
+        agent_session_id=agent_session_id,
     )
 
 
@@ -257,6 +259,7 @@ def _start_registry_tool_call(
     registry_lock: RegistryLock,
     service_role: Role,
     logical_time: datetime,
+    agent_session_id: uuid.UUID,
 ) -> workflow.ActivityHandle[Any]:
     """Execute an approved registry action on the executor task queue."""
     return workflow.start_activity(
@@ -269,6 +272,7 @@ def _start_registry_tool_call(
                 run_id=workflow.uuid4(),
                 execution_id=workflow.uuid4(),
                 logical_time=logical_time,
+                agent_session_id=agent_session_id,
             ),
             service_role,
         ],
@@ -1902,6 +1906,7 @@ class DurableAgentWorkflow:
                             registry_lock=registry_lock,
                             service_role=service_role,
                             logical_time=logical_time,
+                            agent_session_id=self.session_id,
                         )
                     )
                     result = PendingToolResult(

@@ -218,7 +218,7 @@ WORKDIR /app
 # ====================
 FROM base AS plugin-skills
 
-ARG TRACECAT_PLUGINS_REF=5c193188a72213ba3e6a5ad72eed5e92371a49b4
+ARG TRACECAT_PLUGINS_REF=a41bbdbb4ad3d5e5cf15eda8a6e3d8c3018393cd
 
 # Pinned to a tracecat-plugins commit on main. Bump when the vendored skills change.
 RUN set -eux; \
@@ -230,9 +230,9 @@ RUN set -eux; \
         -C /tmp/tracecat-plugins \
         --strip-components=1; \
     for skill in \
+        tracecat-workspace-chat \
         tracecat-automation-best-practices \
-        tracecat-slackbot-best-practices \
-        tracecat-platform-guide; do \
+        tracecat-slackbot-best-practices; do \
         source="/tmp/tracecat-plugins/plugins/tracecat/skills/${skill}"; \
         test -d "${source}"; \
         test -f "${source}/SKILL.md"; \
@@ -240,6 +240,41 @@ RUN set -eux; \
     done; \
     test "$(find /skills -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 3; \
     rm -rf /tmp/tracecat-plugins /tmp/tracecat-plugins.tar.gz
+
+# Workspace Chat reads platform guidance from docs built from this same commit.
+# Keep source structure so docs.json and MDX imports remain useful navigation.
+COPY ./docs /tmp/tracecat-docs
+
+RUN set -eux; \
+    docs_source=/tmp/tracecat-docs; \
+    docs_target=/skills/tracecat-workspace-chat/references/docs; \
+    mkdir -p "${docs_target}"; \
+    cd "${docs_source}"; \
+    find . -type f \( \
+        -name '*.mdx' -o \
+        -name 'docs.json' -o \
+        -path './automations/core-actions/_examples.yaml' -o \
+        -path './automations/core-actions/_manifest.yaml' \
+    \) -exec cp --parents '{}' "${docs_target}" \;; \
+    source_count="$(find "${docs_source}" -type f \( \
+        -name '*.mdx' -o \
+        -name 'docs.json' -o \
+        -path '*/automations/core-actions/_examples.yaml' -o \
+        -path '*/automations/core-actions/_manifest.yaml' \
+    \) | wc -l)"; \
+    target_count="$(find "${docs_target}" -type f | wc -l)"; \
+    test "${source_count}" -gt 0; \
+    test "${source_count}" -eq "${target_count}"; \
+    test -f "${docs_target}/docs.json"; \
+    test -f "${docs_target}/agents/workspace-chat.mdx"; \
+    test -f "${docs_target}/automations/workflows.mdx"; \
+    test -f "${docs_target}/automations/core-actions/_examples.yaml"; \
+    test -f "${docs_target}/automations/core-actions/_manifest.yaml"; \
+    test -z "$(find "${docs_target}" -type f \( \
+        -iname '*.gif' -o -iname '*.jpeg' -o -iname '*.jpg' -o \
+        -iname '*.png' -o -iname '*.svg' -o -iname '*.webp' \
+    \) -print -quit)"; \
+    rm -rf "${docs_source}"
 
 # ====================
 # Stage 5: Development app

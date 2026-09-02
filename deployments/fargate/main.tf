@@ -39,6 +39,7 @@ module "ecs" {
   # Network configuration from network module
   vpc_id                  = module.network.vpc_id
   public_subnet_ids       = module.network.public_subnet_ids
+  public_subnet_cidrs     = var.public_subnet_cidrs
   private_subnet_ids      = module.network.private_subnet_ids
   private_route_table_ids = module.network.private_route_table_ids
 
@@ -70,7 +71,12 @@ module "ecs" {
 
   # Container environment variables
   tracecat_app_env                              = var.tracecat_app_env
+  platform_otel_enabled                         = var.platform_otel_enabled
+  otel_exporter_otlp_endpoint                   = var.otel_exporter_otlp_endpoint
+  otel_exporter_otlp_headers_arn                = var.otel_exporter_otlp_headers_arn
+  audit_trusted_proxy_cidrs                     = var.audit_trusted_proxy_cidrs
   log_level                                     = var.log_level
+  log_format                                    = var.log_format
   temporal_log_level                            = var.temporal_log_level
   feature_flags                                 = var.feature_flags
   ee_multi_tenant                               = var.ee_multi_tenant
@@ -166,8 +172,6 @@ module "ecs" {
   agent_executor_desired_count             = var.agent_executor_desired_count
   agent_executor_queue                     = var.agent_executor_queue
   agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
-  agent_otel_platform_override_config      = var.agent_otel_platform_override_config
-  agent_otel_platform_override_headers_arn = var.agent_otel_platform_override_headers_arn
   llm_proxy_read_timeout                   = var.llm_proxy_read_timeout
 
   llm_gateway_credential_cache_ttl_seconds        = var.llm_gateway_credential_cache_ttl_seconds
@@ -185,6 +189,7 @@ module "ecs" {
   temporal_cpu                             = var.temporal_cpu
   temporal_memory                          = var.temporal_memory
   temporal_num_history_shards              = var.temporal_num_history_shards
+  temporal_default_namespace_retention     = var.temporal_default_namespace_retention
   temporal_db_tls_enabled                  = var.temporal_db_tls_enabled
   temporal_db_tls_enable_host_verification = var.temporal_db_tls_enable_host_verification
   temporal_db_force_ssl                    = var.temporal_db_force_ssl

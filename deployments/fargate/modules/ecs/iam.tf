@@ -193,6 +193,23 @@ resource "aws_iam_policy" "temporal_payload_encryption_keyring_access" {
   })
 }
 
+resource "aws_iam_policy" "platform_otel_headers_access" {
+  count       = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  name        = "${var.iam_name_prefix}PlatformOTelHeadersAccessPolicy"
+  description = "Policy for accessing OTLP exporter headers"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.otel_exporter_otlp_headers_arn]
+      }
+    ]
+  })
+}
+
 resource "aws_iam_policy" "ui_secrets_access" {
   name        = "${var.iam_name_prefix}UISecretsAccessPolicy"
   description = "Policy for accessing Tracecat UI secrets"
@@ -253,6 +270,12 @@ resource "aws_iam_role_policy_attachment" "api_execution_api_only_secrets" {
   role       = aws_iam_role.api_execution.name
 }
 
+resource "aws_iam_role_policy_attachment" "api_execution_platform_otel_headers" {
+  count      = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.platform_otel_headers_access[0].arn
+  role       = aws_iam_role.api_execution.name
+}
+
 # Worker execution role
 resource "aws_iam_role" "worker_execution" {
   name               = "${var.iam_name_prefix}WorkerExecutionRole"
@@ -269,43 +292,10 @@ resource "aws_iam_role_policy_attachment" "worker_execution_secrets" {
   role       = aws_iam_role.worker_execution.name
 }
 
-# Agent executor execution role
-resource "aws_iam_role" "agent_executor_execution" {
-  name               = "${var.iam_name_prefix}AgentExecutorExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
-}
-
-resource "aws_iam_role_policy_attachment" "agent_executor_execution_ecs_poll" {
-  policy_arn = aws_iam_policy.ecs_poll.arn
-  role       = aws_iam_role.agent_executor_execution.name
-}
-
-resource "aws_iam_role_policy_attachment" "agent_executor_execution_secrets" {
-  policy_arn = aws_iam_policy.secrets_access.arn
-  role       = aws_iam_role.agent_executor_execution.name
-}
-
-resource "aws_iam_policy" "agent_executor_otel_headers_access" {
-  count       = var.agent_otel_platform_override_headers_arn != null ? 1 : 0
-  name        = "${var.iam_name_prefix}AgentExecutorOtelHeadersAccessPolicy"
-  description = "Policy for the agent executor to access platform OTel headers"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.agent_otel_platform_override_headers_arn]
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "agent_executor_execution_otel_headers" {
-  count      = var.agent_otel_platform_override_headers_arn != null ? 1 : 0
-  policy_arn = aws_iam_policy.agent_executor_otel_headers_access[0].arn
-  role       = aws_iam_role.agent_executor_execution.name
+resource "aws_iam_role_policy_attachment" "worker_execution_platform_otel_headers" {
+  count      = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.platform_otel_headers_access[0].arn
+  role       = aws_iam_role.worker_execution.name
 }
 
 # API and Worker task role
@@ -542,6 +532,43 @@ resource "aws_iam_role_policy" "mcp_task_db_access" {
   })
 }
 
+resource "aws_iam_role_policy" "mcp_task_blob_access" {
+  count = var.enable_mcp ? 1 : 0
+  name  = "${var.iam_name_prefix}MCPBlobAccessPolicy"
+  role  = aws_iam_role.mcp_task[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowMCPBlobObjectOperations"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+        ]
+        Resource = [
+          "${aws_s3_bucket.skills.arn}/*",
+          "${aws_s3_bucket.workflow.arn}/*",
+        ]
+      },
+      {
+        Sid    = "AllowMCPBlobBucketOperations"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+        ]
+        Resource = [
+          aws_s3_bucket.skills.arn,
+          aws_s3_bucket.workflow.arn,
+        ]
+      },
+    ]
+  })
+}
+
 resource "aws_iam_role_policy_attachment" "mcp_task_temporal_payload_encryption_keyring" {
   count      = var.enable_mcp && var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
   policy_arn = aws_iam_policy.temporal_payload_encryption_keyring_access[0].arn
@@ -658,11 +685,6 @@ resource "aws_iam_role_policy_attachment" "api_execution_cloudwatch_logs" {
 resource "aws_iam_role_policy_attachment" "worker_execution_cloudwatch_logs" {
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
   role       = aws_iam_role.worker_execution.name
-}
-
-resource "aws_iam_role_policy_attachment" "agent_executor_execution_cloudwatch_logs" {
-  policy_arn = aws_iam_policy.cloudwatch_logs.arn
-  role       = aws_iam_role.agent_executor_execution.name
 }
 
 resource "aws_iam_role_policy_attachment" "ui_execution_cloudwatch_logs" {

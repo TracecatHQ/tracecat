@@ -10,11 +10,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.cases.agent_sessions.service import (
+    CaseAgentSessionInteractionService,
+)
 from tracecat.cases.durations.materialization import sync_case_duration
 from tracecat.cases.durations.sync_queue import (
     enqueue_case_duration_sync_after_commit,
 )
-from tracecat.cases.enums import CaseEventType
+from tracecat.cases.enums import (
+    CaseAgentSessionInteractionOperation,
+    CaseEventType,
+)
 from tracecat.cases.schemas import CaseEventVariant, CaseViewedEvent
 from tracecat.cases.triggers.publisher import publish_case_event_payload
 from tracecat.db.models import Case, CaseEvent
@@ -22,6 +28,19 @@ from tracecat.db.session_events import AfterCommitQueue
 from tracecat.service import BaseWorkspaceService
 
 CASE_VIEW_EVENT_DEDUP_WINDOW = timedelta(minutes=5)
+_CHILD_MUTATION_EVENTS = frozenset(
+    {
+        CaseEventType.ATTACHMENT_CREATED,
+        CaseEventType.ATTACHMENT_DELETED,
+        CaseEventType.COMMENT_DELETED,
+        CaseEventType.COMMENT_REPLY_DELETED,
+        CaseEventType.DROPDOWN_VALUE_CHANGED,
+        CaseEventType.TABLE_ROW_LINKED,
+        CaseEventType.TABLE_ROW_UNLINKED,
+        CaseEventType.TAG_ADDED,
+        CaseEventType.TAG_REMOVED,
+    }
+)
 
 
 class CaseEventsService(BaseWorkspaceService):
@@ -31,6 +50,10 @@ class CaseEventsService(BaseWorkspaceService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
+        self.agent_session_interactions = CaseAgentSessionInteractionService(
+            session=self.session,
+            role=self.role,
+        )
 
     async def list_events(self, case: Case) -> Sequence[CaseEvent]:
         """List all events for a case."""
@@ -50,6 +73,7 @@ class CaseEventsService(BaseWorkspaceService):
         publish_case_trigger: bool = True,
         sync_durations: bool = True,
         system_generated: bool = False,
+        record_agent_interaction: bool = True,
     ) -> CaseEvent:
         """Create a non-committing activity record for a case."""
         db_event = CaseEvent(
@@ -61,6 +85,16 @@ class CaseEventsService(BaseWorkspaceService):
         )
         self.session.add(db_event)
         await self.session.flush()
+
+        if (
+            record_agent_interaction
+            and not system_generated
+            and event.type in _CHILD_MUTATION_EVENTS
+        ):
+            await self.agent_session_interactions.record_from_context(
+                case_id=case.id,
+                operation=CaseAgentSessionInteractionOperation.UPDATE,
+            )
 
         event_id = str(db_event.id)
         event_type = (

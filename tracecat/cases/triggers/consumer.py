@@ -41,7 +41,11 @@ class CaseTriggerConsumer:
     """Consume case events and dispatch workflows based on configured triggers."""
 
     def __init__(
-        self, client: RedisClient, *, consumer_name: str | None = None
+        self,
+        client: RedisClient,
+        *,
+        consumer_name: str | None = None,
+        stop_event: asyncio.Event | None = None,
     ) -> None:
         self.client = client
         self.stream_key = config.TRACECAT__CASE_TRIGGERS_STREAM_KEY
@@ -54,6 +58,11 @@ class CaseTriggerConsumer:
         self.consumer_name = consumer_name or f"{socket.gethostname()}:{os.getpid()}"
         self._workspace_role_cache: dict[uuid.UUID, Role] = {}
         self._pending_check_interval = max(self.claim_idle_ms / 1000.0, 30.0)
+        self._stop_event = stop_event
+
+    def _stop_signalled(self) -> bool:
+        """Whether a graceful shutdown signal has been received."""
+        return self._stop_event is not None and self._stop_event.is_set()
 
     async def run(self) -> None:
         if not config.TRACECAT__CASE_TRIGGERS_ENABLED:
@@ -69,7 +78,7 @@ class CaseTriggerConsumer:
         )
         last_pending_check = monotonic()
         try:
-            while True:
+            while not self._stop_signalled():
                 try:
                     messages = await self.client.xreadgroup(
                         group_name=self.group,
@@ -95,7 +104,14 @@ class CaseTriggerConsumer:
                             await self._handle_message(message_id, fields)
                 else:
                     now = monotonic()
-                    if now - last_pending_check >= self._pending_check_interval:
+                    # Do not start pending-message recovery past the stop
+                    # signal: recovery claims fresh work the terminating pod
+                    # never had in flight, and a claimed batch can exceed the
+                    # drain deadline.
+                    if (
+                        not self._stop_signalled()
+                        and now - last_pending_check >= self._pending_check_interval
+                    ):
                         await self._claim_idle_messages()
                         last_pending_check = now
                 await asyncio.sleep(0)
@@ -105,6 +121,8 @@ class CaseTriggerConsumer:
         except Exception as e:
             logger.error("Case trigger consumer stopped due to error", error=str(e))
             raise
+        else:
+            logger.info("Case trigger consumer stopped gracefully")
 
     def _is_nogroup_error(self, error: Exception) -> bool:
         if isinstance(error, ResponseError):
@@ -802,6 +820,8 @@ class CaseTriggerConsumer:
             count=self.batch,
             idle=self.claim_idle_ms,
         )
+        if self._stop_signalled():
+            return
         if not pending:
             return
 
@@ -829,7 +849,16 @@ class CaseTriggerConsumer:
             await self._handle_message(message_id, fields)
 
 
-async def start_case_trigger_consumer() -> None:
+async def start_case_trigger_consumer(
+    stop_event: asyncio.Event | None = None,
+) -> None:
+    """Run the case trigger consumer until cancelled or stopped.
+
+    The stop event enables graceful shutdown: setting it finishes the current
+    batch (including acks) and exits the loop without cancellation, so the
+    pod's terminating consumer does not strand messages in the pending list
+    during rolling upgrades.
+    """
     client = await get_redis_client()
-    consumer = CaseTriggerConsumer(client)
+    consumer = CaseTriggerConsumer(client, stop_event=stop_event)
     await consumer.run()

@@ -42,7 +42,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from temporalio import workflow
-from temporalio.worker import Worker
+from temporalio.worker import Interceptor, Worker
 from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
     SandboxRestrictions,
@@ -53,6 +53,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config
     from tracecat.dsl.client import get_temporal_client
+    from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
     from tracecat.executor.action_gateway.server import ActionGateway
     from tracecat.executor.action_runner import get_action_runner
     from tracecat.executor.activities import ExecutorActivities
@@ -61,6 +62,11 @@ with workflow.unsafe.imports_passed_through():
         shutdown_executor_backend,
     )
     from tracecat.logger import logger
+    from tracecat.observability.otel import (
+        initialize_platform_tracing,
+        shutdown_platform_tracing,
+    )
+    from tracecat.observability.sentry import initialize_sentry_from_environment
     from tracecat.registry.sync.workflow import (
         RegistryArtifactsBackfillWorkflow,
         RegistrySyncActivities,
@@ -124,6 +130,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         threadpool_max_workers=threadpool_max_workers,
         executor_backend=config.TRACECAT__EXECUTOR_BACKEND,
     )
+    initialize_platform_tracing("tracecat-executor")
     action_gateway = ActionGateway()
 
     try:
@@ -148,6 +155,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
         client = await get_temporal_client()
 
+        initialize_sentry_from_environment()
+
         # Collect all activities from executor and registry sync
         activities = [
             *ExecutorActivities.get_activities(),
@@ -155,7 +164,11 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         ]
 
         # Collect all workflows
-        workflows = [RegistrySyncWorkflow, RegistryArtifactsBackfillWorkflow]
+        workflows = [
+            RegistrySyncWorkflow,
+            RegistryArtifactsBackfillWorkflow,
+        ]
+        interceptors: list[Interceptor] = [RuntimeErrorAttributionInterceptor()]
 
         logger.debug(
             "Activities loaded",
@@ -177,6 +190,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 activity_executor=executor,
                 max_concurrent_activities=max_concurrent,
                 workflow_runner=new_sandbox_runner(),
+                interceptors=interceptors,
                 graceful_shutdown_timeout=timedelta(minutes=5),
             ):
                 logger.info(
@@ -194,6 +208,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         await shutdown_executor_backend()
         await close_storage_client_cache()
         await action_gateway.stop()
+        shutdown_platform_tracing()
 
 
 if __name__ == "__main__":

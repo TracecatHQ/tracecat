@@ -265,7 +265,8 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
         case SqlType.JSONB:
             return sa.bindparam(key=name, value=value, type_=JSONB)
         case SqlType.TEXT:
-            return sa.bindparam(key=name, value=str(value), type_=sa.String)
+            coerced = None if value is None else str(value)
+            return sa.bindparam(key=name, value=coerced, type_=sa.String)
         case SqlType.DATE:
             coerced = coerce_optional_to_date(value)
             return sa.bindparam(key=name, value=coerced, type_=sa.Date)

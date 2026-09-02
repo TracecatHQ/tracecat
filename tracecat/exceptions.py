@@ -120,6 +120,10 @@ class TracecatNotFoundError(TracecatException):
     """Raised when a resource is not found in the Tracecat database."""
 
 
+class WorkflowAliasResolutionError(TracecatNotFoundError):
+    """Raised when a configured workflow alias does not resolve."""
+
+
 class TracecatServiceError(TracecatException):
     """Tracecat generic user-facing service error"""
 
@@ -142,6 +146,10 @@ class RegistrySyncContentError(RegistryError):
 
 class BuiltinRegistryHasNoSelectionError(RegistryError):
     """Raised when the builtin platform registry has no selected version yet."""
+
+
+class RegistryLockInvalidDataError(RegistryError):
+    """Raised when registry lock resolution finds deterministic invalid data."""
 
 
 class RegistryActionError(RegistryError):

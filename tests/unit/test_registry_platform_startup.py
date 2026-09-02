@@ -167,7 +167,7 @@ async def test_startup_sync_skips_when_version_already_current(
     session: AsyncSession,
 ) -> None:
     """Test that startup sync skips when target version is already current."""
-    from tracecat.registry.sync.jobs import _sync_as_leader
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
 
     # Get or create platform repo (may already exist from conftest seeding)
     repo = await _get_or_create_platform_repo(session)
@@ -191,19 +191,14 @@ async def test_startup_sync_skips_when_version_already_current(
         mock_registry.__version__ = "0.1.0"
 
         # Should complete without calling sync
-        with (
-            patch(
-                "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
-            ) as mock_sync_service,
-            patch(
-                "tracecat.registry.sync.jobs._schedule_platform_registry_artifact_build"
-            ) as schedule_build,
-        ):
-            await _sync_as_leader(session, "0.1.0")
+        with patch(
+            "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+        ) as mock_sync_service:
+            artifact_build = await _sync_as_leader(session, "0.1.0")
             # Sync service should not be instantiated
             mock_sync_service.assert_not_called()
-            schedule_build.assert_called_once_with(
-                "0.1.0",
+            assert artifact_build == _ArtifactBuildRequest(
+                target_version="0.1.0",
                 promote_version_id=version.id,
                 expected_current_version_id=version.id,
             )
@@ -248,10 +243,11 @@ async def test_startup_sync_does_not_promote_existing_non_current_version(
     with patch(
         "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
     ) as mock_sync_service:
-        await _sync_as_leader(session, "2.0.0")
+        artifact_build = await _sync_as_leader(session, "2.0.0")
 
         # Should NOT call sync service (version exists)
         mock_sync_service.assert_not_called()
+        assert artifact_build is None
 
     # Verify current version is still version 1
     await session.refresh(repo)
@@ -263,7 +259,7 @@ async def test_startup_sync_defers_existing_target_when_no_current_version(
     session: AsyncSession,
 ) -> None:
     """Test startup sync waits for artifacts before repairing a missing pointer."""
-    from tracecat.registry.sync.jobs import _sync_as_leader
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
 
     repo = await _get_or_create_platform_repo(session)
     repo.current_version_id = None
@@ -279,18 +275,13 @@ async def test_startup_sync_defers_existing_target_when_no_current_version(
     session.add(version)
     await session.commit()
 
-    with (
-        patch(
-            "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
-        ) as mock_sync_service,
-        patch(
-            "tracecat.registry.sync.jobs._schedule_platform_registry_artifact_build"
-        ) as schedule_build,
-    ):
-        await _sync_as_leader(session, "1.0.0")
+    with patch(
+        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+    ) as mock_sync_service:
+        artifact_build = await _sync_as_leader(session, "1.0.0")
         mock_sync_service.assert_not_called()
-        schedule_build.assert_called_once_with(
-            "1.0.0",
+        assert artifact_build == _ArtifactBuildRequest(
+            target_version="1.0.0",
             promote_version_id=version.id,
             expected_current_version_id=None,
         )
@@ -326,10 +317,11 @@ async def test_startup_sync_refuses_downgrade(
     with patch(
         "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
     ) as mock_sync_service:
-        await _sync_as_leader(session, "1.0.0")
+        artifact_build = await _sync_as_leader(session, "1.0.0")
 
         # Should NOT call sync service (downgrade refused)
         mock_sync_service.assert_not_called()
+        assert artifact_build is None
 
     # Verify current version is still 2.0.0
     await session.refresh(repo)
@@ -341,7 +333,7 @@ async def test_startup_sync_calls_sync_for_new_version(
     session: AsyncSession,
 ) -> None:
     """Test fresh startup sync promotes immediately for first-install UX."""
-    from tracecat.registry.sync.jobs import _sync_as_leader
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
 
     repo = await _get_or_create_platform_repo(session)
     repo.current_version_id = None
@@ -361,19 +353,14 @@ async def test_startup_sync_calls_sync_for_new_version(
         actions=[],
     )
 
-    with (
-        patch(
-            "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
-        ) as mock_sync_cls,
-        patch(
-            "tracecat.registry.sync.jobs._schedule_platform_registry_artifact_build"
-        ) as schedule_build,
-    ):
+    with patch(
+        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+    ) as mock_sync_cls:
         mock_sync_service = AsyncMock()
         mock_sync_service.sync_repository_v2.return_value = mock_result
         mock_sync_cls.return_value = mock_sync_service
 
-        await _sync_as_leader(session, "1.0.0")
+        artifact_build = await _sync_as_leader(session, "1.0.0")
 
         # Sync service should be called with bypass_temporal=True
         mock_sync_service.sync_repository_v2.assert_called_once()
@@ -382,8 +369,8 @@ async def test_startup_sync_calls_sync_for_new_version(
         assert call_kwargs["bypass_temporal"] is True
         assert call_kwargs["defer_artifact_build"] is True
         assert call_kwargs["promote"] is True
-        schedule_build.assert_called_once_with(
-            "1.0.0",
+        assert artifact_build == _ArtifactBuildRequest(
+            target_version="1.0.0",
             promote_version_id=None,
             expected_current_version_id=None,
         )
@@ -394,7 +381,7 @@ async def test_startup_sync_defers_promotion_for_new_upgrade_version(
     session: AsyncSession,
 ) -> None:
     """Test upgrade startup sync promotes only after artifact upload."""
-    from tracecat.registry.sync.jobs import _sync_as_leader
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
 
     repo = await _get_or_create_platform_repo(session)
     old_version = PlatformRegistryVersion(
@@ -417,35 +404,30 @@ async def test_startup_sync_defers_promotion_for_new_upgrade_version(
         actions=[],
     )
 
-    with (
-        patch(
-            "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
-        ) as mock_sync_cls,
-        patch(
-            "tracecat.registry.sync.jobs._schedule_platform_registry_artifact_build"
-        ) as schedule_build,
-    ):
+    with patch(
+        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+    ) as mock_sync_cls:
         mock_sync_service = AsyncMock()
         mock_sync_service.sync_repository_v2.return_value = mock_result
         mock_sync_cls.return_value = mock_sync_service
 
-        await _sync_as_leader(session, "2.0.0")
+        artifact_build = await _sync_as_leader(session, "2.0.0")
 
         call_kwargs = mock_sync_service.sync_repository_v2.call_args.kwargs
         assert call_kwargs["defer_artifact_build"] is True
         assert call_kwargs["promote"] is False
-        schedule_build.assert_called_once_with(
-            "2.0.0",
+        assert artifact_build == _ArtifactBuildRequest(
+            target_version="2.0.0",
             promote_version_id=new_version_id,
             expected_current_version_id=old_version.id,
         )
 
 
 @pytest.mark.anyio
-async def test_startup_sync_schedules_artifact_for_resolved_version(
+async def test_startup_sync_returns_artifact_build_for_resolved_version(
     session: AsyncSession,
 ) -> None:
-    from tracecat.registry.sync.jobs import _sync_as_leader
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
 
     repo = await _get_or_create_platform_repo(session)
     repo.current_version_id = None
@@ -465,22 +447,17 @@ async def test_startup_sync_schedules_artifact_for_resolved_version(
         actions=[],
     )
 
-    with (
-        patch(
-            "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
-        ) as mock_sync_cls,
-        patch(
-            "tracecat.registry.sync.jobs._schedule_platform_registry_artifact_build"
-        ) as schedule_build,
-    ):
+    with patch(
+        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+    ) as mock_sync_cls:
         mock_sync_service = AsyncMock()
         mock_sync_service.sync_repository_v2.return_value = mock_result
         mock_sync_cls.return_value = mock_sync_service
 
-        await _sync_as_leader(session, "1.0.0")
+        artifact_build = await _sync_as_leader(session, "1.0.0")
 
-        schedule_build.assert_called_once_with(
-            "1.0.0+collision.20260522140000.123456",
+        assert artifact_build == _ArtifactBuildRequest(
+            target_version="1.0.0+collision.20260522140000.123456",
             promote_version_id=None,
             expected_current_version_id=None,
         )
@@ -652,15 +629,31 @@ async def test_promote_after_artifact_build_skips_when_current_changed(
 
 
 @pytest.mark.anyio
-async def test_schedule_platform_registry_artifact_build_keeps_task_reference(
+async def test_startup_sync_awaits_artifact_build_after_releasing_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tracecat.registry.sync import jobs
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest
 
-    started = asyncio.Event()
-    release = asyncio.Event()
+    build_started = asyncio.Event()
+    release_build = asyncio.Event()
+    lock_released = asyncio.Event()
+    artifact_build = _ArtifactBuildRequest(target_version="1.0.0")
 
-    async def fake_build_platform_registry_artifact(
+    async def fake_sync_as_leader(
+        session: AsyncSession,
+        target_version: str,
+    ) -> _ArtifactBuildRequest:
+        del session
+        assert target_version == "1.0.0"
+        return artifact_build
+
+    async def fake_release_lock(session: AsyncSession, lock_key: int) -> None:
+        del session
+        assert lock_key == jobs.PLATFORM_SYNC_LOCK_KEY
+        lock_released.set()
+
+    async def fake_build(
         target_version: str,
         *,
         promote_version_id: uuid.UUID | None = None,
@@ -669,24 +662,24 @@ async def test_schedule_platform_registry_artifact_build_keeps_task_reference(
         assert target_version == "1.0.0"
         assert promote_version_id is None
         assert expected_current_version_id is None
-        started.set()
-        await release.wait()
+        assert lock_released.is_set()
+        build_started.set()
+        await release_build.wait()
 
-    monkeypatch.setattr(
-        jobs,
-        "_build_platform_registry_artifact",
-        fake_build_platform_registry_artifact,
-    )
+    monkeypatch.setattr(jobs.tracecat_registry, "__version__", "1.0.0")
+    monkeypatch.setattr(jobs, "try_pg_advisory_lock", AsyncMock(return_value=True))
+    monkeypatch.setattr(jobs, "_sync_as_leader", fake_sync_as_leader)
+    monkeypatch.setattr(jobs, "pg_advisory_unlock", fake_release_lock)
+    monkeypatch.setattr(jobs, "_build_platform_registry_artifact", fake_build)
 
-    jobs._schedule_platform_registry_artifact_build("1.0.0")
+    startup_task = asyncio.create_task(jobs.sync_platform_registry_on_startup())
+    await build_started.wait()
 
-    await started.wait()
-    tasks = set(jobs._platform_registry_artifact_build_tasks)
-    assert len(tasks) == 1
+    assert lock_released.is_set()
+    assert not startup_task.done()
 
-    release.set()
-    await asyncio.gather(*tasks)
-    assert jobs._platform_registry_artifact_build_tasks == set()
+    release_build.set()
+    await startup_task
 
 
 @pytest.mark.anyio

@@ -27,6 +27,23 @@ from tracecat.registry.sync.workflow import (
     backfill_registry_artifacts_activity,
     sync_registry_activity,
 )
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.temporal.errors import extract_error_classifications
+
+
+def _assert_registry_validation_classification(error: ApplicationError) -> None:
+    classification = extract_error_classifications(error)
+
+    assert len(classification) == 1
+    assert classification[0].owner is RuntimeErrorOwner.USER
+    assert classification[0].kind is RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED
+    assert classification[0].retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert error.type == RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED.value
+    assert error.non_retryable is True
 
 
 @pytest.mark.anyio
@@ -62,8 +79,13 @@ async def test_sync_registry_activity_raises_validation_application_error(
         origin_type="builtin",
     )
 
-    with pytest.raises(ApplicationError, match="Registry sync validation failed"):
+    with pytest.raises(
+        ApplicationError,
+        match="Registry sync validation failed",
+    ) as exc_info:
         await sync_registry_activity(request)
+
+    _assert_registry_validation_classification(exc_info.value)
 
 
 @pytest.mark.anyio
@@ -97,8 +119,7 @@ async def test_sync_registry_activity_raises_non_retryable_error_for_content_dis
         await sync_registry_activity(request)
 
     exc = exc_info.value
-    assert exc.type == "RegistrySyncValidationError"
-    assert exc.non_retryable is True
+    _assert_registry_validation_classification(exc)
     assert "example_template.yml" in str(exc)
     assert "list[str]" in str(exc)
 

@@ -103,6 +103,10 @@ TRACECAT__PUBLIC_API_URL = os.environ.get(
 TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
+TRACECAT__PLATFORM_OTEL_ENABLED = env_bool(
+    "TRACECAT__PLATFORM_OTEL_ENABLED", default=False
+)
+"""Enable Tracecat-operated platform tracing, separate from agent OTel export."""
 
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(
     os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64
@@ -674,11 +678,14 @@ TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS = [
 """Additional PyPI index URLs (comma-separated). Used as fallback sources for package installation."""
 
 
-def env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
+def env_networks(
+    name: str, *, default: tuple[IPv4Network | IPv6Network, ...] = ()
+) -> tuple[IPv4Network | IPv6Network, ...]:
     """Parse a comma-separated environment variable into validated IP networks.
 
     Args:
         name: Environment variable name.
+        default: Networks returned when the variable is unset or blank.
 
     Returns:
         Parsed IPv4 and IPv6 networks in configured order.
@@ -687,6 +694,8 @@ def env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
         ValueError: If any configured value is not a valid CIDR or IP address.
     """
     raw_value = os.environ.get(name, "")
+    if not raw_value.strip():
+        return default
     networks: list[IPv4Network | IPv6Network] = []
     for value in raw_value.split(","):
         stripped = value.strip()
@@ -720,6 +729,22 @@ def env_ports(name: str, *, default: tuple[int, ...]) -> tuple[int, ...]:
             ports.append(port)
     return tuple(ports)
 
+
+TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
+    "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
+    default=(
+        ip_network("127.0.0.0/8"),
+        ip_network("::1/128"),
+        ip_network("10.0.0.0/8"),
+        ip_network("172.16.0.0/12"),
+        ip_network("192.168.0.0/16"),
+        ip_network("169.254.0.0/16"),
+        ip_network("fc00::/7"),
+    ),
+)
+"""CIDRs of proxies behind which the API runs (Caddy, the UI container, a load
+balancer). X-Forwarded-For entries from these hops are skipped when resolving
+the client IP for audit attribution."""
 
 TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS = env_networks(
     "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS"
@@ -888,20 +913,6 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
-TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG = os.environ.get(
-    "TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG"
-)
-"""Typed Agent OTel configuration for the optional platform override.
-
-Unset means organization settings apply. A JSON object with ``enabled`` set to
-true or false definitively overrides organization configuration for every tenant.
-"""
-
-TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS = os.environ.get(
-    "TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS"
-)
-"""Sensitive JSON object of OTel headers for the platform override."""
-
 TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
 """Bind port for the managed LiteLLM service."""
 
@@ -1034,6 +1045,31 @@ TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES = int(
 )
 """The maximum size of the aggregate upload size in bytes. Defaults to 100MB."""
 
+TRACECAT__MAX_SKILL_FILE_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_SKILL_FILE_SIZE_BYTES") or 20 * 1024 * 1024
+)
+"""Maximum size of one skill file in bytes. Defaults to 20 MiB."""
+
+TRACECAT__MAX_SKILL_FILES_COUNT = int(
+    os.environ.get("TRACECAT__MAX_SKILL_FILES_COUNT") or 1_000
+)
+"""Maximum number of files in one skill draft. Defaults to 1,000."""
+
+TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT = int(
+    os.environ.get("TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT") or 64
+)
+"""Maximum number of files in one staged skill transfer. Defaults to 64."""
+
+TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES") or 100 * 1024 * 1024
+)
+"""Maximum aggregate size of one skill draft in bytes. Defaults to 100 MiB."""
+
+TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES") or 256 * 1024
+)
+"""Maximum size of a root skill SKILL.md manifest. Defaults to 256 KiB."""
+
 # === System PATH config === #
 TRACECAT__SYSTEM_PATH = os.environ.get(
     "TRACECAT__SYSTEM_PATH", "/usr/local/bin:/usr/bin:/bin"
@@ -1082,6 +1118,20 @@ TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX = 1000
 
 TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT = TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX
 """Default row count for internal table download."""
+
+# === API Lifecycle === #
+TRACECAT__API_TASK_DRAIN_TIMEOUT = float(
+    os.environ.get("TRACECAT__API_TASK_DRAIN_TIMEOUT") or 10.0
+)
+"""Seconds to let finite in-process API tasks finish during shutdown.
+
+Stoppable consumers (e.g. case triggers) are signalled to finish in-flight
+work and are awaited alongside finite startup tasks (e.g. registry sync) for
+this duration. Stragglers are then cancelled and get the same duration again
+for cleanup; non-stoppable long-running tasks are cancelled immediately. The
+deployment's termination grace period must exceed twice this value for full
+coverage.
+"""
 
 # === Context Compression === #
 TRACECAT__CONTEXT_COMPRESSION_ENABLED = env_bool(

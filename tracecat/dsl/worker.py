@@ -12,18 +12,19 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
-from tracecat import __version__ as APP_VERSION
-
 _MIN_CONCURRENT_ACTIVITIES = 1
 _MIN_CONCURRENT_WORKFLOW_TASKS = 2
 
 with workflow.unsafe.imports_passed_through():
-    import sentry_sdk
     import uvloop
 
     from tracecat import config
     from tracecat.agent.preset.activities import (
         resolve_agent_preset_version_ref_activity,
+    )
+    from tracecat.cases.agent_sessions.workflow import (
+        CaseAgentSessionBackfillWorkflow,
+        case_agent_session_backfill_activity,
     )
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
@@ -31,10 +32,17 @@ with workflow.unsafe.imports_passed_through():
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
-    from tracecat.dsl.interceptor import SentryInterceptor
+    from tracecat.dsl.interceptor import (
+        RuntimeErrorAttributionInterceptor,
+    )
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
+    from tracecat.observability.otel import (
+        initialize_platform_tracing,
+        shutdown_platform_tracing,
+    )
+    from tracecat.observability.sentry import initialize_sentry_from_environment
     from tracecat.storage.blob import close_storage_client_cache
     from tracecat.storage.collection import CollectionActivities
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
@@ -89,6 +97,7 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 
 def get_activities() -> list[Callable]:
     activities: list[Callable] = [
+        case_agent_session_backfill_activity,
         *DSLActivities.load(),
         *CollectionActivities.get_activities(),
         resolve_agent_preset_version_ref_activity,
@@ -114,28 +123,12 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     _logger._is_worker_process = True
 
+    initialize_platform_tracing("tracecat-worker")
+
     client = await get_temporal_client()
 
-    interceptors = []
-    if sentry_dsn := os.environ.get("SENTRY_DSN"):
-        logger.info("Initializing Sentry interceptor")
-        app_env = config.TRACECAT__APP_ENV
-        temporal_namespace = config.TEMPORAL__CLUSTER_NAMESPACE
-        sentry_environment: str = (
-            config.SENTRY_ENVIRONMENT_OVERRIDE or f"{app_env}-{temporal_namespace}"
-        )
-        sentry_sdk.init(
-            dsn=sentry_dsn,
-            environment=sentry_environment,
-            release=f"tracecat@{APP_VERSION}",
-        )
-        logger.info(
-            "Sentry initialized",
-            environment=sentry_environment,
-            app_env=app_env,
-            temporal_namespace=temporal_namespace,
-        )
-        interceptors.append(SentryInterceptor())
+    initialize_sentry_from_environment()
+    interceptors = [RuntimeErrorAttributionInterceptor()]
 
     # Run a worker for the activities and workflow
     activities = get_activities()
@@ -163,7 +156,10 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     try:
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-            workflows: list[type] = [DSLWorkflow]
+            workflows: list[type] = [
+                CaseAgentSessionBackfillWorkflow,
+                DSLWorkflow,
+            ]
 
             async with Worker(
                 client,
@@ -192,6 +188,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             logger.info("Temporal Worker context exited")
     finally:
         await close_storage_client_cache()
+        shutdown_platform_tracing()
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from tracecat.config import (
 )
 from tracecat.dsl._converter import get_data_converter
 from tracecat.logger import logger
+from tracecat.observability.otel import temporal_tracing_interceptor
 
 _client: Client | None = None
 
@@ -68,6 +69,10 @@ async def connect_to_temporal(plugins: list[Plugin] | None = None) -> Client:
             runtime = init_runtime_with_prometheus(port=int(TEMPORAL__METRICS_PORT))
         except Exception as e:
             logger.warning("Failed to initialize Prometheus runtime", error=e)
+    interceptors = []
+    if tracing_interceptor := temporal_tracing_interceptor():
+        interceptors.append(tracing_interceptor)
+
     client = await Client.connect(
         target_host=TEMPORAL__CLUSTER_URL,
         namespace=TEMPORAL__CLUSTER_NAMESPACE,
@@ -79,6 +84,7 @@ async def connect_to_temporal(plugins: list[Plugin] | None = None) -> Client:
         ),
         runtime=runtime,
         plugins=plugins or [],
+        interceptors=interceptors,
     )
     return client
 

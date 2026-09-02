@@ -18,7 +18,6 @@ from temporalio import activity
 from tracecat_ee.workspace_chat.policy import (
     is_workspace_chat_entitled,
 )
-from tracecat_ee.workspace_chat.skills import BUILTIN_SKILL_NAME_PREFIX
 
 from tracecat import config as app_config
 from tracecat.agent.artifacts.working_set import ArtifactWorkingSetInput
@@ -61,7 +60,6 @@ from tracecat.agent.mcp.stdio_probe_types import (
 from tracecat.agent.otel_config import (
     AgentOtelConfig,
     ResolvedAgentOtelConfig,
-    load_agent_otel_platform_override,
     resolve_agent_otel_config,
 )
 from tracecat.agent.preset.service import AgentPresetService
@@ -81,6 +79,7 @@ from tracecat.agent.sandbox.llm_proxy import (
 from tracecat.agent.sandbox.otel_relay import OTEL_SOCKET_NAME, OtelSocketReceiver
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.skill.builtin import BUILTIN_SKILL_NAME_PREFIX
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -445,20 +444,18 @@ class SandboxedAgentExecutor:
         )
 
     async def _resolve_agent_otel_config(self) -> ResolvedAgentOtelConfig:
-        """Resolve org + platform OTel inputs into a runtime config.
+        """Resolve org OTel inputs into a runtime config.
 
-        Header decryption and platform override loading happen here, inside
-        the activity, so secrets never round-trip through the workflow payload.
+        Header decryption happens here, inside the activity, so secrets never
+        round-trip through the workflow payload.
         Errors are non-fatal: telemetry is best-effort and must not block agent
         execution.
         """
         try:
             org_inputs = await load_org_agent_otel_inputs(role=self.input.role)
-            platform_override = load_agent_otel_platform_override()
             return resolve_agent_otel_config(
                 org_config=org_inputs.config,
                 org_headers=org_inputs.headers,
-                platform_override=platform_override,
             )
         except Exception as exc:
             # No error text: a validation error echoes the input, which can
@@ -1062,7 +1059,7 @@ class SandboxedAgentExecutor:
                 )
 
     async def _stage_builtin_skills(self, skills_dir: Path) -> None:
-        """Stage always-on built-in (EE) platform skills into the run home dir.
+        """Stage always-on built-in platform skills into the run home dir.
 
         Built-in skills are plain on-disk directories vendored from the public
         ``tracecat-plugins`` repository into ``TRACECAT__COPILOT_SKILLS_DIR`` at
@@ -1083,7 +1080,7 @@ class SandboxedAgentExecutor:
         # Vendored directory first. It lives outside the package tree so that
         # neither the wheel build nor a development bind mount over `packages/`
         # can serve a stale copy. Fall back to the packaged location for
-        # environments that still ship skills inside `tracecat_ee`.
+        # environments that still ship skills inside the core package.
         vendored_root = Path(app_config.TRACECAT__COPILOT_SKILLS_DIR)
         if vendored_root.is_dir():
             skills_root: Any = vendored_root
@@ -1092,7 +1089,7 @@ class SandboxedAgentExecutor:
             # without built-in guidance rather than failing - but it is the one
             # signal that the `plugin-skills` build stage did not land, so say
             # so plainly instead of only reporting the per-skill misses below.
-            skills_root = files("tracecat_ee.workspace_chat.skills")
+            skills_root = files("tracecat.agent.skill.builtin")
             logger.warning(
                 "Vendored copilot skills directory missing; falling back to the "
                 "packaged location",

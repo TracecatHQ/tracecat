@@ -64,6 +64,9 @@ import type {
   AdminListTiersData,
   AdminListTiersResponse,
   AdminListUsersResponse,
+  AdminMaintenanceGetCaseAgentSessionInteractionBackfillData,
+  AdminMaintenanceGetCaseAgentSessionInteractionBackfillResponse,
+  AdminMaintenanceStartCaseAgentSessionInteractionBackfillResponse,
   AdminPromoteOrgRepositoryVersionData,
   AdminPromoteOrgRepositoryVersionResponse,
   AdminPromoteToSuperuserData,
@@ -8021,6 +8024,43 @@ export const adminAgentListPlatformCatalog = (
 }
 
 /**
+ * Start Case Agent Session Interaction Backfill
+ * Start or join the durable historical case-mutation backfill.
+ * @returns CaseAgentSessionInteractionBackfillStartResponse Successful Response
+ * @throws ApiError
+ */
+export const adminMaintenanceStartCaseAgentSessionInteractionBackfill =
+  (): CancelablePromise<AdminMaintenanceStartCaseAgentSessionInteractionBackfillResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/admin/maintenance/case-agent-session-interactions/backfill",
+    })
+  }
+
+/**
+ * Get Case Agent Session Interaction Backfill
+ * Poll a durable historical case-mutation backfill.
+ * @param data The data for the request.
+ * @param data.operationId
+ * @returns CaseAgentSessionInteractionBackfillStatusResponse Successful Response
+ * @throws ApiError
+ */
+export const adminMaintenanceGetCaseAgentSessionInteractionBackfill = (
+  data: AdminMaintenanceGetCaseAgentSessionInteractionBackfillData
+): CancelablePromise<AdminMaintenanceGetCaseAgentSessionInteractionBackfillResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/maintenance/case-agent-session-interactions/backfill/{operation_id}",
+    path: {
+      operation_id: data.operationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Platform Repositories
  * List all platform registry repositories.
  * @returns RegistryRepositoryReadMinimal Successful Response
@@ -8255,6 +8295,7 @@ export const inboxGetPendingCount = (
  * @param data.orderBy Column name to order by (created_at, updated_at)
  * @param data.sort Sort direction (asc or desc)
  * @param data.search Case-insensitive search on item title
+ * @param data.caseId Filter items to root sessions associated with this case
  * @param data.group Filter items to a single display group
  * @param data.entityType Filter items to a single entity type
  * @param data.createdAfter Only items created at or after this time (ISO 8601)
@@ -8278,6 +8319,7 @@ export const inboxListItems = (
       order_by: data.orderBy,
       sort: data.sort,
       search: data.search,
+      case_id: data.caseId,
       group: data.group,
       entity_type: data.entityType,
       created_after: data.createdAfter,

@@ -177,15 +177,15 @@ const actionFormSchema = z.object({
     .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   // Retry policy fields
-  max_attempts: z.number().int().min(0).optional(),
-  timeout: z.number().int().min(1).optional(),
+  max_attempts: z.number().int().safe().min(0).optional(),
+  timeout: z.number().int().safe().min(1).optional(),
   retry_until: z
     .string()
     .max(1000, "Retry until must be less than 1000 characters")
     .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   // Control flow options fields
-  start_delay: z.number().min(0).optional(),
+  start_delay: z.number().finite().min(0).optional(),
   join_strategy: z.enum($JoinStrategy.enum).optional(),
   wait_until: z
     .string()

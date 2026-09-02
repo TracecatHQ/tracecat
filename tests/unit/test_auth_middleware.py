@@ -24,7 +24,7 @@ from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.service import MembershipWithOrg
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_agent_session_id, ctx_role
 from tracecat.db.models import (
     Membership,
     Organization,
@@ -72,7 +72,8 @@ async def test_authenticated_user_only_does_not_activate_superuser_privileges() 
         assert role.is_platform_superuser is False
         return frozenset()
 
-    token = ctx_role.set(None)
+    role_token = ctx_role.set(None)
+    agent_session_token = ctx_agent_session_id.set(uuid.uuid4())
     try:
         with patch(
             "tracecat.auth.credentials.compute_effective_scopes",
@@ -86,9 +87,11 @@ async def test_authenticated_user_only_does_not_activate_superuser_privileges() 
         assert role.is_platform_superuser is False
         assert role.scopes == frozenset()
         assert ctx_role.get() == role
+        assert ctx_agent_session_id.get() is None
         mock_compute_scopes.assert_awaited_once()
     finally:
-        ctx_role.reset(token)
+        ctx_agent_session_id.reset(agent_session_token)
+        ctx_role.reset(role_token)
 
 
 @pytest.mark.anyio
@@ -144,6 +147,47 @@ async def test_role_dependency_rebinds_rls_context_on_session(
 
     assert result == validated_role
     mock_set_rls.assert_awaited_once_with(session, validated_role)
+
+
+@pytest.mark.anyio
+async def test_user_role_dependency_clears_agent_session_context() -> None:
+    workspace_id = uuid.uuid4()
+    user = MagicMock(spec=User)
+    role = Role(
+        type="user",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )
+    context_token = ctx_agent_session_id.set(uuid.uuid4())
+    try:
+        with (
+            patch("tracecat.auth.credentials.set_rls_context", new=AsyncMock()),
+            patch(
+                "tracecat.auth.credentials._authenticate_user",
+                new=AsyncMock(return_value=role),
+            ),
+            patch(
+                "tracecat.auth.credentials._validate_role",
+                new=AsyncMock(return_value=role),
+            ),
+        ):
+            await _role_dependency(
+                request=MagicMock(spec=Request),
+                session=AsyncMock(),
+                workspace_id=workspace_id,
+                user=user,
+                api_key=None,
+                allow_user=True,
+                allow_service=False,
+                allow_executor=False,
+                require_workspace="yes",
+            )
+
+        assert ctx_agent_session_id.get() is None
+    finally:
+        ctx_agent_session_id.reset(context_token)
 
 
 @pytest.mark.anyio

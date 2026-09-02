@@ -40,7 +40,7 @@ from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox import (
-    SandboxExecutionError,
+    SandboxInfrastructureError,
     SandboxService,
     validate_run_python_script,
 )
@@ -907,7 +907,7 @@ def test_nsjail_config_mounts_run_python_action_gateway_socket(
 def test_run_python_action_gateway_env_rejects_missing_socket(tmp_path: Path) -> None:
     env_vars = {"CUSTOM_VALUE": "kept"}
 
-    with pytest.raises(SandboxExecutionError, match="socket is unavailable"):
+    with pytest.raises(SandboxInfrastructureError, match="socket is unavailable"):
         SandboxService._with_action_gateway_socket_env(
             env_vars,
             socket_path=tmp_path / "missing-action-gateway.sock",
@@ -924,7 +924,7 @@ async def test_run_python_nsjail_rejects_missing_action_gateway_socket(
     monkeypatch.setattr(service, "_nsjail_executor", nsjail_executor)
     monkeypatch.setattr(service, "_is_nsjail_available", lambda: True)
 
-    with pytest.raises(SandboxExecutionError, match="socket is unavailable"):
+    with pytest.raises(SandboxInfrastructureError, match="socket is unavailable"):
         await service.run_python(
             script="def main():\n    return 1",
             env_vars={"CUSTOM_VALUE": "kept"},
