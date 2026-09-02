@@ -58,6 +58,14 @@ _SIGNAL_ENDPOINT_KEYS: dict[SignalPath, str] = {
     "/v1/traces": "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
 }
 
+# Per-signal opt-out the tenant configured; platform tracing forces the
+# sandbox exporters on, so the relay is what has to honour "none".
+_SIGNAL_EXPORTER_KEYS: dict[SignalPath, str] = {
+    "/v1/metrics": "OTEL_METRICS_EXPORTER",
+    "/v1/logs": "OTEL_LOGS_EXPORTER",
+    "/v1/traces": "OTEL_TRACES_EXPORTER",
+}
+
 # Canonical response for each counted rejection. The key is also the counter
 # bucket reported in the receiver's stop() summary.
 _RejectionKind = Literal[
@@ -325,6 +333,15 @@ def resolve_collector_url(collector_env: Mapping[str, str], path: str) -> str | 
     if generic := collector_env.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
         return f"{generic.rstrip('/')}{path}"
     return None
+
+
+def tenant_signal_enabled(collector_env: Mapping[str, str], path: SignalPath) -> bool:
+    """Whether the tenant opted in to receiving this signal.
+
+    ``AgentOtelConfig.to_env`` writes ``"otlp"`` or ``"none"`` per signal. An
+    absent key means the caller configured a bare endpoint, which is enabled.
+    """
+    return collector_env.get(_SIGNAL_EXPORTER_KEYS[path]) != "none"
 
 
 def _upsert_resource_attributes(
@@ -898,7 +915,13 @@ class OtelSocketReceiver:
             reserved = head.content_length
 
             # Resolved at admission so the delivery item stays self-contained.
-            tenant_url = resolve_collector_url(self._collector_env, normalized_path)
+            # A tenant that opted out of this signal gets no copy, even though
+            # platform tracing forces the sandbox exporter on.
+            tenant_url = (
+                resolve_collector_url(self._collector_env, normalized_path)
+                if tenant_signal_enabled(self._collector_env, normalized_path)
+                else None
+            )
             platform_url = (
                 resolve_collector_url(self._platform_collector_env, normalized_path)
                 if normalized_path == _TRACES_PATH

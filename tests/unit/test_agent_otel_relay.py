@@ -30,6 +30,7 @@ from tracecat.agent.sandbox.otel_relay import (
     canonicalize_tenant_trace_body,
     project_platform_trace_body,
     resolve_collector_url,
+    tenant_signal_enabled,
 )
 from tracecat.agent.tokens import mint_agent_otel_token
 
@@ -292,6 +293,14 @@ async def test_resolve_collector_url_returns_none_for_unknown_path() -> None:
     )
 
 
+def test_tenant_signal_enabled_reads_the_per_signal_exporter() -> None:
+    assert (
+        tenant_signal_enabled({"OTEL_TRACES_EXPORTER": "none"}, "/v1/traces") is False
+    )
+    assert tenant_signal_enabled({"OTEL_TRACES_EXPORTER": "otlp"}, "/v1/traces") is True
+    assert tenant_signal_enabled({}, "/v1/traces") is True
+
+
 def test_platform_native_trace_is_sanitized_and_joined_under_trusted_parent() -> None:
     request = ExportTraceServiceRequest()
     resource_spans = request.resource_spans.add()
@@ -517,6 +526,64 @@ async def test_trace_batch_fans_out_original_and_sanitized_copies(
     assert platform_span.trace_id == parent.trace_id
     assert {attribute.key for attribute in platform_span.attributes} == {"input_tokens"}
     assert "authorization" not in requests_by_host["otel-gateway.internal"].headers
+
+
+@pytest.mark.anyio
+async def test_tenant_trace_opt_out_skips_tenant_delivery_but_keeps_platform(
+    short_socket_dir: Path,
+    mock_transport: _MockTransport,
+    receiver_identity: _ReceiverIdentity,
+) -> None:
+    request = ExportTraceServiceRequest()
+    resource_spans = request.resource_spans.add()
+    span = resource_spans.scope_spans.add().spans.add(
+        name="claude_code.llm_request",
+        trace_id=b"\x11" * 16,
+        span_id=b"\x21" * 8,
+    )
+    span.attributes.append(KeyValue(key="input_tokens", value=AnyValue(int_value=12)))
+    parent = PlatformTraceParent(
+        trace_id=b"\xaa" * 16,
+        span_id=b"\xbb" * 8,
+        trace_flags=1,
+        resource_attributes={"tracecat.agent.run.id": str(uuid.uuid4())},
+    )
+    receiver = OtelSocketReceiver(
+        socket_path=short_socket_dir / "optout.sock",
+        collector_env={
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://tenant.example.com",
+            "OTEL_TRACES_EXPORTER": "none",
+        },
+        headers={"Authorization": SecretStr("Bearer tenant")},
+        expected_workspace_id=receiver_identity.workspace_id,
+        expected_organization_id=receiver_identity.organization_id,
+        expected_session_id=receiver_identity.session_id,
+        platform_trace_parent=parent,
+        platform_collector_env={
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-gateway.internal:4318"
+        },
+    )
+    await receiver.start()
+    try:
+        status, _, _ = await _send_request(
+            receiver.socket_path,
+            method="POST",
+            path="/v1/traces",
+            body=request.SerializeToString(),
+            authorization=f"Bearer {receiver_identity.token}",
+        )
+        assert status == 202
+        await _wait_until(lambda: not otel_relay._delivery_tasks)
+    finally:
+        await receiver.stop()
+
+    assert len(mock_transport.requests) == 1
+    assert mock_transport.requests[0].url.host == "otel-gateway.internal"
+    assert not [
+        delivered
+        for delivered in mock_transport.requests
+        if delivered.url.host == "tenant.example.com"
+    ]
 
 
 @pytest.mark.anyio
