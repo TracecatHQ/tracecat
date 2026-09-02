@@ -307,6 +307,8 @@ async def test_forward_request_classifies_platform_http_failures_at_source(
     [
         (503, RetryDisposition.NON_RETRYABLE),
         (429, RetryDisposition.RETRYABLE),
+        (408, RetryDisposition.RETRYABLE),
+        (504, RetryDisposition.RETRYABLE),
     ],
 )
 async def test_forward_request_classifies_direct_provider_http_failure_as_user_owned(

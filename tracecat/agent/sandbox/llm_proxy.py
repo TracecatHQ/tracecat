@@ -135,7 +135,7 @@ def _http_error_classification(
     if status_code == 401 and not route_is_direct:
         return agent_executor_unavailable()
     if route_is_direct:
-        return user_agent_execution_failed()
+        return user_agent_execution_failed(retryable=status_code in {408, 504})
     if status_code in {408, 504}:
         return agent_executor_timed_out()
     if status_code >= 500:
