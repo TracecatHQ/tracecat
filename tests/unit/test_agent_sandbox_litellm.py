@@ -271,6 +271,31 @@ def _make_executor_input(*, enable_internet_access: bool) -> AgentExecutorInput:
     )
 
 
+@pytest.mark.anyio
+async def test_run_agent_activity_classifies_missing_stdio_source_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor_input = _make_executor_input(enable_internet_access=False)
+    executor_input.config.mcp_servers = [
+        {
+            "type": "stdio",
+            "name": "local-tools",
+            "command": "uvx",
+        }
+    ]
+    monkeypatch.setattr(executor_activity, "activity", _fake_temporal_activity())
+
+    result = await run_agent_activity(executor_input)
+
+    assert result.success is False
+    assert result.error == "Agent configuration is invalid"
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.USER
+    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert result.terminal_stream_error_emitted is False
+
+
 def _make_passthrough_executor_input(
     *, enable_internet_access: bool, base_url: str = "https://customer-litellm.example"
 ) -> AgentExecutorInput:

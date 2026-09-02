@@ -1231,17 +1231,19 @@ async def _hydrate_stdio_env(
     if not mcp_servers:
         return mcp_servers
 
+    for cfg in mcp_servers:
+        if is_stdio_mcp_server(cfg) and not cfg.get("id"):
+            raise AgentSandboxValidationError(
+                "Stdio MCP server configuration is missing a source integration id"
+            )
+
     result: list[MCPServerConfig] = []
     async with AgentPresetService.with_session(role=role) as svc:
         for cfg in mcp_servers:
             if not is_stdio_mcp_server(cfg):
                 result.append(cfg)
             else:
-                cfg_id = cfg.get("id")
-                if not cfg_id:
-                    raise ValueError(
-                        f"Stdio MCP server {cfg.get('name')!r} is missing a source integration id"
-                    )
+                cfg_id = cast(str, cfg.get("id"))
                 try:
                     env = await svc.resolve_mcp_integration_secrets(uuid.UUID(cfg_id))
                 except (ValueError, MCPSecretResolutionError):
@@ -1380,10 +1382,21 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     # ``config.mcp_servers`` arrive in refs-only shape (no ``env``) — hydrate
     # from the DB here so the spawned processes get their credentials.
     config = cast(Any, input.config)
-    config.mcp_servers = await _hydrate_stdio_env(config.mcp_servers, role=input.role)
-    for subagent in input.subagents:
-        subagent.config.mcp_servers = await _hydrate_stdio_env(
-            subagent.config.mcp_servers, role=input.role
+    try:
+        config.mcp_servers = await _hydrate_stdio_env(
+            config.mcp_servers, role=input.role
+        )
+        for subagent in input.subagents:
+            subagent.config.mcp_servers = await _hydrate_stdio_env(
+                subagent.config.mcp_servers, role=input.role
+            )
+    except AgentSandboxValidationError as e:
+        classification = invalid_agent_configuration(e)
+        return AgentExecutorResult(
+            success=False,
+            error=classification.message,
+            classification=classification,
+            terminal_stream_error_emitted=False,
         )
 
     timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
