@@ -715,6 +715,7 @@ async def test_approval_pause_done_failure_does_not_abort_workflow() -> None:
         scopes=frozenset({"agent:execute", "secret:read"}),
     )
     workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    workflow_instance._initialize_run()
     activity_error = ActivityError(
         "stream close failed",
         scheduled_event_id=1,
@@ -814,6 +815,7 @@ async def test_sequential_approved_remote_tools_receive_fresh_mcp_tokens() -> No
         scopes=frozenset({"agent:execute", "secret:read"}),
     )
     workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    workflow_instance._initialize_run()
     build_result = BuildToolDefsResult(
         tool_definitions={},
         registry_lock=RegistryLock(origins={}, actions={}),

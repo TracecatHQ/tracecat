@@ -572,6 +572,11 @@ APPROVAL_STREAM_V2_PATCH = "durable-agent-approval-stream-v2"
 
 @workflow.defn
 class DurableAgentWorkflow:
+    # Instance variables initialized in run() before _run_with_agent_executor()
+    # pyright: ignore[reportUninitializedInstanceVariable]
+    workspace_id: uuid.UUID
+    organization_id: uuid.UUID
+
     @workflow.init
     def __init__(self, args: AgentWorkflowArgs):
         self.role = args.role
@@ -580,12 +585,6 @@ class DurableAgentWorkflow:
 
         self._status: Literal["running", "waiting_for_results", "done"] = "running"
         self._turn: int = 0
-        if args.role.workspace_id is None:
-            raise_application_error_from_classification(invalid_agent_configuration())
-        if args.role.organization_id is None:
-            raise_application_error_from_classification(invalid_agent_configuration())
-        self.workspace_id = args.role.workspace_id
-        self.organization_id = args.role.organization_id
         self.session_id = args.agent_args.session_id
         self.active_stream_id = args.agent_args.active_stream_id
         self.harness_type = args.harness_type or "claude_code"
@@ -595,6 +594,15 @@ class DurableAgentWorkflow:
         self._cancel_requested: bool = False
         self._cancel_reason: str | None = None
         self._executor_terminal_stream_error_emitted: bool | None = None
+
+    def _initialize_run(self) -> None:
+        """Initialize fallible workflow runtime state inside the interceptor."""
+        if (workspace_id := self.role.workspace_id) is None:
+            raise_application_error_from_classification(invalid_agent_configuration())
+        if (organization_id := self.role.organization_id) is None:
+            raise_application_error_from_classification(invalid_agent_configuration())
+        self.workspace_id = workspace_id
+        self.organization_id = organization_id
 
     def _upsert_tracecat_search_attributes(self) -> None:
         """Ensure direct agent runs have core Tracecat search attributes.
@@ -956,6 +964,8 @@ class DurableAgentWorkflow:
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
+        self._initialize_run()
+
         try:
             if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
                 self._upsert_tracecat_search_attributes()
