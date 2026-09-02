@@ -385,7 +385,7 @@ autolabeler:
 # ones so a release reads with one vocabulary, then capitalize each
 # description. The type prefix stays visible and stays lowercase: it is the
 # fastest signal a reader has for what kind of change a line is.
-# Compound scopes are left alone; they are rare and already canonical.
+# A scope alias is rewritten wherever it appears in a compound scope.
 replacers:
   # Normalise the prefix before anything else reads it.
   #
@@ -477,48 +477,64 @@ replacers:
   - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?:)[ \t]{2,}/gm'
     replace: '- $1$2 '
 
+  # Scope aliases. The alias must be a whole `+`-delimited component, so
+  # `feat(ui+ee)` becomes `feat(ui+enterprise)` and `feat(github)` is left
+  # alone. Same shape as the Tier B autolabeler rules above: complete
+  # components before the alias, complete components after it, and the closing
+  # paren. Two things that shape buys, both of which a bare `\b` would get
+  # wrong: `integration` does not fire inside `integrations`, and `admin` does
+  # not fire inside `admin-cli`, which is a `build` scope and would otherwise
+  # be half-rewritten to `api-cli` before the `build` rule ever sees it.
+  #
+  # Known limitation: every rule here is `^`-anchored, so with the `g` flag it
+  # can match at most once per line. A scope carrying two aliases from the SAME
+  # group -- `feat(registry+git)`, both of them `integrations` -- gets only the
+  # last one rewritten, leaving `feat(registry+integrations)`. Zero occurrences
+  # in history, and the regex that fixed it would be worse than the defect.
+  # Aliases from different groups are unaffected: each rule is its own pass,
+  # so `feat(ux+ee)` still lands on `feat(ui+enterprise)`.
   # -> (actions)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:core-actions|core|udfs|udf)\)(!?): /gm'
-    replace: '- $1$2(actions)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:core-actions|core|udfs|udf)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1actions$2'
   # -> (agents)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:agent-harness|artifacts|prompts|claude|agent|inbox|tools|chat)\)(!?): /gm'
-    replace: '- $1$2(agents)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:agent-harness|artifacts|prompts|claude|agent|inbox|tools|chat)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1agents$2'
   # -> (api)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|auth|saml|cli|org)\)(!?): /gm'
-    replace: '- $1$2(api)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|auth|saml|cli|org)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1api$2'
   # -> (build)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:admin-cli)\)(!?): /gm'
-    replace: '- $1$2(build)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:admin-cli)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1build$2'
   # -> (cases)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:case-triggers|case)\)(!?): /gm'
-    replace: '- $1$2(cases)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:case-triggers|case)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1cases$2'
   # -> (docs)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:playbooks|playbook)\)(!?): /gm'
-    replace: '- $1$2(docs)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:playbooks|playbook)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1docs$2'
   # -> (engine)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:expressions|approvals|scheduler|executor|temporal|workflow|runtime|sandbox|workers|worker|dsl)\)(!?): /gm'
-    replace: '- $1$2(engine)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:expressions|approvals|scheduler|executor|temporal|workflow|runtime|sandbox|workers|worker|dsl)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1engine$2'
   # -> (enterprise)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:tiers|ee)\)(!?): /gm'
-    replace: '- $1$2(enterprise)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:tiers|ee)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1enterprise$2'
   # -> (infra)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:deployments|migration|terraform|cluster|fargate|storage|deploy|docker|chart|helm|aws|cdk|eks|k8s|db)\)(!?): /gm'
-    replace: '- $1$2(infra)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:deployments|migration|terraform|cluster|fargate|storage|deploy|docker|chart|helm|aws|cdk|eks|k8s|db)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1infra$2'
   # -> (integrations)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:integration|registry|sync|git|vcs)\)(!?): /gm'
-    replace: '- $1$2(integrations)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:integration|registry|sync|git|vcs)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1integrations$2'
   # -> (logging)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:observability)\)(!?): /gm'
-    replace: '- $1$2(logging)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:observability)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1logging$2'
   # -> (rbac)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:authz)\)(!?): /gm'
-    replace: '- $1$2(rbac)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:authz)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1rbac$2'
   # -> (tables)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:table)\)(!?): /gm'
-    replace: '- $1$2(tables)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:table)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1tables$2'
   # -> (ui)
-  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:frontend|canvas|ux)\)(!?): /gm'
-    replace: '- $1$2(ui)$3: '
+  - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:frontend|canvas|ux)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1ui$2'
 
   # Drop a scope that only repeats its type. `infra(fargate)` is a fine title,
   # but the alias rules above rewrite it to `infra(infra)`, which reads as a
@@ -532,10 +548,15 @@ replacers:
   # reader has to look past. `security(deps)` is left alone: it is reserved for
   # a critical unauthenticated RCE, and that distinction is the point.
   # The alternation runs ahead of history on purpose: `feat(deps)` and
-  # `refactor(deps)` have never been written here, and `docs(deps)` would
-  # additionally leave Dependencies for the Documentation section, since `docs`
-  # is matched first. Normalising the prefix costs nothing and the un-normalised
-  # line is only ever noticed once it has shipped.
+  # `refactor(deps)` have never been written here, and the un-normalised line
+  # is only ever noticed once it has shipped.
+  #
+  # `docs(deps)` is deliberately NOT in the list. Replacers run after
+  # categorization, and `docs` is matched before `deps`, so that line renders
+  # under Documentation whatever its prefix says. Rewriting only the prefix
+  # would leave a `build(deps)` line under a Documentation heading, which reads
+  # worse than the author's own prefix. See the test case in
+  # tests/unit/test_commit_conventions.py.
   - search: '/^- (\[[\w.-]+\]\s+)?(?:chore|fix|feat|refactor)\(deps\)(!?): /gm'
     replace: '- $1build(deps)$2: '
 

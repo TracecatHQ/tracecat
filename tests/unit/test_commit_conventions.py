@@ -443,6 +443,62 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
             "- feat(integrations): K8s exec pods (#1039)",
             id="title-case-is-this-name-s-own-spelling",
         ),
+        # An alias inside a compound scope. All five shapes below are live in
+        # published release bodies; before the alias rules matched a whole
+        # `+`-delimited component they were the only scopes a reader met in
+        # their retired spelling.
+        pytest.param(
+            "- feat(ui+ee): gate the preset picker (#2100)",
+            "- feat(ui+enterprise): Gate the preset picker (#2100)",
+            id="alias-is-the-second-component",
+        ),
+        pytest.param(
+            "- feat(ui+registry): show template provenance (#2101)",
+            "- feat(ui+integrations): Show template provenance (#2101)",
+            id="alias-is-the-second-component-of-another-group",
+        ),
+        pytest.param(
+            "- feat(core+ui): add a transform action (#2102)",
+            "- feat(actions+ui): Add a transform action (#2102)",
+            id="alias-is-the-first-component",
+        ),
+        pytest.param(
+            # Pre-cutoff, so it predates the two-scope limit.
+            "- feat(api+ui+ee): meter agent runs (#2103)",
+            "- feat(api+ui+enterprise): Meter agent runs (#2103)",
+            id="three-components",
+        ),
+        pytest.param(
+            # `app` is in [ambiguous_scopes] and is never mapped, in either
+            # direction. Guessing would file backend work under the frontend.
+            "- feat(app+ui): add a workspace switcher (#2104)",
+            "- feat(app+ui): Add a workspace switcher (#2104)",
+            id="ambiguous-component-is-left-alone",
+        ),
+        pytest.param(
+            # The boundary is a whole component, not a word: `git` is an
+            # `integrations` alias and `github` is a vendor scope.
+            "- feat(github): read the checks API (#2105)",
+            "- feat(github): Read the checks API (#2105)",
+            id="alias-does-not-fire-inside-a-longer-component",
+        ),
+        pytest.param(
+            # The same in the other direction: `integration` is the alias,
+            # `integrations` is what it becomes, and a canonical scope must
+            # survive the pass untouched rather than growing an `s`.
+            "- feat(integrations+ui): add a connection status chip (#2106)",
+            "- feat(integrations+ui): Add a connection status chip (#2106)",
+            id="canonical-component-is-not-re-rewritten",
+        ),
+        pytest.param(
+            # A hyphen does not open a component either. `admin` is an `api`
+            # alias and the `api` rule runs first, so a word boundary here
+            # would rewrite this to `api-cli` and the `build` rule would never
+            # see it.
+            "- feat(admin-cli+ui): add a config subcommand (#2107)",
+            "- feat(build+ui): Add a config subcommand (#2107)",
+            id="hyphen-does-not-open-a-component",
+        ),
     ],
 )
 def test_replacers_render_the_line(line: str, expected: str) -> None:
