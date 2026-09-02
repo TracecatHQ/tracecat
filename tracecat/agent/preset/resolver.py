@@ -36,6 +36,10 @@ class AgentPresetResolutionService(Protocol):
         include_deleted: bool = False,
     ) -> Awaitable[AgentPresetVersion]: ...
 
+    def get_version_subagent_binding(
+        self, version_id: uuid.UUID
+    ) -> Awaitable[ResolvedAgentsConfig]: ...
+
     def get_preset(self, preset_id: uuid.UUID) -> Awaitable[AgentPreset | None]: ...
 
     def resolve_agent_preset_config(
@@ -187,7 +191,7 @@ async def resolve_agents_config(
         if references_parent_id or references_parent_slug:
             raise TracecatValidationError("Agent presets cannot reference themselves")
 
-        child_agents = AgentSubagentsConfig.model_validate(version.agents)
+        child_agents = await service.get_version_subagent_binding(version.id)
         if child_agents.subagents:
             raise TracecatValidationError(
                 f"Subagent preset '{ref.preset}' cannot define its own agents in v1"

@@ -174,15 +174,18 @@ async def list_presets(
     """List all agent presets for the workspace."""
     service = AgentPresetService(session, role=role)
     presets = await service.list_presets()
+    preset_ids_with_subagents = await service.subagents.preset_ids_with_subagents(
+        [preset.id for preset in presets]
+    )
     results: list[AgentPresetReadMinimal] = []
     for preset in presets:
         read = AgentPresetReadMinimal.model_validate(preset)
-        agents = AgentSubagentsConfig.model_validate(preset.agents or {})
+        has_subagents = preset.id in preset_ids_with_subagents
         tool_approvals = cast(Mapping[str, bool] | None, preset.tool_approvals)
         capabilities = []
         if has_manual_tool_approvals(tool_approvals):
             capabilities.append("approvals")
-        if agents.subagents:
+        if has_subagents:
             capabilities.append("subagents")
         if preset.enable_internet_access:
             capabilities.append("internet_access")
@@ -191,7 +194,7 @@ async def list_presets(
                 update={
                     "capabilities": capabilities,
                     "current_version_subagent_eligibility": build_subagent_eligibility(
-                        agents_config=agents,
+                        has_subagents=has_subagents,
                         tool_approvals=tool_approvals,
                     ),
                 }

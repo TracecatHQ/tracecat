@@ -1375,14 +1375,10 @@ class TestAgentPresetService:
                 assert await verification_service.get_preset(child.id) is None
                 refreshed_parent = await verification_service.get_preset(parent.id)
                 assert refreshed_parent is not None
-                assert (
-                    len(
-                        AgentSubagentsConfig.model_validate(
-                            refreshed_parent.agents
-                        ).subagents
-                    )
-                    == 1
+                binding = await verification_service.subagents.get_head_binding(
+                    refreshed_parent.id
                 )
+                assert len(binding.subagents) == 1
         finally:
             await concurrent_engine.dispose()
 
@@ -2765,7 +2761,7 @@ class TestAgentPresetService:
         )
 
         original_skill_lock = agent_preset_service._current_skill_bindings_for_version
-        original_preset_lock = agent_preset_service._lock_preset_update_dependencies
+        original_preset_lock = agent_preset_service._lock_preset_row
         original_replace = agent_preset_service._replace_head_skill_bindings
         call_order: list[str] = []
 
@@ -2777,12 +2773,9 @@ class TestAgentPresetService:
             call_order.append("lock_skills")
             return await original_skill_lock(version_id, for_update=for_update)
 
-        async def instrumented_preset_lock(
-            preset_id: uuid.UUID,
-            agents: AgentSubagentsConfig | dict[str, Any] | None,
-        ) -> None:
-            call_order.append("lock_presets")
-            await original_preset_lock(preset_id, agents)
+        async def instrumented_preset_lock(preset_id: uuid.UUID) -> None:
+            call_order.append("lock_preset")
+            await original_preset_lock(preset_id)
 
         async def instrumented_replace(
             preset_id: uuid.UUID,
@@ -2804,7 +2797,7 @@ class TestAgentPresetService:
         )
         monkeypatch.setattr(
             agent_preset_service,
-            "_lock_preset_update_dependencies",
+            "_lock_preset_row",
             instrumented_preset_lock,
         )
         monkeypatch.setattr(
@@ -2817,7 +2810,7 @@ class TestAgentPresetService:
 
         assert call_order[:3] == [
             "lock_skills",
-            "lock_presets",
+            "lock_preset",
             "replace_bindings",
         ]
 
@@ -2869,12 +2862,12 @@ class TestAgentPresetService:
         with pytest.raises(TracecatValidationError, match="not found"):
             await agent_preset_service.restore_version(created_preset, version_1)
 
-    async def test_restore_version_rejects_soft_deleted_subagent_bindings(
+    async def test_restore_version_preserves_soft_deleted_subagent_bindings(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Restoring a version cannot make soft-deleted subagents active again."""
+        """Restoring a version preserves logical references to deleted children."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={"name": "Restored Child", "slug": "restored-child"}
@@ -2906,15 +2899,14 @@ class TestAgentPresetService:
 
         await agent_preset_service.delete_preset(child)
 
-        with pytest.raises(
-            TracecatValidationError,
-            match="soft-deleted or missing subagent",
-        ):
-            await agent_preset_service.restore_version(parent, version_with_child)
+        await agent_preset_service.restore_version(parent, version_with_child)
 
         await agent_preset_service.session.refresh(parent)
-        assert parent.current_version_id == version_without_child.id
-        assert parent.agents == {"subagents": []}
+        assert parent.current_version_id != version_with_child.id
+        assert parent.current_version_id != version_without_child.id
+        binding = await agent_preset_service.subagents.get_head_binding(parent.id)
+        assert len(binding.subagents) == 1
+        assert binding.subagents[0].preset_id == child.id
 
     async def test_restore_version_locks_skill_bindings_during_validation(
         self,
@@ -2964,11 +2956,13 @@ class TestAgentPresetService:
             skill_ids: Sequence[uuid.UUID],
             *,
             for_update: bool = False,
+            include_deleted: bool = False,
         ) -> list[SkillBindingSpec]:
             captured_for_update.append(for_update)
             return await original_current_skill_binding_specs(
                 skill_ids,
                 for_update=for_update,
+                include_deleted=include_deleted,
             )
 
         monkeypatch.setattr(
@@ -3353,7 +3347,9 @@ class TestAgentPresetService:
         refreshed_parent = await agent_preset_service.get_preset(parent.id)
         assert refreshed_parent is not None
         assert refreshed_parent.current_version_id == original_parent_version_id
-        refs = AgentSubagentsConfig.model_validate(refreshed_parent.agents).subagents
+        refs = (
+            await agent_preset_service.subagents.get_head_binding(refreshed_parent.id)
+        ).subagents
         assert len(refs) == 1
         assert refs[0].preset == child.slug
         assert await agent_preset_service.get_preset(child.id) is None
@@ -3397,9 +3393,12 @@ class TestAgentPresetService:
         await agent_preset_service.delete_preset(child)
 
         assert await agent_preset_service.get_preset(child.id) is None
+        version_binding = await agent_preset_service.subagents.get_version_binding(
+            parent_v1.id
+        )
         resolved = await resolve_agents_config(
             agent_preset_service,
-            agents=AgentSubagentsConfig.model_validate(parent_v1.agents),
+            agents=AgentSubagentsConfig.model_validate(version_binding.model_dump()),
             parent_preset_id=parent.id,
             parent_slug=parent.slug,
             include_runtime_config=True,
@@ -3830,9 +3829,11 @@ class TestAgentPresetService:
             )
         )
 
-        agents = AgentSubagentsConfig.model_validate(parent.agents)
+        agents = await agent_preset_service.subagents.get_head_binding(parent.id)
         assert isinstance(agents.subagents[0], ResolvedAttachedSubagentRef)
         assert agents.subagents[0].preset_id == child.id
+        assert agents.subagents[0].preset == "renamed-child"
+        assert agents.subagents[0].name == "reused-slug"
 
     async def test_resolve_config_uses_latest_subagent_version(
         self,
@@ -3865,6 +3866,7 @@ class TestAgentPresetService:
                 }
             )
         )
+        original_parent_version_id = parent.current_version_id
 
         await agent_preset_service.update_preset(
             child,
@@ -3885,6 +3887,7 @@ class TestAgentPresetService:
         assert resolved_subagent.preset_id == child.id
         assert resolved_subagent.preset_version_id == child_version_two.id
         assert resolved_subagent.preset_version == child_version_two.version
+        assert parent.current_version_id == original_parent_version_id
 
     async def test_same_subagent_declaration_does_not_publish_parent_version(
         self,
@@ -3907,7 +3910,6 @@ class TestAgentPresetService:
                         subagents=[
                             AttachedSubagentRef(
                                 preset=child.slug,
-                                name="specialist",
                                 max_turns=2,
                             )
                         ]
@@ -3928,7 +3930,6 @@ class TestAgentPresetService:
                     subagents=[
                         AttachedSubagentRef(
                             preset=child.slug,
-                            name="specialist",
                             max_turns=2,
                         )
                     ]

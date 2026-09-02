@@ -28,7 +28,6 @@ def make_agent_preset(
     name: str = "Preset",
     slug: str = "preset",
     tool_approvals: dict[str, bool] | None = None,
-    agents: dict[str, object] | None = None,
     enable_internet_access: bool = False,
 ) -> AgentPreset:
     timestamp = datetime(2026, 3, 9, tzinfo=UTC)
@@ -42,7 +41,6 @@ def make_agent_preset(
         model_name="gpt-4o-mini",
         current_version_id=None,
         tool_approvals=tool_approvals,
-        agents=agents or {},
         enable_internet_access=enable_internet_access,
         created_at=timestamp,
         updated_at=timestamp,
@@ -227,7 +225,8 @@ def test_agent_preset_read_minimal_exposes_capabilities() -> None:
                 "core.cases.create_case": True,
             },
             enable_internet_access=True,
-        )
+        ),
+        has_subagents=False,
     )
 
     dumped = payload.model_dump(mode="json")
@@ -251,8 +250,8 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
             name="Parent preset",
             slug="parent-preset",
             tool_approvals={"core.http_request": True},
-            agents={"subagents": []},
-        )
+        ),
+        has_subagents=False,
     )
 
     dumped = payload.model_dump(mode="json")
@@ -270,7 +269,7 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
 
 def test_build_subagent_eligibility_allows_no_attached_children() -> None:
     eligibility = build_subagent_eligibility(
-        agents_config={"subagents": []},
+        has_subagents=False,
         tool_approvals={"core.http_request": False},
     )
 
@@ -293,9 +292,7 @@ def test_agents_config_rejects_misspelled_subagents_field() -> None:
 
 def test_build_subagent_eligibility_rejects_nested_subagents() -> None:
     eligibility = build_subagent_eligibility(
-        agents_config={
-            "subagents": [{"preset": "nested-child"}],
-        },
+        has_subagents=True,
         tool_approvals={},
     )
 

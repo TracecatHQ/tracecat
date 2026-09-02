@@ -35,7 +35,16 @@ async def list_agent_presets(
     """List all agent presets for the current workspace."""
     service = AgentPresetService(session, role=role)
     presets = await service.list_presets()
-    return [build_agent_preset_read_minimal(preset) for preset in presets]
+    preset_ids_with_subagents = await service.subagents.preset_ids_with_subagents(
+        [preset.id for preset in presets]
+    )
+    return [
+        build_agent_preset_read_minimal(
+            preset,
+            has_subagents=preset.id in preset_ids_with_subagents,
+        )
+        for preset in presets
+    ]
 
 
 @router.post(

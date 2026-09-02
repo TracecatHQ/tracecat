@@ -17,7 +17,6 @@ from tracecat.agent.catalog.types import ModelKey
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.subagents import (
-    AgentSubagentsConfig,
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
 )
@@ -253,47 +252,19 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     ) -> list[AgentPresetSubagentRef]:
         """Return portable child-head refs for a preset head."""
 
-        version = await workspace_service.session.scalar(
-            select(AgentPresetVersion)
-            .join(AgentPreset, AgentPreset.current_version_id == AgentPresetVersion.id)
-            .where(
-                AgentPreset.workspace_id == workspace_service.workspace_id,
-                AgentPreset.id == preset_id,
-            )
+        preset_service = AgentPresetService(
+            workspace_service.session,
+            role=workspace_service.role,
         )
-        if version is None:
-            return []
-        agents = AgentSubagentsConfig.model_validate(version.agents)
-        resolved_ids = {
-            ref.preset_id
-            for ref in agents.subagents
-            if isinstance(ref, ResolvedAttachedSubagentRef)
-        }
-        slugs_by_id = dict(
-            (
-                await workspace_service.session.execute(
-                    select(AgentPreset.id, AgentPreset.slug).where(
-                        AgentPreset.workspace_id == workspace_service.workspace_id,
-                        AgentPreset.id.in_(resolved_ids),
-                        AgentPreset.deleted_at.is_(None),
-                    )
-                )
-            )
-            .tuples()
-            .all()
-        )
+        binding = await preset_service.subagents.get_head_binding(preset_id)
         refs = [
             AgentPresetSubagentRef(
-                slug=(
-                    slugs_by_id.get(ref.preset_id, ref.preset)
-                    if isinstance(ref, ResolvedAttachedSubagentRef)
-                    else ref.preset
-                ),
+                slug=ref.preset,
                 name=ref.name,
                 description=ref.description,
                 max_turns=ref.max_turns,
             )
-            for ref in agents.subagents
+            for ref in binding.subagents
         ]
         return sorted(refs, key=lambda ref: ref.name or ref.slug)
 
@@ -1317,7 +1288,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     name=spec.name,
                     model_name=DEFAULT_AGENT_MODEL_NAME,
                     model_provider=DEFAULT_AGENT_MODEL_PROVIDER,
-                    agents={"subagents": []},
                 )
             else:
                 preset.slug = spec.slug
@@ -1343,7 +1313,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             resolved_subagents = await self._resolved_subagents_config(
                 workspace_service, spec
             )
-            preset.agents = resolved_subagents.model_dump(mode="json")
+            await preset_service.subagents.replace_head(preset.id, resolved_subagents)
             workspace_service.session.add(preset)
             await workspace_service.session.flush()
             skill_targets = await self._skill_binding_targets_for_spec(

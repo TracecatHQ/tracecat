@@ -20,7 +20,11 @@ from tracecat.agent.preset.resolver import (
     ResolvedSubagentConfig,
 )
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubagentRef
+from tracecat.agent.subagents import (
+    AgentSubagentsConfig,
+    ResolvedAgentsConfig,
+    ResolvedAttachedSubagentRef,
+)
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
@@ -129,10 +133,12 @@ async def test_resolve_preset_subagent_allows_no_attached_children() -> None:
         id=preset_version_id,
         preset_id=preset_id,
         version=8,
-        agents={"subagents": []},
         tool_approvals={},
     )
     service.resolve_agent_preset_version = AsyncMock(return_value=version)
+    service.get_version_subagent_binding = AsyncMock(
+        return_value=ResolvedAgentsConfig()
+    )
     service._lock_active_subagent_presets = AsyncMock()  # type: ignore[method-assign]
 
     result = await service._resolve_preset_subagent_configs(
@@ -157,8 +163,8 @@ async def test_resolve_preset_subagent_allows_no_attached_children() -> None:
         preset_id=preset_id,
         include_deleted=True,
     )
-    assert result["subagents"][0]["preset_version_id"] == str(preset_version_id)
-    assert result["subagents"][0]["preset_version"] == 8
+    assert result.subagents[0].preset_version_id == preset_version_id
+    assert result.subagents[0].preset_version == 8
 
 
 @pytest.mark.anyio
@@ -172,11 +178,11 @@ async def test_resolve_agents_config_follows_current_preset_head(
         id=current_version_id,
         preset_id=preset_id,
         version=4,
-        agents={},
         tool_approvals={},
     )
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
+        get_version_subagent_binding=AsyncMock(return_value=ResolvedAgentsConfig()),
         get_preset=AsyncMock(return_value=SimpleNamespace(description="Child preset")),
         resolve_agent_preset_config=AsyncMock(
             return_value=AgentConfig(
@@ -240,11 +246,11 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
         id=preset_version_id,
         preset_id=preset_id,
         version=4,
-        agents={},
         tool_approvals={},
     )
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
+        get_version_subagent_binding=AsyncMock(return_value=ResolvedAgentsConfig()),
         get_preset=AsyncMock(return_value=SimpleNamespace(description="Child preset")),
         resolve_agent_preset_config=AsyncMock(
             return_value=AgentConfig(
@@ -299,12 +305,11 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
         id=uuid.uuid4(),
         preset_id=uuid.uuid4(),
         version=1,
-        agents={},
         tool_approvals={"core.http_request": True},
     )
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
-        use_latest_resource_versions=AsyncMock(return_value=False),
+        get_version_subagent_binding=AsyncMock(return_value=ResolvedAgentsConfig()),
     )
     role = Role(
         type="service",
