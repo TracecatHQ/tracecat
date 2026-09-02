@@ -191,6 +191,39 @@ class AgentPresetService(BaseWorkspaceService):
             owner_id=version_id,
         )
 
+    async def _build_skill_binding_reads(
+        self, binding_specs: Sequence[SkillBindingSpec]
+    ) -> list[AgentPresetSkillBindingRead]:
+        """Build response models for an exact set of Skill bindings."""
+
+        if not binding_specs:
+            return []
+        stmt = (
+            select(
+                SkillVersion.skill_id,
+                SkillVersion.name,
+                SkillVersion.id,
+                SkillVersion.version,
+            )
+            .where(
+                SkillVersion.workspace_id == self.workspace_id,
+                SkillVersion.id.in_(
+                    [binding.skill_version_id for binding in binding_specs]
+                ),
+            )
+            .order_by(SkillVersion.name.asc(), SkillVersion.skill_id.asc())
+        )
+        rows = (await self.session.execute(stmt)).tuples().all()
+        return [
+            AgentPresetSkillBindingRead(
+                skill_id=skill_id,
+                skill_name=skill_name,
+                skill_version_id=skill_version_id,
+                skill_version=skill_version,
+            )
+            for skill_id, skill_name, skill_version_id, skill_version in rows
+        ]
+
     async def build_preset_read(self, preset: AgentPreset) -> AgentPresetRead:
         """Build the response model for a preset."""
 
@@ -259,6 +292,12 @@ class AgentPresetService(BaseWorkspaceService):
             created_at=version.created_at,
             updated_at=version.updated_at,
             skills=await self._list_version_skill_bindings(version.id),
+            restore_skills=await self._build_skill_binding_reads(
+                await self._current_skill_bindings_for_version(
+                    version.id,
+                    for_update=False,
+                )
+            ),
         )
 
     @require_scope("agent:create")

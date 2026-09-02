@@ -291,8 +291,8 @@ function agentPresetExecutionFieldsToDocumentInput(
 /**
  * Normalizes a saved preset version into the shared document input.
  *
- * Skill pins come straight from the version's bindings: restoring copies those
- * exact `skill_version` pins back to the head, so they are part of the diff.
+ * Skill pins come from the restore projection, which resolves the historical
+ * membership through each Skill's current head to match backend restore behavior.
  */
 export function agentPresetVersionToDocumentInput(
   version: AgentPresetVersionRead,
@@ -300,7 +300,7 @@ export function agentPresetVersionToDocumentInput(
 ): AgentPresetDocumentInput {
   return agentPresetExecutionFieldsToDocumentInput(
     version,
-    (version.skills ?? []).map((skill) => ({
+    version.restore_skills.map((skill) => ({
       skillId: skill.skill_id,
       fallbackName: skill.skill_name,
       version: skill.skill_version,

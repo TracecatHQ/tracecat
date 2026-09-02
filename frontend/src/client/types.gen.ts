@@ -846,6 +846,7 @@ export type AgentPresetVersionRead = {
   capabilities?: Array<AgentPresetCapability>
   subagent_eligibility?: AgentPresetSubagentEligibility
   skills?: Array<AgentPresetSkillBindingRead>
+  restore_skills: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
 }

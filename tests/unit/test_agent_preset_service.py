@@ -2028,6 +2028,8 @@ class TestAgentPresetService:
 
         assert version_read.skills[0].skill_version_id == skill_version_one.id
         assert version_read.skills[0].skill_name == "version-one"
+        assert version_read.restore_skills[0].skill_version_id == skill_version_two.id
+        assert version_read.restore_skills[0].skill_name == "version-two"
         assert head_bindings[0].skill_version_id == skill_version_two.id
         assert head_bindings[0].skill_name == "version-two"
 

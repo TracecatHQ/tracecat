@@ -114,6 +114,7 @@ function buildVersion(
     ...SHARED_EXECUTION,
     agents: { subagents: VERSION_SUBAGENTS },
     skills: VERSION_SKILLS,
+    restore_skills: VERSION_SKILLS,
     id: "version-1",
     preset_id: "preset-1",
     workspace_id: "workspace-1",
@@ -368,12 +369,10 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
 
 describe("buildAgentPresetVirtualFiles skill version pins", () => {
   /**
-   * Regression: skills used to render as bare names, so a version pinning
-   * `alpha-skill@5` against a head pinned at `alpha-skill@2` produced
-   * byte-identical configs — and the restore dialog claimed nothing would
-   * change while `restore_version` silently rolled the skill back to v5.
+   * Regression: the restore preview used the immutable historical Skill pin
+   * instead of the current Skill head that backend restore actually selects.
    */
-  it("diffs the same skill pinned at different versions", () => {
+  it("uses the current-head restore projection instead of historical pins", () => {
     const fromVersion = renderVersion(
       buildVersion({
         skills: [
@@ -382,6 +381,14 @@ describe("buildAgentPresetVirtualFiles skill version pins", () => {
             skill_version_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             skill_name: "alpha-skill",
             skill_version: 5,
+          },
+        ],
+        restore_skills: [
+          {
+            skill_id: SKILL_ALPHA_ID,
+            skill_version_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            skill_name: "alpha-skill",
+            skill_version: 2,
           },
         ],
       })
@@ -402,11 +409,8 @@ describe("buildAgentPresetVirtualFiles skill version pins", () => {
       ])
     )
 
-    expect(fromVersion.config).not.toBe(fromPayload.config)
+    expect(fromVersion.config).toBe(fromPayload.config)
     expect(fromVersion.config).toContain(
-      "skills:\n  - name: alpha-skill\n    version: 5\n"
-    )
-    expect(fromPayload.config).toContain(
       "skills:\n  - name: alpha-skill\n    version: 2\n"
     )
   })

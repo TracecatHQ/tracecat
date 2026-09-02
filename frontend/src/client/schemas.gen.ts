@@ -3501,6 +3501,13 @@ export const $AgentPresetVersionRead = {
       type: "array",
       title: "Skills",
     },
+    restore_skills: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetSkillBindingRead",
+      },
+      type: "array",
+      title: "Restore Skills",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -3520,6 +3527,7 @@ export const $AgentPresetVersionRead = {
     "preset_id",
     "workspace_id",
     "version",
+    "restore_skills",
     "created_at",
     "updated_at",
   ],
