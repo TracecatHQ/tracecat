@@ -153,31 +153,6 @@ def create_mock_build_tool_definitions_activity() -> Callable[..., Any]:
     return mock_build_tool_definitions
 
 
-def create_mock_build_agent_args_activity(
-    captured_inputs: list[BuildAgentArgsActivityInput],
-) -> Callable[..., Any]:
-    @activity.defn(name="build_agent_args_activity")
-    async def mock_build_agent_args_activity(
-        input: BuildAgentArgsActivityInput,
-    ) -> AgentActionArgs:
-        captured_inputs.append(input)
-        return AgentActionArgs(
-            user_prompt="Investigate this alert",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            mcp_servers=[
-                {
-                    "type": "http",
-                    "name": "github",
-                    "url": "https://example.test/mcp",
-                    "id": "00000000-0000-0000-0000-000000000001",
-                }
-            ],
-        )
-
-    return mock_build_agent_args_activity
-
-
 def create_mock_slackbot_agent_args_activity() -> Callable[..., Any]:
     @activity.defn(name="prepare_slackbot_activity")
     async def mock_prepare_slackbot_activity(
@@ -311,75 +286,6 @@ class TestDSLAgentWiring:
 
         data = await to_data(result)
         assert data["output"] == "dsl-agent-wired"
-
-    @pytest.mark.anyio
-    @pytest.mark.integration
-    async def test_mcp_agent_interface_executes_on_agent_worker(
-        self,
-        test_role: Role,
-        temporal_client: Client,
-        test_worker_factory: Callable[..., Worker],
-        agent_worker_factory: Callable[..., Worker],
-    ) -> None:
-        captured_inputs: list[BuildAgentArgsActivityInput] = []
-        dsl_activities = _replace_activity(
-            list(get_dsl_worker_activities()),
-            create_mock_build_agent_args_activity(captured_inputs),
-        )
-        agent_activities = list(get_agent_worker_activities())
-        for replacement in (
-            create_mock_create_session_activity(),
-            create_mock_load_session_activity(),
-            create_mock_load_session_messages_activity(),
-            create_mock_build_tool_definitions_activity(),
-        ):
-            agent_activities = _replace_activity(agent_activities, replacement)
-        agent_activities.append(
-            create_mock_run_agent_activity(output="mcp-interface-wired")
-        )
-
-        dsl = DSLInput(
-            title="MCP agent interface wiring",
-            description="Verify MCP agent actions spawn a child agent workflow",
-            entrypoint=DSLEntrypoint(ref="agent"),
-            actions=[
-                ActionStatement(
-                    ref="agent",
-                    action="tools.github.mcp",
-                    args={
-                        "user_prompt": "Investigate this alert",
-                        "instructions": "Return a concise result",
-                        "model_name": "gpt-4o-mini",
-                        "model_provider": "openai",
-                    },
-                )
-            ],
-            returns="${{ ACTIONS.agent.result }}",
-        )
-        wf_id = WorkflowUUID.new_uuid4()
-
-        async with test_worker_factory(
-            temporal_client,
-            activities=dsl_activities,
-        ):
-            async with agent_worker_factory(
-                temporal_client,
-                task_queue=config.TRACECAT__AGENT_QUEUE,
-                activities=agent_activities,
-            ):
-                result = await temporal_client.execute_workflow(
-                    DSLWorkflow.run,
-                    DSLRunArgs(dsl=dsl, role=test_role, wf_id=wf_id),
-                    id=generate_exec_id(wf_id),
-                    task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                    execution_timeout=timedelta(seconds=60),
-                )
-
-        data = await to_data(result)
-        assert data["output"] == "mcp-interface-wired"
-        assert len(captured_inputs) == 1
-        assert captured_inputs[0].action == "tools.github.mcp"
 
     @pytest.mark.anyio
     @pytest.mark.integration

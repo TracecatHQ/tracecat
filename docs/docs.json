@@ -290,7 +290,6 @@
               "tools/kubernetes_sdk",
               "tools/ldap",
               "tools/leakcheck",
-              "tools/linear",
               "tools/microsoft_defender_endpoint",
               "tools/microsoft_entra",
               "tools/microsoft_graph_sdk",
@@ -300,7 +299,6 @@
               "tools/microsoft_teams",
               "tools/minio",
               "tools/misp",
-              "tools/notion",
               "tools/okta",
               "tools/okta_oar",
               "tools/okta_sdk",
@@ -316,10 +314,8 @@
               "tools/recorded_future",
               "tools/rippling",
               "tools/rootly",
-              "tools/runreveal",
               "tools/scanner",
               "tools/sentinel_one",
-              "tools/sentry",
               "tools/servicenow",
               "tools/shodan",
               "tools/slack",
@@ -337,7 +333,6 @@
               "tools/urlscan",
               "tools/virustotal",
               "tools/wazuh",
-              "tools/wiz",
               "tools/x",
               "tools/zendesk"
             ]
@@ -525,6 +520,26 @@
     {
       "source": "/automations/triggers/comments",
       "destination": "/automations/triggers/comment-triggers"
+    },
+    {
+      "source": "/tools/linear",
+      "destination": "/automations/integrations/mcp-integrations"
+    },
+    {
+      "source": "/tools/notion",
+      "destination": "/automations/integrations/mcp-integrations"
+    },
+    {
+      "source": "/tools/runreveal",
+      "destination": "/automations/integrations/mcp-integrations"
+    },
+    {
+      "source": "/tools/sentry",
+      "destination": "/automations/integrations/mcp-integrations"
+    },
+    {
+      "source": "/tools/wiz",
+      "destination": "/automations/integrations/mcp-integrations"
     }
   ],
   "logo": {

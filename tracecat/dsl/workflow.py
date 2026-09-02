@@ -76,7 +76,6 @@ with workflow.unsafe.imports_passed_through():
         get_trigger_type,
     )
     from tracecat.dsl.enums import (
-        MCP_AGENT_ACTION_PROVIDER_IDS,
         FailStrategy,
         LoopStrategy,
         PlatformAction,
@@ -1035,10 +1034,7 @@ class DSLWorkflow:
                             ),
                             operation="finalize_slackbot",
                         )
-                case action if action == PlatformAction.AI_AGENT or (
-                    action in MCP_AGENT_ACTION_PROVIDER_IDS
-                    and workflow.patched(AGENT_INTERFACE_ACTIONS_PATCH)
-                ):
+                case PlatformAction.AI_AGENT:
                     self.logger.debug("Executing agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
                     self._set_logical_time_context()
@@ -1928,7 +1924,7 @@ class DSLWorkflow:
             )
 
         # Tells us where to get the redis stream
-        # Legacy histories ran slackbot/MCP actions here without a stream id;
+        # Legacy histories ran slackbot here without a stream id;
         # allocating one now would shift the deterministic uuid sequence on replay.
         session_id = (
             workflow.uuid4()

@@ -25,7 +25,6 @@ from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
 from tracecat.common import is_iterable
 from tracecat.contexts import ctx_role
-from tracecat.db.models import MCPIntegration
 from tracecat.dsl.common import (
     MAX_LOOP_ITERATIONS,
     DSLInput,
@@ -34,10 +33,7 @@ from tracecat.dsl.common import (
     ResolvedSubflowBatch,
     ResolvedSubflowConfig,
 )
-from tracecat.dsl.enums import (
-    MCP_AGENT_ACTION_PROVIDER_IDS,
-    StreamErrorHandlingStrategy,
-)
+from tracecat.dsl.enums import StreamErrorHandlingStrategy
 from tracecat.dsl.error_transport import is_classified_action_error_payload
 from tracecat.dsl.schemas import (
     ActionStatement,
@@ -71,9 +67,7 @@ from tracecat.expressions.eval import (
 )
 from tracecat.expressions.schemas import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.mcp_validation import MCPValidationError
-from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
@@ -153,72 +147,6 @@ async def _resolve_mcp_integrations(
     except (MCPValidationError, TracecatValidationError) as e:
         raise TracecatValidationError(str(e)) from None
     return servers or []
-
-
-async def _resolve_mcp_agent_action(
-    action: str, *, role: Role
-) -> list[MCPServerConfig] | None:
-    """Resolve a legacy MCP agent action to its workspace MCP integration."""
-    provider_id = MCP_AGENT_ACTION_PROVIDER_IDS.get(action)
-    if provider_id is None:
-        return None
-
-    async with AgentPresetService.with_session(role=role) as preset_service:
-        integrations_service = IntegrationService(
-            preset_service.session,
-            role=role,
-        )
-        integrations = await integrations_service.list_mcp_integrations()
-        matches = [
-            integration
-            for integration in integrations
-            if (
-                integration.oauth_integration is not None
-                and integration.oauth_integration.provider_id == provider_id
-            )
-            or integration.slug == provider_id
-        ]
-        if not matches:
-            raise ApplicationError(
-                f"MCP integration {provider_id!r} is not configured",
-                non_retryable=True,
-                type="MCPIntegrationNotFoundError",
-            )
-
-        # Authorization-code rows hold personal credentials, so they are only ever
-        # eligible for the user who owns them; everything else is workspace-shared.
-        owned: list[MCPIntegration] = []
-        shared: list[MCPIntegration] = []
-        for integration in matches:
-            oauth = integration.oauth_integration
-            if (
-                oauth is not None
-                and oauth.grant_type == OAuthGrantType.AUTHORIZATION_CODE
-            ):
-                if role.user_id is not None and oauth.user_id == role.user_id:
-                    owned.append(integration)
-            else:
-                shared.append(integration)
-
-        eligible = owned or shared
-        if not eligible:
-            raise ApplicationError(
-                f"MCP integration {provider_id!r} is not connected for this caller; "
-                "connect your own account for this provider",
-                non_retryable=True,
-                type="MCPIntegrationNotAuthorizedError",
-            )
-        if len(eligible) > 1:
-            raise ApplicationError(
-                f"MCP integration {provider_id!r} is ambiguous",
-                non_retryable=True,
-                type="MCPIntegrationAmbiguousError",
-            )
-
-        servers = await preset_service.resolve_mcp_integration_refs(
-            [str(eligible[0].id)]
-        )
-        return servers or []
 
 
 async def _slackbot_secret_context(
@@ -302,13 +230,11 @@ async def _finalize_slackbot_action(
 async def _apply_mcp_servers(
     evaled_args: dict[str, Any], *, input: BuildAgentArgsActivityInput
 ) -> None:
-    """Resolve MCP servers in place; explicit integration ids win over the action."""
+    """Resolve explicitly selected MCP integrations in place."""
     if mcp_integration_ids := evaled_args.pop("mcp_integrations", None):
         evaled_args["mcp_servers"] = await _resolve_mcp_integrations(
             mcp_integration_ids, role=input.role
         )
-    elif mcp_servers := await _resolve_mcp_agent_action(input.action, role=input.role):
-        evaled_args["mcp_servers"] = mcp_servers
 
 
 def _strip_string_values(args: dict[str, Any]) -> dict[str, Any]:

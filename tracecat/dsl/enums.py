@@ -1,15 +1,5 @@
 from enum import StrEnum, auto
 
-MCP_AGENT_ACTION_PROVIDER_IDS = {
-    "tools.github.mcp": "github_mcp",
-    "tools.jira.mcp": "jira_mcp",
-    "tools.linear.mcp": "linear_mcp",
-    "tools.notion.mcp": "notion_mcp",
-    "tools.runreveal.mcp": "runreveal_mcp",
-    "tools.sentry.mcp": "sentry_mcp",
-    "tools.wiz.mcp": "wiz_mcp",
-}
-
 
 class PlatformAction(StrEnum):
     CHILD_WORKFLOW_EXECUTE = "core.workflow.execute"
@@ -25,15 +15,11 @@ class PlatformAction(StrEnum):
 
     @classmethod
     def is_agent(cls, action: str) -> bool:
-        return (
-            action
-            in (
-                cls.AI_AGENT,
-                cls.AI_PRESET_AGENT,
-                cls.AI_ACTION,
-                cls.AI_SLACKBOT,
-            )
-            or action in MCP_AGENT_ACTION_PROVIDER_IDS
+        return action in (
+            cls.AI_AGENT,
+            cls.AI_PRESET_AGENT,
+            cls.AI_ACTION,
+            cls.AI_SLACKBOT,
         )
 
     @classmethod
@@ -54,7 +40,6 @@ class PlatformAction(StrEnum):
                 cls.AI_ACTION,
                 cls.AI_SLACKBOT,
                 cls.RUN_PYTHON,
-                *MCP_AGENT_ACTION_PROVIDER_IDS,
             )
         )
 
