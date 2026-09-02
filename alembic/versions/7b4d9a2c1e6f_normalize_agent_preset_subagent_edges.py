@@ -143,14 +143,60 @@ def upgrade() -> None:
     op.drop_column("agent_preset", "agents")
 
 
+def _restore_agents_json(
+    *,
+    parent_table: str,
+    edge_table: str,
+    parent_column: str,
+) -> None:
+    """Materialize normalized edges into the preceding JSONB representation."""
+
+    op.execute(
+        sa.text(
+            f"""
+            UPDATE {parent_table} AS parent
+            SET agents = jsonb_build_object(
+                'subagents',
+                COALESCE(
+                    (
+                        SELECT jsonb_agg(
+                            jsonb_build_object(
+                                'preset', child.slug,
+                                'preset_id', child.id,
+                                'preset_version_id', child.current_version_id,
+                                'preset_version', child_version.version,
+                                'name', edge.alias,
+                                'description', edge.description,
+                                'max_turns', edge.max_turns
+                            )
+                            ORDER BY edge.alias
+                        )
+                        FROM {edge_table} AS edge
+                        JOIN agent_preset AS child
+                          ON child.workspace_id = edge.workspace_id
+                         AND child.id = edge.child_preset_id
+                        JOIN agent_preset_version AS child_version
+                          ON child_version.workspace_id = child.workspace_id
+                         AND child_version.id = child.current_version_id
+                        WHERE edge.workspace_id = parent.workspace_id
+                          AND edge.{parent_column} = parent.id
+                    ),
+                    '[]'::jsonb
+                )
+            )
+            """
+        )
+    )
+
+
 def downgrade() -> None:
-    disabled_agents = sa.text("'{\"enabled\": false}'::jsonb")
+    empty_agents = sa.text("'{\"subagents\": []}'::jsonb")
     op.add_column(
         "agent_preset",
         sa.Column(
             "agents",
             postgresql.JSONB(astext_type=sa.Text()),
-            server_default=disabled_agents,
+            server_default=empty_agents,
             nullable=False,
         ),
     )
@@ -159,9 +205,19 @@ def downgrade() -> None:
         sa.Column(
             "agents",
             postgresql.JSONB(astext_type=sa.Text()),
-            server_default=disabled_agents,
+            server_default=empty_agents,
             nullable=False,
         ),
+    )
+    _restore_agents_json(
+        parent_table="agent_preset",
+        edge_table="agent_preset_subagent",
+        parent_column="parent_preset_id",
+    )
+    _restore_agents_json(
+        parent_table="agent_preset_version",
+        edge_table="agent_preset_version_subagent",
+        parent_column="parent_preset_version_id",
     )
     for table in (
         "agent_preset_version_subagent",

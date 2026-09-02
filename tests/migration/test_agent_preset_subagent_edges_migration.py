@@ -228,7 +228,7 @@ def test_subagent_edge_schema_constraints_and_downgrade(
                 workspace_id=workspace_id,
                 name="Parent",
             )
-            child_id, _ = _insert_preset(
+            child_id, child_version_id = _insert_preset(
                 conn,
                 workspace_id=workspace_id,
                 name="Child",
@@ -246,9 +246,19 @@ def test_subagent_edge_schema_constraints_and_downgrade(
                         workspace_id,
                         parent_preset_id,
                         child_preset_id,
-                        alias
+                        alias,
+                        description,
+                        max_turns
                     )
-                    VALUES (:id, :workspace_id, :parent_id, :child_id, 'child')
+                    VALUES (
+                        :id,
+                        :workspace_id,
+                        :parent_id,
+                        :child_id,
+                        'stable-child',
+                        'Handle specialized tasks',
+                        4
+                    )
                     """
                 ),
                 {
@@ -266,14 +276,18 @@ def test_subagent_edge_schema_constraints_and_downgrade(
                         workspace_id,
                         parent_preset_version_id,
                         child_preset_id,
-                        alias
+                        alias,
+                        description,
+                        max_turns
                     )
                     VALUES (
                         :id,
                         :workspace_id,
                         :parent_version_id,
                         :child_id,
-                        'child'
+                        'stable-child',
+                        'Handle specialized tasks',
+                        4
                     )
                     """
                 ),
@@ -354,6 +368,29 @@ def test_subagent_edge_schema_constraints_and_downgrade(
             column["name"]: column for column in inspector.get_columns("agent_preset")
         }
         assert "agents" in agent_columns
-        assert "enabled" in str(agent_columns["agents"]["default"])
+        assert "subagents" in str(agent_columns["agents"]["default"])
+        with engine.connect() as conn:
+            head_agents = conn.execute(
+                text("SELECT agents FROM agent_preset WHERE id = :preset_id"),
+                {"preset_id": parent_id},
+            ).scalar_one()
+            version_agents = conn.execute(
+                text("SELECT agents FROM agent_preset_version WHERE id = :version_id"),
+                {"version_id": parent_version_id},
+            ).scalar_one()
+        for agents in (head_agents, version_agents):
+            assert agents == {
+                "subagents": [
+                    {
+                        "preset": "child",
+                        "preset_id": str(child_id),
+                        "preset_version_id": str(child_version_id),
+                        "preset_version": 1,
+                        "name": "stable-child",
+                        "description": "Handle specialized tasks",
+                        "max_turns": 4,
+                    }
+                ]
+            }
     finally:
         engine.dispose()
