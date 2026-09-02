@@ -1,0 +1,25 @@
+Dockerfile
+  s_c966cf3ad9dcbc::t_8321f5997bf868 284-292,309,329,336
+  s_c966cf3ad9dcbc::t_43a99d7fa2e31a 345,355,397,404
+tracecat/mcp/server.py
+  s_c966cf3ad9dcbc::t_8321f5997bf868 5056
+tests/unit/test_generate_mcp_docs.py
+  s_c966cf3ad9dcbc::t_34d545243179dd 29
+  s_c966cf3ad9dcbc::t_8321f5997bf868 30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e565c2414c03da374a28a851b55227ff09ccea1e",
+  "prompts": {},
+  "sessions": {
+    "s_c966cf3ad9dcbc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06370-1876-7c91-8f74-9ed313754937",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
