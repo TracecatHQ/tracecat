@@ -227,8 +227,8 @@ TRACECAT__AGENT_SKILL_CACHE_DIR = os.environ.get(
 )
 """Directory for caching extracted published skills on executor workers."""
 
-TRACECAT__COPILOT_SKILLS_DIR = os.environ.get(
-    "TRACECAT__COPILOT_SKILLS_DIR", "/var/lib/tracecat/copilot-skills"
+TRACECAT__COPILOT_SKILLS_DIR = (
+    os.environ.get("TRACECAT__COPILOT_SKILLS_DIR") or "/var/lib/tracecat/copilot-skills"
 )
 """Directory holding the built-in workspace-chat skills vendored from the public
 `tracecat-plugins` repository at image build time.
