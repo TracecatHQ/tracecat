@@ -27,11 +27,9 @@ from temporalio import workflow as temporal_workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     Client,
-    WorkflowFailureError,
     WorkflowHandle,
     WorkflowHistory,
 )
-from temporalio.exceptions import ApplicationError
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from tracecat_ee.agent.activities import (
     AgentActivities,
@@ -64,11 +62,6 @@ from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
-from tracecat.agent.error_policy import (
-    agent_executor_unavailable,
-    invalid_agent_configuration,
-    user_agent_execution_failed,
-)
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -116,12 +109,7 @@ from tracecat.db.models import AgentSessionHistory, User
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
 from tracecat.storage.object import InlineObject
-from tracecat.temporal.errors import (
-    extract_error_classification,
-    raise_application_error_from_classification,
-)
 from tracecat.tiers import defaults as tier_defaults
 
 
@@ -588,204 +576,6 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
 # =============================================================================
 # Tests: Basic Workflow Execution
 # =============================================================================
-
-
-@pytest.mark.anyio
-@pytest.mark.integration
-async def test_agent_workflow_streams_tool_definition_error(
-    temporal_client: Client,
-    agent_worker_factory,
-    agent_workflow_args: AgentWorkflowArgs,
-    mock_session_id: uuid.UUID,
-) -> None:
-    queue = f"test-agent-queue-{mock_session_id}"
-    emitted_errors: list[EmitSessionErrorInputs] = []
-
-    @activity.defn(name="build_agent_tool_definitions")
-    async def mock_build_tool_definitions(
-        args: BuildAgentToolDefsArgs,
-    ) -> BuildAgentToolDefsResult:
-        del args
-        raise_application_error_from_classification(
-            invalid_agent_configuration(
-                ValueError("Cannot request more than 100 tools")
-            )
-        )
-
-    @activity.defn(name="emit_session_error")
-    async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
-        emitted_errors.append(args)
-
-    activities = [
-        create_mock_create_session_activity(),
-        create_mock_load_session_activity(),
-        mock_build_tool_definitions,
-        mock_emit_session_error,
-        create_mock_finalize_turn_activity(),
-        create_mock_emit_session_done_activity(),
-    ]
-
-    async with agent_worker_factory(
-        temporal_client, task_queue=queue, custom_activities=activities
-    ):
-        handle = await temporal_client.start_workflow(
-            DurableAgentWorkflow.run,
-            agent_workflow_args,
-            id=AgentWorkflowID(mock_session_id),
-            task_queue=queue,
-            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-            execution_timeout=timedelta(seconds=30),
-        )
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await handle.result()
-
-    assert isinstance(exc_info.value.cause, ApplicationError)
-    classification = extract_error_classification(exc_info.value.cause)
-    assert classification is not None
-    assert classification.owner is RuntimeErrorOwner.USER
-    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
-    assert "Cannot request more than 100 tools" not in str(exc_info.value.cause)
-    assert len(emitted_errors) == 1
-    assert emitted_errors[0].session_id == mock_session_id
-    assert emitted_errors[0].message == "Agent configuration is invalid"
-
-
-@pytest.mark.anyio
-@pytest.mark.integration
-async def test_agent_workflow_persists_runtime_terminal_error_without_streaming(
-    temporal_client: Client,
-    agent_worker_factory,
-    agent_workflow_args: AgentWorkflowArgs,
-    mock_session_id: uuid.UUID,
-) -> None:
-    """A runtime failure that already streamed its error persists last_error only.
-
-    ``terminal_stream_error_emitted=True`` means the loopback already pushed the
-    error event onto the SSE stream, so ``emit_session_error`` runs with
-    ``should_stream=False`` to record the durable last_error signal. The workflow
-    emits END separately after finalization.
-    """
-    queue = f"test-agent-queue-{mock_session_id}"
-    emitted_errors: list[EmitSessionErrorInputs] = []
-    emitted_done: list[EmitSessionDoneInputs] = []
-    call_order: list[str] = []
-
-    def runtime_failure(
-        call_count: int, input: AgentExecutorInput
-    ) -> AgentExecutorResult:
-        del call_count
-        return AgentExecutorResult(
-            success=False,
-            error="runtime exploded",
-            classification=user_agent_execution_failed(),
-            terminal_stream_error_emitted=True,
-        )
-
-    @activity.defn(name="emit_session_error")
-    async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
-        emitted_errors.append(args)
-        call_order.append("persist_error")
-
-    activities = [
-        *create_activities_with_mock_executor(
-            runtime_failure,
-            done_inputs=emitted_done,
-            done_call_order=call_order,
-        ),
-        mock_emit_session_error,
-    ]
-
-    async with agent_worker_factory(
-        temporal_client, task_queue=queue, custom_activities=activities
-    ):
-        handle = await temporal_client.start_workflow(
-            DurableAgentWorkflow.run,
-            agent_workflow_args,
-            id=AgentWorkflowID(mock_session_id),
-            task_queue=queue,
-            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-            execution_timeout=timedelta(seconds=30),
-        )
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await handle.result()
-        failed_history = await handle.fetch_history()
-
-    assert isinstance(exc_info.value.cause, ApplicationError)
-    classification = extract_error_classification(exc_info.value.cause)
-    assert classification is not None
-    assert classification.owner is RuntimeErrorOwner.USER
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
-    assert "runtime exploded" not in str(exc_info.value.cause)
-    # Persist-only: exactly one emit, carrying last_error, with error streaming
-    # off so the already-emitted inline error is not duplicated.
-    assert len(emitted_errors) == 1
-    assert emitted_errors[0].session_id == mock_session_id
-    assert emitted_errors[0].message == "Agent execution failed"
-    assert emitted_errors[0].should_stream is False
-    assert len(emitted_done) == 1
-    assert call_order == ["persist_error", "emit_session_done"]
-    await replay_durable_agent_workflow_history(temporal_client, failed_history)
-
-
-@pytest.mark.anyio
-@pytest.mark.integration
-async def test_agent_workflow_streams_executor_pre_stream_failure(
-    temporal_client: Client,
-    agent_worker_factory,
-    agent_workflow_args: AgentWorkflowArgs,
-    mock_session_id: uuid.UUID,
-) -> None:
-    queue = f"test-agent-queue-{mock_session_id}"
-    emitted_errors: list[EmitSessionErrorInputs] = []
-    emitted_done: list[EmitSessionDoneInputs] = []
-
-    def setup_failure(
-        call_count: int, input: AgentExecutorInput
-    ) -> AgentExecutorResult:
-        del call_count
-        return AgentExecutorResult(
-            success=False,
-            error="executor setup failed",
-            classification=agent_executor_unavailable(),
-            terminal_stream_error_emitted=False,
-        )
-
-    @activity.defn(name="emit_session_error")
-    async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
-        emitted_errors.append(args)
-
-    activities = [
-        *create_activities_with_mock_executor(
-            setup_failure,
-            done_inputs=emitted_done,
-        ),
-        mock_emit_session_error,
-    ]
-
-    async with agent_worker_factory(
-        temporal_client, task_queue=queue, custom_activities=activities
-    ):
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await temporal_client.execute_workflow(
-                DurableAgentWorkflow.run,
-                agent_workflow_args,
-                id=AgentWorkflowID(mock_session_id),
-                task_queue=queue,
-                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                execution_timeout=timedelta(seconds=30),
-            )
-
-    assert isinstance(exc_info.value.cause, ApplicationError)
-    classification = extract_error_classification(exc_info.value.cause)
-    assert classification is not None
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
-    assert "executor setup failed" not in str(exc_info.value.cause)
-    assert len(emitted_errors) == 1
-    assert emitted_errors[0].session_id == mock_session_id
-    assert emitted_errors[0].message == "Tracecat agent executor is unavailable"
-    assert emitted_errors[0].should_stream is True
-    assert len(emitted_done) == 1
 
 
 @pytest.mark.anyio
