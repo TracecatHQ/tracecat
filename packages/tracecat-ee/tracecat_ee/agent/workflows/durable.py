@@ -35,7 +35,7 @@ with workflow.unsafe.imports_passed_through():
         DeniedToolCall,
         run_agent_activity,
     )
-    from tracecat.agent.executor.schemas import ToolExecutionResult
+    from tracecat.agent.executor.schemas import ToolExecutionResult, WorkflowOrigin
     from tracecat.agent.llm_routing import get_litellm_route_model
     from tracecat.agent.mcp.executor import (
         AGENT_TOOL_PRIORITY,
@@ -451,14 +451,8 @@ class AgentWorkflowArgs(BaseModel):
         default=False,
         description=("If true, session_id is caller-supplied and must already exist."),
     )
-    origin_workflow_id: uuid.UUID | None = None
-    """Workflow definition that launched this agent turn, if any."""
-    origin_workflow_execution_id: str | None = None
-    """Workflow execution that launched this agent turn, if any."""
-    origin_action_ref: str | None = None
-    """DSL action reference that launched this agent turn, if any."""
-    origin_trigger_type: str | None = None
-    """Trigger type of the originating workflow, if any."""
+    origin: WorkflowOrigin | None = None
+    """None means a direct chat turn with no workflow origin."""
 
 
 class WorkflowApprovalSubmission(BaseModel):
@@ -1374,10 +1368,7 @@ class DurableAgentWorkflow:
             sdk_session_id=load_result.sdk_session_id,
             sdk_session_data=load_result.sdk_session_data,
             is_fork=load_result.is_fork,
-            origin_workflow_id=args.origin_workflow_id,
-            origin_workflow_execution_id=args.origin_workflow_execution_id,
-            origin_action_ref=args.origin_action_ref,
-            origin_trigger_type=args.origin_trigger_type,
+            origin=args.origin,
         )
         executor_input = _apply_configured_timeout(
             executor_input,
@@ -1656,10 +1647,7 @@ class DurableAgentWorkflow:
                     sdk_session_data=reload_result.sdk_session_data,
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
-                    origin_workflow_id=args.origin_workflow_id,
-                    origin_workflow_execution_id=args.origin_workflow_execution_id,
-                    origin_action_ref=args.origin_action_ref,
-                    origin_trigger_type=args.origin_trigger_type,
+                    origin=args.origin,
                 )
                 executor_input = _apply_configured_timeout(
                     executor_input,

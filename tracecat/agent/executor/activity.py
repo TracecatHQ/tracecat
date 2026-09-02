@@ -113,6 +113,7 @@ from .schemas import (
     ApprovedToolCall,
     DeniedToolCall,
     ToolExecutionResult,
+    WorkflowOrigin,
 )
 
 BROKER_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
@@ -221,12 +222,8 @@ class AgentExecutorInput(BaseModel):
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False
-    # Optional workflow origin. Defaults preserve Temporal replay for direct
-    # chat turns and histories recorded before workflow-agent correlation.
-    origin_workflow_id: uuid.UUID | None = None
-    origin_workflow_execution_id: str | None = None
-    origin_action_ref: str | None = None
-    origin_trigger_type: str | None = None
+    # None means a direct chat turn with no workflow origin.
+    origin: WorkflowOrigin | None = None
 
 
 class AgentExecutorResult(BaseModel):
@@ -264,11 +261,14 @@ def _agent_correlation_attributes(input: AgentExecutorInput) -> dict[str, str]:
         "tracecat.workspace.id": input.workspace_id,
         "tracecat.agent.session.id": input.session_id,
         "tracecat.agent.run.id": input.curr_run_id,
-        "tracecat.workflow.id": input.origin_workflow_id,
-        "tracecat.workflow.execution.id": input.origin_workflow_execution_id,
-        "tracecat.action.ref": input.origin_action_ref,
-        "tracecat.trigger.type": input.origin_trigger_type,
     }
+    if (origin := input.origin) is not None:
+        values |= {
+            "tracecat.workflow.id": origin.workflow_id,
+            "tracecat.workflow.execution.id": origin.workflow_execution_id,
+            "tracecat.action.ref": origin.action_ref,
+            "tracecat.trigger.type": origin.trigger_type,
+        }
     return {key: str(value) for key, value in values.items() if value is not None}
 
 

@@ -40,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config, identifiers
     from tracecat.agent.aliases import build_agent_alias
+    from tracecat.agent.executor.schemas import WorkflowOrigin
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetVersionRefActivityInput,
         resolve_agent_preset_version_ref_activity,
@@ -1056,10 +1057,7 @@ class DSLWorkflow:
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
                         continue_existing_session=action_args.session_id is not None,
-                        origin_workflow_id=self.run_context.wf_id,
-                        origin_workflow_execution_id=self.run_context.wf_exec_id,
-                        origin_action_ref=task.ref,
-                        origin_trigger_type=self.run_context.trigger_type,
+                        origin=self._agent_origin(task.ref),
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -1130,10 +1128,7 @@ class DSLWorkflow:
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
-                        origin_workflow_id=self.run_context.wf_id,
-                        origin_workflow_execution_id=self.run_context.wf_exec_id,
-                        origin_action_ref=task.ref,
-                        origin_trigger_type=self.run_context.trigger_type,
+                        origin=self._agent_origin(task.ref),
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -1217,10 +1212,7 @@ class DSLWorkflow:
                         agent_preset_version_id=preset_ref.preset_version_id,
                         continue_existing_session=preset_action_args.session_id
                         is not None,
-                        origin_workflow_id=self.run_context.wf_id,
-                        origin_workflow_execution_id=self.run_context.wf_exec_id,
-                        origin_action_ref=task.ref,
-                        origin_trigger_type=self.run_context.trigger_type,
+                        origin=self._agent_origin(task.ref),
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -1361,6 +1353,15 @@ class DSLWorkflow:
             context = self.get_context(stream_id)
             context["ACTIONS"][task.ref] = task_result
         return task_result
+
+    def _agent_origin(self, action_ref: str) -> WorkflowOrigin:
+        """Correlate an agent turn with the workflow action that launched it."""
+        return WorkflowOrigin(
+            workflow_id=self.run_context.wf_id,
+            workflow_execution_id=self.run_context.wf_exec_id,
+            action_ref=action_ref,
+            trigger_type=self.run_context.trigger_type,
+        )
 
     ERROR_TYPE_TO_MESSAGE = {
         ActivityError.__name__: "Activity execution failed",

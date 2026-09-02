@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from tracecat.storage.object import StoredObject
+
+
+class WorkflowOrigin(BaseModel):
+    """Workflow action that launched an agent turn."""
+
+    workflow_id: uuid.UUID
+    workflow_execution_id: str
+    action_ref: str
+    trigger_type: str | None = None
 
 
 class ApprovedToolCall(BaseModel):

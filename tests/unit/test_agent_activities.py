@@ -55,6 +55,7 @@ from tracecat.agent.executor.activity import (
     run_agent_activity,
 )
 from tracecat.agent.executor.loopback import LoopbackResult
+from tracecat.agent.executor.schemas import WorkflowOrigin
 from tracecat.agent.otel_config import ResolvedAgentOtelConfig
 from tracecat.agent.runtime.session_paths import job_uv_state_dir
 from tracecat.agent.schemas import ToolFilters
@@ -2415,10 +2416,12 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
                 role=mock_role,
                 mcp_auth_token="mock-jwt-token",
                 llm_gateway_auth_token="mock-llm-token",
-                origin_workflow_id=workflow_id,
-                origin_workflow_execution_id="wf_synthetic/exec_synthetic",
-                origin_action_ref="investigate",
-                origin_trigger_type="webhook",
+                origin=WorkflowOrigin(
+                    workflow_id=workflow_id,
+                    workflow_execution_id="wf_synthetic/exec_synthetic",
+                    action_ref="investigate",
+                    trigger_type="webhook",
+                ),
             )
         )
         span_context = SpanContext(
