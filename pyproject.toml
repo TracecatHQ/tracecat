@@ -185,6 +185,9 @@ ignore = [
 keep-runtime-typing = true
 
 [tool.pytest.ini_options]
+# `scripts/` is not a package; put it on the path so the commit-convention
+# tests can import scripts/commit_conventions.py and scripts/check_pr_title.py.
+pythonpath = ["scripts"]
 addopts = [
     "--strict-config",
     "--strict-markers",
@@ -218,6 +221,9 @@ venvPath = "."
 venv = ".venv"
 include = ["tracecat", "packages", "alembic", "tests"]
 exclude = ["scripts/", "**/__pycache__", "**/node_modules"]
+# `scripts/` stays out of the checked set, but tests/unit/test_commit_conventions.py
+# and tests/unit/test_check_pr_title.py import from it, so it has to resolve.
+extraPaths = ["scripts"]
 # Core type checking - keep enabled for catching real bugs
 reportMissingTypeStubs = false    # Don't require stubs for all dependencies
 reportUnusedImport = "warning"

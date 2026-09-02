@@ -4,16 +4,146 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
 
 permissions:
-  contents: write
-  pull-requests: read
+  contents: read
 
 jobs:
-  main:
+  # Squash-merged PRs sometimes reach main without labels: fork PRs cannot be
+  # autolabeled, and a PR opened before a rule existed never gets re-evaluated.
+  # This resolves each pushed subject back to its PR and adds what the config
+  # says it should carry. It only ever adds, so re-running is a no-op.
+  backfill:
+    if: github.event_name == 'push'
+    runs-on: blacksmith-2vcpu-ubuntu-2204
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
+        with:
+          python-version: "3.12"
+
+      - name: Backfill labels from squashed commit subjects
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BEFORE}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ]; then
+            subjects=$(gh api "repos/${REPO}/commits/${AFTER}" \
+              --jq '.commit.message | split("\n")[0]')
+          else
+            # `--paginate` is not optional here. The compare endpoint caps a
+            # page at 250 commits and reports no error when it truncates, so a
+            # large push would silently backfill only its first 250 subjects.
+            subjects=$(gh api --paginate \
+              "repos/${REPO}/compare/${BEFORE}...${AFTER}?per_page=100" \
+              --jq '.commits[].commit.message | split("\n")[0]')
+          fi
+
+          # Only labels that already exist are applied. Posting an unknown name
+          # to the labels API creates it, with a random colour.
+          gh api "repos/${REPO}/labels" --paginate --jq '.[].name' \
+            | sort -u > /tmp/repo-labels.txt
+
+          printf '%s\n' "${subjects}" | while IFS= read -r subject; do
+            number=$(printf '%s' "${subject}" | sed -n 's/.*(#\([0-9]\{1,\}\))$/\1/p')
+            if [ -z "${number}" ]; then
+              continue
+            fi
+            title=$(printf '%s' "${subject}" | sed 's/ (#[0-9]\{1,\})$//')
+
+            # The trailing `(#N)` is only text: roughly two in five commits on
+            # main are direct pushes, and one of those can end in `(#42)`
+            # without #42 having produced it. `issues/N/labels` also addresses
+            # issues, so an unverified number can relabel an unrelated issue.
+            # `pulls/N` 404s on a plain issue, and matching the title closes
+            # the rest of the gap.
+            # Distinguish "not a pull request" from "the API was unavailable".
+            # Swallowing both alike would let one rate-limited response
+            # silently and permanently skip a real pull request's labels,
+            # which is the failure this job exists to prevent. Only a 404
+            # means the number is not a pull request; anything else is a
+            # warning in the log rather than a silent skip.
+            if ! pr_title=$(gh api "repos/${REPO}/pulls/${number}" --jq .title \
+              2>/tmp/pr-lookup-err); then
+              if grep -q "HTTP 404" /tmp/pr-lookup-err; then
+                echo "#${number}: not a pull request, skipping"
+              else
+                echo "::warning::#${number}: lookup failed, skipping. $(cat /tmp/pr-lookup-err)"
+              fi
+              continue
+            fi
+            if [ "${pr_title}" != "${title}" ]; then
+              echo "#${number}: subject does not match the pull request title, skipping"
+              continue
+            fi
+
+            python scripts/audit_commit_conventions.py labels-for "${title}" \
+              | sort -u > /tmp/desired-labels.txt
+            gh api "repos/${REPO}/issues/${number}/labels" --jq '.[].name' \
+              | sort -u > /tmp/current-labels.txt
+
+            missing=$(grep -Fxf /tmp/repo-labels.txt /tmp/desired-labels.txt \
+              | grep -Fxv -f /tmp/current-labels.txt || true)
+            if [ -z "${missing}" ]; then
+              echo "#${number}: nothing to add"
+              continue
+            fi
+
+            echo "#${number}: adding ${missing}"
+            printf '%s\n' "${missing}" | while IFS= read -r label; do
+              gh api "repos/${REPO}/issues/${number}/labels" \
+                -f "labels[]=${label}" --silent
+            done
+          done
+
+  draft:
+    # Ordered after the backfill so the notes reflect labels applied this push,
+    # but not gated on it. The backfill is best-effort label hygiene; the draft
+    # is the release path. A transient `gh api` failure in the backfill must not
+    # stop the draft from updating.
+    needs: backfill
+    if: ${{ !cancelled() && github.event_name == 'push' }}
     runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: read
     steps:
       - name: Draft release
         uses: release-drafter/release-drafter@6a93d829887aa2e0748befe2e808c66c0ec6e4c7 # v6
+        with:
+          disable-autolabeler: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Same-repo PRs only: fork PRs get a read-only token, so the autolabeler
+  # cannot write to them. Fork PRs are labelled by the backfill job once they
+  # land on main.
+  autolabel:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Autolabel pull request
+        uses: release-drafter/release-drafter@6a93d829887aa2e0748befe2e808c66c0ec6e4c7 # v6
+        with:
+          disable-releaser: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

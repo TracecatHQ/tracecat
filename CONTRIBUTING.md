@@ -89,24 +89,105 @@ You can then access the application at http://localhost:80.
 
 ## PR and Commit Message Guidelines
 
-We follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification for both pull requests and commit messages.
-
-Your pull request title and commit message should have the following format:
+We follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification for pull request titles. This repository squash-merges, so the pull request title becomes the commit subject and the line users read in the release notes.
 
 ```txt
-<type>[optional scope]: <description>
+<type>(<scope>)!: <description>
 ```
 
-Types may include:
+One line describes the whole pipeline: the type picks a type label, the scope picks an area label, and the first release-notes category that matches one of those labels decides which section the change appears under.
 
-* `feat`: A new feature
-* `fix`: A bug fix
-* `docs`: Documentation-only changes
-* `style`: Changes that do not affect the meaning of the code, such as whitespace or formatting
-* `refactor`: A code change that neither fixes a bug nor adds a feature
-* `perf`: A code change that improves performance
-* `test`: Adding missing tests or correcting existing tests
-* `chore`: Other changes that do not modify source or test files
+These rules are enforced from 2026-09-01. From that date every pull request is checked automatically, including one opened earlier, whenever you push to it or edit it. A failing check is a title edit away from green — no rebase, no force push. Anything merged before that date was never checked, so do not copy an older commit subject as an example: much of the history uses spellings the checker now rejects.
+
+Check a title before you open the pull request:
+
+```bash
+just check-pr-title "feat(cases): add case duplication"
+```
+
+### Types
+
+<!-- BEGIN commit-conventions:types -->
+
+| Type | Use it for |
+| --- | --- |
+| `build` | Packaging, wheels, images, and release tooling |
+| `chore` | Housekeeping with no user-visible effect |
+| `ci` | GitHub Actions and CI configuration |
+| `deprecation` | Announcing a deprecation |
+| `docs` | Documentation only |
+| `feat` | New user-visible behaviour |
+| `fix` | A bug fix |
+| `infra` | Deployment targets, Terraform, Helm, Compose |
+| `perf` | Measurable performance work |
+| `refactor` | Restructuring that preserves behaviour |
+| `release` | Version bumps, excluded from the release notes |
+| `revert` | Undoing a previous change |
+| `security` | Security fixes and hardening |
+| `test` | Tests only |
+
+<!-- END commit-conventions:types -->
+
+Nothing else is accepted. Formatting is not a type: ruff and biome run on commit, so whitespace never ships as its own pull request.
+
+### Scopes
+
+Add a scope whenever the change belongs to one product area. Leave it off only when the change is genuinely repo-wide.
+
+<!-- BEGIN commit-conventions:scopes -->
+
+| Scope | Use it for |
+| --- | --- |
+| `actions` | The built-in core.* actions a user calls in a workflow |
+| `agents` | Agent runtime, chat, presets, tools, and artifacts |
+| `api` | Backend API, auth, and organization or workspace administration |
+| `audit` | Security audit logs: who did what in a workspace |
+| `build` | Packaging and the operator CLI |
+| `cases` | Case management |
+| `deps` | Dependency bumps |
+| `docs` | Documentation and playbooks |
+| `engine` | The Temporal workers, executors, and scheduler that run workflows |
+| `enterprise` | Enterprise edition and tiers |
+| `functions` | The FN.* inline expression functions |
+| `infra` | Databases, deployments, and cloud infrastructure |
+| `integrations` | Third-party vendor connectors and registry templates |
+| `logging` | Application logging and telemetry: how Tracecat runs |
+| `mcp` | Tracecat's own MCP server |
+| `rbac` | Roles and permissions |
+| `skills` | Agent skills |
+| `tables` | Workspace tables |
+| `ui` | The Next.js app and React UI |
+| `workflows` | GitHub Actions when the type is ci, the workflow engine otherwise |
+
+<!-- END commit-conventions:scopes -->
+
+Five distinctions cover most of the doubt:
+
+- `actions` is the built-in `core.*` actions a user calls in a workflow. `functions` is the `FN.*` inline expression functions. `engine` is the Temporal workers and executors that run them. The first two are catalogs of things the platform offers; the third is the machinery.
+- `cases` and `tables` are core platform features with their own scopes and their own sections. Neither folds into `api` or `engine`.
+- `engine` is what runs; `infra` is what it runs on. If the change could ship by redeploying the same image, it is `infra`.
+- `audit` is the security audit log: what a workspace records about who did what, for someone reviewing it later. `logging` is application telemetry, what an operator reads to debug Tracecat itself. Audit work renders under Security, telemetry under Observability.
+- Vendor names are not scopes. Write `feat(integrations): add Jira issue search` and name the vendor in the description, where it is readable and searchable.
+
+At most two scopes, joined with `+`, as in `feat(cases+actions): add a case linking action`. A change lands in the first section its labels match, so that example appears under Case management, not Core actions: the reader cares that case management gained something, not which package it was built from. Needing three scopes usually means the pull request should be split.
+
+### Breaking changes and deprecations
+
+Put `!` before the colon to mark a breaking change: `feat(api)!: drop the v1 webhook payload`.
+
+Removing something takes three steps, usually across three releases:
+
+1. Announce it: `deprecation(integrations): tools.x.list_signals in favour of tools.x.search_alerts`. The description has to name the replacement, or say `with no replacement`.
+2. Warn in the code in the same pull request, with the `deprecated="Use ... instead"` argument on the registry action.
+3. Remove it: `feat(integrations)!: remove tools.x.list_signals`.
+
+### Dependencies
+
+Routine bumps and Low, Moderate, or High severity advisories are `build(deps):`. Reserve `security(deps):` for Critical unauthenticated remote-code-execution advisories, so the Security section stays worth dropping everything for.
+
+### Where the rules live
+
+`.github/commit-conventions.toml` holds the vocabulary, and `.github/release-drafter.yml` maps labels to sections. Pull requests that touch `.github/` are closed automatically, so open an issue if a scope you need is missing.
 
 ## Release Process
 
