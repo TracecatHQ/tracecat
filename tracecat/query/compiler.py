@@ -96,11 +96,18 @@ def compile_aggregation(
         )
         for agg in spec.aggs
     ]
-    has_multi_valued_join = any(
-        field.is_multi_valued for _, field in resolved_groups
-    ) or any(field is not None and field.is_multi_valued for _, field in resolved_aggs)
+    has_multi_valued_group = any(field.is_multi_valued for _, field in resolved_groups)
+    multi_valued_agg_fields = {
+        agg.field
+        for agg, field in resolved_aggs
+        if field is not None and field.is_multi_valued
+    }
+    has_multi_valued_join = has_multi_valued_group or bool(multi_valued_agg_fields)
+    needs_entity_id = spec.min_count is not None or any(
+        agg.function is AggFunction.COUNT for agg in spec.aggs
+    )
     entity_id_expression = None if entity_id is None else _column_expression(entity_id)
-    if has_multi_valued_join and entity_id_expression is None:
+    if has_multi_valued_join and needs_entity_id and entity_id_expression is None:
         raise TracecatValidationError(
             "Aggregation with a multi-valued field requires an entity id expression"
         )
@@ -113,6 +120,11 @@ def compile_aggregation(
             agg,
             field,
             has_multi_valued_join=has_multi_valued_join,
+            has_other_multi_valued_source=has_multi_valued_group
+            or any(
+                multi_valued_field != agg.field
+                for multi_valued_field in multi_valued_agg_fields
+            ),
             entity_id=entity_id_expression,
         )
         for agg, field in resolved_aggs
@@ -223,6 +235,7 @@ def _compile_aggregate(
     resolved: ResolvedAggregationField | None,
     *,
     has_multi_valued_join: bool,
+    has_other_multi_valued_source: bool,
     entity_id: ColumnElement[Any] | None,
 ) -> sa.Label[Any]:
     if resolved is None:
@@ -236,14 +249,14 @@ def _compile_aggregate(
     field_expression = _column_expression(resolved.expr)
     _validate_aggregate_target(spec, resolved.kind, field_expression.type)
 
-    if has_multi_valued_join and spec.function in {
+    if has_other_multi_valued_source and spec.function in {
         AggFunction.SUM,
         AggFunction.MEAN,
         AggFunction.MEDIAN,
     }:
         raise _aggregation_error(
             spec.field,
-            f"{spec.function.value} is not allowed with a multi-valued field",
+            f"{spec.function.value} is not allowed with another multi-valued field",
         )
 
     match spec.function:
@@ -258,7 +271,12 @@ def _compile_aggregate(
         case AggFunction.COUNT_DISTINCT:
             expression = sa.func.count(sa.distinct(field_expression))
         case AggFunction.SUM:
-            expression = sa.func.sum(field_expression)
+            aggregate_input = (
+                sa.cast(field_expression, postgresql.DOUBLE_PRECISION())
+                if _is_narrow_float(field_expression.type)
+                else field_expression
+            )
+            expression = sa.func.sum(aggregate_input)
             if isinstance(field_expression.type, sa.BigInteger):
                 expression = sa.cast(expression, postgresql.DOUBLE_PRECISION())
             elif isinstance(field_expression.type, sa.Integer):
@@ -287,6 +305,14 @@ def _compile_aggregate(
             ):
                 expression = sa.cast(expression, postgresql.DOUBLE_PRECISION())
     return expression.label(spec.output_key)
+
+
+def _is_narrow_float(type_: TypeEngine[Any]) -> bool:
+    return isinstance(type_, sa.REAL) or (
+        isinstance(type_, sa.Float)
+        and type_.precision is not None
+        and type_.precision <= 24
+    )
 
 
 def _validate_aggregate_target(

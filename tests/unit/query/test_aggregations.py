@@ -460,6 +460,16 @@ def test_aggregate_function_type_matrix(
             sa.BigInteger(),
             "CAST(sum(value) AS DOUBLE PRECISION)",
         ),
+        (
+            AggFunction.SUM,
+            sa.REAL(),
+            "CAST(sum(CAST(value AS DOUBLE PRECISION)) AS DOUBLE PRECISION)",
+        ),
+        (
+            AggFunction.SUM,
+            sa.Float(precision=24),
+            "CAST(sum(CAST(value AS DOUBLE PRECISION)) AS DOUBLE PRECISION)",
+        ),
         (AggFunction.SUM, sa.Numeric(), "CAST(sum(value) AS DOUBLE PRECISION)"),
         (AggFunction.MEAN, sa.BigInteger(), "CAST(avg(value) AS DOUBLE PRECISION)"),
         (AggFunction.MEAN, sa.Numeric(), "CAST(avg(value) AS DOUBLE PRECISION)"),
@@ -610,6 +620,42 @@ def test_multi_valued_aggregate_target_deduplicates_counts_and_having() -> None:
         in sql
     )
     assert "HAVING count(DISTINCT case_id) >= 2" in sql
+
+
+def test_multi_valued_non_count_aggregate_does_not_require_entity_id() -> None:
+    spec = AggregationSpec(
+        group_by=[],
+        aggs=[AggSpec(function=AggFunction.COUNT_DISTINCT, field="values")],
+    )
+
+    sql = _compile(
+        spec,
+        {
+            "values": _field(
+                "value", sa.Integer(), FieldKind.NUMBER, is_multi_valued=True
+            )
+        },
+    )
+
+    assert "count(DISTINCT value) AS count_distinct_values" in sql
+
+
+def test_additive_aggregate_allows_its_own_multi_valued_target() -> None:
+    spec = AggregationSpec(
+        group_by=[],
+        aggs=[AggSpec(function=AggFunction.SUM, field="values")],
+    )
+
+    sql = _compile(
+        spec,
+        {
+            "values": _field(
+                "value", sa.Integer(), FieldKind.NUMBER, is_multi_valued=True
+            )
+        },
+    )
+
+    assert "CAST(sum(value) AS BIGINT) AS sum_values" in sql
 
 
 def test_default_ordering_uses_first_bucket_even_when_not_first_group() -> None:
