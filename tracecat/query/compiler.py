@@ -9,6 +9,7 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.type_api import TypeEngine
 
 from tracecat.exceptions import TracecatValidationError
 from tracecat.query.filters import (
@@ -21,7 +22,12 @@ from tracecat.query.filters import (
     NotClause,
     OrClause,
 )
-from tracecat.query.resolver import FieldKind, FieldResolver, ResolvedField
+from tracecat.query.resolver import (
+    FieldKind,
+    FieldResolver,
+    NormalizedFilterScalar,
+    NormalizedFilterValue,
+)
 
 POSTGRES_SMALLINT_MIN = -(2**15)
 POSTGRES_SMALLINT_MAX = 2**15 - 1
@@ -68,9 +74,22 @@ def _compile_condition(
     elif isinstance(expression, ColumnElement):
         column_expression = expression
     else:
-        return expression(condition.op, value)
+        if value is None:
+            normalized = None
+        elif resolved.value_type is None:
+            raise _condition_error(
+                condition,
+                "predicate factory requires a value type",
+            )
+        else:
+            normalized = _normalize_value(
+                condition, resolved.kind, resolved.value_type, value
+            )
+        return expression(condition.op, normalized)
 
-    normalized = _normalize_value(condition, resolved, column_expression, value)
+    normalized = _normalize_value(
+        condition, resolved.kind, column_expression.type, value
+    )
     return _compile_expression(condition, column_expression, normalized)
 
 
@@ -145,34 +164,31 @@ def _matches_kind_value(kind: FieldKind, value: FilterScalar) -> bool:
 
 def _normalize_value(
     condition: Condition,
-    resolved: ResolvedField,
-    expression: ColumnElement[Any],
+    kind: FieldKind,
+    value_type: TypeEngine[Any],
     value: FilterValue | None,
-) -> object | list[object] | None:
+) -> NormalizedFilterValue | None:
     if value is None:
         return None
     if isinstance(value, list):
-        return [
-            _normalize_scalar(condition, resolved.kind, expression, item)
-            for item in value
-        ]
-    return _normalize_scalar(condition, resolved.kind, expression, value)
+        return [_normalize_scalar(condition, kind, value_type, item) for item in value]
+    return _normalize_scalar(condition, kind, value_type, value)
 
 
 def _normalize_scalar(
     condition: Condition,
     kind: FieldKind,
-    expression: ColumnElement[Any],
+    value_type: TypeEngine[Any],
     value: FilterScalar,
-) -> object:
+) -> NormalizedFilterScalar:
     try:
         match kind:
             case FieldKind.NUMBER:
-                return _normalize_number(expression, value)
+                return _normalize_number(value_type, value)
             case FieldKind.TEMPORAL:
-                return _normalize_temporal(expression, value)
+                return _normalize_temporal(value_type, value)
             case FieldKind.ENUM:
-                return _normalize_enum(expression, value)
+                return _normalize_enum(value_type, value)
             case FieldKind.UUID:
                 if isinstance(value, UUID):
                     return value
@@ -189,7 +205,7 @@ def _normalize_scalar(
 
 
 def _normalize_number(
-    expression: ColumnElement[Any], value: FilterScalar
+    value_type: TypeEngine[Any], value: FilterScalar
 ) -> int | float | Decimal:
     if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
         raise TypeError
@@ -197,16 +213,16 @@ def _normalize_number(
         raise ValueError
     if isinstance(value, Decimal) and not value.is_finite():
         raise ValueError
-    if isinstance(expression.type, sa.Integer):
+    if isinstance(value_type, sa.Integer):
         decimal_value = Decimal(str(value))
         if decimal_value != decimal_value.to_integral_value():
             raise ValueError
         integer_value = int(decimal_value)
-        lower_bound, upper_bound = _integer_bounds(expression.type)
+        lower_bound, upper_bound = _integer_bounds(value_type)
         if not lower_bound <= integer_value <= upper_bound:
             raise ValueError
         return integer_value
-    if isinstance(expression.type, sa.Float):
+    if isinstance(value_type, sa.Float):
         try:
             float_value = float(value)
         except OverflowError as exc:
@@ -214,7 +230,7 @@ def _normalize_number(
         if not math.isfinite(float_value):
             raise ValueError
         return float_value
-    if isinstance(expression.type, sa.Numeric):
+    if isinstance(value_type, sa.Numeric):
         # SQLAlchemy otherwise infers an integer literal as BIGINT, even when the
         # compared expression is NUMERIC. Decimal forces the correct bind type.
         return Decimal(str(value))
@@ -230,13 +246,11 @@ def _integer_bounds(type_: sa.Integer) -> tuple[int, int]:
 
 
 def _normalize_temporal(
-    expression: ColumnElement[Any], value: FilterScalar
+    value_type: TypeEngine[Any], value: FilterScalar
 ) -> date | datetime:
     if not isinstance(value, str | date | datetime):
         raise TypeError
-    if isinstance(expression.type, sa.Date) and not isinstance(
-        expression.type, sa.DateTime
-    ):
+    if isinstance(value_type, sa.Date) and not isinstance(value_type, sa.DateTime):
         if isinstance(value, datetime):
             return value.date()
         if isinstance(value, date):
@@ -252,20 +266,22 @@ def _normalize_temporal(
         parsed = datetime(value.year, value.month, value.day, tzinfo=UTC)
     else:
         parsed = _parse_iso_datetime(value)
-    if isinstance(expression.type, sa.DateTime) and not expression.type.timezone:
+    if isinstance(value_type, sa.DateTime) and not value_type.timezone:
         return parsed.replace(tzinfo=None)
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
 
-def _normalize_enum(expression: ColumnElement[Any], value: FilterScalar) -> object:
+def _normalize_enum(
+    value_type: TypeEngine[Any], value: FilterScalar
+) -> NormalizedFilterScalar:
     if not isinstance(value, str):
         raise TypeError
-    if not isinstance(expression.type, sa.Enum):
+    if not isinstance(value_type, sa.Enum):
         return value
 
-    if enum_class := expression.type.enum_class:
+    if enum_class := value_type.enum_class:
         return enum_class(value)
-    if value not in expression.type.enums:
+    if value not in value_type.enums:
         raise ValueError
     return value
 

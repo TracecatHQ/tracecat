@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum, StrEnum
 from typing import Any, Protocol
 
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.type_api import TypeEngine
 
-from tracecat.query.filters import FilterOp, FilterValue
+from tracecat.query.filters import FilterOp, FilterScalar
 
 
 class FieldKind(StrEnum):
@@ -23,7 +24,11 @@ class FieldKind(StrEnum):
     TAG = "tag"
 
 
-type PredicateFactory = Callable[[FilterOp, FilterValue | None], ColumnElement[bool]]
+type NormalizedFilterScalar = FilterScalar | Enum
+type NormalizedFilterValue = NormalizedFilterScalar | list[NormalizedFilterScalar]
+type PredicateFactory = Callable[
+    [FilterOp, NormalizedFilterValue | None], ColumnElement[bool]
+]
 type FilterExpression = (
     ColumnElement[Any] | InstrumentedAttribute[Any] | PredicateFactory
 )
@@ -34,12 +39,15 @@ class ResolvedField:
     """A safe field expression and the operations it supports.
 
     ``expr`` may be a direct SQL expression or a factory for fields whose
-    predicate needs a correlated EXISTS query.
+    predicate needs a correlated EXISTS query. Factories that accept non-null
+    values must provide ``value_type`` so the compiler can normalize those
+    values exactly as it does for direct expressions.
     """
 
     expr: FilterExpression
     kind: FieldKind
     allowed_ops: frozenset[FilterOp]
+    value_type: TypeEngine[Any] | None = None
 
 
 class FieldResolver(Protocol):

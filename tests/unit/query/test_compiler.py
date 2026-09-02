@@ -380,6 +380,7 @@ def test_exists_factory_receives_validated_condition() -> None:
                 expr=factory,
                 kind=FieldKind.TAG,
                 allowed_ops=KIND_OPS[FieldKind.TAG],
+                value_type=sa.String(),
             )
         }
     )
@@ -393,6 +394,66 @@ def test_exists_factory_receives_validated_condition() -> None:
     assert received == [(FilterOp.CONTAINS, "malware")]
     assert "EXISTS" in sql
     assert "tag =" in sql
+
+
+def test_exists_factory_receives_normalized_temporal_value() -> None:
+    received: list[Any] = []
+
+    def factory(_op: FilterOp, value: Any) -> ColumnElement[bool]:
+        received.append(value)
+        return sa.exists(
+            sa.select(1).where(
+                sa.column("created_at", sa.DateTime(timezone=True)) >= value
+            )
+        )
+
+    resolver = StubResolver(
+        {
+            "created_at": ResolvedField(
+                expr=factory,
+                kind=FieldKind.TEMPORAL,
+                allowed_ops=ALL_OPS,
+                value_type=sa.DateTime(timezone=True),
+            )
+        }
+    )
+
+    expression = compile_filter(
+        Condition(
+            field="created_at",
+            op=FilterOp.GTE,
+            value="2026-09-01T12:00:00Z",
+        ),
+        resolver,
+    )
+    _, params = _compile_sql(expression)
+
+    expected = datetime.fromisoformat("2026-09-01T12:00:00+00:00")
+    assert received == [expected]
+    assert list(params.values()) == [expected]
+
+
+def test_predicate_factory_requires_value_type_for_non_null_value() -> None:
+    def factory(_op: FilterOp, value: Any) -> ColumnElement[bool]:
+        return sa.exists(sa.select(1).where(sa.literal_column("tag") == value))
+
+    resolver = StubResolver(
+        {
+            "tags": ResolvedField(
+                expr=factory,
+                kind=FieldKind.TAG,
+                allowed_ops=KIND_OPS[FieldKind.TAG],
+            )
+        }
+    )
+
+    with pytest.raises(
+        TracecatValidationError, match="predicate factory requires a value type"
+    ):
+        compile_filter(
+            Condition(field="tags", op=FilterOp.CONTAINS, value="malware"),
+            resolver,
+        )
 
 
 def test_accepts_orm_instrumented_attribute() -> None:
