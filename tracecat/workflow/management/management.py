@@ -13,7 +13,6 @@ from pydantic import ValidationError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.audit.logger import AuditEventDetails, audit_log
@@ -44,6 +43,7 @@ from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     TracecatNotFoundError,
     TracecatValidationError,
+    WorkflowAliasResolutionError,
 )
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.identifiers import WorkflowID
@@ -59,7 +59,13 @@ from tracecat.pagination import (
 )
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+)
 from tracecat.service import BaseWorkspaceService
+from tracecat.temporal.errors import raise_application_error_from_classification
 from tracecat.validation.schemas import (
     DSLValidationResult,
     ValidationDetail,
@@ -1711,9 +1717,14 @@ class WorkflowsManagementService(BaseWorkspaceService):
                     id_or_alias, use_committed=use_committed
                 )
             if not handler_wf_id:
-                raise ApplicationError(
-                    f"Couldn't find matching workflow for alias {id_or_alias!r}",
-                    non_retryable=True,
-                    type="WorkflowAliasResolutionError",
+                error = WorkflowAliasResolutionError(
+                    "The configured workflow alias does not resolve"
                 )
+                classification = RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
+                    message="The configured error handler workflow could not be found",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                    cause=error,
+                )
+                raise_application_error_from_classification(classification)
         return handler_wf_id

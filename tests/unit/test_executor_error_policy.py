@@ -56,6 +56,22 @@ def test_wrapped_entitlement_failure_is_non_retryable_user_error() -> None:
     assert result.cause_type == "EntitlementRequired"
 
 
+def test_raw_custom_action_exception_is_user_owned_action_failure() -> None:
+    """A custom action bug is owned by its author, not platform operations."""
+    cause = AttributeError("synthetic custom action failure")
+    error = _iteration_error(cause, index=0)
+
+    result = classify_execute_action_error(
+        error,
+        action_name="custom_actions.synthetic.fetch_data",
+    )
+
+    assert result.owner is RuntimeErrorOwner.USER
+    assert result.kind is RuntimeErrorKind.ACTION_EXECUTION_FAILED
+    assert result.retry_disposition is RetryDisposition.RETRYABLE
+    assert result.cause_type == "ExecutionError"
+
+
 @pytest.mark.parametrize("platform_first", [True, False])
 def test_mixed_loop_failure_is_platform_owned_but_non_retryable(
     platform_first: bool,

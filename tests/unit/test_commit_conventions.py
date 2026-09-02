@@ -1,0 +1,808 @@
+"""Drift guard for the commit-convention system.
+
+`.github/commit-conventions.toml` is the source of truth. Three things restate
+parts of it and can silently fall out of step:
+
+- the Release Drafter autolabeler regexes in `.github/release-drafter.yml`,
+- the release-notes categories in the same file,
+- the marker-delimited tables in `CONTRIBUTING.md` and `AGENTS.md`.
+
+Each failure here is invisible in production: a stale regex just stops applying
+a label, and the pull requests it would have held render with no heading.
+"""
+
+from __future__ import annotations
+
+import ast
+import re
+import string
+from pathlib import Path
+from typing import Final
+
+import pytest
+import yaml
+from audit_commit_conventions import (
+    DEFAULT_LIMIT,
+    build_parser,
+    parse_title,
+    resolve_labels,
+)
+from commit_conventions import Conventions, LegacyType, load_conventions
+
+REPO_ROOT: Final = Path(__file__).resolve().parents[2]
+DRAFTER_PATH: Final = REPO_ROOT / ".github" / "release-drafter.yml"
+AUDIT_SCRIPT_PATH: Final = REPO_ROOT / "scripts" / "audit_commit_conventions.py"
+DOC_PATHS: Final = (REPO_ROOT / "CONTRIBUTING.md", REPO_ROOT / "AGENTS.md")
+
+# Release Drafter accepts either a bare string or a JavaScript-style
+# `/pattern/flags` literal.
+JS_REGEX: Final = re.compile(r"^/(?P<pattern>.*)/(?P<flags>[a-z]*)$", re.DOTALL)
+BACKTICKED: Final = re.compile(r"`([^`]+)`")
+
+CONVENTIONS: Final = load_conventions()
+DRAFTER: Final = yaml.safe_load(DRAFTER_PATH.read_text(encoding="utf-8"))
+
+
+# Release Drafter runs these under JavaScript, where `\w`, `\d`, `\s` and `\b`
+# are ASCII-only. Python's are Unicode-aware, so compiling without re.ASCII
+# makes this harness *more* permissive than production and blind to exactly the
+# drift it exists to catch: `[\u0431\u043e\u0442] feat(ui): x` matched here and
+# not in the drafter.
+JS_SEMANTICS: Final = re.ASCII
+
+
+def _compile(raw: str) -> re.Pattern[str]:
+    match = JS_REGEX.match(raw)
+    if match is None:
+        return re.compile(re.escape(raw), JS_SEMANTICS)
+    flags = JS_SEMANTICS | (re.IGNORECASE if "i" in match.group("flags") else 0)
+    return re.compile(match.group("pattern"), flags)
+
+
+AUTOLABEL_RULES: Final = tuple(
+    (str(rule["label"]), _compile(pattern))
+    for rule in DRAFTER["autolabeler"]
+    for pattern in rule["title"]
+)
+TIER_A_TYPE_RULE: Final = re.compile(
+    re.escape(r"^(\[[A-Za-z0-9._-]+\]\s+)?(?:")
+    + r"(?P<alternatives>[a-z|]+)"
+    + re.escape(r")(\([^)]*\))?!?: ")
+)
+# Derived by matching the literal above against the compiled rules, so a change
+# to how the bot prefix is spelled in the YAML silently empties it. An empty
+# parametrisation *skips*, which is indistinguishable from passing -- hence the
+# assertion below.
+TIER_A_TYPE_ALTERNATIVES: Final = tuple(
+    sorted(
+        alternative
+        for _, pattern in AUTOLABEL_RULES
+        if (match := TIER_A_TYPE_RULE.fullmatch(pattern.pattern)) is not None
+        for alternative in match.group("alternatives").split("|")
+    )
+)
+
+
+assert TIER_A_TYPE_ALTERNATIVES, (
+    "no Tier A type rule matched TIER_A_TYPE_RULE -- the literal in it has "
+    "drifted from the autolabeler rules in release-drafter.yml"
+)
+
+
+def autolabel(title: str) -> frozenset[str]:
+    """Every label the autolabeler would apply to `title`."""
+    return frozenset(
+        label for label, pattern in AUTOLABEL_RULES if pattern.search(title)
+    )
+
+
+# `replacers:` runs last, on the rendered body, so it is the only part of the
+# pipeline a reader sees directly. Release Drafter applies each rule with
+# JavaScript `String.prototype.replace`; these two helpers restate that in
+# Python `re` so the rules can be exercised without a release.
+JS_BACKREFERENCE: Final = re.compile(r"\$(\d+)")
+
+
+def _replacer_rules() -> tuple[tuple[re.Pattern[str], str, int], ...]:
+    rules: list[tuple[re.Pattern[str], str, int]] = []
+    for rule in DRAFTER["replacers"]:
+        match = JS_REGEX.match(str(rule["search"]))
+        assert match is not None, rule["search"]
+        flags = match.group("flags")
+        rules.append(
+            (
+                re.compile(
+                    match.group("pattern"),
+                    JS_SEMANTICS
+                    | (re.MULTILINE if "m" in flags else 0)
+                    | (re.IGNORECASE if "i" in flags else 0),
+                ),
+                JS_BACKREFERENCE.sub(r"\\g<\1>", str(rule["replace"])),
+                0 if "g" in flags else 1,
+            )
+        )
+    return tuple(rules)
+
+
+REPLACER_RULES: Final = _replacer_rules()
+
+
+def render(body: str) -> str:
+    """The release body after every replacer has been applied, in order."""
+    for pattern, replacement, count in REPLACER_RULES:
+        body = pattern.sub(replacement, body, count=count)
+    return body
+
+
+def category_labels() -> frozenset[str]:
+    return frozenset(
+        label for category in DRAFTER["categories"] for label in category["labels"]
+    )
+
+
+def marker_identifiers(path: Path, name: str) -> frozenset[str]:
+    """Backticked identifiers inside a `commit-conventions:<name>` block."""
+    text = path.read_text(encoding="utf-8")
+    match = re.search(
+        rf"<!-- BEGIN commit-conventions:{name} -->(?P<body>.*?)"
+        rf"<!-- END commit-conventions:{name} -->",
+        text,
+        re.DOTALL,
+    )
+    assert match is not None, f"{path.name} is missing the {name} marker block"
+    return frozenset(BACKTICKED.findall(match.group("body")))
+
+
+@pytest.fixture(scope="module")
+def conventions() -> Conventions:
+    return CONVENTIONS
+
+
+@pytest.mark.parametrize(("type_", "label"), sorted(CONVENTIONS.types.items()))
+def test_type_produces_its_label(type_: str, label: str) -> None:
+    assert label in autolabel(f"{type_}: example change")
+
+
+@pytest.mark.parametrize(("type_", "legacy"), sorted(CONVENTIONS.legacy_types.items()))
+def test_legacy_type_still_labels(type_: str, legacy: LegacyType) -> None:
+    """History keeps its section even though the checker rejects these."""
+    assert legacy.label in autolabel(f"{type_}: example change")
+
+
+@pytest.mark.parametrize("scope", sorted(CONVENTIONS.scopes))
+def test_canonical_scope_produces_its_area_label(
+    scope: str, conventions: Conventions
+) -> None:
+    label = conventions.scopes[scope]
+    assert label in autolabel(f"feat({scope}): example change")
+
+
+@pytest.mark.parametrize("alias", sorted(CONVENTIONS.scope_aliases))
+def test_scope_alias_produces_the_canonical_area_label(
+    alias: str, conventions: Conventions
+) -> None:
+    label = conventions.scopes[conventions.scope_aliases[alias]]
+    assert label in autolabel(f"feat({alias}): example change")
+
+
+@pytest.mark.parametrize(
+    ("title", "type_"),
+    [
+        ("ci(workflows): pin actions to immutable SHAs", "ci"),
+        ("feat(workflows): add a workflow alias resolver", "feat"),
+        ("fix(workflows): resolve alias collisions", "fix"),
+    ],
+)
+def test_workflows_gets_no_area_label_whatever_the_type(
+    title: str, type_: str, conventions: Conventions
+) -> None:
+    """`workflows` used to resolve to `cicd` under `ci` and `engine` otherwise.
+
+    It is ambiguous now, so it labels like `app`: the type label and nothing
+    else. The equality also pins the other half of the change -- `workflows`
+    stays in the vendor-absorption lookahead, so no `integrations` label leaks
+    in from there.
+    """
+    assert autolabel(title) == {conventions.types[type_]}
+
+
+@pytest.mark.parametrize("scope", sorted(set(CONVENTIONS.canonical_scopes) - {"ui"}))
+def test_compound_scopes_label_like_their_components(
+    scope: str, conventions: Conventions
+) -> None:
+    expected = conventions.scope_label(scope)
+    assert expected is not None
+    for compound in (f"{scope}+ui", f"ui+{scope}"):
+        labels = autolabel(f"feat({compound}): example change")
+        assert expected in labels, compound
+        assert conventions.scopes["ui"] in labels, compound
+
+
+def test_bang_yields_breaking(conventions: Conventions) -> None:
+    labels = autolabel("feat(api)!: drop the v1 webhook payload")
+    assert conventions.breaking_label in labels
+    assert conventions.scopes["api"] in labels
+
+
+def test_revert_wrapper_is_still_labelled_after_the_checker_rejects_it() -> None:
+    """The Tier A rule is deliberately not gated on `allow_revert_wrapper`.
+
+    Turning the flag off stops new pull requests using this title; it cannot
+    retitle the merged ones, and an unlabelled merged PR renders with no
+    heading. Both halves of the answer belong here: history keeps its label,
+    and a new title carrying the same words is rejected outright.
+    """
+    labels = autolabel('Revert "feat(mcp): add internal OIDC issuer"')
+    assert labels, "GitHub revert titles must not render headerless"
+    assert not CONVENTIONS.allow_revert_wrapper
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "feat(ui): replace preset button with @ mentions",
+        "chore(deps): bump orjson",
+        "fix(api)!: return 404 for missing workspaces",
+        "ci(workflows): pin actions to immutable SHAs",
+    ],
+)
+def test_bot_prefix_does_not_change_labels(title: str) -> None:
+    for prefix in ("[codex]", "[pre-commit.ci]", "[foo-bar]"):
+        assert autolabel(f"{prefix} {title}") == autolabel(title)
+
+
+@pytest.mark.parametrize("vendor", ["jira", "splunk", "scc", "elastic_security"])
+def test_vendor_scopes_are_absorbed_into_integrations(
+    vendor: str, conventions: Conventions
+) -> None:
+    assert conventions.scopes["integrations"] in autolabel(
+        f"feat({vendor}): add an action"
+    )
+
+
+@pytest.mark.parametrize("scope", sorted(CONVENTIONS.ambiguous_scopes))
+def test_ambiguous_scopes_get_no_area_label(
+    scope: str, conventions: Conventions
+) -> None:
+    """Guessing an area is worse than leaving the PR on its type label."""
+    area_labels = set(conventions.scopes.values())
+    labels = autolabel(f"refactor({scope}): example change")
+    assert labels == {conventions.types["refactor"]}, labels & area_labels
+
+
+@pytest.mark.parametrize("label", sorted(category_labels()))
+def test_every_category_label_is_in_the_vocabulary(
+    label: str, conventions: Conventions
+) -> None:
+    assert label in conventions.all_labels()
+
+
+@pytest.mark.parametrize("label", sorted({label for label, _ in AUTOLABEL_RULES}))
+def test_every_autolabeler_label_is_in_the_vocabulary(
+    label: str, conventions: Conventions
+) -> None:
+    assert label in conventions.all_labels()
+
+
+@pytest.mark.parametrize("type_", TIER_A_TYPE_ALTERNATIVES)
+def test_every_tier_a_type_is_declared(type_: str, conventions: Conventions) -> None:
+    """A drafter-only type leaves the backfill unable to label merged PRs."""
+    assert type_ in conventions.types or type_ in conventions.legacy_types
+
+
+def test_exclude_labels_match_the_toml(conventions: Conventions) -> None:
+    assert set(DRAFTER["exclude-labels"]) == set(conventions.exclude_labels)
+
+
+def test_every_vocabulary_label_has_a_home(conventions: Conventions) -> None:
+    """A label with no category renders its PRs with no heading.
+
+    `no_section` is the deliberate exception, declared in the TOML so that a
+    label which claims no category reads differently from one dropped by
+    accident.
+    """
+    homeless = (
+        conventions.all_labels()
+        - category_labels()
+        - set(conventions.exclude_labels)
+        - set(conventions.no_section_labels)
+    )
+    assert not homeless, sorted(homeless)
+
+
+@pytest.mark.parametrize("label", sorted(CONVENTIONS.no_section_labels))
+def test_a_no_section_label_claims_no_category(
+    label: str, conventions: Conventions
+) -> None:
+    """Giving one a category would defeat the point of declaring it."""
+    assert label not in category_labels()
+    assert label not in conventions.exclude_labels
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        # The other scope decides, not `enterprise`.
+        ("feat(enterprise+cases): add case tasks", "Case management"),
+        ("feat(cases+enterprise): add case tasks", "Case management"),
+        ("fix(enterprise+ui): correct the tier badge", "User interface"),
+        # Alone, the type decides.
+        ("feat(enterprise): add a paid-tier gate", "Features"),
+        ("fix(enterprise): correct a tier check", "Fixes"),
+        ("refactor(enterprise): split the tier module", "Other changes"),
+    ],
+)
+def test_enterprise_never_claims_the_section(title: str, expected: str) -> None:
+    """`enterprise` says who may use a change, not what the change is.
+
+    It used to sit in the API category, so every paid feature was filed under
+    API rather than the product area it actually changed.
+    """
+    labels = autolabel(title)
+    assert "enterprise" in labels, labels
+    section = next(
+        c["title"] for c in DRAFTER["categories"] if labels & set(c["labels"])
+    )
+    assert section == expected, f"{title} -> {section}"
+
+
+def test_audit_script_has_no_top_level_yaml_import() -> None:
+    """The backfill job would break if yaml were hoisted to module scope."""
+    module = ast.parse(AUDIT_SCRIPT_PATH.read_text(encoding="utf-8"))
+    imports_yaml = any(
+        (
+            isinstance(node, ast.Import)
+            and any(alias.name == "yaml" for alias in node.names)
+        )
+        or (isinstance(node, ast.ImportFrom) and node.module == "yaml")
+        for node in module.body
+    )
+    assert not imports_yaml
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        pytest.param(
+            "- feat(integrations): add Recorded Future registry templates (#3348)",
+            "- feat(integrations): Add Recorded Future registry templates (#3348)",
+            id="prefix-stays-lowercase",
+        ),
+        pytest.param(
+            "- feat(registry): add plaintext alternative body (#3339)",
+            "- feat(integrations): Add plaintext alternative body (#3339)",
+            id="alias-and-capital-in-one-pass",
+        ),
+        pytest.param(
+            "- [codex] chore(deps): bump orjson (#3200)",
+            "- [codex] build(deps): Bump orjson (#3200)",
+            id="bot-prefix-is-not-the-description",
+        ),
+        pytest.param(
+            "- fix(deps): pin patched versions (#2462)",
+            "- build(deps): Pin patched versions (#2462)",
+            id="fix-deps-is-packaging-work",
+        ),
+        pytest.param(
+            "- infra(fargate): add the agent executor service (#2500)",
+            "- infra: Add the agent executor service (#2500)",
+            id="alias-that-becomes-a-stutter-loses-the-scope",
+        ),
+        pytest.param(
+            "- Feat+fix(ui): add color dots in dropdown (#661)",
+            "- feat(ui): Add color dots in dropdown (#661)",
+            id="compound-type-keeps-its-first-component",
+        ),
+        pytest.param(
+            "- Feat!(engine): stronger ACLs (#570)",
+            "- feat(engine)!: Stronger ACLs (#570)",
+            id="bang-moves-behind-the-scope",
+        ),
+        pytest.param(
+            "- feat(cases) ENG-1597: add team scoped agent session reads (#3204)",
+            "- feat(cases): Add team scoped agent session reads (#3204)",
+            id="ticket-id-between-scope-and-colon",
+        ),
+        pytest.param(
+            "- ENG-1388 fix(agents): strip /vN from upstream_url (#2604)",
+            "- fix(agents): Strip /vN from upstream_url (#2604)",
+            id="ticket-id-in-front-of-the-type",
+        ),
+        pytest.param(
+            "- Fix(mcp) workflow uploads and restore inline yaml (#2360)",
+            "- fix(mcp): Workflow uploads and restore inline yaml (#2360)",
+            id="no-colon-after-the-scope",
+        ),
+        pytest.param(
+            "- fix(engine):: optional secrets not handled correctly (#916)",
+            "- fix(engine): Optional secrets not handled correctly (#916)",
+            id="doubled-colon",
+        ),
+        pytest.param(
+            "- Fix mouse scrolling issues in the actions editor",
+            "- Fix mouse scrolling issues in the actions editor",
+            id="prose-bullet-is-not-a-prefix",
+        ),
+        pytest.param(
+            "- docs(docs): fix a broken anchor (#2600)",
+            "- docs: Fix a broken anchor (#2600)",
+            id="stutter-written-by-hand",
+        ),
+        pytest.param(
+            "- build(deps): patch dependabot alerts (#2400)",
+            "- build(deps): Patch dependabot alerts (#2400)",
+            id="build-deps-is-already-canonical",
+        ),
+        pytest.param(
+            "- feat(deps): bump orjson (#2500)",
+            "- build(deps): Bump orjson (#2500)",
+            id="feat-deps-is-normalised-too",
+        ),
+        pytest.param(
+            # Deliberately NOT normalised. Replacers run after categorization,
+            # and `docs` sorts before `deps`, so this line renders under
+            # Documentation whatever its prefix says. Rewriting it to
+            # `build(deps)` would leave a build line under a docs heading,
+            # which reads worse than leaving the author's own prefix alone.
+            "- docs(deps): bump the docs toolchain (#2501)",
+            "- docs(deps): Bump the docs toolchain (#2501)",
+            id="docs-deps-keeps-its-type-because-its-section-is-docs",
+        ),
+        pytest.param(
+            "- ci(fix): remove caching from build and deploy images (#186)",
+            "- ci: Remove caching from build and deploy images (#186)",
+            id="a-type-name-in-the-scope-slot-is-dropped",
+        ),
+        pytest.param(
+            "- feat(security): add nextjs security headers (#749)",
+            "- feat: Add nextjs security headers (#749)",
+            id="security-is-a-type-not-an-area",
+        ),
+        pytest.param(
+            # `docs` is a type AND a canonical scope, so this one means
+            # something and must survive.
+            "- ci(docs): regenerate the api docs (#1237)",
+            "- ci(docs): Regenerate the api docs (#1237)",
+            id="a-type-that-is-also-a-scope-is-kept",
+        ),
+        pytest.param(
+            # `helm` is a scope alias, so it resolves rather than being dropped.
+            "- ci(helm): bump the chart version (#1238)",
+            "- ci(infra): Bump the chart version (#1238)",
+            id="a-type-that-is-also-a-scope-alias-is-resolved",
+        ),
+        pytest.param(
+            "- deps: bump temporalio to 1.9.0 (#826)",
+            "- build(deps): Bump temporalio to 1.9.0 (#826)",
+            id="retired-deps-type-becomes-build-deps",
+        ),
+        pytest.param(
+            # The scope is folded in rather than dropped, so `ui` survives.
+            "- deps(ui): update nextjs to 15.5.2 (#1403)",
+            "- build(deps+ui): Update nextjs to 15.5.2 (#1403)",
+            id="retired-deps-type-keeps-its-scope",
+        ),
+        pytest.param(
+            "- tests: init ux smoke testing (#2738)",
+            "- test: Init ux smoke testing (#2738)",
+            id="retired-tests-type-becomes-test",
+        ),
+        pytest.param(
+            "- doc(integrations): updates to Jira fields (#1234)",
+            "- docs(integrations): Updates to Jira fields (#1234)",
+            id="retired-doc-type-becomes-docs",
+        ),
+        pytest.param(
+            # `doc` must not eat the canonical `docs`, nor `tests` the canonical
+            # `test`. Both rules require `(`, `!` or `:` straight after the type.
+            "- docs: fix a broken anchor (#1235)",
+            "- docs: Fix a broken anchor (#1235)",
+            id="canonical-docs-is-not-touched-by-the-doc-rule",
+        ),
+        pytest.param(
+            "- test(engine): cover retry backoff (#1236)",
+            "- test(engine): Cover retry backoff (#1236)",
+            id="canonical-test-is-not-touched-by-the-tests-rule",
+        ),
+        pytest.param(
+            "- security(deps): patch an unauthenticated RCE (#2300)",
+            "- security(deps): Patch an unauthenticated RCE (#2300)",
+            id="security-deps-keeps-its-type",
+        ),
+        pytest.param(
+            "- fix(api): return the deps manifest (#2200)",
+            "- fix(api): Return the deps manifest (#2200)",
+            id="only-the-deps-scope-is-normalised",
+        ),
+        pytest.param(
+            "- feat(api)!: drop the v1 webhook payload (#3000)",
+            "- feat(api)!: Drop the v1 webhook payload (#3000)",
+            id="bang-survives",
+        ),
+        pytest.param(
+            "- fix: return 404 for missing workspaces (#3100)",
+            "- fix: Return 404 for missing workspaces (#3100)",
+            id="no-scope",
+        ),
+        pytest.param(
+            "- add plaintext alternative body (#2000)",
+            "- Add plaintext alternative body (#2000)",
+            id="pre-cutoff-title-has-no-prefix",
+        ),
+        pytest.param(
+            # `check_pr_title.py` rejects this title now, so the rule is for the
+            # 373 releases of history behind that cutoff. The quoted type is
+            # discarded, the scope is kept, and the description reaches the
+            # capitalizer -- which is the whole reason the rule sits above it.
+            '- Revert "fix(agents): stopgap resolution of tracecat registry alias" (#2376)',
+            "- revert(agents): Stopgap resolution of tracecat registry alias (#2376)",
+            id="github-revert-wrapper-gets-a-type",
+        ),
+        pytest.param(
+            '- Revert "fix: return 404 for missing workspaces" (#2900)',
+            "- revert: Return 404 for missing workspaces (#2900)",
+            id="revert-wrapper-with-no-scope",
+        ),
+        pytest.param(
+            # The scope aliases run below this rule, so an old spelling inside
+            # the quotes resolves like any other.
+            '- Revert "feat(registry): add a saved search export" (#2901)',
+            "- revert(integrations): Add a saved search export (#2901)",
+            id="revert-wrapper-scope-still-resolves-its-alias",
+        ),
+        pytest.param(
+            # Nothing to lift a type out of, so the line is left alone rather
+            # than guessed at.
+            '- Revert "add plaintext alternative body" (#2902)',
+            '- Revert "add plaintext alternative body" (#2902)',
+            id="revert-wrapper-quoting-a-pre-cutoff-title-is-left-alone",
+        ),
+        pytest.param(
+            # Every capitalizer rule matches a lowercase letter, so a
+            # description the author already capitalized has nothing to match.
+            "- feat(ui): Case comment replies (#2600)",
+            "- feat(ui): Case comment replies (#2600)",
+            id="already-capital",
+        ),
+        pytest.param(
+            "- fix(functions): regex_extract corner case (#2800)",
+            "- fix(functions): regex_extract corner case (#2800)",
+            id="identifier-holds-an-underscore",
+        ),
+        pytest.param(
+            "- deprecation(integrations): tools.x in favour of tools.y (#2700)",
+            "- deprecation(integrations): tools.x in favour of tools.y (#2700)",
+            id="identifier-holds-a-dot",
+        ),
+        # The four below are live corruptions in published release bodies.
+        pytest.param(
+            "- feat(integrations): gRPC client (#1830)",
+            "- feat(integrations): gRPC client (#1830)",
+            id="inner-capital-is-the-author-s-choice",
+        ),
+        pytest.param(
+            "- feat(agents): mcp support for ai agents (#2609)",
+            "- feat(agents): mcp support for ai agents (#2609)",
+            id="scope-name-used-as-a-word",
+        ),
+        pytest.param(
+            "- ci(fix): uv venv install in registry install job",
+            "- ci: uv venv install in registry install job",
+            id="tool-name-that-is-never-capitalized",
+        ),
+        pytest.param(
+            "- fix(infra): saml secrets arn policy",
+            "- fix(infra): saml secrets arn policy",
+            id="acronym-a-capital-letter-would-only-half-fix",
+        ),
+        pytest.param(
+            "- build(deps): patch dependabot alerts (#3192)",
+            "- build(deps): Patch dependabot alerts (#3192)",
+            id="ordinary-opener-that-starts-with-a-listed-name",
+        ),
+        pytest.param(
+            "- feat(integrations): k8s exec pods (#1039)",
+            "- feat(integrations): K8s exec pods (#1039)",
+            id="title-case-is-this-name-s-own-spelling",
+        ),
+        # An alias inside a compound scope. All five shapes below are live in
+        # published release bodies; before the alias rules matched a whole
+        # `+`-delimited component they were the only scopes a reader met in
+        # their retired spelling.
+        pytest.param(
+            "- feat(ui+ee): gate the preset picker (#2100)",
+            "- feat(ui+enterprise): Gate the preset picker (#2100)",
+            id="alias-is-the-second-component",
+        ),
+        pytest.param(
+            "- feat(ui+registry): show template provenance (#2101)",
+            "- feat(ui+integrations): Show template provenance (#2101)",
+            id="alias-is-the-second-component-of-another-group",
+        ),
+        pytest.param(
+            "- feat(core+ui): add a transform action (#2102)",
+            "- feat(actions+ui): Add a transform action (#2102)",
+            id="alias-is-the-first-component",
+        ),
+        pytest.param(
+            # Pre-cutoff, so it predates the two-scope limit.
+            "- feat(api+ui+ee): meter agent runs (#2103)",
+            "- feat(api+ui+enterprise): Meter agent runs (#2103)",
+            id="three-components",
+        ),
+        pytest.param(
+            # `app` is in [ambiguous_scopes] and is never mapped, in either
+            # direction. Guessing would file backend work under the frontend.
+            "- feat(app+ui): add a workspace switcher (#2104)",
+            "- feat(app+ui): Add a workspace switcher (#2104)",
+            id="ambiguous-component-is-left-alone",
+        ),
+        pytest.param(
+            # The boundary is a whole component, not a word: `git` is an
+            # `integrations` alias and `github` is a vendor scope.
+            "- feat(github): read the checks API (#2105)",
+            "- feat(github): Read the checks API (#2105)",
+            id="alias-does-not-fire-inside-a-longer-component",
+        ),
+        pytest.param(
+            # The same in the other direction: `integration` is the alias,
+            # `integrations` is what it becomes, and a canonical scope must
+            # survive the pass untouched rather than growing an `s`.
+            "- feat(integrations+ui): add a connection status chip (#2106)",
+            "- feat(integrations+ui): Add a connection status chip (#2106)",
+            id="canonical-component-is-not-re-rewritten",
+        ),
+        pytest.param(
+            # A hyphen does not open a component either. `admin` is an `api`
+            # alias and the `api` rule runs first, so a word boundary here
+            # would rewrite this to `api-cli` and the `build` rule would never
+            # see it.
+            "- feat(admin-cli+ui): add a config subcommand (#2107)",
+            "- feat(build+ui): Add a config subcommand (#2107)",
+            id="hyphen-does-not-open-a-component",
+        ),
+    ],
+)
+def test_replacers_render_the_line(line: str, expected: str) -> None:
+    assert render(line) == expected
+
+
+def test_type_scope_rule_matches_the_toml(conventions: Conventions) -> None:
+    """The dropped-scope list is every type name that means nothing as a scope.
+
+    A type added to the TOML without being added here would keep rendering as a
+    scope; one removed from the TOML would be dropped from a line where it is
+    now a legitimate area.
+    """
+    rules = [
+        str(rule["search"])
+        for rule in DRAFTER["replacers"]
+        if str(rule["replace"]) == "- $1$2$3: " and "\\2" not in str(rule["search"])
+    ]
+    assert len(rules) == 1, rules
+    alternation = re.search(r"\(\?:([a-z|]+)\)", rules[0])
+    assert alternation is not None, rules[0]
+    listed = set(alternation.group(1).split("|"))
+
+    every_type = set(conventions.types) | set(conventions.legacy_types)
+    reserved = (
+        set(conventions.canonical_scopes)
+        | set(conventions.scope_aliases)
+        | set(conventions.legacy_scopes)
+        | set(conventions.ambiguous_scopes)
+    )
+    assert listed == every_type - reserved
+
+
+def test_replacers_anchor_per_line() -> None:
+    """The `m` flag is what keeps a rule from rewriting only the first line.
+
+    `g` is the other half of that and needs evidence of its own: both bullets
+    below take the SAME per-letter capitalizer, so dropping `g` leaves the
+    second one lowercase. Two bullets taking different rules would pass either
+    way, which is what this test used to do.
+    """
+    body = "\n".join(
+        (
+            "## Integrations",
+            "",
+            "- feat(registry): add a saved search export (#3400)",
+            "- fix(functions): regex_extract corner case (#2800)",
+            "",
+            "## Fixes",
+            "- fix(app): add a 404 for missing workspaces (#3100)",
+        )
+    )
+    assert render(body).splitlines() == [
+        "## Integrations",
+        "",
+        "- feat(integrations): Add a saved search export (#3400)",
+        "- fix(functions): regex_extract corner case (#2800)",
+        "",
+        "## Fixes",
+        "- fix(app): Add a 404 for missing workspaces (#3100)",
+    ]
+
+
+@pytest.mark.parametrize("letter", string.ascii_lowercase)
+def test_every_letter_has_a_capitalization_rule(letter: str) -> None:
+    """JS has no case-folding escape, so a dropped letter fails silently."""
+    line = f"- feat(api): {letter}xample change (#1)"
+    assert render(line) == f"- feat(api): {letter.upper()}xample change (#1)"
+
+
+# `scripts/audit_commit_conventions.py` resolves labels in Python instead of by
+# regex, so it is a third restatement of the same rules and can drift too.
+CORPUS: Final = (
+    "feat(ui): replace preset button with @ mentions",
+    "fix: return 404 for missing workspaces",
+    "feat(api)!: drop the v1 webhook payload",
+    "feat(ui+api): case comment replies",
+    "feat(splunk+ui): add saved search export",
+    "[codex] chore(deps): bump orjson",
+    'Revert "feat(mcp): add internal OIDC issuer"',
+    "revert(agents): stopgap resolution of tracecat registry alias",
+    "release: 1.0.0-beta.49",
+    "deprecation(integrations): x in favour of y",
+    "build(deps): patch dependabot alerts",
+    "ci(workflows): pin actions to immutable SHAs",
+    "feat(workflows): add a workflow alias resolver",
+    "feat(jira): add issue search",
+    "feat(elastic_security): add a detection search",
+    "feat(actions): add a table lookup action",
+    "fix(functions): regex_extract corner case",
+    "feat(cases+actions): add a case linking action",
+    "feat(audit): stream audit logs via webhook",
+    "docs(self-hosting, cheatsheets): Add scaling guide",
+    "feat(UI): x",
+    "fix(audit+api): ensure valid payloads and resource attribution",
+    "feat(observability): platform audit logs",
+    "feat(udfs): add a table lookup action",
+    "refactor(app): update case filtering",
+    "perf(executor): batch event writes",
+    "test(engine): cover retry backoff",
+    "security(deps): patch an unauthenticated RCE",
+    "helm: bump the chart version",
+    "deps: bump temporalio",
+    "tests: agent smoke",
+    "doc: fix a broken anchor",
+    "depr(integrations): tools.x in favour of tools.y",
+)
+
+
+@pytest.mark.parametrize("title", CORPUS)
+def test_audit_script_agrees_with_the_autolabeler(title: str) -> None:
+    parsed = parse_title(title, CONVENTIONS)
+    resolved = frozenset() if parsed is None else resolve_labels(parsed, CONVENTIONS)
+    assert resolved == autolabel(title), title
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--limit", "7", "prefixes"],
+        ["prefixes", "--limit", "7"],
+    ],
+    ids=["global-first", "subcommand-first"],
+)
+def test_limit_survives_either_argument_order(argv: list[str]) -> None:
+    """A subparser default silently overwrote the top-level value.
+
+    `--limit 7 prefixes` reported 500 rows with no error, which is worse than
+    a parse failure because the number looks legitimate.
+    """
+    assert build_parser().parse_args(argv).limit == 7
+
+
+def test_limit_falls_back_to_the_default() -> None:
+    assert build_parser().parse_args(["prefixes"]).limit == DEFAULT_LIMIT
+
+
+@pytest.mark.parametrize("path", DOC_PATHS, ids=lambda p: p.name)
+def test_documented_types_match_the_toml(path: Path, conventions: Conventions) -> None:
+    assert marker_identifiers(path, "types") == set(conventions.types)
+
+
+@pytest.mark.parametrize("path", DOC_PATHS, ids=lambda p: p.name)
+def test_documented_scopes_match_the_toml(path: Path, conventions: Conventions) -> None:
+    assert marker_identifiers(path, "scopes") == set(conventions.canonical_scopes)
