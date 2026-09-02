@@ -18,6 +18,12 @@ from tracecat.agent.common.types import (
     SandboxAgentConfig,
     SandboxSubagentConfig,
 )
+from tracecat.agent.common.wire import (
+    boolean,
+    optional_integer,
+    optional_object,
+    optional_string,
+)
 
 
 @dataclass(kw_only=True, slots=True)
@@ -137,6 +143,7 @@ type RuntimeEventType = Literal[
 ]
 
 _RUNTIME_EVENT_TYPES: frozenset[str] = frozenset(get_args(RuntimeEventType.__value__))
+_RUNTIME_LOG_LEVELS = frozenset({"debug", "info", "warning", "error"})
 
 
 def _is_runtime_event_type(value: object) -> TypeGuard[RuntimeEventType]:
@@ -199,25 +206,75 @@ class RuntimeEventEnvelope:
         if raw_event is not None:
             event = UnifiedStreamEvent.from_dict(raw_event)
 
+        message = optional_object(data, "message", path="runtime_event")
+        session_line = optional_string(data, "session_line", path="runtime_event")
+        sdk_session_id = optional_string(data, "sdk_session_id", path="runtime_event")
+        sdk_session_data = optional_string(
+            data,
+            "sdk_session_data",
+            path="runtime_event",
+        )
+        error = optional_string(data, "error", path="runtime_event")
+        result_usage = optional_object(data, "result_usage", path="runtime_event")
+        result_num_turns = optional_integer(
+            data,
+            "result_num_turns",
+            path="runtime_event",
+        )
+        result_duration_ms = optional_integer(
+            data,
+            "result_duration_ms",
+            path="runtime_event",
+        )
+        log_level = optional_string(data, "log_level", path="runtime_event")
+        log_message = optional_string(data, "log_message", path="runtime_event")
+        log_extra = optional_object(data, "log_extra", path="runtime_event")
+
+        internal = boolean(data, "internal", path="runtime_event")
+        if log_level is not None and log_level not in _RUNTIME_LOG_LEVELS:
+            raise ValueError("Runtime event log_level has an unknown log level")
+        if log_extra is not None and "session_id" in log_extra:
+            raise ValueError("Runtime event log_extra cannot override session_id")
+
+        match raw_type:
+            case "stream_event" if event is None:
+                raise ValueError("Runtime stream event must include event")
+            case "message" if message is None:
+                raise ValueError("Runtime message event must include message")
+            case "session_line" if session_line is None or sdk_session_id is None:
+                raise ValueError(
+                    "Runtime session_line event must include session_line and sdk_session_id"
+                )
+            case "session_update" if sdk_session_id is None or sdk_session_data is None:
+                raise ValueError(
+                    "Runtime session_update event must include sdk_session_id and sdk_session_data"
+                )
+            case "error" if error is None:
+                raise ValueError("Runtime error event must include error")
+            case "log" if log_level is None or log_message is None:
+                raise ValueError(
+                    "Runtime log event must include log_level and log_message"
+                )
+
         return cls(
             type=raw_type,
             event=event,
-            message=data.get("message"),
-            session_line=data.get("session_line"),
-            internal=data.get("internal", False),
-            sdk_session_id=data.get("sdk_session_id"),
-            sdk_session_data=data.get("sdk_session_data"),
-            error=data.get("error"),
-            result_usage=data.get("result_usage"),
-            result_num_turns=data.get("result_num_turns"),
-            result_duration_ms=data.get("result_duration_ms"),
+            message=message,
+            session_line=session_line,
+            internal=internal,
+            sdk_session_id=sdk_session_id,
+            sdk_session_data=sdk_session_data,
+            error=error,
+            result_usage=result_usage,
+            result_num_turns=result_num_turns,
+            result_duration_ms=result_duration_ms,
             result_output=data.get(
                 "result_output",
                 data.get("result_structured_output", data.get("result_result")),
             ),
-            log_level=data.get("log_level"),
-            log_message=data.get("log_message"),
-            log_extra=data.get("log_extra"),
+            log_level=log_level,
+            log_message=log_message,
+            log_extra=log_extra,
         )
 
     def to_dict(self) -> dict[str, Any]:

@@ -259,7 +259,10 @@ def _runtime_envelope_from_json(payload: bytes) -> RuntimeEventEnvelope:
         decoded = orjson.loads(payload)
         if not isinstance(decoded, dict):
             raise ValueError("Runtime event payload must be a JSON object")
-        return RuntimeEventEnvelope.from_dict(cast(dict[str, Any], decoded))
+        envelope = RuntimeEventEnvelope.from_dict(cast(dict[str, Any], decoded))
+        if envelope.type == "session_line" and envelope.session_line is not None:
+            _session_line_from_json(envelope.session_line)
+        return envelope
     except (orjson.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise RuntimeEnvelopeProtocolError from exc
 

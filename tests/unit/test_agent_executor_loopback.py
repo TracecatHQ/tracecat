@@ -24,6 +24,8 @@ from tracecat.agent.executor.loopback import (
     FanoutStreamSink,
     LoopbackHandler,
     LoopbackInput,
+    RuntimeEnvelopeProtocolError,
+    _runtime_envelope_from_json,
 )
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.artifacts.bindings import ArtifactSideEffect
@@ -831,6 +833,124 @@ async def test_handle_connection_classifies_invalid_runtime_envelope_as_protocol
     assert result.terminal_stream_error_emitted is True
     writer.close.assert_called_once()
     writer.wait_closed.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "envelope",
+    [
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "approval_request",
+                "approval_items": [{"id": [], "name": "tool"}],
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "approval_request",
+                "approval_items": [{"id": "call", "name": "tool", "input": []}],
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "approval_request",
+                "approval_items": [{"id": "call", "name": "tool", "metadata": []}],
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "approval_request",
+                "approval_items": [{"id": "call", "name": "tool", "status": "waiting"}],
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "approval_request",
+                "approval_items": [{"id": "call", "name": "tool", "decision": []}],
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "approval_request",
+                "approval_items": [
+                    {
+                        "id": "call",
+                        "name": "tool",
+                        "decision": {"value": "yes", "metadata": {}},
+                    }
+                ],
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "artifact",
+                "artifact_data": {"op": "replace", "artifact": {}},
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "artifact",
+                "artifact_data": {"op": "upsert", "artifact": []},
+            },
+        },
+        {"type": "stream_event", "event": {"type": "text_delta", "part_id": True}},
+        {"type": "stream_event", "event": {"type": "text_delta", "text": []}},
+        {
+            "type": "stream_event",
+            "event": {"type": "tool_call_start", "tool_call_id": []},
+        },
+        {
+            "type": "stream_event",
+            "event": {"type": "tool_call_start", "tool_input": []},
+        },
+        {
+            "type": "stream_event",
+            "event": {"type": "tool_result", "is_error": "false"},
+        },
+        {
+            "type": "stream_event",
+            "event": {"type": "compaction", "metadata": []},
+        },
+        {"type": "stream_event", "event": {"type": "text_delta", "timestamp": 1}},
+        {"type": "message", "message": []},
+        {"type": "message"},
+        {"type": "session_line", "session_line": 1, "sdk_session_id": "sdk"},
+        {"type": "session_line", "session_line": "{", "sdk_session_id": "sdk"},
+        {"type": "session_line", "session_line": "[]", "sdk_session_id": "sdk"},
+        {"type": "session_line", "session_line": "{}", "internal": 1},
+        {"type": "session_update", "sdk_session_id": "sdk"},
+        {"type": "error"},
+        {"type": "result", "result_usage": []},
+        {"type": "result", "result_num_turns": True},
+        {"type": "result", "result_duration_ms": "1"},
+        {"type": "log", "log_level": "fatal", "log_message": "message"},
+        {"type": "log", "log_level": "info", "log_message": []},
+        {
+            "type": "log",
+            "log_level": "info",
+            "log_message": "message",
+            "log_extra": [],
+        },
+        {
+            "type": "log",
+            "log_level": "info",
+            "log_message": "message",
+            "log_extra": {"session_id": "spoofed"},
+        },
+    ],
+)
+def test_runtime_envelope_parser_rejects_malformed_typed_fields(
+    envelope: dict[str, object],
+) -> None:
+    with pytest.raises(RuntimeEnvelopeProtocolError):
+        _runtime_envelope_from_json(orjson.dumps(envelope))
 
 
 @pytest.mark.anyio
