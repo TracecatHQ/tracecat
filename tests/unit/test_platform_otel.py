@@ -19,7 +19,7 @@ from tracecat.observability import otel as platform_otel
 from tracecat.observability.otel import (
     TRACE_ID_HEADER,
     TRACE_SAMPLED_HEADER,
-    current_trace_reference,
+    current_trace_id,
     get_platform_tracing,
     initialize_platform_tracing,
     instrument_fastapi_app,
@@ -40,11 +40,6 @@ class RaisingSpanExporter(SpanExporter):
 def reset_platform_tracing(monkeypatch: pytest.MonkeyPatch):
     shutdown_platform_tracing()
     monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", False)
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__PLATFORM_OTEL_TRACE_VIEW_URL_TEMPLATE",
-        None,
-    )
     yield
     shutdown_platform_tracing()
 
@@ -86,28 +81,21 @@ def test_platform_tracing_initialization_is_idempotent(
     assert isinstance(temporal_tracing_interceptor(), TracingInterceptor)
 
 
-def test_current_trace_reference_builds_operator_view_url(
+def test_current_trace_id_matches_active_span(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__PLATFORM_OTEL_TRACE_VIEW_URL_TEMPLATE",
-        "http://localhost:3000/explore?trace={trace_id}",
-    )
     runtime = initialize_platform_tracing(
         "tracecat-api", exporter=InMemorySpanExporter()
     )
     assert runtime is not None
 
     with runtime.tracer("test.trace-link").start_as_current_span("request") as span:
-        reference = current_trace_reference()
+        trace_id = current_trace_id()
 
-    assert reference is not None
-    assert span.get_span_context().trace_id == int(reference.trace_id, 16)
-    assert reference.trace_url == (
-        f"http://localhost:3000/explore?trace={reference.trace_id}"
-    )
+    assert trace_id is not None
+    assert len(trace_id) == 32
+    assert span.get_span_context().trace_id == int(trace_id, 16)
 
 
 def test_active_trace_context_is_added_to_log_records(

@@ -31878,10 +31878,6 @@ export const $WorkflowExecutionCreateResponse = {
       type: "string",
       title: "Trace Id",
     },
-    trace_url: {
-      type: "string",
-      title: "Trace Url",
-    },
     payload: {
       title: "Payload",
     },

@@ -59,14 +59,11 @@ _WF_ID = WorkflowUUID.new_uuid4()
 _WORKSPACE_ID = uuid.uuid4()
 
 
-def test_public_webhook_trace_annotation_omits_internal_viewer_url() -> None:
+def test_public_webhook_trace_annotation_sets_trace_id() -> None:
     response = cast(Any, {})
     with patch(
-        "tracecat.webhooks.router.current_trace_reference",
-        return_value=SimpleNamespace(
-            trace_id="0123456789abcdef0123456789abcdef",
-            trace_url="https://grafana.internal/explore",
-        ),
+        "tracecat.webhooks.router.current_trace_id",
+        return_value="0123456789abcdef0123456789abcdef",
     ):
         _annotate_webhook_trace(
             wf_id=_WF_ID,
@@ -75,7 +72,6 @@ def test_public_webhook_trace_annotation_omits_internal_viewer_url() -> None:
         )
 
     assert response["trace_id"] == "0123456789abcdef0123456789abcdef"
-    assert "trace_url" not in response
 
 
 def _role() -> Role:

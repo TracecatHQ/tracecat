@@ -1085,7 +1085,6 @@ class WorkflowExecutionCreateResponse(TypedDict):
     wf_id: WorkflowID
     wf_exec_id: WorkflowExecutionID
     trace_id: NotRequired[str]
-    trace_url: NotRequired[str]
     payload: NotRequired[Any]
     """The HTTP request body of the request that triggered the workflow."""
 

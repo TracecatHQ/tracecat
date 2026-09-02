@@ -122,14 +122,6 @@ class PlatformTracing:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class PlatformTraceReference:
-    """Safe reference returned to callers for opening one platform trace."""
-
-    trace_id: str
-    trace_url: str | None
-
-
 _runtime: PlatformTracing | None = None
 _runtime_lock = Lock()
 
@@ -389,20 +381,13 @@ def platform_span(
             raise
 
 
-def current_trace_reference() -> PlatformTraceReference | None:
-    """Return the active trace ID and optional operator-configured viewer URL."""
+def current_trace_id() -> str | None:
+    """Return the active trace ID, or ``None`` when no valid span is active."""
     span_context = trace.get_current_span().get_span_context()
     if not span_context.is_valid:
         return None
 
-    trace_id = f"{span_context.trace_id:032x}"
-    template = config.TRACECAT__PLATFORM_OTEL_TRACE_VIEW_URL_TEMPLATE
-    trace_url = (
-        template.replace("{trace_id}", trace_id)
-        if template and "{trace_id}" in template
-        else None
-    )
-    return PlatformTraceReference(trace_id=trace_id, trace_url=trace_url)
+    return f"{span_context.trace_id:032x}"
 
 
 def _sanitize_server_span(span: Span, scope: Scope) -> None:

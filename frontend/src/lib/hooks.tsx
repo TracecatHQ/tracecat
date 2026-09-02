@@ -370,7 +370,6 @@ import {
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
 } from "@/client"
-import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 import {
   markStdioMcpVerificationStarted,
@@ -434,18 +433,6 @@ function toastMutationError(activity: string) {
       description: `An error occurred while ${activity}: ${getApiErrorDetail(error)}`,
     })
   }
-}
-
-function traceToastAction(traceUrl?: string) {
-  if (!traceUrl) return undefined
-  return (
-    <ToastAction
-      altText="Open workflow trace"
-      onClick={() => window.open(traceUrl, "_blank", "noopener,noreferrer")}
-    >
-      View trace
-    </ToastAction>
-  )
 }
 
 interface AppInfo {
@@ -1233,11 +1220,10 @@ export function useCreateManualWorkflowExecution(workflowId: string) {
         requestBody: params,
       })
     },
-    onSuccess: async ({ wf_exec_id, message, trace_url }) => {
+    onSuccess: async ({ wf_exec_id, message }) => {
       toast({
         title: `Workflow run started`,
         description: `${wf_exec_id} ${message}`,
-        action: traceToastAction(trace_url),
       })
 
       // Still invalidate queries for compatibility with other components
@@ -1294,11 +1280,10 @@ export function useCreateDraftWorkflowExecution(workflowId: string) {
         requestBody: params,
       })
     },
-    onSuccess: async ({ wf_exec_id, message, trace_url }) => {
+    onSuccess: async ({ wf_exec_id, message }) => {
       toast({
         title: `Draft workflow run started`,
         description: `${wf_exec_id} ${message}`,
-        action: traceToastAction(trace_url),
       })
 
       // Still invalidate queries for compatibility with other components

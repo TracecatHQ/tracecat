@@ -254,12 +254,6 @@ variable "otel_traces_sampler_arg" {
   default     = "1.0"
 }
 
-variable "platform_otel_trace_view_url_template" {
-  type        = string
-  description = "Optional trace viewer URL template containing {trace_id}"
-  default     = null
-}
-
 variable "audit_trusted_proxy_cidrs" {
   type        = string
   description = "Comma-separated CIDRs the API treats as its own proxy hops when resolving audit client IPs. Empty uses the built-in private-range default."

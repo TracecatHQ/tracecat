@@ -33,7 +33,7 @@ from tracecat.identifiers.workflow import (
 )
 from tracecat.logger import logger
 from tracecat.observability.otel import (
-    current_trace_reference,
+    current_trace_id,
     set_current_span_attributes,
 )
 from tracecat.registry.lock.types import RegistryLock
@@ -130,8 +130,8 @@ def _annotate_webhook_trace(
             "tracecat.trigger.type": TriggerType.WEBHOOK,
         }
     )
-    if response is not None and (trace_reference := current_trace_reference()):
-        response["trace_id"] = trace_reference.trace_id
+    if response is not None and (trace_id := current_trace_id()):
+        response["trace_id"] = trace_id
 
 
 async def _to_external_download_response(

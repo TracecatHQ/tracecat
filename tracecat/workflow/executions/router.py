@@ -40,7 +40,7 @@ from tracecat.identifiers.workflow import (
 )
 from tracecat.logger import logger
 from tracecat.observability.otel import (
-    current_trace_reference,
+    current_trace_id,
     set_current_span_attributes,
 )
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -1010,10 +1010,8 @@ def _annotate_execution_trace(
             "tracecat.trigger.type": TriggerType.MANUAL,
         }
     )
-    if trace_reference := current_trace_reference():
-        response["trace_id"] = trace_reference.trace_id
-        if trace_reference.trace_url is not None:
-            response["trace_url"] = trace_reference.trace_url
+    if trace_id := current_trace_id():
+        response["trace_id"] = trace_id
 
 
 @router.post("")
