@@ -509,6 +509,63 @@ def test_normalizes_direct_expression_values() -> None:
         assert list(params.values()) == [expected]
 
 
+@pytest.mark.parametrize(
+    ("sql_type", "minimum", "maximum"),
+    [
+        (sa.SmallInteger(), -(2**15), 2**15 - 1),
+        (sa.Integer(), -(2**31), 2**31 - 1),
+        (sa.BigInteger(), -(2**63), 2**63 - 1),
+    ],
+)
+def test_validates_integer_bounds(
+    sql_type: sa.Integer, minimum: int, maximum: int
+) -> None:
+    resolver = StubResolver(
+        {
+            "value": ResolvedField(
+                expr=sa.column("value", sql_type),
+                kind=FieldKind.NUMBER,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+
+    for value in (minimum, maximum):
+        _, params = _compile_sql(
+            compile_filter(
+                Condition(field="value", op=FilterOp.EQ, value=value), resolver
+            )
+        )
+        assert list(params.values()) == [value]
+
+    for value in (minimum - 1, maximum + 1):
+        with pytest.raises(TracecatValidationError, match="field 'value'"):
+            compile_filter(
+                Condition(field="value", op=FilterOp.EQ, value=value), resolver
+            )
+
+
+def test_normalizes_large_numeric_integer_to_decimal() -> None:
+    resolver = StubResolver(
+        {
+            "value": ResolvedField(
+                expr=sa.column("value", sa.Numeric()),
+                kind=FieldKind.NUMBER,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+    value = 10**100
+
+    expression = compile_filter(
+        Condition(field="value", op=FilterOp.EQ, value=value), resolver
+    )
+    _, params = _compile_sql(expression)
+
+    assert list(params.values()) == [Decimal(str(value))]
+    assert isinstance(expression.right.type, sa.Numeric)
+
+
 def test_normalizes_native_enum_values() -> None:
     expression = sa.column("status", sa.Enum(_NativeStatus))
     resolver = StubResolver(

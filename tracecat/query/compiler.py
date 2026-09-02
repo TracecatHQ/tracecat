@@ -23,6 +23,13 @@ from tracecat.query.filters import (
 )
 from tracecat.query.resolver import FieldKind, FieldResolver, ResolvedField
 
+POSTGRES_SMALLINT_MIN = -(2**15)
+POSTGRES_SMALLINT_MAX = 2**15 - 1
+POSTGRES_INTEGER_MIN = -(2**31)
+POSTGRES_INTEGER_MAX = 2**31 - 1
+POSTGRES_BIGINT_MIN = -(2**63)
+POSTGRES_BIGINT_MAX = 2**63 - 1
+
 
 def compile_filter(node: Filter, resolver: FieldResolver) -> ColumnElement[bool]:
     """Compile a validated filter tree into a SQLAlchemy predicate."""
@@ -191,10 +198,29 @@ def _normalize_number(
     if isinstance(value, Decimal) and not value.is_finite():
         raise ValueError
     if isinstance(expression.type, sa.Integer):
-        if Decimal(str(value)) != Decimal(str(value)).to_integral_value():
+        decimal_value = Decimal(str(value))
+        if decimal_value != decimal_value.to_integral_value():
             raise ValueError
-        return int(value)
+        integer_value = int(decimal_value)
+        lower_bound, upper_bound = _integer_bounds(expression.type)
+        if not lower_bound <= integer_value <= upper_bound:
+            raise ValueError
+        return integer_value
+    if isinstance(expression.type, sa.Float):
+        return float(value)
+    if isinstance(expression.type, sa.Numeric):
+        # SQLAlchemy otherwise infers an integer literal as BIGINT, even when the
+        # compared expression is NUMERIC. Decimal forces the correct bind type.
+        return Decimal(str(value))
     return value
+
+
+def _integer_bounds(type_: sa.Integer) -> tuple[int, int]:
+    if isinstance(type_, sa.SmallInteger):
+        return POSTGRES_SMALLINT_MIN, POSTGRES_SMALLINT_MAX
+    if isinstance(type_, sa.BigInteger):
+        return POSTGRES_BIGINT_MIN, POSTGRES_BIGINT_MAX
+    return POSTGRES_INTEGER_MIN, POSTGRES_INTEGER_MAX
 
 
 def _normalize_temporal(
