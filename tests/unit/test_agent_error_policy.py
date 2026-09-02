@@ -211,7 +211,7 @@ class _StreamSink:
 
 
 @pytest.mark.anyio
-async def test_runtime_reported_error_is_user_classified() -> None:
+async def test_untyped_runtime_error_is_platform_classified() -> None:
     handler = LoopbackHandler(
         input=LoopbackInput(
             session_id=uuid.uuid4(),
@@ -225,8 +225,9 @@ async def test_runtime_reported_error_is_user_classified() -> None:
     result = handler.build_result()
 
     assert result.classification is not None
-    assert result.classification.owner is RuntimeErrorOwner.USER
-    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
     assert "raw provider response" not in result.classification.message
 
 
