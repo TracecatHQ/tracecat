@@ -1,0 +1,24 @@
+.agents/skills/gh-prerelease/SKILL.md
+  s_c5002332a8185a::t_7f492fbc55b62f 264-271
+.github/release-drafter.yml
+  s_c5002332a8185a::t_b3aeb2474d82bc 551-559
+  s_c5002332a8185a::t_9870f7aa4031a0 388,480-495,497-498,500-501,503-504,506-507,509-510,512-513,515-516,518-519,521-522,524-525,527-528,530-531,533-534,536-537
+tests/unit/test_commit_conventions.py
+  s_c5002332a8185a::t_be8fa4dcb78b85 446-501
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d8ccf1c71821853838df5666b7ea92cf98634db6",
+  "prompts": {},
+  "sessions": {
+    "s_c5002332a8185a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "831b7546-2af0-4f8f-af70-e9256e652a68",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
