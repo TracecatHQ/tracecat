@@ -477,6 +477,23 @@ replacers:
   - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?:)[ \t]{2,}/gm'
     replace: '- $1$2 '
 
+  # Retired type spellings. `[legacy_types]` in commit-conventions.toml already
+  # declares what each one should have been, and the checker names that
+  # replacement in its error text; these rules make the rendered line agree.
+  # `deps(ui)` keeps the scope by folding it into a compound rather than
+  # dropping it, so no information is lost.
+  - search: '/^- (\[[\w.-]+\]\s+)?deps\(([a-z0-9_+-]+)\)(!?): /gm'
+    replace: '- $1build(deps+$2)$3: '
+  - search: '/^- (\[[\w.-]+\]\s+)?deps(!?): /gm'
+    replace: '- $1build(deps)$2: '
+  # `tests` must not match `test`, and `doc` must not match `docs`: both need
+  # the character after the type to be `(`, `!` or `:`, which the trailing
+  # groups already require.
+  - search: '/^- (\[[\w.-]+\]\s+)?tests(\([^)\n]*\))?(!?): /gm'
+    replace: '- $1test$2$3: '
+  - search: '/^- (\[[\w.-]+\]\s+)?doc(\([^)\n]*\))?(!?): /gm'
+    replace: '- $1docs$2$3: '
+
   # Scope aliases. The alias must be a whole `+`-delimited component, so
   # `feat(ui+ee)` becomes `feat(ui+enterprise)` and `feat(github)` is left
   # alone. Same shape as the Tier B autolabeler rules above: complete

@@ -373,6 +373,39 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
             id="docs-deps-keeps-its-type-because-its-section-is-docs",
         ),
         pytest.param(
+            "- deps: bump temporalio to 1.9.0 (#826)",
+            "- build(deps): Bump temporalio to 1.9.0 (#826)",
+            id="retired-deps-type-becomes-build-deps",
+        ),
+        pytest.param(
+            # The scope is folded in rather than dropped, so `ui` survives.
+            "- deps(ui): update nextjs to 15.5.2 (#1403)",
+            "- build(deps+ui): Update nextjs to 15.5.2 (#1403)",
+            id="retired-deps-type-keeps-its-scope",
+        ),
+        pytest.param(
+            "- tests: init ux smoke testing (#2738)",
+            "- test: Init ux smoke testing (#2738)",
+            id="retired-tests-type-becomes-test",
+        ),
+        pytest.param(
+            "- doc(integrations): updates to Jira fields (#1234)",
+            "- docs(integrations): Updates to Jira fields (#1234)",
+            id="retired-doc-type-becomes-docs",
+        ),
+        pytest.param(
+            # `doc` must not eat the canonical `docs`, nor `tests` the canonical
+            # `test`. Both rules require `(`, `!` or `:` straight after the type.
+            "- docs: fix a broken anchor (#1235)",
+            "- docs: Fix a broken anchor (#1235)",
+            id="canonical-docs-is-not-touched-by-the-doc-rule",
+        ),
+        pytest.param(
+            "- test(engine): cover retry backoff (#1236)",
+            "- test(engine): Cover retry backoff (#1236)",
+            id="canonical-test-is-not-touched-by-the-tests-rule",
+        ),
+        pytest.param(
             "- security(deps): patch an unauthenticated RCE (#2300)",
             "- security(deps): Patch an unauthenticated RCE (#2300)",
             id="security-deps-keeps-its-type",
