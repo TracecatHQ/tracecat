@@ -278,8 +278,8 @@ class NameSwapPlan[ModelT: _WorkspaceRow]:
     """Extra predicates applied when checking whether a target name is free."""
 
     @property
-    def column(self) -> InstrumentedAttribute[str]:
-        """The model's synced name column, e.g. ``AgentPreset.slug``."""
+    def column(self) -> InstrumentedAttribute[str | None]:
+        """The synced column; desired names are non-null even if storage is nullable."""
         return getattr(self.model, self.name_attr)
 
     @property
@@ -802,7 +802,9 @@ class ResourceAdapter(ABC):
                     )
                 )
             ).all()
-            reserved[None] = set(existing) | set(plan.targets.values())
+            reserved[None] = {name for name in existing if name is not None} | set(
+                plan.targets.values()
+            )
             return reserved
         rows = (
             await workspace_service.session.execute(
@@ -812,7 +814,8 @@ class ResourceAdapter(ABC):
             )
         ).tuples()
         for scope_value, name in rows:
-            reserved.setdefault(scope_value, set()).add(name)
+            if name is not None:
+                reserved.setdefault(scope_value, set()).add(name)
         for source_id, name in plan.targets.items():
             reserved.setdefault(plan.scope_of(source_id), set()).add(name)
         return reserved
