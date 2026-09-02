@@ -48,6 +48,12 @@ class _FilterModel(BaseModel):
         serialize_by_alias=True,
     )
 
+    @model_validator(mode="after")
+    def validate_tree_limits(self) -> Self:
+        if isinstance(self, Condition | AndClause | OrClause | NotClause):
+            _validate_tree_limits(self)
+        return self
+
 
 class Condition(_FilterModel):
     """A predicate over one resolver-defined field."""
@@ -55,11 +61,6 @@ class Condition(_FilterModel):
     field: str = Field(min_length=1)
     op: FilterOp
     value: FilterValue | None = Field(default=None)
-
-    @model_validator(mode="after")
-    def validate_tree_limits(self) -> Self:
-        _validate_tree_limits(self)
-        return self
 
 
 class AndClause(_FilterModel):
@@ -71,11 +72,6 @@ class AndClause(_FilterModel):
         min_length=1,
     )
 
-    @model_validator(mode="after")
-    def validate_tree_limits(self) -> Self:
-        _validate_tree_limits(self)
-        return self
-
 
 class OrClause(_FilterModel):
     """A disjunction of one or more filters."""
@@ -86,21 +82,11 @@ class OrClause(_FilterModel):
         min_length=1,
     )
 
-    @model_validator(mode="after")
-    def validate_tree_limits(self) -> Self:
-        _validate_tree_limits(self)
-        return self
-
 
 class NotClause(_FilterModel):
     """The negation of one filter."""
 
     not_: Filter = Field(alias="not", serialization_alias="not")
-
-    @model_validator(mode="after")
-    def validate_tree_limits(self) -> Self:
-        _validate_tree_limits(self)
-        return self
 
 
 def _filter_discriminator(value: object) -> str:

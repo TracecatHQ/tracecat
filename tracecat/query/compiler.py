@@ -65,7 +65,7 @@ def _compile_condition(
             f"operation {condition.op.value!r} is not allowed for {resolved.kind.value}",
         )
 
-    value = _validate_value_shape(condition, resolved.kind)
+    value = _validate_value_shape(condition)
     if condition.op is FilterOp.IN and value == []:
         return sa.false()
     if condition.op is FilterOp.NOT_IN and value == []:
@@ -96,7 +96,7 @@ def _compile_condition(
     return _compile_expression(condition, column_expression, normalized)
 
 
-def _validate_value_shape(condition: Condition, kind: FieldKind) -> FilterValue | None:
+def _validate_value_shape(condition: Condition) -> FilterValue | None:
     value = condition.value
     if condition.op is FilterOp.IS_NULL:
         if value is not None:
@@ -108,65 +108,11 @@ def _validate_value_shape(condition: Condition, kind: FieldKind) -> FilterValue 
     if condition.op in {FilterOp.IN, FilterOp.NOT_IN}:
         if not isinstance(value, list):
             raise _condition_error(condition, "operation requires a list value")
-        for item in value:
-            _validate_scalar(condition, kind, item)
         return value
 
     if isinstance(value, list):
         raise _condition_error(condition, "operation requires a scalar value")
-    _validate_scalar(condition, kind, value)
     return value
-
-
-def _validate_scalar(
-    condition: Condition, kind: FieldKind, value: FilterScalar
-) -> None:
-    valid = _matches_kind_value(kind, value)
-    if not valid:
-        raise _condition_error(
-            condition,
-            f"value has the wrong shape for {kind.value}",
-        )
-
-
-def _matches_kind_value(kind: FieldKind, value: FilterScalar) -> bool:
-    match kind:
-        case FieldKind.TEXT | FieldKind.ENUM | FieldKind.TAG:
-            return isinstance(value, str) and "\x00" not in value
-        case FieldKind.NUMBER:
-            if isinstance(value, bool) or not isinstance(
-                value, int | float | Decimal | str
-            ):
-                return False
-            try:
-                decimal_value = Decimal(
-                    value.strip() if isinstance(value, str) else str(value)
-                )
-            except (InvalidOperation, ValueError):
-                return False
-            return decimal_value.is_finite()
-        case FieldKind.BOOLEAN:
-            return isinstance(value, bool)
-        case FieldKind.TEMPORAL:
-            if isinstance(value, date | datetime):
-                return True
-            if not isinstance(value, str):
-                return False
-            try:
-                _parse_iso_datetime(value)
-            except ValueError:
-                return False
-            return True
-        case FieldKind.UUID:
-            if isinstance(value, UUID):
-                return True
-            if not isinstance(value, str):
-                return False
-            try:
-                UUID(value)
-            except ValueError:
-                return False
-            return True
 
 
 def _normalize_value(
@@ -202,7 +148,13 @@ def _normalize_scalar(
                 if isinstance(value, str):
                     return UUID(value)
                 raise TypeError
-            case _:
+            case FieldKind.BOOLEAN:
+                if not isinstance(value, bool):
+                    raise TypeError
+                return value
+            case FieldKind.TEXT | FieldKind.TAG:
+                if not isinstance(value, str) or "\x00" in value:
+                    raise TypeError
                 return value
     except (TypeError, ValueError) as exc:
         raise _condition_error(
@@ -250,10 +202,7 @@ def _integer_bounds(type_: sa.Integer) -> tuple[int, int]:
 
 
 def _normalize_float(type_: sa.Float, value: Decimal) -> float:
-    try:
-        float_value = float(value)
-    except OverflowError as exc:
-        raise ValueError from exc
+    float_value = float(value)
     if not math.isfinite(float_value) or (float_value == 0 and not value.is_zero()):
         raise ValueError
 
@@ -316,6 +265,8 @@ def _normalize_enum(
 ) -> NormalizedFilterScalar:
     if not isinstance(value, str):
         raise TypeError
+    if "\x00" in value:
+        raise ValueError
     if not isinstance(value_type, sa.Enum):
         return value
 
@@ -343,10 +294,10 @@ def _compile_expression(
             return expression != value
         case FilterOp.IN:
             assert isinstance(value, list)
-            return sa.false() if not value else expression.in_(value)
+            return expression.in_(value)
         case FilterOp.NOT_IN:
             assert isinstance(value, list)
-            return sa.true() if not value else expression.not_in(value)
+            return expression.not_in(value)
         case FilterOp.GT:
             return expression > value
         case FilterOp.GTE:
