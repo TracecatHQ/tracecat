@@ -592,6 +592,8 @@ class LoopbackHandler:
                         self._result.error,
                     )
                 break
+            except (RuntimeError, ValueError) as e:
+                raise RuntimeEnvelopeProtocolError from e
 
             envelope = _runtime_envelope_from_json(payload_bytes)
             if await self.process_envelope(envelope):
