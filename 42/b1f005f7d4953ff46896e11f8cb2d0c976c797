@@ -1,0 +1,32 @@
+AGENTS.md
+  s_c5002332a8185a::t_14e3cb3bea915e 397-399
+.github/workflows/release-drafter.yml
+  s_c5002332a8185a::t_8b02c33805cd50 126-134,136,143-176
+  s_c5002332a8185a::t_47815bb817c6ed 177
+CONTRIBUTING.md
+  s_c5002332a8185a::t_14e3cb3bea915e 172
+scripts/dedupe_release_notes.py
+  s_c5002332a8185a::t_6664c2dc9a1915 37-39
+  s_c5002332a8185a::t_a2036b31d4a66b 62,64-66,68-74,78,83
+  s_c5002332a8185a::t_138715cb443a26 1-36,40-61,63,67,75-77,79-82,84-91
+.github/release-drafter.yml
+  s_c5002332a8185a::t_14e3cb3bea915e 15-22
+tests/unit/test_dedupe_release_notes.py
+  s_c5002332a8185a::t_2a7aa18f9bbb63 1-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "42b1f005f7d4953ff46896e11f8cb2d0c976c797",
+  "prompts": {},
+  "sessions": {
+    "s_c5002332a8185a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "831b7546-2af0-4f8f-af70-e9256e652a68",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
