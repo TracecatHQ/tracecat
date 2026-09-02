@@ -113,9 +113,6 @@ async def _handle_app_mention(
     except KeyError as exc:
         raise ValueError("Expected 'ts', 'thread_ts', and 'channel' in event.") from exc
 
-    # Add "eyes" emoji to the app mention message
-    await _ack_event(channel_id, ts)
-
     if thread_ts:
         # If in thread, list message replies
         response = await call_method(
@@ -184,9 +181,6 @@ async def _handle_interaction_payload(
         raise ValueError(
             "Interaction payload is missing response_url for post_response tool."
         )
-
-    # Add "eyes" emoji to the interaction payload message
-    await _ack_event(channel_id, ts)
 
     if thread_ts:
         # If in thread, list message replies
@@ -285,7 +279,7 @@ async def prepare_slackbot(
             initial_prompt=prompt,
         )
 
-    return PreparedSlackbotPrompt(
+    prepared = PreparedSlackbotPrompt(
         user_prompt=prompts.user_prompt,
         instructions=prompts.instructions,
         actions=bot_actions,
@@ -295,6 +289,10 @@ async def prepare_slackbot(
             ts=ts,
         ),
     )
+    # Ack last so a failure above never leaves the reaction behind.
+    if ts:
+        await _ack_event(channel_id, ts)
+    return prepared
 
 
 async def finalize_slackbot(context: SlackbotContext, *, succeeded: bool) -> None:

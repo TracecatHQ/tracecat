@@ -11,9 +11,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
+from tracecat_registry import secrets as registry_secrets
 from tracecat_registry.integrations.agents.slack import (
     PreparedSlackbotPrompt,
     SlackbotContext,
+    finalize_slackbot,
+    prepare_slackbot,
 )
 
 from tracecat import config
@@ -261,9 +264,6 @@ async def _slackbot_secret_context(
 async def _prepare_slackbot_agent_action(
     evaled_args: dict[str, Any], *, input: BuildAgentArgsActivityInput
 ) -> PreparedSlackbotPrompt:
-    from tracecat_registry import secrets as registry_secrets
-    from tracecat_registry.integrations.agents.slack import prepare_slackbot
-
     secret_context = await _slackbot_secret_context(
         role=input.role,
         registry_lock=input.registry_lock,
@@ -278,6 +278,23 @@ async def _prepare_slackbot_agent_action(
             actions=evaled_args.get("actions"),
             limit_messages=evaled_args.get("limit_messages", 5),
         )
+    finally:
+        registry_secrets.reset_context(token)
+
+
+async def _finalize_slackbot_action(
+    context: SlackbotContext,
+    *,
+    succeeded: bool,
+    input: BuildAgentArgsActivityInput | FinalizeSlackbotActivityInput,
+) -> None:
+    secret_context = await _slackbot_secret_context(
+        role=input.role,
+        registry_lock=input.registry_lock,
+    )
+    token = registry_secrets.set_context(secret_context)
+    try:
+        await finalize_slackbot(context, succeeded=succeeded)
     finally:
         registry_secrets.reset_context(token)
 
@@ -1007,37 +1024,37 @@ class DSLActivities:
         with activity_error_boundary(_agent_preparation_error_classification):
             evaled_args = await _evaluate_agent_args(input)
             prepared = await _prepare_slackbot_agent_action(evaled_args, input=input)
-            for key in ("event", "prompt", "channel_id", "limit_messages"):
-                evaled_args.pop(key, None)
-            evaled_args["user_prompt"] = prepared.user_prompt
-            evaled_args["instructions"] = prepared.instructions
-            evaled_args["actions"] = prepared.actions
-            await _apply_mcp_servers(evaled_args, input=input)
-            return PreparedSlackbot(
-                args=AgentActionArgs(**evaled_args),
-                context=prepared.context,
-            )
+            try:
+                for key in ("event", "prompt", "channel_id", "limit_messages"):
+                    evaled_args.pop(key, None)
+                evaled_args["user_prompt"] = prepared.user_prompt
+                evaled_args["instructions"] = prepared.instructions
+                evaled_args["actions"] = prepared.actions
+                await _apply_mcp_servers(evaled_args, input=input)
+                return PreparedSlackbot(
+                    args=AgentActionArgs(**evaled_args),
+                    context=prepared.context,
+                )
+            except BaseException:
+                # Slack was already acked; clear it even on cancellation.
+                try:
+                    await _finalize_slackbot_action(
+                        prepared.context, succeeded=False, input=input
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Slack cleanup after prep failure failed", error=str(exc)
+                    )
+                raise
 
     @staticmethod
     @activity.defn
     async def finalize_slackbot_activity(
         input: FinalizeSlackbotActivityInput,
     ) -> None:
-        from tracecat_registry import secrets as registry_secrets
-        from tracecat_registry.integrations.agents.slack import finalize_slackbot
-
-        secret_context = await _slackbot_secret_context(
-            role=input.role,
-            registry_lock=input.registry_lock,
+        await _finalize_slackbot_action(
+            input.context, succeeded=input.succeeded, input=input
         )
-        token = registry_secrets.set_context(secret_context)
-        try:
-            await finalize_slackbot(
-                input.context,
-                succeeded=input.succeeded,
-            )
-        finally:
-            registry_secrets.reset_context(token)
 
     @staticmethod
     @activity.defn

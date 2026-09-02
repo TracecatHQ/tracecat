@@ -234,7 +234,7 @@ async def test_slackbot_interface_prepares_direct_agent_config(
             context=SlackbotContext(channel_id="C01234567"),
         )
     )
-    monkeypatch.setattr(slack, "prepare_slackbot", prepare)
+    monkeypatch.setattr(dsl_action, "prepare_slackbot", prepare)
 
     result = await DSLActivities.prepare_slackbot_activity(
         BuildAgentArgsActivityInput(
@@ -256,6 +256,62 @@ async def test_slackbot_interface_prepares_direct_agent_config(
 
 
 @pytest.mark.anyio
+async def test_slackbot_prepare_failure_after_ack_clears_slack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        dsl_action,
+        "_evaluate_agent_args",
+        AsyncMock(
+            return_value={
+                "event": None,
+                "prompt": "p",
+                "instructions": None,
+                "channel_id": "C01234567",
+                "model": {"model_name": "m", "model_provider": "anthropic"},
+                "actions": None,
+                "model_settings": None,
+                "retries": 6,
+                "limit_messages": 5,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        dsl_action, "_slackbot_secret_context", AsyncMock(return_value={})
+    )
+    context = SlackbotContext(channel_id="C01234567", ts="1.2")
+    monkeypatch.setattr(
+        dsl_action,
+        "prepare_slackbot",
+        AsyncMock(
+            return_value=PreparedSlackbotPrompt(
+                user_prompt="p", instructions="i", actions=[], context=context
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        dsl_action, "_apply_mcp_servers", AsyncMock(side_effect=RuntimeError("boom"))
+    )
+    finalize = AsyncMock()
+    monkeypatch.setattr(dsl_action, "finalize_slackbot", finalize)
+
+    with pytest.raises(ApplicationError):
+        await DSLActivities.prepare_slackbot_activity(
+            BuildAgentArgsActivityInput(
+                action="ai.slackbot",
+                args={},
+                operand=create_default_execution_context(),
+                role=Role(type="service", service_id="tracecat-api"),
+                task_environment=None,
+                default_environment="default",
+                registry_lock=RegistryLock(origins={}, actions={}),
+            )
+        )
+
+    finalize.assert_awaited_once_with(context, succeeded=False)
+
+
+@pytest.mark.anyio
 async def test_build_agent_args_activity_does_not_prepare_slackbot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -274,7 +330,7 @@ async def test_build_agent_args_activity_does_not_prepare_slackbot(
         ),
     )
     prepare = AsyncMock()
-    monkeypatch.setattr(slack, "prepare_slackbot", prepare)
+    monkeypatch.setattr(dsl_action, "prepare_slackbot", prepare)
 
     result = await DSLActivities.build_agent_args_activity(
         BuildAgentArgsActivityInput(

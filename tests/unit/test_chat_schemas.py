@@ -69,3 +69,17 @@ def test_chat_message_from_db_skips_unsupported_legacy_message() -> None:
     )
 
     assert ChatMessage.from_db(db_message) is None
+
+
+def test_chat_message_from_db_raises_on_malformed_claude_message() -> None:
+    db_message = models.ChatMessage(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        chat_id=uuid.uuid4(),
+        kind="chat_message",
+        harness="claude_code",
+        data={"type": "not-a-claude-message"},
+    )
+
+    with pytest.raises(ValidationError):
+        ChatMessage.from_db(db_message)

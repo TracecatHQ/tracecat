@@ -233,6 +233,7 @@ async def test_run_turn_uses_only_vercel_text_parts(
         )
 
     assert response is not None
+    temporal_client.start_workflow.assert_awaited_once()
     workflow_args = temporal_client.start_workflow.await_args.args[1]
     assert workflow_args.agent_args.user_prompt == "Investigate this alert"
 

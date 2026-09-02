@@ -12,6 +12,7 @@ from pydantic import UUID4, BaseModel, Discriminator, Field, ValidationError
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
+from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import ClaudeSDKMessageTA, ToolApproved, ToolDenied
@@ -256,6 +257,9 @@ class ChatMessage(BaseModel):
         try:
             message = ClaudeSDKMessageTA.validate_python(sanitized_data)
         except ValidationError:
+            # Legacy harness rows are unsupported; a bad Claude row is corruption.
+            if db_msg.harness == HarnessType.CLAUDE_CODE.value:
+                raise
             return None
         return cls(id=str(db_msg.id), message=message)
 

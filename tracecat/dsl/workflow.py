@@ -38,6 +38,7 @@ with workflow.unsafe.imports_passed_through():
         AgentWorkflowArgs,
         DurableAgentWorkflow,
     )
+    from tracecat_registry.integrations.agents.slack import SlackbotContext
 
     from tracecat import config, identifiers
     from tracecat.agent.aliases import build_agent_alias
@@ -1028,16 +1029,11 @@ class DSLWorkflow:
                         )
                         succeeded = True
                     finally:
-                        await workflow.execute_activity(
-                            DSLActivities.finalize_slackbot_activity,
-                            arg=FinalizeSlackbotActivityInput(
-                                role=self.role,
-                                registry_lock=self.registry_lock,
-                                context=prepared.context,
-                                succeeded=succeeded,
+                        await self._run_cancellation_safe_cleanup(
+                            lambda: self._finalize_slackbot(
+                                prepared.context, succeeded=succeeded
                             ),
-                            start_to_close_timeout=timedelta(seconds=60),
-                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                            operation="finalize_slackbot",
                         )
                 case action if action == PlatformAction.AI_AGENT or (
                     action in MCP_AGENT_ACTION_PROVIDER_IDS
@@ -1070,6 +1066,7 @@ class DSLWorkflow:
                     action_args = await workflow.execute_activity(
                         DSLActivities.build_agent_args_activity,
                         arg=BuildAgentArgsActivityInput(
+                            action=task.action,
                             args=dict(task.args),
                             operand=agent_operand,
                             role=self.role,
@@ -1138,6 +1135,7 @@ class DSLWorkflow:
                     preset_action_args = await workflow.execute_activity(
                         DSLActivities.build_preset_agent_args_activity,
                         arg=BuildAgentArgsActivityInput(
+                            action=task.action,
                             args=dict(task.args),
                             operand=agent_operand,
                             role=self.role,
@@ -1930,8 +1928,13 @@ class DSLWorkflow:
             )
 
         # Tells us where to get the redis stream
+        # Legacy histories ran slackbot/MCP actions here without a stream id;
+        # allocating one now would shift the deterministic uuid sequence on replay.
         session_id = (
-            workflow.uuid4() if PlatformAction.is_streamable(task.action) else None
+            workflow.uuid4()
+            if PlatformAction.is_streamable(task.action)
+            and workflow.patched(AGENT_INTERFACE_ACTIONS_PATCH)
+            else None
         )
 
         arg = RunActionInput(
@@ -2290,6 +2293,29 @@ class DSLWorkflow:
         """Compute deterministic heartbeat sleep interval with jitter."""
         jitter = workflow.random().uniform(0.9, 1.1)
         return max(heartbeat_interval * jitter, 0.1)
+
+    async def _finalize_slackbot(
+        self, context: SlackbotContext, *, succeeded: bool
+    ) -> None:
+        """Clear the Slack ack; never let a cleanup failure mask the agent error."""
+        try:
+            await workflow.execute_activity(
+                DSLActivities.finalize_slackbot_activity,
+                arg=FinalizeSlackbotActivityInput(
+                    role=self.role,
+                    registry_lock=self.registry_lock,
+                    context=context,
+                    succeeded=succeeded,
+                ),
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except Exception as exc:
+            if succeeded:
+                raise
+            self.logger.warning(
+                "Slack finalization failed after agent error", error=str(exc)
+            )
 
     async def _run_cancellation_safe_cleanup(
         self,
