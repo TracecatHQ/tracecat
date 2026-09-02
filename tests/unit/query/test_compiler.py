@@ -566,6 +566,22 @@ def test_normalizes_large_numeric_integer_to_decimal() -> None:
     assert isinstance(expression.right.type, sa.Numeric)
 
 
+@pytest.mark.parametrize("value", [10**309, Decimal("1e10000")])
+def test_rejects_values_that_overflow_float(value: int | Decimal) -> None:
+    resolver = StubResolver(
+        {
+            "value": ResolvedField(
+                expr=sa.column("value", sa.Float()),
+                kind=FieldKind.NUMBER,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+
+    with pytest.raises(TracecatValidationError, match="field 'value'"):
+        compile_filter(Condition(field="value", op=FilterOp.EQ, value=value), resolver)
+
+
 def test_normalizes_native_enum_values() -> None:
     expression = sa.column("status", sa.Enum(_NativeStatus))
     resolver = StubResolver(

@@ -207,7 +207,13 @@ def _normalize_number(
             raise ValueError
         return integer_value
     if isinstance(expression.type, sa.Float):
-        return float(value)
+        try:
+            float_value = float(value)
+        except OverflowError as exc:
+            raise ValueError from exc
+        if not math.isfinite(float_value):
+            raise ValueError
+        return float_value
     if isinstance(expression.type, sa.Numeric):
         # SQLAlchemy otherwise infers an integer literal as BIGINT, even when the
         # compared expression is NUMERIC. Decimal forces the correct bind type.
