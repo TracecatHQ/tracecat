@@ -262,12 +262,6 @@ class TestDSLAgentWiring:
         executor_input = captured_inputs[0]
         assert executor_input.curr_run_id is not None
         assert executor_input.curr_run_id != executor_input.session_id
-        origin = executor_input.origin
-        assert origin is not None
-        assert origin.workflow_id == wf_id
-        assert origin.workflow_execution_id == wf_exec_id
-        assert origin.action_ref == "agent"
-        assert origin.trigger_type == "manual"
 
     @pytest.mark.anyio
     @pytest.mark.integration

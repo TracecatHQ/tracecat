@@ -55,7 +55,6 @@ from tracecat.agent.executor.activity import (
     run_agent_activity,
 )
 from tracecat.agent.executor.loopback import LoopbackResult
-from tracecat.agent.executor.schemas import WorkflowOrigin
 from tracecat.agent.otel_config import ResolvedAgentOtelConfig
 from tracecat.agent.runtime.session_paths import job_uv_state_dir
 from tracecat.agent.schemas import ToolFilters
@@ -87,7 +86,6 @@ from tracecat.observability.otel import (
 )
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.workflow.executions.enums import TriggerType
 
 
 @pytest.fixture
@@ -1293,7 +1291,6 @@ class TestRunAgentActivity:
                     "tracecat.workspace.id": str(mock_executor_input.workspace_id),
                     "tracecat.agent.session.id": str(mock_executor_input.session_id),
                     "tracecat.agent.run.id": str(mock_executor_input.curr_run_id),
-                    # Absent workflow origin contributes no keys at all.
                     "temporal.activity.attempt": mock_activity.info.return_value.attempt,
                     "temporal.task_queue": mock_activity.info.return_value.task_queue,
                 }
@@ -2399,14 +2396,13 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         assert env["OTEL_LOG_TOOL_DETAILS"] == "0"
         assert env["OTEL_LOG_TOOL_CONTENT"] == "0"
 
-    def test_platform_trace_parent_carries_trusted_workflow_origin(
+    def test_platform_trace_parent_carries_agent_correlation(
         self,
         mock_role: Role,
         mock_session_id: uuid.UUID,
         mock_agent_config: AgentConfig,
     ) -> None:
         run_id = uuid.uuid4()
-        workflow_id = uuid.uuid4()
         executor = SandboxedAgentExecutor(
             input=AgentExecutorInput(
                 session_id=mock_session_id,
@@ -2417,12 +2413,6 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
                 role=mock_role,
                 mcp_auth_token="mock-jwt-token",
                 llm_gateway_auth_token="mock-llm-token",
-                origin=WorkflowOrigin(
-                    workflow_id=workflow_id,
-                    workflow_execution_id="wf_synthetic/exec_synthetic",
-                    action_ref="investigate",
-                    trigger_type=TriggerType.WEBHOOK,
-                ),
             )
         )
         span_context = SpanContext(
@@ -2447,13 +2437,6 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
             mock_session_id
         )
         assert parent.resource_attributes["tracecat.agent.run.id"] == str(run_id)
-        assert parent.resource_attributes["tracecat.workflow.id"] == str(workflow_id)
-        assert (
-            parent.resource_attributes["tracecat.workflow.execution.id"]
-            == "wf_synthetic/exec_synthetic"
-        )
-        assert parent.resource_attributes["tracecat.action.ref"] == "investigate"
-        assert parent.resource_attributes["tracecat.trigger.type"] == "webhook"
 
 
 class TestSandboxedAgentExecutorSkillCaching:

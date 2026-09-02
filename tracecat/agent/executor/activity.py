@@ -113,7 +113,6 @@ from .schemas import (
     ApprovedToolCall,
     DeniedToolCall,
     ToolExecutionResult,
-    WorkflowOrigin,
 )
 
 BROKER_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
@@ -222,8 +221,6 @@ class AgentExecutorInput(BaseModel):
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False
-    # None means a direct chat turn with no workflow origin.
-    origin: WorkflowOrigin | None = None
 
 
 class AgentExecutorResult(BaseModel):
@@ -256,19 +253,12 @@ class AgentExecutorResult(BaseModel):
 
 def _agent_correlation_attributes(input: AgentExecutorInput) -> dict[str, str]:
     """Build the single trusted correlation mapping for an agent turn."""
-    values: dict[str, str | uuid.UUID | None] = {
+    values: dict[str, uuid.UUID | None] = {
         "tracecat.organization.id": input.role.organization_id,
         "tracecat.workspace.id": input.workspace_id,
         "tracecat.agent.session.id": input.session_id,
         "tracecat.agent.run.id": input.curr_run_id,
     }
-    if (origin := input.origin) is not None:
-        values |= {
-            "tracecat.workflow.id": origin.workflow_id,
-            "tracecat.workflow.execution.id": origin.workflow_execution_id,
-            "tracecat.action.ref": origin.action_ref,
-            "tracecat.trigger.type": origin.trigger_type,
-        }
     return {key: str(value) for key, value in values.items() if value is not None}
 
 
