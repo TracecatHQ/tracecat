@@ -281,7 +281,15 @@ RUN set -eux; \
     rm -rf "${docs_source}"
 
 # ====================
-# Stage 5: Development app
+# Stage 5: Prepare development source without bundled docs
+# ====================
+FROM base AS development-source
+
+COPY . /source/
+RUN rm -rf /source/docs
+
+# ====================
+# Stage 6: Development app
 # ====================
 FROM base AS development-app
 
@@ -298,7 +306,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=packages,target=packages \
     uv sync --locked --no-install-project --no-dev --no-editable
 
-COPY --exclude=docs --chown=apiuser:apiuser . /app/
+COPY --from=development-source --chown=apiuser:apiuser /source/ /app/
 COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /var/lib/tracecat/copilot-skills/
 
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
@@ -318,14 +326,14 @@ EXPOSE $PORT
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --reload"]
 
 # ====================
-# Stage 6: Development registry manifest
+# Stage 7: Development registry manifest
 # ====================
 FROM development-app AS development-registry-manifest
 
 RUN /app/.venv/bin/python -m tracecat.registry.sync.prebuild
 
 # ====================
-# Stage 7: Development target
+# Stage 8: Development target
 # ====================
 FROM development-app AS development
 
@@ -334,7 +342,7 @@ FROM development-app AS development
 COPY --from=development-registry-manifest --chown=apiuser:apiuser /app/.registry-artifacts /app/.registry-artifacts
 
 # ====================
-# Stage 8: Test target (development + pytest)
+# Stage 9: Test target (development + pytest)
 # ====================
 FROM development AS test
 
@@ -344,7 +352,7 @@ RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 uv sync 
 CMD ["python", "-m", "pytest"]
 
 # ====================
-# Stage 9: Production app
+# Stage 10: Production app
 # ====================
 FROM base AS production-app
 
@@ -386,14 +394,14 @@ ENV PATH="/app/.venv/bin:/home/apiuser/.local/bin:/usr/local/bin:/usr/bin:/bin"
 RUN ln -sf $(which uv) /home/apiuser/.local/bin/uv
 
 # ====================
-# Stage 10: Production registry manifest
+# Stage 11: Production registry manifest
 # ====================
 FROM production-app AS registry-manifest
 
 RUN /app/.venv/bin/python -m tracecat.registry.sync.prebuild
 
 # ====================
-# Stage 11: Production target
+# Stage 12: Production target
 # ====================
 FROM production-app AS production
 

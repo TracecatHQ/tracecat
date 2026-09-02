@@ -26,5 +26,5 @@ def test_update_case_trigger_docs_include_every_event_type() -> None:
 
     assert "omitting `status` fails" in description
     assert "{_CASE_EVENT_TYPE_VALUES_CSV}" not in description
-    for event_type in CaseEventType:
-        assert event_type.value in description
+    expected_event_types = ", ".join(event_type.value for event_type in CaseEventType)
+    assert f"Valid `event_types` values: {expected_event_types}." in description

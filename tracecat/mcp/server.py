@@ -5053,7 +5053,7 @@ Args:
         unless `event_types` is non-empty and the workflow has a runnable
         published definition, so publish before enabling.
     event_types: List of case event type strings using underscores. The
-        valid values are listed at the end of this description.
+        valid values are listed above.
     tag_filters: List of case tag *refs* (slugs), e.g. `["malware","phishing"]`,
         not tag names or UUIDs. Refs are OR-matched: the trigger fires when the
         case carries any listed tag. An empty list means no tag filtering. Refs
