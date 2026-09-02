@@ -21,6 +21,12 @@ it.
 Reads a release body on stdin, writes the deduplicated body on stdout, and is a
 no-op on a body that is already clean. Runs on the standard library alone: the
 job that calls it installs nothing.
+
+Normalises CRLF, then splits on "\n" alone rather than with `splitlines`, which
+also breaks on U+2028, U+0085, form feed and a bare carriage return. Any of
+those inside a title would cut one entry in two, leaving neither half carrying a
+pull request number, so both copies would survive. GitHub stores most bodies
+with CRLF, hence handling it here rather than relying on the caller.
 """
 
 from __future__ import annotations
@@ -44,7 +50,7 @@ def dedupe(body: str) -> str:
     seen: set[str] = set()
     kept: list[str] = []
 
-    for line in body.splitlines():
+    for line in body.replace("\r\n", "\n").split("\n"):
         match = CHANGE_LINE.match(line)
         if match is None:
             kept.append(line)
