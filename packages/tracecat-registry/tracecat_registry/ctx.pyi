@@ -23,6 +23,7 @@ class _AgentsAsync:
         user_prompt: str,
         config: AgentConfig | None = ...,
         preset_slug: str | None = ...,
+        preset_version: int | None = ...,  # Deprecated: current head is always used.
         max_requests: int = ...,
         max_tool_calls: int | None = ...,
     ) -> registry_types.AgentOutputRead: ...
