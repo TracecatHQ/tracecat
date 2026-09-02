@@ -514,7 +514,9 @@ class AgentPresetService(BaseWorkspaceService):
                 parent_preset_id=preset.id,
                 parent_slug=preset.slug,
             )
-            if preset.agents != agents:
+            if self._subagent_declarations(preset.agents) != (
+                self._subagent_declarations(agents)
+            ):
                 preset.agents = agents
                 execution_changed = True
 
@@ -554,6 +556,25 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.commit()
         await self.session.refresh(preset)
         return preset
+
+    @staticmethod
+    def _subagent_declarations(
+        agents: AgentSubagentsConfig | dict[str, Any] | None,
+    ) -> list[tuple[uuid.UUID | str, str | None, str | None, int | None]]:
+        """Return authored topology without derived child-version metadata."""
+
+        config = AgentSubagentsConfig.model_validate({} if agents is None else agents)
+        return [
+            (
+                ref.preset_id
+                if isinstance(ref, ResolvedAttachedSubagentRef)
+                else ref.preset,
+                ref.name,
+                ref.description,
+                ref.max_turns,
+            )
+            for ref in config.subagents
+        ]
 
     @require_scope("agent:delete")
     @audit_log(resource_type="agent_preset", action="delete")

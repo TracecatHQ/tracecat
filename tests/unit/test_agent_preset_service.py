@@ -38,6 +38,7 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
+    AttachedSubagentRef,
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
 )
@@ -3840,6 +3841,58 @@ class TestAgentPresetService:
         assert resolved_subagent.preset_id == child.id
         assert resolved_subagent.preset_version_id == child_version_two.id
         assert resolved_subagent.preset_version == child_version_two.version
+
+    async def test_same_subagent_declaration_does_not_publish_parent_version(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """A newer child head does not turn unchanged topology into a parent edit."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Stable child", "slug": "stable-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Stable parent",
+                    "slug": "stable-parent",
+                    "agents": AgentSubagentsConfig(
+                        subagents=[
+                            AttachedSubagentRef(
+                                preset=child.slug,
+                                name="specialist",
+                                max_turns=2,
+                            )
+                        ]
+                    ),
+                }
+            )
+        )
+        original_parent_version_id = parent.current_version_id
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(instructions="Publish a newer child head"),
+        )
+
+        updated_parent = await agent_preset_service.update_preset(
+            parent,
+            AgentPresetUpdate(
+                agents=AgentSubagentsConfig(
+                    subagents=[
+                        AttachedSubagentRef(
+                            preset=child.slug,
+                            name="specialist",
+                            max_turns=2,
+                        )
+                    ]
+                )
+            ),
+        )
+
+        assert updated_parent.current_version_id == original_parent_version_id
 
     async def test_update_parent_rejects_subagent_with_tool_approvals(
         self,
