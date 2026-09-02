@@ -15,7 +15,6 @@ from threading import Lock
 from typing import TYPE_CHECKING, Final, Protocol
 from uuid import UUID
 
-import boto3
 from opentelemetry import context as otel_context
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -30,7 +29,6 @@ from opentelemetry.sdk.trace.export import (
 )
 from opentelemetry.trace import Link, Span, SpanKind, Status, StatusCode, TraceFlags
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from opentelemetry.util.re import parse_env_headers
 from opentelemetry.util.types import Attributes
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -135,27 +133,6 @@ _runtime: PlatformTracing | None = None
 _runtime_lock = Lock()
 
 
-def _load_platform_exporter_headers() -> dict[str, str] | None:
-    """Load host-only OTLP headers without placing their values in process env."""
-    secret_arn = config.TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN
-    if not secret_arn:
-        return None
-
-    client = boto3.client("secretsmanager")
-    response = client.get_secret_value(SecretId=secret_arn)
-    if secret_string := response.get("SecretString"):
-        raw_headers = secret_string
-    elif secret_binary := response.get("SecretBinary"):
-        raw_headers = secret_binary.decode("utf-8")
-    else:
-        raise ValueError("Platform OTel header secret has no value")
-
-    headers = parse_env_headers(raw_headers, liberal=True)
-    if not headers:
-        raise ValueError("Platform OTel header secret has no valid headers")
-    return dict(headers)
-
-
 def platform_otel_collector_env() -> dict[str, str]:
     """Return only credential-free endpoint routing for the local relay.
 
@@ -207,11 +184,7 @@ def initialize_platform_tracing(
                 )
             )
             if exporter is None:
-                provider.add_span_processor(
-                    BatchSpanProcessor(
-                        OTLPSpanExporter(headers=_load_platform_exporter_headers())
-                    )
-                )
+                provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
             else:
                 provider.add_span_processor(SimpleSpanProcessor(exporter))
 

@@ -416,9 +416,6 @@ def test_fargate_executors_use_credential_free_platform_gateway() -> None:
         )
         assert local_match is not None
         assert "local.tracecat_executor_platform_otel_env" in local_match.group("body")
-        assert "TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN" not in local_match.group(
-            "body"
-        )
 
     iam_source = FARGATE_ECS_IAM_PATH.read_text()
     assert (

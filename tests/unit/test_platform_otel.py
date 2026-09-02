@@ -40,7 +40,6 @@ class RaisingSpanExporter(SpanExporter):
 def reset_platform_tracing(monkeypatch: pytest.MonkeyPatch):
     shutdown_platform_tracing()
     monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", False)
-    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN", None)
     monkeypatch.setattr(
         config,
         "TRACECAT__PLATFORM_OTEL_TRACE_VIEW_URL_TEMPLATE",
@@ -85,27 +84,6 @@ def test_platform_tracing_initialization_is_idempotent(
     assert second is first
     assert get_platform_tracing() is first
     assert isinstance(temporal_tracing_interceptor(), TracingInterceptor)
-
-
-def test_platform_exporter_headers_load_from_secret_arn(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class SecretsClient:
-        def get_secret_value(self, *, SecretId: str) -> dict[str, str]:
-            assert SecretId == "arn:aws:secretsmanager:synthetic"
-            return {"SecretString": "Authorization=Bearer%20synthetic,X-Tenant=test"}
-
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN",
-        "arn:aws:secretsmanager:synthetic",
-    )
-    monkeypatch.setattr(platform_otel.boto3, "client", lambda service: SecretsClient())
-
-    assert platform_otel._load_platform_exporter_headers() == {
-        "authorization": "Bearer synthetic",
-        "x-tenant": "test",
-    }
 
 
 def test_current_trace_reference_builds_operator_view_url(

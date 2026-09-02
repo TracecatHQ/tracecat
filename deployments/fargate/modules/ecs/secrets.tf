@@ -315,7 +315,7 @@ locals {
 
   # Executor processes may pass environment values across a sandbox boundary,
   # so platform exporter credentials must stay out of both executor task
-  # environments. The host process reads the secret directly by ARN instead.
+  # environments. They export through the credential-free private gateway.
   executor_secrets = local.tracecat_temporal_secrets
 
   litellm_secrets = local.tracecat_base_secrets
