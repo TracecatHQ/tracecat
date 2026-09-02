@@ -5044,6 +5044,8 @@ is non-null. Call `get_case_trigger` first and send its current values back,
 changing only what you mean to change. Patching `/case_trigger` through
 `edit_workflow` is partial, unlike this tool.
 
+Valid `event_types` values: {_CASE_EVENT_TYPE_VALUES_CSV}.
+
 Args:
     workspace_id: The workspace ID.
     workflow_id: The workflow ID.
@@ -5061,10 +5063,7 @@ Returns a confirmation message.
 """
 
 
-@mcp.tool(
-    description=_UPDATE_CASE_TRIGGER_DESCRIPTION
-    + f"\nValid `event_types` values: {_CASE_EVENT_TYPE_VALUES_CSV}.\n"
-)
+@mcp.tool(description=_render_prompt_text(_UPDATE_CASE_TRIGGER_DESCRIPTION))
 async def update_case_trigger(
     workspace_id: uuid.UUID,
     workflow_id: MCPWorkflowUUID,

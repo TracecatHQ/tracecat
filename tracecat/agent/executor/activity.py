@@ -8,7 +8,6 @@ import tempfile
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
-from importlib.resources import as_file, files
 from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
@@ -79,7 +78,10 @@ from tracecat.agent.sandbox.llm_proxy import (
 from tracecat.agent.sandbox.otel_relay import OTEL_SOCKET_NAME, OtelSocketReceiver
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.skill.builtin import BUILTIN_SKILL_NAME_PREFIX
+from tracecat.agent.skill.builtin import (
+    BUILTIN_SKILL_NAME_PREFIX,
+    BUILTIN_WORKSPACE_CHAT_SKILLS,
+)
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -1077,47 +1079,46 @@ class SandboxedAgentExecutor:
         if not names:
             return
 
-        # Vendored directory first. It lives outside the package tree so that
-        # neither the wheel build nor a development bind mount over `packages/`
-        # can serve a stale copy. Fall back to the packaged location for
-        # environments that still ship skills inside the core package.
-        vendored_root = Path(app_config.TRACECAT__COPILOT_SKILLS_DIR)
-        if vendored_root.is_dir():
-            skills_root: Any = vendored_root
-        else:
-            # The image did not vendor the skills. Not fatal - the session runs
-            # without built-in guidance rather than failing - but it is the one
-            # signal that the `plugin-skills` build stage did not land, so say
-            # so plainly instead of only reporting the per-skill misses below.
-            skills_root = files("tracecat.agent.skill.builtin")
-            logger.warning(
-                "Vendored copilot skills directory missing; falling back to the "
-                "packaged location",
-                vendored_dir=str(vendored_root),
-            )
+        requested_names: list[str] = []
         for name in dict.fromkeys(names):
             if (
                 not name.startswith(BUILTIN_SKILL_NAME_PREFIX)
                 or "/" in name
                 or name in {".", ".."}
+                or name not in BUILTIN_WORKSPACE_CHAT_SKILLS
             ):
                 logger.warning("Skipping invalid built-in skill name", skill=name)
                 continue
-            source = skills_root / name
+            requested_names.append(name)
+        if not requested_names:
+            return
+
+        # The vendored directory lives outside the package tree so that
+        # neither the wheel build nor a development bind mount over `packages/`
+        # can serve a stale copy. Built-ins are part of the Workspace Chat
+        # runtime contract, so fail explicitly if an image omits them instead
+        # of silently starting an entitled session without its guidance.
+        vendored_root = Path(app_config.TRACECAT__COPILOT_SKILLS_DIR)
+        if not vendored_root.is_dir():
+            raise FileNotFoundError(
+                "Vendored copilot skills directory is required when built-in "
+                f"skills are requested: {vendored_root}"
+            )
+        for name in requested_names:
+            source = vendored_root / name
             if not (source / "SKILL.md").is_file():
                 logger.warning(
                     "Built-in skill missing SKILL.md; skipping",
                     skill=name,
-                    skills_root=str(skills_root),
+                    skills_root=str(vendored_root),
                 )
                 continue
-            with as_file(source) as source_path:
-                await asyncio.to_thread(
-                    shutil.copytree,
-                    source_path,
-                    skills_dir / name,
-                    dirs_exist_ok=True,
-                )
+            await asyncio.to_thread(
+                shutil.copytree,
+                source,
+                skills_dir / name,
+                dirs_exist_ok=True,
+            )
 
     async def _ensure_cached_skill_dir(
         self,

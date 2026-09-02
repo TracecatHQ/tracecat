@@ -278,10 +278,10 @@ class TestStageBuiltinSkills:
         ).read_text() == "vendored content"
 
     @pytest.mark.anyio
-    async def test_falls_back_to_package_when_vendored_dir_absent(
+    async def test_errors_when_vendored_dir_absent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        """An image without the vendored directory still stages packaged skills."""
+        """An entitled session must not silently run without built-in guidance."""
         from tracecat.agent.executor import activity as activity_mod
 
         monkeypatch.setattr(
@@ -290,25 +290,12 @@ class TestStageBuiltinSkills:
             str(tmp_path / "does-not-exist"),
         )
 
-        package_root = tmp_path / "package"
-        packaged_skill = package_root / "tracecat-automation-best-practices"
-        packaged_skill.mkdir(parents=True)
-        (packaged_skill / "SKILL.md").write_text("packaged content")
-
-        def fake_files(package: str) -> Path:
-            assert package == "tracecat.agent.skill.builtin"
-            return package_root
-
-        monkeypatch.setattr(activity_mod, "files", fake_files)
-
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir()
-        await _executor_with_builtin_skills(
-            ["tracecat-automation-best-practices"]
-        ).stage(skills_dir)
-        assert (
-            skills_dir / "tracecat-automation-best-practices" / "SKILL.md"
-        ).read_text() == "packaged content"
+        with pytest.raises(FileNotFoundError, match="Vendored copilot skills"):
+            await _executor_with_builtin_skills(
+                ["tracecat-automation-best-practices"]
+            ).stage(skills_dir)
 
     @pytest.mark.anyio
     async def test_skips_unknown_or_unprefixed_names(self, tmp_path: Path):

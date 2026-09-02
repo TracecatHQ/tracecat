@@ -219,13 +219,17 @@ WORKDIR /app
 FROM base AS plugin-skills
 
 ARG TRACECAT_PLUGINS_REF=a41bbdbb4ad3d5e5cf15eda8a6e3d8c3018393cd
+ARG TRACECAT_PLUGINS_ARCHIVE_SHA256=e3c67cc4ae2cf0319fe4455b507d0500999600de4f52d93c7c673d9b00a2096f
 
-# Pinned to a tracecat-plugins commit on main. Bump when the vendored skills change.
+# Pinned to a tracecat-plugins commit on main. Bump both values when the
+# vendored skills change so the trusted payload is verified before extraction.
 RUN set -eux; \
     mkdir -p /skills /tmp/tracecat-plugins; \
     curl -fsSL \
         "https://github.com/TracecatHQ/tracecat-plugins/archive/${TRACECAT_PLUGINS_REF}.tar.gz" \
         -o /tmp/tracecat-plugins.tar.gz; \
+    echo "${TRACECAT_PLUGINS_ARCHIVE_SHA256}  /tmp/tracecat-plugins.tar.gz" \
+        | sha256sum -c -; \
     tar -xzf /tmp/tracecat-plugins.tar.gz \
         -C /tmp/tracecat-plugins \
         --strip-components=1; \
@@ -294,7 +298,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=packages,target=packages \
     uv sync --locked --no-install-project --no-dev --no-editable
 
-COPY --chown=apiuser:apiuser . /app/
+COPY --exclude=docs --chown=apiuser:apiuser . /app/
 COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /var/lib/tracecat/copilot-skills/
 
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev

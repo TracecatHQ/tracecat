@@ -3,6 +3,21 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tracecat.cases.enums import CaseEventType
+
+_DESCRIPTION_PLACEHOLDERS = {
+    "{_CASE_EVENT_TYPE_VALUES_CSV}": ", ".join(
+        event_type.value for event_type in CaseEventType
+    )
+}
+
+
+def _render_description_placeholders(template: str) -> str:
+    """Render the placeholders supported by client-facing tool descriptions."""
+    for placeholder, value in _DESCRIPTION_PLACEHOLDERS.items():
+        template = template.replace(placeholder, value)
+    return template
+
 
 def _clean_docstring(text: str | None) -> str:
     if not text:
@@ -98,8 +113,8 @@ def _decorator_description(
 
     A tool may pass `description=` to move its client-facing text off the
     docstring. Prefer that text, so the published docs match what MCP clients
-    actually receive instead of drifting from it. Values built at runtime (an
-    f-string appending live enum values, say) resolve to their literal base.
+    actually receive instead of drifting from it. ``_render_prompt_text`` calls
+    are resolved with the same enum-derived placeholder value used at runtime.
     """
     for decorator in node.decorator_list:
         if not isinstance(decorator, ast.Call):
@@ -108,12 +123,19 @@ def _decorator_description(
             if keyword.arg != "description":
                 continue
             value = keyword.value
-            while isinstance(value, ast.BinOp) and isinstance(value.op, ast.Add):
-                value = value.left
+            if (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Name)
+                and value.func.id == "_render_prompt_text"
+                and len(value.args) == 1
+                and not value.keywords
+            ):
+                value = value.args[0]
             if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                return value.value
+                return _render_description_placeholders(value.value)
             if isinstance(value, ast.Name):
-                return constants.get(value.id)
+                if text := constants.get(value.id):
+                    return _render_description_placeholders(text)
     return None
 
 
