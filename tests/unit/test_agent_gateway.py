@@ -12,6 +12,7 @@ from starlette.requests import Request
 
 from tracecat.agent.gateway import (
     TracecatCallbackHandler,
+    _apply_max_output_tokens_cap,
     _filter_allowed_model_settings,
     _inject_provider_credentials,
     _resolve_bedrock_runtime_credentials,
@@ -58,6 +59,45 @@ def test_mistral_missing_api_key_raises() -> None:
 
     with pytest.raises(ProxyException):
         _inject_provider_credentials(data, "mistral", {})
+
+
+def test_apply_max_output_tokens_cap_noop_without_cap() -> None:
+    data: dict[str, Any] = {"max_tokens": 32000}
+
+    _apply_max_output_tokens_cap(data, {})
+
+    assert data == {"max_tokens": 32000}
+
+
+def test_apply_max_output_tokens_cap_lowers_request_and_thinking_budget() -> None:
+    data: dict[str, Any] = {
+        "max_tokens": 32000,
+        "max_completion_tokens": 4096,
+        "thinking": {"type": "enabled", "budget_tokens": 10000},
+    }
+
+    _apply_max_output_tokens_cap(data, {"LLM_MAX_OUTPUT_TOKENS": "8192"})
+
+    assert data["max_tokens"] == 8192
+    assert data["max_completion_tokens"] == 4096
+    assert data["thinking"]["budget_tokens"] == 8191
+
+
+def test_apply_max_output_tokens_cap_sets_default_when_missing() -> None:
+    data: dict[str, Any] = {"model": "x"}
+
+    _apply_max_output_tokens_cap(data, {"LLM_MAX_OUTPUT_TOKENS": "8192"})
+
+    assert data["max_tokens"] == 8192
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "0", "-5"])
+def test_apply_max_output_tokens_cap_ignores_invalid_values(raw: str) -> None:
+    data: dict[str, Any] = {"max_tokens": 32000}
+
+    _apply_max_output_tokens_cap(data, {"LLM_MAX_OUTPUT_TOKENS": raw})
+
+    assert data["max_tokens"] == 32000
 
 
 def test_filter_allowed_model_settings_still_drops_thinking_for_openai() -> None:

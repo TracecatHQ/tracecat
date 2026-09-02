@@ -111,6 +111,48 @@ import { cn } from "@/lib/utils"
 
 const CURSOR_PAGE_SIZE = 100
 
+const MAX_OUTPUT_TOKENS_LIMIT = 1_000_000
+
+const maxOutputTokensSchema = z
+  .string()
+  .trim()
+  .optional()
+  .refine(
+    (value) => {
+      if (!value) {
+        return true
+      }
+      const parsed = Number(value)
+      return (
+        Number.isInteger(parsed) &&
+        parsed >= 1 &&
+        parsed <= MAX_OUTPUT_TOKENS_LIMIT
+      )
+    },
+    {
+      message: `Must be a whole number between 1 and ${MAX_OUTPUT_TOKENS_LIMIT.toLocaleString()}.`,
+    }
+  )
+
+function parseMaxOutputTokens(value: string | undefined): number | null {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return null
+  }
+  return Number(trimmed)
+}
+
+function formatMaxOutputTokens(value: number | null | undefined): string {
+  return value == null ? "" : String(value)
+}
+
+function getCatalogMetadataMaxOutputTokens(
+  metadata: Record<string, unknown> | null | undefined
+): string {
+  const value = metadata?.max_output_tokens
+  return typeof value === "number" ? String(value) : ""
+}
+
 const customProviderSchema = z
   .object({
     displayName: z.string().trim().min(1, "Name is required"),
@@ -119,6 +161,7 @@ const customProviderSchema = z
     apiKey: z.string().optional(),
     customHeadersJson: z.string().optional(),
     passthrough: z.boolean(),
+    maxOutputTokens: maxOutputTokensSchema,
   })
   .superRefine((value, ctx) => {
     const raw = value.customHeadersJson?.trim()
@@ -164,6 +207,7 @@ const DEFAULT_CUSTOM_PROVIDER_VALUES: CustomProviderFormValues = {
   apiKey: "",
   customHeadersJson: "",
   passthrough: false,
+  maxOutputTokens: "",
 }
 
 const CLOUD_CATALOG_PROVIDERS = [
@@ -185,6 +229,7 @@ const bedrockCloudModelSchema = z.object({
   provider: z.literal("bedrock"),
   model_name: z.string().trim().min(1, "Model name is required"),
   display_name: z.string().trim().optional(),
+  max_output_tokens: maxOutputTokensSchema,
   inference_profile_id: z.string().trim().optional(),
   model_id: z.string().trim().optional(),
   use_converse: z.boolean().default(false),
@@ -194,6 +239,7 @@ const azureOpenAICloudModelSchema = z.object({
   provider: z.literal("azure_openai"),
   model_name: z.string().trim().min(1, "Model name is required"),
   display_name: z.string().trim().optional(),
+  max_output_tokens: maxOutputTokensSchema,
   deployment_name: z.string().trim().min(1, "Deployment name is required"),
 })
 
@@ -201,6 +247,7 @@ const azureAICloudModelSchema = z.object({
   provider: z.literal("azure_ai"),
   model_name: z.string().trim().min(1, "Model name is required"),
   display_name: z.string().trim().optional(),
+  max_output_tokens: maxOutputTokensSchema,
   azure_ai_model_name: z
     .string()
     .trim()
@@ -211,6 +258,7 @@ const vertexAICloudModelSchema = z.object({
   provider: z.literal("vertex_ai"),
   model_name: z.string().trim().min(1, "Model name is required"),
   display_name: z.string().trim().optional(),
+  max_output_tokens: maxOutputTokensSchema,
   vertex_model: z.string().trim().min(1, "Vertex model is required"),
 })
 
@@ -260,6 +308,7 @@ function buildCloudCatalogDefaults(
 ): CloudCatalogModelFormValues {
   const metadata = entry?.model_metadata ?? null
   const displayName = getCatalogMetadataString(metadata, "display_name")
+  const maxOutputTokens = getCatalogMetadataMaxOutputTokens(metadata)
   const modelName = entry?.model_name ?? ""
   switch (provider) {
     case "bedrock":
@@ -267,6 +316,7 @@ function buildCloudCatalogDefaults(
         provider: "bedrock",
         model_name: modelName,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         inference_profile_id: getCatalogMetadataString(
           metadata,
           "inference_profile_id"
@@ -279,6 +329,7 @@ function buildCloudCatalogDefaults(
         provider: "azure_openai",
         model_name: modelName,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         deployment_name: getCatalogMetadataString(metadata, "deployment_name"),
       }
     case "azure_ai":
@@ -286,6 +337,7 @@ function buildCloudCatalogDefaults(
         provider: "azure_ai",
         model_name: modelName,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         azure_ai_model_name: getCatalogMetadataString(
           metadata,
           "azure_ai_model_name"
@@ -296,6 +348,7 @@ function buildCloudCatalogDefaults(
         provider: "vertex_ai",
         model_name: modelName,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         vertex_model: getCatalogMetadataString(metadata, "vertex_model"),
       }
   }
@@ -309,12 +362,14 @@ function buildCatalogCreatePayload(
   | AzureAICatalogCreate
   | VertexAICatalogCreate {
   const displayName = values.display_name?.trim() || null
+  const maxOutputTokens = parseMaxOutputTokens(values.max_output_tokens)
   switch (values.provider) {
     case "bedrock":
       return {
         model_provider: "bedrock",
         model_name: values.model_name,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         inference_profile_id: values.inference_profile_id || null,
         model_id: values.model_id || null,
         use_converse: values.use_converse,
@@ -324,6 +379,7 @@ function buildCatalogCreatePayload(
         model_provider: "azure_openai",
         model_name: values.model_name,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         deployment_name: values.deployment_name,
       }
     case "azure_ai":
@@ -331,6 +387,7 @@ function buildCatalogCreatePayload(
         model_provider: "azure_ai",
         model_name: values.model_name,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         azure_ai_model_name: values.azure_ai_model_name,
       }
     case "vertex_ai":
@@ -338,6 +395,7 @@ function buildCatalogCreatePayload(
         model_provider: "vertex_ai",
         model_name: values.model_name,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         vertex_model: values.vertex_model,
       }
     default:
@@ -349,11 +407,13 @@ function buildCatalogCreatePayload(
 
 function buildCatalogUpdatePayload(values: CloudCatalogModelFormValues) {
   const displayName = values.display_name?.trim() || null
+  const maxOutputTokens = parseMaxOutputTokens(values.max_output_tokens)
   switch (values.provider) {
     case "bedrock":
       return {
         model_provider: "bedrock" as const,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         inference_profile_id: values.inference_profile_id || null,
         model_id: values.model_id || null,
         use_converse: values.use_converse,
@@ -362,18 +422,21 @@ function buildCatalogUpdatePayload(values: CloudCatalogModelFormValues) {
       return {
         model_provider: "azure_openai" as const,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         deployment_name: values.deployment_name,
       }
     case "azure_ai":
       return {
         model_provider: "azure_ai" as const,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         azure_ai_model_name: values.azure_ai_model_name,
       }
     case "vertex_ai":
       return {
         model_provider: "vertex_ai" as const,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         vertex_model: values.vertex_model,
       }
     default:
@@ -730,6 +793,7 @@ function getProviderDialogDefaults(
     apiKey: "",
     customHeadersJson: "",
     passthrough: provider.passthrough,
+    maxOutputTokens: formatMaxOutputTokens(provider.max_output_tokens),
   }
 }
 
@@ -743,6 +807,7 @@ function buildProviderCreatePayload(
     api_key: normalizeOptional(values.apiKey),
     custom_headers: parseCustomHeaders(values.customHeadersJson),
     passthrough: values.passthrough,
+    max_output_tokens: parseMaxOutputTokens(values.maxOutputTokens),
   }
 }
 
@@ -754,6 +819,7 @@ function buildProviderUpdatePayload(
     base_url: normalizeOptional(values.baseUrl),
     api_key_header: normalizeOptional(values.apiKeyHeader),
     passthrough: values.passthrough,
+    max_output_tokens: parseMaxOutputTokens(values.maxOutputTokens),
   }
 
   const apiKey = normalizeOptional(values.apiKey)
@@ -1032,6 +1098,29 @@ function CustomProviderDialog({
                       onCheckedChange={field.onChange}
                     />
                   </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="maxOutputTokens"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Max output tokens</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      inputMode="numeric"
+                      placeholder="e.g. 8192"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Optional cap on output tokens per request. Overrides the
+                    agent runtime default; set this if your endpoint rejects
+                    large max_tokens values.
+                  </FormDescription>
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -1768,6 +1857,30 @@ function CloudCatalogModelDialog({
                       placeholder="Optional friendly label"
                     />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="max_output_tokens"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Max output tokens</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      value={field.value ?? ""}
+                      inputMode="numeric"
+                      placeholder="e.g. 8192"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Optional cap on output tokens per request. Overrides the
+                    agent runtime default; set this if the model rejects large
+                    max_tokens values.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

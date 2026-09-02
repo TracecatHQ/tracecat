@@ -84,6 +84,7 @@ const customProviders = [
     base_url: "https://models.example.com/v1",
     passthrough: true,
     api_key_header: "Authorization",
+    max_output_tokens: null,
     last_refreshed_at: null,
   },
 ]

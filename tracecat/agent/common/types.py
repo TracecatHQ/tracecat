@@ -206,6 +206,8 @@ class SandboxAgentConfig(BaseModel):
     """Whether to enable extended thinking for the Claude Code CLI."""
     enable_internet_access: bool = False
     """Whether to enable internet access tools (WebSearch, WebFetch)."""
+    max_output_tokens: int | None = None
+    """Per-request output token cap; overrides the Claude Code CLI default."""
 
     @classmethod
     def from_agent_config(cls, config: AgentConfig) -> SandboxAgentConfig:
@@ -229,6 +231,7 @@ class SandboxAgentConfig(BaseModel):
             output_type=config.output_type,
             enable_thinking=config.enable_thinking,
             enable_internet_access=config.enable_internet_access,
+            max_output_tokens=config.max_output_tokens,
         )
 
 

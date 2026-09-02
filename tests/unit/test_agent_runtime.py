@@ -56,6 +56,10 @@ from tracecat.agent.runtime.claude_code.session_lines import (
 )
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
+from tracecat.agent.workflow_config import (
+    agent_config_from_payload,
+    agent_config_to_payload,
+)
 
 
 @pytest.fixture
@@ -1344,6 +1348,44 @@ class TestClaudeAgentRuntimeRun:
         env = ClaudeAgentRuntime._sdk_env(payload)
 
         assert env["ENABLE_TOOL_SEARCH"] == expected
+
+    def test_omits_max_output_tokens_env_when_unset(
+        self,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        env = ClaudeAgentRuntime._sdk_env(sample_init_payload)
+
+        assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS" not in env
+
+    def test_sets_max_output_tokens_env_from_config(
+        self,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={"model_provider": "bedrock", "max_output_tokens": 8192}
+            ),
+        )
+
+        env = ClaudeAgentRuntime._sdk_env(payload)
+
+        assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "8192"
+
+    def test_max_output_tokens_propagates_through_workflow_and_sandbox_config(
+        self,
+        sample_agent_config: AgentConfig,
+    ) -> None:
+        cfg = replace(sample_agent_config, max_output_tokens=4096)
+
+        payload = agent_config_to_payload(cfg)
+        assert payload.max_output_tokens == 4096
+
+        restored = agent_config_from_payload(payload)
+        assert restored.max_output_tokens == 4096
+
+        sandbox = SandboxAgentConfig.from_agent_config(restored)
+        assert sandbox.max_output_tokens == 4096
 
     def test_passthrough_keeps_experimental_beta_features_enabled(
         self,

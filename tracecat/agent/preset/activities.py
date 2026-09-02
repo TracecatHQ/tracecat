@@ -13,7 +13,7 @@ from tracecat.agent.preset.resolver import (
     resolve_agents_config,
 )
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.service import AgentManagementService
+from tracecat.agent.service import AgentManagementService, parse_max_output_tokens
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
@@ -112,6 +112,7 @@ class CustomModelProviderConfigResult(BaseModel):
     model_name: str | None = None
     base_url: str
     passthrough: bool = False
+    max_output_tokens: int | None = None
 
 
 @activity.defn
@@ -182,6 +183,7 @@ async def resolve_custom_model_provider_config_activity(
         base_url=base_url,
         model_name=creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"),
         passthrough=passthrough,
+        max_output_tokens=parse_max_output_tokens(creds),
     )
 
 

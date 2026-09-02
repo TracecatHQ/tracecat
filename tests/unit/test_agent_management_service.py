@@ -17,7 +17,7 @@ from tracecat import config as tracecat_config
 from tracecat.agent.config import PROVIDER_CREDENTIAL_CONFIGS
 from tracecat.agent.preset.activities import _load_custom_model_provider_creds
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.service import AgentManagementService
+from tracecat.agent.service import AgentManagementService, parse_max_output_tokens
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import (
@@ -249,6 +249,59 @@ async def test_get_catalog_credentials_uses_live_cloud_secret_with_catalog_metad
     assert credentials["AWS_ACCESS_KEY_ID"] == "live-key"
     assert credentials["AWS_SECRET_ACCESS_KEY"] == "live-secret"
     assert credentials["AWS_INFERENCE_PROFILE_ID"] == "metadata-target"
+
+
+@pytest.mark.anyio
+async def test_get_catalog_credentials_projects_bedrock_max_output_tokens(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        encryption_key,
+    )
+    catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="bedrock",
+        model_name="Claude Sonnet",
+        metadata={
+            "inference_profile_id": "metadata-target",
+            "max_output_tokens": 8192,
+        },
+    )
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        catalog_id=catalog.id,
+    )
+    await _seed_org_secret(
+        session,
+        org_id=svc_organization.id,
+        name="agent-bedrock-credentials",
+        values={
+            "AWS_ACCESS_KEY_ID": "live-key",
+            "AWS_SECRET_ACCESS_KEY": "live-secret",
+            "AWS_REGION": "us-east-1",
+        },
+        encryption_key=encryption_key,
+    )
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+
+    credentials = await service.get_catalog_credentials(catalog.id)
+
+    assert credentials is not None
+    assert credentials["LLM_MAX_OUTPUT_TOKENS"] == "8192"
+    assert parse_max_output_tokens(credentials) == 8192
 
 
 @pytest.mark.anyio

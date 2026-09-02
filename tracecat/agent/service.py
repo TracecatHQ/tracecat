@@ -68,16 +68,46 @@ class CloudTargetKey(NamedTuple):
     credential_key: str
 
 
+MAX_OUTPUT_TOKENS_CREDENTIAL_KEY = "LLM_MAX_OUTPUT_TOKENS"
+"""Runtime credential key carrying the per-model output token cap."""
+_MAX_OUTPUT_TOKENS_TARGET_KEY = CloudTargetKey(
+    "max_output_tokens", MAX_OUTPUT_TOKENS_CREDENTIAL_KEY
+)
+
 _CLOUD_PROVIDER_TARGET_KEYS: dict[CloudProviderSlug, tuple[CloudTargetKey, ...]] = {
     "bedrock": (
         CloudTargetKey("inference_profile_id", "AWS_INFERENCE_PROFILE_ID"),
         CloudTargetKey("model_id", "AWS_MODEL_ID"),
         CloudTargetKey("use_converse", "AWS_BEDROCK_USE_CONVERSE"),
+        _MAX_OUTPUT_TOKENS_TARGET_KEY,
     ),
-    "azure_openai": (CloudTargetKey("deployment_name", "AZURE_DEPLOYMENT_NAME"),),
-    "azure_ai": (CloudTargetKey("azure_ai_model_name", "AZURE_AI_MODEL_NAME"),),
-    "vertex_ai": (CloudTargetKey("vertex_model", "VERTEX_AI_MODEL"),),
+    "azure_openai": (
+        CloudTargetKey("deployment_name", "AZURE_DEPLOYMENT_NAME"),
+        _MAX_OUTPUT_TOKENS_TARGET_KEY,
+    ),
+    "azure_ai": (
+        CloudTargetKey("azure_ai_model_name", "AZURE_AI_MODEL_NAME"),
+        _MAX_OUTPUT_TOKENS_TARGET_KEY,
+    ),
+    "vertex_ai": (
+        CloudTargetKey("vertex_model", "VERTEX_AI_MODEL"),
+        _MAX_OUTPUT_TOKENS_TARGET_KEY,
+    ),
 }
+
+
+def parse_max_output_tokens(credentials: Mapping[str, str]) -> int | None:
+    """Read the output token cap from runtime credentials, if configured."""
+    raw = credentials.get(MAX_OUTPUT_TOKENS_CREDENTIAL_KEY)
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value >= 1 else None
+
+
 _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS = frozenset(
     {
         "CUSTOM_MODEL_PROVIDER_API_KEY",
@@ -531,6 +561,8 @@ class AgentManagementService(BaseOrgService):
             value = metadata.get(spec.metadata_key)
             if isinstance(value, bool):
                 credentials[spec.credential_key] = "true" if value else "false"
+            elif isinstance(value, int) and value >= 1:
+                credentials[spec.credential_key] = str(value)
             elif isinstance(value, str) and value:
                 credentials[spec.credential_key] = value
         return credentials
@@ -649,6 +681,10 @@ class AgentManagementService(BaseOrgService):
             credentials["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = (
                 "true" if provider_row.passthrough else "false"
             )
+            if provider_row.max_output_tokens is not None:
+                credentials[MAX_OUTPUT_TOKENS_CREDENTIAL_KEY] = str(
+                    provider_row.max_output_tokens
+                )
             # Pin the selected row's model_name so the shared provider blob
             # can't override it. The legacy backfill row is the exception: its
             # "custom" placeholder isn't a real model, so leave the blob's
@@ -681,6 +717,17 @@ class AgentManagementService(BaseOrgService):
         return await self._augment_runtime_provider_credentials(
             row.model_provider, credentials
         )
+
+    @staticmethod
+    def _resolve_max_output_tokens(
+        config: AgentConfig,
+        credentials: dict[str, str],
+    ) -> AgentConfig:
+        """Apply the catalog/provider output token cap to the agent config."""
+        max_output_tokens = parse_max_output_tokens(credentials)
+        if max_output_tokens is None:
+            return config
+        return replace(config, max_output_tokens=max_output_tokens)
 
     @staticmethod
     def _resolve_custom_provider_config(
@@ -1159,6 +1206,7 @@ class AgentManagementService(BaseOrgService):
             preset_config,
             credentials,
         )
+        preset_config = self._resolve_max_output_tokens(preset_config, credentials)
 
         with self._credentials_sandbox(credentials):
             yield preset_config

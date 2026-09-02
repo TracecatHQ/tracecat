@@ -37,6 +37,15 @@ class CloudCatalogModelBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: str | None = None
+    max_output_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        le=1_000_000,
+        description=(
+            "Cap on output tokens per LLM request. Overrides the agent runtime's "
+            "built-in default, e.g. for Bedrock models that reject large maxTokens."
+        ),
+    )
 
 
 class BedrockCatalogCreate(CloudCatalogModelBase):

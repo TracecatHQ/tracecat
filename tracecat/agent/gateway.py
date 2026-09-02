@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Mapping
 from typing import Any, TypedDict, cast
 from urllib.parse import parse_qsl, urlencode
 
@@ -18,7 +19,7 @@ from litellm.types.utils import CallTypesLiteral
 
 from tracecat import config as app_config
 from tracecat.agent.litellm_compat import apply_patch
-from tracecat.agent.service import AgentManagementService
+from tracecat.agent.service import AgentManagementService, parse_max_output_tokens
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -445,6 +446,10 @@ class TracecatCallbackHandler(CustomLogger):
         if provider == "bedrock":
             _strip_bedrock_unsupported_params(data)
 
+        # Apply after model_settings so a per-request value can't exceed the
+        # catalog/provider cap.
+        _apply_max_output_tokens_cap(data, creds)
+
         logger.info(
             "Injected credentials for LiteLLM call",
             workspace_id=str(workspace_id),
@@ -515,6 +520,32 @@ def _clamp_max_tokens(payload: dict[str, Any]) -> None:
         if (val := payload.get(key)) is not None and isinstance(val, (int, float)):
             if val < 1:
                 payload[key] = 1
+
+
+def _apply_max_output_tokens_cap(
+    payload: dict[str, Any],
+    creds: Mapping[str, str],
+) -> None:
+    """Cap output token params to the catalog/provider configured limit.
+
+    Sets ``max_tokens`` when the request omits it and lowers any present
+    ``max_tokens`` / ``max_completion_tokens`` above the cap. An extended
+    thinking budget is kept strictly below the resulting ``max_tokens``.
+    """
+    cap = parse_max_output_tokens(creds)
+    if cap is None:
+        return
+    for key in _TOKEN_LIMIT_KEYS:
+        val = payload.get(key)
+        if isinstance(val, (int, float)) and val > cap:
+            payload[key] = cap
+    if payload.get("max_tokens") is None:
+        payload["max_tokens"] = cap
+    thinking = payload.get("thinking")
+    if isinstance(thinking, dict):
+        budget = thinking.get("budget_tokens")
+        if isinstance(budget, int) and budget >= cap:
+            thinking["budget_tokens"] = max(cap - 1, 1)
 
 
 def _filter_allowed_model_settings(
