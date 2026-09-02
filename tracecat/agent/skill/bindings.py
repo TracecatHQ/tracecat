@@ -122,7 +122,11 @@ class SkillBindingService(BaseWorkspaceService):
             )
             .join(
                 SkillVersion,
-                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
+                sa.and_(
+                    AgentPresetVersionSkill.workspace_id == SkillVersion.workspace_id,
+                    AgentPresetVersionSkill.skill_id == SkillVersion.skill_id,
+                    AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
+                ),
             )
             .join(
                 Skill,

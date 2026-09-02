@@ -1474,6 +1474,50 @@ class TestAgentPresetService:
         assert version_read.skills[0].skill_version_id == skill_version.id
         assert version_read.skills[0].skill_version == 1
 
+    async def test_exact_skill_resolution_rejects_mismatched_version_owner(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Exact-version resolution cannot cross from one Skill to another."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        bound_skill = await skill_service.create_skill(SkillCreate(name="bound-skill"))
+        await skill_service.publish_skill(bound_skill.id)
+        other_skill = await skill_service.create_skill(SkillCreate(name="other-skill"))
+        other_version = await skill_service.publish_skill(other_skill.id)
+
+        preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Corrupt exact-version preset",
+                instructions="Use the bound skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=bound_skill.id)],
+            )
+        )
+        preset_version = await agent_preset_service.get_current_version_for_preset(
+            preset
+        )
+        version_binding = await session.scalar(
+            select(AgentPresetVersionSkill).where(
+                AgentPresetVersionSkill.workspace_id
+                == agent_preset_service.workspace_id,
+                AgentPresetVersionSkill.preset_version_id == preset_version.id,
+            )
+        )
+        assert version_binding is not None
+        version_binding.skill_version_id = other_version.id
+        await session.flush()
+
+        resolved = await agent_preset_service.skills.get_resolved_skill_refs_for_preset_version(
+            preset_version.id
+        )
+
+        assert resolved == []
+
     async def test_create_preset_skill_binding_without_version_stores_current_version(
         self,
         configure_minio_for_skills,
