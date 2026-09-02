@@ -8339,10 +8339,12 @@ async def test_get_agent_preset_returns_full_configuration(
         (None, "0-0"),
     ],
 )
+@pytest.mark.parametrize("requested_preset_version", [3, None])
 async def test_run_agent_preset_uses_session_stream_cursor(
     monkeypatch: pytest.MonkeyPatch,
     last_stream_id: str | None,
     expected_start_id: str,
+    requested_preset_version: int | None,
 ) -> None:
     workspace_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
@@ -8365,7 +8367,7 @@ async def test_run_agent_preset_uses_session_stream_cursor(
             preset_version: int | None = None,
         ) -> SimpleNamespace:
             assert slug == "triage"
-            assert preset_version == 3
+            assert preset_version == requested_preset_version
             return version
 
     class _SessionService:
@@ -8412,11 +8414,16 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     )
     monkeypatch.setattr(mcp_server, "_collect_agent_response", _collect)
 
+    version_kwargs = (
+        {"preset_version": requested_preset_version}
+        if requested_preset_version is not None
+        else {}
+    )
     result = await _tool(mcp_server.run_agent_preset)(
         workspace_id=str(workspace_id),
         preset_slug="triage",
         prompt="check alerts",
-        preset_version=3,
+        **version_kwargs,
     )
 
     assert result == "agent response"
