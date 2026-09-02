@@ -690,7 +690,7 @@ def test_rejects_invalid_numeric_string(value: str) -> None:
         ("1e-16383", True),
         ("1e-16384", False),
         ("0e-16383", True),
-        ("0e-16384", False),
+        ("0e-16384", True),
         ("1.2300e-16382", False),
     ],
 )
@@ -712,6 +712,27 @@ def test_validates_postgresql_numeric_extent(value: str, should_pass: bool) -> N
     else:
         with pytest.raises(TracecatValidationError, match="field 'value'"):
             compile_filter(condition, resolver)
+
+
+@pytest.mark.parametrize("value", ["0e-1000000", "0e1000000", "-0e1000000"])
+def test_canonicalizes_extreme_numeric_zero(value: str) -> None:
+    resolver = StubResolver(
+        {
+            "value": ResolvedField(
+                expr=sa.column("value", sa.Numeric()),
+                kind=FieldKind.NUMBER,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+
+    _, params = _compile_sql(
+        compile_filter(Condition(field="value", op=FilterOp.EQ, value=value), resolver)
+    )
+
+    normalized = next(iter(params.values()))
+    assert normalized == Decimal(0)
+    assert normalized.as_tuple().exponent == 0
 
 
 def test_rejects_extreme_exponent_before_integer_conversion() -> None:

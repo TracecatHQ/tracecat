@@ -222,6 +222,8 @@ def _normalize_number(
         raise ValueError from exc
     if not decimal_value.is_finite():
         raise ValueError
+    if decimal_value.is_zero():
+        decimal_value = Decimal(0)
     if isinstance(value_type, sa.Integer):
         lower_bound, upper_bound = _integer_bounds(value_type)
         if not Decimal(lower_bound) <= decimal_value <= Decimal(upper_bound):
