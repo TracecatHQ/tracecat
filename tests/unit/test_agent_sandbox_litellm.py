@@ -71,6 +71,12 @@ from tracecat.agent.skill.service import SkillService
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.sandbox.types import (
     SandboxEgressRule,
     SandboxNetworkPolicy,
@@ -263,6 +269,31 @@ def _make_executor_input(*, enable_internet_access: bool) -> AgentExecutorInput:
         llm_gateway_auth_token="llm-token",
         agent_otel_auth_token="otel-token",
     )
+
+
+@pytest.mark.anyio
+async def test_run_agent_activity_classifies_missing_stdio_source_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor_input = _make_executor_input(enable_internet_access=False)
+    executor_input.config.mcp_servers = [
+        {
+            "type": "stdio",
+            "name": "local-tools",
+            "command": "uvx",
+        }
+    ]
+    monkeypatch.setattr(executor_activity, "activity", _fake_temporal_activity())
+
+    result = await run_agent_activity(executor_input)
+
+    assert result.success is False
+    assert result.error == "Agent configuration is invalid"
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.USER
+    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert result.terminal_stream_error_emitted is False
 
 
 def _make_passthrough_executor_input(
@@ -617,7 +648,7 @@ class _FakeLLMSocketProxy:
         *,
         socket_path: Path,
         routing_plan: LLMRoutingPlan,
-        on_error: Callable[[str], None] | None = None,
+        on_error: Callable[[llm_proxy_module.LLMProxyError], None] | None = None,
     ) -> None:
         del on_error
         self.socket_path = socket_path
@@ -2848,6 +2879,111 @@ async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_in
         tmp_path / "sockets" / LLM_SOCKET_NAME
     )
     assert fake_broker.requests[0].enable_internet_access is True
+
+
+async def _run_executor_through_route_materialization(
+    *,
+    executor_input: AgentExecutorInput,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> AgentExecutorResult:
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        del self
+        (tmp_path / "sockets").mkdir()
+        return tmp_path
+
+    async def fake_resolve_agent_otel_config(
+        self: SandboxedAgentExecutor,
+    ) -> SimpleNamespace:
+        del self
+        return SimpleNamespace(enabled=False)
+
+    async def fake_cleanup(self: SandboxedAgentExecutor) -> None:
+        del self
+
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_resolve_agent_otel_config",
+        fake_resolve_agent_otel_config,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_cleanup",
+        fake_cleanup,
+    )
+    return await SandboxedAgentExecutor(input=executor_input).run()
+
+
+@pytest.mark.anyio
+async def test_executor_classifies_passthrough_without_base_url_as_invalid_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    valid_input = _make_passthrough_executor_input(enable_internet_access=False)
+    executor_input = valid_input.model_copy(
+        update={"config": replace(valid_input.config, base_url=None)}
+    )
+
+    result = await _run_executor_through_route_materialization(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is False
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.USER
+    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_executor_classifies_revoked_passthrough_catalog_as_invalid_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    catalog_id = uuid.uuid4()
+    valid_input = _make_passthrough_executor_input(enable_internet_access=False)
+    executor_input = valid_input.model_copy(
+        update={"config": replace(valid_input.config, catalog_id=catalog_id)}
+    )
+
+    class _RevokedCatalogService(_FakeAgentManagementService):
+        async def get_catalog_credentials(
+            self, requested_catalog_id: uuid.UUID
+        ) -> dict[str, str]:
+            assert requested_catalog_id == catalog_id
+            raise TracecatAuthorizationError("catalog access revoked")
+
+    @contextlib.asynccontextmanager
+    async def fake_agent_management_context(
+        _role: Role,
+    ) -> AsyncIterator[_RevokedCatalogService]:
+        yield _RevokedCatalogService()
+
+    monkeypatch.setattr(
+        llm_proxy_module.AgentManagementService,
+        "with_session",
+        fake_agent_management_context,
+    )
+
+    result = await _run_executor_through_route_materialization(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is False
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.USER
+    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert "catalog access revoked" not in result.classification.message
 
 
 @pytest.mark.anyio

@@ -1,1 +1,1 @@
-"""Shared query compilation and execution primitives."""
+"""Shared query models, SQLAlchemy compilers, and execution primitives."""
