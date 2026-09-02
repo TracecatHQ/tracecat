@@ -23127,13 +23127,12 @@ export const $RunContext = {
     trigger_type: {
       anyOf: [
         {
-          type: "string",
+          $ref: "#/components/schemas/TriggerType",
         },
         {
           type: "null",
         },
       ],
-      title: "Trigger Type",
     },
     logical_time: {
       type: "string",

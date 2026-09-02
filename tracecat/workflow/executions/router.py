@@ -1007,7 +1007,7 @@ def _annotate_execution_trace(
             "tracecat.workspace.id": role.workspace_id,
             "tracecat.workflow.id": response["wf_id"],
             "tracecat.workflow.execution.id": response["wf_exec_id"],
-            "tracecat.trigger.type": TriggerType.MANUAL.value,
+            "tracecat.trigger.type": TriggerType.MANUAL,
         }
     )
     if trace_reference := current_trace_reference():

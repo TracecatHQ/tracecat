@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from tracecat.storage.object import StoredObject
+from tracecat.workflow.executions.enums import TriggerType
 
 
 class WorkflowOrigin(BaseModel):
@@ -14,7 +15,7 @@ class WorkflowOrigin(BaseModel):
     workflow_id: uuid.UUID
     workflow_execution_id: str
     action_ref: str
-    trigger_type: str | None = None
+    trigger_type: TriggerType | None = None
 
 
 class ApprovedToolCall(BaseModel):

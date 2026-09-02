@@ -127,7 +127,7 @@ def _annotate_webhook_trace(
             "tracecat.workspace.id": role.workspace_id if role is not None else None,
             "tracecat.workflow.id": wf_id,
             "tracecat.workflow.execution.id": wf_exec_id,
-            "tracecat.trigger.type": TriggerType.WEBHOOK.value,
+            "tracecat.trigger.type": TriggerType.WEBHOOK,
         }
     )
     if response is not None and (trace_reference := current_trace_reference()):

@@ -11,6 +11,7 @@ import os
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import StrEnum
 from threading import Lock
 from typing import TYPE_CHECKING, Final, Protocol
 from uuid import UUID
@@ -72,8 +73,8 @@ _TEMPORAL_FAILURE_TYPE: Final = "temporal.failure"
 _PLATFORM_INSTRUMENTATION_NAME: Final = "tracecat.platform"
 
 type _TraceCarrier = dict[str, list[str] | str]
-# Platform span attributes; UUIDs are stringified on the way in.
-type _PlatformAttributes = Mapping[str, str | int | bool | UUID | None]
+# Platform span attributes; UUIDs and StrEnums are stringified on the way in.
+type _PlatformAttributes = Mapping[str, str | int | bool | UUID | StrEnum | None]
 
 
 class _TemporalInputWithHeaders(Protocol):
@@ -348,15 +349,17 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
 def set_current_span_attributes(attributes: _PlatformAttributes) -> None:
     """Attach safe platform attributes to the current recording span.
 
-    ``None`` values are dropped and UUIDs are stringified, so callers can pass
-    their identifiers straight through.
+    ``None`` values are dropped and UUIDs and StrEnums are stringified to a
+    plain ``str``, so callers can pass their identifiers straight through.
     """
     span = trace.get_current_span()
     if not span.is_recording():
         return
     for key, value in attributes.items():
         if value is not None:
-            span.set_attribute(key, str(value) if isinstance(value, UUID) else value)
+            span.set_attribute(
+                key, str(value) if isinstance(value, UUID | StrEnum) else value
+            )
 
 
 @contextmanager

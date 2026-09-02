@@ -87,6 +87,7 @@ from tracecat.observability.otel import (
 )
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.workflow.executions.enums import TriggerType
 
 
 @pytest.fixture
@@ -2420,7 +2421,7 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
                     workflow_id=workflow_id,
                     workflow_execution_id="wf_synthetic/exec_synthetic",
                     action_ref="investigate",
-                    trigger_type="webhook",
+                    trigger_type=TriggerType.WEBHOOK,
                 ),
             )
         )
