@@ -1,0 +1,25 @@
+scripts/dedupe_release_notes.py
+  s_c5002332a8185a::t_5e4dcfd76b836f 24
+  s_c5002332a8185a::t_c8528dfc6fee17 25-29,53
+.github/workflows/release-drafter.yml
+  s_c5002332a8185a::t_21b195f13a5263 181,201-213,217-221
+  s_c5002332a8185a::t_d7cc70beca0e89 222
+tests/unit/test_dedupe_release_notes.py
+  s_c5002332a8185a::t_5e4dcfd76b836f 154-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1ca9c4c28e527a3a20add0fd2d4eebe91eed0849",
+  "prompts": {},
+  "sessions": {
+    "s_c5002332a8185a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "831b7546-2af0-4f8f-af70-e9256e652a68",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
