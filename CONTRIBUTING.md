@@ -130,6 +130,8 @@ just check-pr-title "feat(cases): add case duplication"
 
 Nothing else is accepted. Formatting is not a type: ruff and biome run on commit, so whitespace never ships as its own pull request.
 
+GitHub's revert button generates `Revert "fix(agents): ..."`, which is rejected too: the wrapper carries no type, so nothing can file it into a section. Retitle it `revert(<scope>): <description>`, keeping the scope of the change you are reverting.
+
 ### Scopes
 
 Add a scope whenever the change belongs to one product area. Leave it off only when the change is genuinely repo-wide.

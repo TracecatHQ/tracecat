@@ -30,8 +30,12 @@ max_length = 72
 max_scope_parts = 2
 # Tolerate an agent prefix such as "[codex] feat(ui): ...".
 allow_bot_prefix = true
-# Tolerate GitHub's own revert titles: Revert "feat(mcp): ...".
-allow_revert_wrapper = true
+# Reject GitHub's own revert titles: Revert "feat(mcp): ...". The revert button
+# generates that title and it carries no type, so no rule can file it into a
+# release-notes section: the one such line ever published sits above the first
+# heading. Authors retitle to `revert(<scope>): <description>`, and the checker
+# reads the quoted title to name the exact replacement.
+allow_revert_wrapper = false
 
 # Conventional-commit types, and the label each one applies.
 #
