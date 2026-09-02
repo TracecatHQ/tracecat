@@ -8,8 +8,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 MAX_GROUP_BY_FIELDS = 3
 MAX_AGGREGATIONS = 8
+POSTGRES_IDENTIFIER_MAX_BYTES = 63
 IANA_TIMEZONES = frozenset(available_timezones())
 type TimeBucket = Literal["hour", "day", "week", "month"]
+
+
+def _postgres_identifier(value: str) -> str:
+    """Return an identifier as PostgreSQL stores it after byte truncation."""
+    encoded = value.encode("utf-8")[:POSTGRES_IDENTIFIER_MAX_BYTES]
+    return encoded.decode("utf-8", errors="ignore")
 
 
 class AggFunction(StrEnum):
@@ -147,12 +154,16 @@ class AggregationSpec(_AggregationModel):
     def validate_output_keys(self) -> Self:
         output_keys = [group.output_key for group in self.group_by]
         output_keys.extend(agg.output_key for agg in self.aggs)
+        normalized_output_keys = [_postgres_identifier(key) for key in output_keys]
         duplicates = sorted(
-            key for key in set(output_keys) if output_keys.count(key) > 1
+            key
+            for key in set(normalized_output_keys)
+            if normalized_output_keys.count(key) > 1
         )
         if duplicates:
             raise ValueError(
-                "Aggregation output keys must be unique; duplicate keys: "
+                "Aggregation output keys must be unique after PostgreSQL identifier "
+                "truncation; duplicate keys: "
                 + ", ".join(repr(key) for key in duplicates)
             )
         if self.order_by is not None and self.order_by not in output_keys:

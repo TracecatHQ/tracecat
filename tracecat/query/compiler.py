@@ -121,7 +121,7 @@ def compile_aggregation(
         *agg_expressions,
         maintain_column_froms=True,
     )
-    compiled = compiled.group_by(None).order_by(None).limit(None)
+    compiled = compiled.group_by(None).order_by(None).limit(None).offset(None)
     if group_expressions:
         compiled = compiled.group_by(*group_expressions)
 
@@ -257,7 +257,9 @@ def _compile_aggregate(
             expression = sa.func.count(sa.distinct(field_expression))
         case AggFunction.SUM:
             expression = sa.func.sum(field_expression)
-            if isinstance(field_expression.type, sa.Integer):
+            if isinstance(field_expression.type, sa.BigInteger):
+                expression = sa.cast(expression, postgresql.DOUBLE_PRECISION())
+            elif isinstance(field_expression.type, sa.Integer):
                 expression = sa.cast(expression, sa.BigInteger())
             else:
                 expression = sa.cast(expression, postgresql.DOUBLE_PRECISION())

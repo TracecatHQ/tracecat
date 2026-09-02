@@ -205,6 +205,24 @@ def test_aggregation_spec_rejects_output_key_collisions(
         AggregationSpec.model_validate(data)
 
 
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("a" * 63 + "x", "a" * 63 + "y"),
+        ("é" * 31, "é" * 32),
+    ],
+)
+def test_aggregation_spec_rejects_postgres_truncated_alias_collisions(
+    first: str,
+    second: str,
+) -> None:
+    with pytest.raises(ValidationError, match="PostgreSQL identifier truncation"):
+        AggregationSpec(
+            group_by=[GroupBySpec(field="status", alias=first)],
+            aggs=[AggSpec(function=AggFunction.COUNT, alias=second)],
+        )
+
+
 def test_aggregation_spec_rejects_unknown_order_key() -> None:
     with pytest.raises(ValidationError, match="does not match"):
         AggregationSpec(group_by=[GroupBySpec(field="status")], order_by="missing")
@@ -438,7 +456,12 @@ def test_aggregate_function_type_matrix(
 @pytest.mark.parametrize(
     ("function", "column_type", "sql_fragment"),
     [
-        (AggFunction.SUM, sa.BigInteger(), "CAST(sum(value) AS BIGINT)"),
+        (AggFunction.SUM, sa.Integer(), "CAST(sum(value) AS BIGINT)"),
+        (
+            AggFunction.SUM,
+            sa.BigInteger(),
+            "CAST(sum(value) AS DOUBLE PRECISION)",
+        ),
         (AggFunction.SUM, sa.Numeric(), "CAST(sum(value) AS DOUBLE PRECISION)"),
         (AggFunction.MEAN, sa.BigInteger(), "CAST(avg(value) AS DOUBLE PRECISION)"),
         (AggFunction.MEAN, sa.Numeric(), "CAST(avg(value) AS DOUBLE PRECISION)"),
@@ -588,6 +611,22 @@ def test_empty_group_by_compiles_grand_total() -> None:
     assert "SELECT count(*) AS count" in sql
     assert "GROUP BY" not in sql
     assert "ORDER BY count DESC NULLS LAST" in sql
+
+
+def test_compiler_clears_base_limit_and_offset() -> None:
+    statement = _base_statement().limit(10).offset(5)
+
+    sql = _sql(
+        compile_aggregation(
+            statement,
+            AggregationSpec(group_by=[]),
+            {},
+            limit=25,
+        )
+    )
+
+    assert " LIMIT 26" in sql
+    assert " OFFSET " not in sql
 
 
 def test_unknown_aggregation_field_is_a_semantic_error() -> None:
