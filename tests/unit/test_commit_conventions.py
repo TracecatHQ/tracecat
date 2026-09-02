@@ -373,6 +373,29 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
             id="docs-deps-keeps-its-type-because-its-section-is-docs",
         ),
         pytest.param(
+            "- ci(fix): remove caching from build and deploy images (#186)",
+            "- ci: Remove caching from build and deploy images (#186)",
+            id="a-type-name-in-the-scope-slot-is-dropped",
+        ),
+        pytest.param(
+            "- feat(security): add nextjs security headers (#749)",
+            "- feat: Add nextjs security headers (#749)",
+            id="security-is-a-type-not-an-area",
+        ),
+        pytest.param(
+            # `docs` is a type AND a canonical scope, so this one means
+            # something and must survive.
+            "- ci(docs): regenerate the api docs (#1237)",
+            "- ci(docs): Regenerate the api docs (#1237)",
+            id="a-type-that-is-also-a-scope-is-kept",
+        ),
+        pytest.param(
+            # `helm` is a scope alias, so it resolves rather than being dropped.
+            "- ci(helm): bump the chart version (#1238)",
+            "- ci(infra): Bump the chart version (#1238)",
+            id="a-type-that-is-also-a-scope-alias-is-resolved",
+        ),
+        pytest.param(
             "- deps: bump temporalio to 1.9.0 (#826)",
             "- build(deps): Bump temporalio to 1.9.0 (#826)",
             id="retired-deps-type-becomes-build-deps",
@@ -458,7 +481,7 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
         ),
         pytest.param(
             "- ci(fix): uv venv install in registry install job",
-            "- ci(fix): uv venv install in registry install job",
+            "- ci: uv venv install in registry install job",
             id="tool-name-that-is-never-capitalized",
         ),
         pytest.param(
@@ -536,6 +559,33 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
 )
 def test_replacers_render_the_line(line: str, expected: str) -> None:
     assert render(line) == expected
+
+
+def test_type_scope_rule_matches_the_toml(conventions: Conventions) -> None:
+    """The dropped-scope list is every type name that means nothing as a scope.
+
+    A type added to the TOML without being added here would keep rendering as a
+    scope; one removed from the TOML would be dropped from a line where it is
+    now a legitimate area.
+    """
+    rules = [
+        str(rule["search"])
+        for rule in DRAFTER["replacers"]
+        if str(rule["replace"]) == "- $1$2$3: " and "\\2" not in str(rule["search"])
+    ]
+    assert len(rules) == 1, rules
+    alternation = re.search(r"\(\?:([a-z|]+)\)", rules[0])
+    assert alternation is not None, rules[0]
+    listed = set(alternation.group(1).split("|"))
+
+    every_type = set(conventions.types) | set(conventions.legacy_types)
+    reserved = (
+        set(conventions.canonical_scopes)
+        | set(conventions.scope_aliases)
+        | set(conventions.legacy_scopes)
+        | set(conventions.ambiguous_scopes)
+    )
+    assert listed == every_type - reserved
 
 
 def test_replacers_anchor_per_line() -> None:

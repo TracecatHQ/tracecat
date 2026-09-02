@@ -553,6 +553,18 @@ replacers:
   - search: '/^(- (?:\[[\w.-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:frontend|canvas|ux)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
     replace: '$1ui$2'
 
+  # Drop a scope that is a type name rather than an area. `ci(fix)`,
+  # `feat(security)`, `fix(tests)`: the parenthesis is where the area goes, and
+  # a type in it names nothing a reader can navigate by. 45 such lines were
+  # published.
+  #
+  # `build`, `deps`, `docs`, `infra` and `helm` are excluded and must stay:
+  # each is a real scope or scope alias as well as a type, so `ci(docs)` and
+  # `ci(helm)` mean something. The list is every remaining type name, and the
+  # drift test asserts it stays in step with the TOML.
+  - search: '/^- (\[[\w.-]+\]\s+)?([a-z]+)\((?:deprecation|refactor|security|release|revert|chore|tests|depr|feat|perf|test|doc|fix|ci)\)(!?): /gm'
+    replace: '- $1$2$3: '
+
   # Drop a scope that only repeats its type. `infra(fargate)` is a fine title,
   # but the alias rules above rewrite it to `infra(infra)`, which reads as a
   # stutter. Must stay below those rules; it exists to clean up after them.
