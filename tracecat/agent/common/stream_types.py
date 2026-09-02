@@ -293,6 +293,10 @@ class UnifiedStreamEvent:
                 ToolCallContent.from_dict(cast(dict[str, Any], item))
                 for item in raw_approval_items
             ]
+        if event_type is StreamEventType.APPROVAL_REQUEST and not approval_items:
+            raise ValueError(
+                "stream_event.approval_request must include at least one approval item"
+            )
 
         artifact_data = None
         raw_artifact_data = data.get("artifact_data")

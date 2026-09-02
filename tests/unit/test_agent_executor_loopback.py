@@ -1041,6 +1041,14 @@ async def test_handle_connection_deadline_cancels_slack_terminal_cleanup(
     [
         {
             "type": "stream_event",
+            "event": {"type": "approval_request"},
+        },
+        {
+            "type": "stream_event",
+            "event": {"type": "approval_request", "approval_items": []},
+        },
+        {
+            "type": "stream_event",
             "event": {
                 "type": "approval_request",
                 "approval_items": [{"id": [], "name": "tool"}],
