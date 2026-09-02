@@ -260,6 +260,7 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
     ("status_code", "expected_kind"),
     [
         (401, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
+        (403, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
         (500, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
         (504, RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT),
     ],
@@ -305,6 +306,7 @@ async def test_forward_request_classifies_platform_http_failures_at_source(
 @pytest.mark.parametrize(
     ("status_code", "expected_retry_disposition"),
     [
+        (403, RetryDisposition.NON_RETRYABLE),
         (503, RetryDisposition.NON_RETRYABLE),
         (429, RetryDisposition.RETRYABLE),
         (408, RetryDisposition.RETRYABLE),
