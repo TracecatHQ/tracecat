@@ -700,6 +700,40 @@ async def test_write_stream_response_keeps_direct_transport_failure_retryable(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("content_type", ["application/json", "text/event-stream"])
+async def test_write_response_ignores_transport_failure_after_client_disconnect(
+    tmp_path: Path,
+    content_type: str,
+) -> None:
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    writer = _FakeWriter()
+
+    async def disconnected_stream() -> AsyncIterator[bytes]:
+        writer.close()
+        request = httpx.Request("POST", "http://litellm:4000/v1/messages")
+        raise httpx.ReadError("provider disconnected", request=request)
+        yield b""  # pragma: no cover
+
+    await socket_proxy._write_response(
+        cast(asyncio.StreamWriter, writer),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": content_type},
+        body_chunks=disconnected_stream(),
+        trace_request_id="trace-test-client-disconnect",
+        path="/v1/messages",
+    )
+
+    assert writer.buffer.count(b"HTTP/1.1") == 1
+    assert errors == []
+
+
+@pytest.mark.anyio
 async def test_forward_request_strips_authorization_for_passthrough_upstream(
     tmp_path: Path,
 ) -> None:

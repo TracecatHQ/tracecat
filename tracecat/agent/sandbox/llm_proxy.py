@@ -1056,7 +1056,10 @@ class LLMSocketProxy:
             # so the client can surface it.  This covers HTTPException from
             # the proxy layer and RuntimeError from upstream provider errors
             # (e.g. _raise_stream_http_error on 4xx/5xx).
-            if is_streaming_response and not writer.is_closing():
+            if writer.is_closing():
+                logger.debug("Client disconnected while reading response body")
+                return
+            if is_streaming_response:
                 if isinstance(exc, httpx.ReadTimeout):
                     status_code = 504
                     timeout_duration = _format_timeout_duration(

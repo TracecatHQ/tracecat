@@ -98,19 +98,22 @@ async def resolve_agent_preset_version_ref_activity(
 async def resolve_agents_config_activity(
     args: ResolveAgentsConfigActivityInput,
 ) -> ResolvedAgentsRuntimeConfig:
-    async with AgentPresetService.with_session(role=args.role) as service:
-        follow_latest_versions = args.follow_latest_versions
-        if follow_latest_versions is None:
-            follow_latest_versions = await service.use_latest_resource_versions()
-        resolved = await resolve_agents_config(
-            service,
-            agents=args.agents,
-            parent_preset_id=args.parent_preset_id,
-            parent_slug=args.parent_slug,
-            include_runtime_config=True,
-            follow_latest_versions=follow_latest_versions,
-        )
-        return resolved.to_runtime_config()
+    try:
+        async with AgentPresetService.with_session(role=args.role) as service:
+            follow_latest_versions = args.follow_latest_versions
+            if follow_latest_versions is None:
+                follow_latest_versions = await service.use_latest_resource_versions()
+            resolved = await resolve_agents_config(
+                service,
+                agents=args.agents,
+                parent_preset_id=args.parent_preset_id,
+                parent_slug=args.parent_slug,
+                include_runtime_config=True,
+                follow_latest_versions=follow_latest_versions,
+            )
+            return resolved.to_runtime_config()
+    except (TracecatNotFoundError, TracecatValidationError) as exc:
+        raise_application_error_from_classification(invalid_agent_configuration(exc))
 
 
 class CustomModelProviderConfigResult(BaseModel):

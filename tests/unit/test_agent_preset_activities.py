@@ -350,6 +350,47 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
 
 
 @pytest.mark.anyio
+async def test_resolve_agents_config_classifies_missing_subagent_preset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        resolve_agent_preset_version=AsyncMock(
+            side_effect=TracecatNotFoundError("Agent preset 'missing-child' not found")
+        ),
+        use_latest_resource_versions=AsyncMock(return_value=False),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_agents_config_activity(
+            ResolveAgentsConfigActivityInput(
+                role=role,
+                agents=AgentSubagentsConfig.model_validate(
+                    {
+                        "enabled": True,
+                        "subagents": [{"preset": "missing-child"}],
+                    }
+                ),
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
 async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -376,13 +417,7 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
         lambda **_: _AsyncContext(service),
     )
 
-    with pytest.raises(
-        TracecatValidationError,
-        match=(
-            "Subagent preset 'approval-child' uses manual approvals, "
-            "which are not supported for subagents yet."
-        ),
-    ):
+    with pytest.raises(ApplicationError) as exc_info:
         await resolve_agents_config_activity(
             ResolveAgentsConfigActivityInput(
                 role=role,
@@ -394,6 +429,12 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
                 ),
             )
         )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert exc_info.value.non_retryable is True
 
 
 @pytest.mark.anyio
@@ -414,10 +455,7 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
         ),
     )
 
-    with pytest.raises(
-        TracecatValidationError,
-        match="Invalid subagent alias 'Bad Alias'",
-    ):
+    with pytest.raises(ApplicationError) as exc_info:
         await resolve_agents_config_activity(
             ResolveAgentsConfigActivityInput(
                 role=role,
@@ -429,6 +467,12 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
                 ),
             )
         )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert exc_info.value.non_retryable is True
 
 
 @pytest.mark.anyio
