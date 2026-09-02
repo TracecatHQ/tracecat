@@ -1686,6 +1686,8 @@ class TestSandboxedAgentExecutorHelpers:
             mcp_auth_token="mock-mcp-token",
             llm_gateway_auth_token="mock-llm-token",
             agent_otel_auth_token="mock-otel-token",
+            max_requests=7,
+            max_tool_calls=3,
         )
 
     def test_build_runtime_init_payload(
@@ -1701,6 +1703,8 @@ class TestSandboxedAgentExecutorHelpers:
         assert payload.user_prompt == executor_input.user_prompt
         assert payload.mcp_auth_token == executor_input.mcp_auth_token
         assert payload.llm_gateway_auth_token == executor_input.llm_gateway_auth_token
+        assert payload.max_requests == executor_input.max_requests
+        assert payload.max_tool_calls == executor_input.max_tool_calls
         assert (
             cast(Any, payload.config).model_name
             == cast(Any, executor_input.config).model_name
@@ -1729,6 +1733,7 @@ class TestSandboxedAgentExecutorHelpers:
         loopback_result = LoopbackResult(
             success=True,
             output={"status": "completed"},
+            consumed_tool_calls=4,
         )
 
         SandboxedAgentExecutor._apply_loopback_result(result, loopback_result)
@@ -1736,6 +1741,7 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.success is True
         assert result.approval_requested is False
         assert result.output == {"status": "completed"}
+        assert result.consumed_tool_calls == 4
 
     def test_apply_loopback_result_copies_terminal_stream_error_flag(
         self,

@@ -51,6 +51,7 @@ def test_mcp_token_round_trips_parent_agent_workflow_metadata(
         session_id=session_id,
         parent_agent_workflow_id=f"agent/{session_id}",
         parent_agent_run_id="run-123",
+        environment="staging",
         registry_lock=_registry_lock(),
     )
 
@@ -61,7 +62,30 @@ def test_mcp_token_round_trips_parent_agent_workflow_metadata(
     assert claims.user_id == user_id
     assert claims.parent_agent_workflow_id == f"agent/{session_id}"
     assert claims.parent_agent_run_id == "run-123"
+    assert claims.environment == "staging"
     assert claims.registry_lock == _registry_lock()
+
+
+def test_mcp_token_defaults_legacy_environment(monkeypatch) -> None:
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+    token = mint_mcp_token(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        allowed_actions=[],
+        session_id=session_id,
+        registry_lock=_registry_lock(),
+    )
+
+    payload = jwt.decode(
+        token,
+        get_service_key(),
+        algorithms=["HS256"],
+        audience="tracecat-mcp-server",
+    )
+    payload.pop("environment")
+    legacy_token = jwt.encode(payload, get_service_key(), algorithm="HS256")
+
+    assert verify_mcp_token(legacy_token).environment == "default"
 
 
 def test_mcp_token_accepts_legacy_user_mcp_server_claim_shape(monkeypatch) -> None:

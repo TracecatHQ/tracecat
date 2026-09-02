@@ -900,6 +900,7 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         execution_id=execution_id,
         logical_time=logical_time,
         agent_session_id=agent_session_id,
+        environment="staging",
     )
 
     assert result.task.action == "core_http_request"
@@ -911,6 +912,7 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         == f"{WorkflowUUID.from_uuid(workflow_id).short()}/{ExecutionUUID.from_uuid(execution_id).short()}"
     )
     assert result.run_context.logical_time == logical_time
+    assert result.run_context.environment == "staging"
     assert result.agent_session_id == agent_session_id
 
 
@@ -946,6 +948,7 @@ def test_approved_registry_tool_failures_are_not_retried() -> None:
             service_role=role,
             logical_time=datetime(2026, 3, 18, tzinfo=UTC),
             agent_session_id=uuid.uuid4(),
+            environment="staging",
         )
 
     retry_policy = start_activity_mock.call_args.kwargs["retry_policy"]
@@ -983,6 +986,7 @@ def test_build_approved_tool_run_input_strips_proxy_metadata() -> None:
         execution_id=execution_id,
         logical_time=logical_time,
         agent_session_id=agent_session_id,
+        environment="staging",
     )
 
     assert result.task.action == "core.cases.create_case"

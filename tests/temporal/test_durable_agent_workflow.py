@@ -49,6 +49,7 @@ from tracecat_ee.agent.approvals.service import (
 )
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import (
+    AGENT_RUN_LIMITS_PATCH,
     APPROVAL_STREAM_V2_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
@@ -703,11 +704,64 @@ async def test_internal_agent_runner_executes_durable_workflow(
 
 @pytest.mark.anyio
 @pytest.mark.integration
+async def test_agent_workflow_replays_history_without_run_limits_patch(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A history created before run-limit enforcement replays unchanged."""
+    queue = f"test-agent-pre-run-limits-{mock_session_id}"
+
+    def mock_executor(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        del input
+        assert call_count == 0
+        return AgentExecutorResult(success=True, approval_requested=False)
+
+    activities = create_activities_with_mock_executor(mock_executor)
+    current_patched = temporal_workflow.patched
+
+    def legacy_patched(patch_id: str) -> bool:
+        if patch_id == AGENT_RUN_LIMITS_PATCH:
+            return False
+        return current_patched(patch_id)
+
+    with monkeypatch.context() as legacy_worker:
+        legacy_worker.setattr(temporal_workflow, "patched", legacy_patched)
+        async with agent_worker_factory(
+            temporal_client,
+            task_queue=queue,
+            custom_activities=activities,
+        ):
+            handle = await temporal_client.start_workflow(
+                DurableAgentWorkflow.run,
+                agent_workflow_args,
+                id=AgentWorkflowID(mock_session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+            await handle.result()
+            legacy_history = await handle.fetch_history()
+
+    assert AGENT_RUN_LIMITS_PATCH not in await recorded_patch_ids(
+        temporal_client,
+        legacy_history,
+    )
+    await replay_durable_agent_workflow_history(temporal_client, legacy_history)
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
 @pytest.mark.parametrize(
     ("configured_timeout_seconds", "expected_timeout_seconds"),
     [(None, None), (TRACECAT__AGENT_SANDBOX_TIMEOUT, TRACECAT__AGENT_SANDBOX_TIMEOUT)],
 )
-async def test_agent_workflow_approval_continuation_gets_fresh_timeout_window(
+async def test_agent_workflow_approval_continuation_preserves_limits(
     svc_role: Role,
     temporal_client: Client,
     agent_worker_factory,
@@ -717,7 +771,7 @@ async def test_agent_workflow_approval_continuation_gets_fresh_timeout_window(
     configured_timeout_seconds: int | None,
     expected_timeout_seconds: int | None,
 ) -> None:
-    """Each continuous execution window receives the configured timeout."""
+    """Approval resumes with a fresh timeout and remaining run budgets."""
     del test_user
     queue = f"test-agent-timeout-window-{mock_session_id}"
     approval_request_recorded = asyncio.Event()
@@ -740,12 +794,18 @@ async def test_agent_workflow_approval_continuation_gets_fresh_timeout_window(
                         input={"url": "https://example.com", "method": "GET"},
                     )
                 ],
+                result_num_turns=2,
+                consumed_tool_calls=1,
+                result_usage={"input_tokens": 10, "output_tokens": 5},
             )
 
         assert input.timeout_seconds == expected_timeout_seconds
         return AgentExecutorResult(
             success=True,
             output={"status": "completed-after-approval"},
+            result_num_turns=1,
+            consumed_tool_calls=2,
+            result_usage={"input_tokens": 7, "output_tokens": 4},
         )
 
     @activity.defn(name="emit_session_error")
@@ -782,6 +842,8 @@ async def test_agent_workflow_approval_continuation_gets_fresh_timeout_window(
             session_id=mock_session_id,
             user_prompt="Exercise the maximum timeout boundary",
             config=agent_config_with_approvals,
+            max_requests=5,
+            max_tool_calls=4,
             timeout_seconds=configured_timeout_seconds,
         ),
         entity_type=AgentSessionEntity.WORKFLOW,
@@ -816,6 +878,15 @@ async def test_agent_workflow_approval_continuation_gets_fresh_timeout_window(
         expected_timeout_seconds,
         expected_timeout_seconds,
     ]
+    assert [(item.max_requests, item.max_tool_calls) for item in executor_inputs] == [
+        (5, 4),
+        (3, 3),
+    ]
+    assert result.usage is not None
+    assert result.usage.requests == 3
+    assert result.usage.tool_calls == 3
+    assert result.usage.input_tokens == 17
+    assert result.usage.output_tokens == 9
 
 
 @pytest.mark.anyio

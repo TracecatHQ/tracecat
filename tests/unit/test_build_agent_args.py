@@ -783,10 +783,11 @@ class TestBuildPresetAgentArgsActivity:
             new_callable=AsyncMock,
             return_value={"prompts": {"default": "Analyze this alert"}},
         ) as mock_get_vars:
-            await DSLActivities.build_preset_agent_args_activity(input)
+            result = await DSLActivities.build_preset_agent_args_activity(input)
 
         mock_get_vars.assert_called_once_with(
             variable_exprs={"prompts"},
             environment="staging",
             role=role,
         )
+        assert result.environment == "staging"

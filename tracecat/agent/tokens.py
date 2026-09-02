@@ -113,6 +113,8 @@ class MCPTokenClaims(BaseModel):
     """Optional parent durable agent run ID for correlation."""
     organization_id: OrganizationID
     """Organization UUID for authorization context."""
+    environment: str = "default"
+    """Resolved workflow environment for registry action execution."""
     allowed_actions: list[str]
     """Set of allowed action names (e.g., {"tools.slack.post_message", "core.http_request"})."""
     user_mcp_servers: list[UserMCPServerClaim] = Field(default_factory=list)
@@ -144,6 +146,7 @@ def mint_mcp_token(
     user_mcp_servers: list[UserMCPServerClaim] | None = None,
     allowed_internal_tools: list[str] | None = None,
     internal_tool_context: InternalToolContext | None = None,
+    environment: str = "default",
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed MCP JWT containing workspace identity and allowed actions.
@@ -165,6 +168,7 @@ def mint_mcp_token(
         user_mcp_servers: User-defined MCP server configs for proxying
         allowed_internal_tools: Set of allowed internal tool names
         internal_tool_context: Context for internal tools (preset_id, entity_type)
+        environment: Resolved workflow environment for registry action execution
         ttl_seconds: Token TTL in seconds (defaults to the agent sandbox timeout
             plus a small buffer so the token outlives one full turn)
 
@@ -189,6 +193,7 @@ def mint_mcp_token(
             organization_id=organization_id,
             user_id=user_id,
             session_id=session_id,
+            environment=environment,
             parent_agent_workflow_id=parent_agent_workflow_id,
             parent_agent_run_id=parent_agent_run_id,
             allowed_actions=allowed_actions,

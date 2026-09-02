@@ -23,8 +23,10 @@ from tracecat import config
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_action_scope
+from tracecat.authz.scopes import backfill_legacy_role_scopes
 from tracecat.common import is_iterable
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_role, ctx_run
 from tracecat.dsl.common import (
     MAX_LOOP_ITERATIONS,
     DSLInput,
@@ -42,6 +44,7 @@ from tracecat.dsl.schemas import (
     MaterializedExecutionContext,
     MaterializedTaskResult,
     RunActionInput,
+    RunContext,
     StreamID,
     TaskResult,
 )
@@ -150,7 +153,10 @@ async def _resolve_mcp_integrations(
 
 
 async def _slackbot_secret_context(
-    *, role: Role, registry_lock: RegistryLock | None
+    *,
+    role: Role,
+    registry_lock: RegistryLock | None,
+    run_context: RunContext | None,
 ) -> dict[str, str]:
     if registry_lock is None:
         raise ApplicationError(
@@ -164,6 +170,7 @@ async def _slackbot_secret_context(
         )
 
     role_token = ctx_role.set(role)
+    run_token = ctx_run.set(run_context)
     try:
         await registry_resolver.prefetch_lock(registry_lock, role.organization_id)
         action_secrets = await registry_resolver.collect_action_secrets_from_manifest(
@@ -176,6 +183,7 @@ async def _slackbot_secret_context(
             action_secrets=action_secrets,
         )
     finally:
+        ctx_run.reset(run_token)
         ctx_role.reset(role_token)
     slack = resolved.get("slack")
     if not isinstance(slack, dict) or not isinstance(
@@ -195,6 +203,11 @@ async def _prepare_slackbot_agent_action(
     secret_context = await _slackbot_secret_context(
         role=input.role,
         registry_lock=input.registry_lock,
+        run_context=input.run_context.model_copy(
+            update={"environment": evaled_args["environment"]}
+        )
+        if input.run_context is not None
+        else None,
     )
     token = registry_secrets.set_context(secret_context)
     try:
@@ -219,6 +232,7 @@ async def _finalize_slackbot_action(
     secret_context = await _slackbot_secret_context(
         role=input.role,
         registry_lock=input.registry_lock,
+        run_context=input.run_context,
     )
     token = registry_secrets.set_context(secret_context)
     try:
@@ -326,6 +340,8 @@ class BuildAgentArgsActivityInput(BaseModel):
     role: Role
     task_environment: str | None
     default_environment: str
+    # Optional for activities recorded before environment propagation shipped.
+    run_context: RunContext | None = None
     registry_lock: RegistryLock | None = None
 
 
@@ -339,6 +355,7 @@ class PreparedSlackbot(BaseModel):
 class FinalizeSlackbotActivityInput(BaseModel):
     role: Role
     registry_lock: RegistryLock
+    run_context: RunContext | None = None
     context: SlackbotContext
     succeeded: bool
 
@@ -1105,6 +1122,12 @@ class DSLActivities:
 
 async def _evaluate_agent_args(input: BuildAgentArgsActivityInput) -> dict[str, Any]:
     """Resolve environment and VARS, materialize the operand, and evaluate templated args."""
+    # Interface actions skip executor dispatch, so enforce their exact action
+    # scope before resolving variables, integrations, or secrets.
+    require_action_scope(
+        input.action,
+        role=backfill_legacy_role_scopes(input.role),
+    )
     operand = input.operand
     materialized = await materialize_context(operand)
     environment = await asyncio.to_thread(
@@ -1124,7 +1147,11 @@ async def _evaluate_agent_args(input: BuildAgentArgsActivityInput) -> dict[str, 
             operand["VARS"] = workspace_variables
             materialized = await materialize_context(operand)
     args = _strip_string_values(input.args)
-    return await asyncio.to_thread(eval_templated_object, args, operand=materialized)
+    evaled_args = await asyncio.to_thread(
+        eval_templated_object, args, operand=materialized
+    )
+    evaled_args["environment"] = environment
+    return evaled_args
 
 
 def _subflow_error_classification(error: Exception) -> RuntimeErrorClassification:

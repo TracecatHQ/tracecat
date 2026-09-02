@@ -42,6 +42,8 @@ class RunAgentArgs(BaseModel):
 
     user_prompt: str
     """User prompt for the agent."""
+    environment: str = "default"
+    """Resolved workflow environment for agent-owned action execution."""
     session_id: uuid.UUID
     """Session ID for the agent execution."""
     active_stream_id: uuid.UUID | None = None

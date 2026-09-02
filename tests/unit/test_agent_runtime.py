@@ -214,6 +214,21 @@ def test_pre_tool_use_hook_input_declares_subagent_context_fields() -> None:
     assert {"agent_id", "agent_type"} <= optional_keys
 
 
+def test_runtime_init_payload_round_trips_run_limits(
+    sample_init_payload: RuntimeInitPayload,
+) -> None:
+    payload = replace(
+        sample_init_payload,
+        max_requests=12,
+        max_tool_calls=4,
+    )
+
+    restored = RuntimeInitPayload.from_dict(payload.to_dict())
+
+    assert restored.max_requests == 12
+    assert restored.max_tool_calls == 4
+
+
 @pytest.mark.parametrize(
     ("provider", "model_name", "passthrough", "expected"),
     [
@@ -864,6 +879,102 @@ class TestClaudeAgentRuntimeRun:
 
         mock_socket_writer.send_error.assert_awaited_once()
         mock_socket_writer.send_done.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_max_turns_result_sends_request_limit_failure(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        async def max_turns_response() -> Any:
+            yield ResultMessage(
+                subtype="error_max_turns",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=True,
+                num_turns=3,
+                session_id="test-sdk-session",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                result=None,
+            )
+
+        mock_claude_sdk_client.receive_response = max_turns_response
+        payload = replace(sample_init_payload, max_requests=3)
+
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ) as client_cls:
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(payload)
+
+        assert client_cls.call_args.kwargs["options"].max_turns == 3
+        mock_socket_writer.send_result.assert_awaited_once()
+        assert (
+            mock_socket_writer.send_result.await_args.kwargs["consumed_tool_calls"] == 0
+        )
+        mock_socket_writer.send_error.assert_awaited_once_with(
+            "Agent exceeded max_requests limit (3)"
+        )
+
+    @pytest.mark.anyio
+    async def test_tool_limit_hook_termination_sends_run_failure(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        hook_results: list[SyncHookJSONOutput] = []
+
+        async def attempt_tool(_query: object) -> None:
+            hook_results.append(
+                await runtime._pre_tool_use_hook(
+                    input_data=make_hook_input(
+                        tool_name="mcp__jira__search",
+                        tool_input={"query": "status = open"},
+                        tool_use_id="call-1",
+                    ),
+                    tool_use_id="call-1",
+                    context=make_hook_context(),
+                )
+            )
+
+        async def completed_response() -> Any:
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id="test-sdk-session",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                result="done",
+            )
+
+        mock_claude_sdk_client.query = AsyncMock(side_effect=attempt_tool)
+        mock_claude_sdk_client.receive_response = completed_response
+        payload = replace(sample_init_payload, max_tool_calls=0)
+
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ):
+            await runtime.run(payload)
+
+        assert hook_results[0].get("continue_") is False
+        assert hook_results[0].get("stopReason") == "Tool call limit (0) exceeded"
+        assert (
+            mock_socket_writer.send_result.await_args.kwargs["consumed_tool_calls"] == 1
+        )
+        mock_socket_writer.send_error.assert_awaited_once_with(
+            "Agent max_tool_calls exceeded (0)"
+        )
 
     @pytest.mark.anyio
     async def test_canonicalizes_registry_mcp_alias_on_resume(
@@ -2337,6 +2448,47 @@ class TestClaudeAgentRuntimePreToolUseHook:
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow",
         }
+
+    @pytest.mark.anyio
+    async def test_tool_call_limit_counts_only_unique_allowed_calls(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        runtime._configure_runtime_state(replace(sample_init_payload, max_tool_calls=2))
+
+        async def call_tool(
+            tool_name: str, tool_use_id: str | None
+        ) -> SyncHookJSONOutput:
+            return await runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name=tool_name,
+                    tool_input={"query": "status = open"},
+                    tool_use_id=tool_use_id or "sdk-omitted-this-id",
+                ),
+                tool_use_id=tool_use_id,
+                context=make_hook_context(),
+            )
+
+        results = [
+            await call_tool("WebSearch", "denied"),
+            await call_tool("mcp__jira__search", "call-1"),
+            await call_tool("mcp__jira__search", "call-1"),
+            await call_tool("mcp__jira__search", None),
+            await call_tool("mcp__jira__search", "call-2"),
+        ]
+        exceeded = results[-1]
+
+        assert [
+            get_hook_output(result).get("permissionDecision") for result in results
+        ] == ["deny", "allow", "allow", "allow", "deny"]
+        assert exceeded.get("continue_") is False
+        assert exceeded.get("stopReason") == "Tool call limit (2) exceeded"
+        assert runtime._consumed_tool_calls == 3
+        assert runtime._counted_tool_use_ids == {"call-1", "call-2"}
 
     @pytest.mark.anyio
     async def test_auto_approve_registry_tool_without_approval(
