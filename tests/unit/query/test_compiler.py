@@ -689,6 +689,9 @@ def test_rejects_invalid_numeric_string(value: str) -> None:
         ("1e131072", False),
         ("1e-16383", True),
         ("1e-16384", False),
+        ("0e-16383", True),
+        ("0e-16384", False),
+        ("1.2300e-16382", False),
     ],
 )
 def test_validates_postgresql_numeric_extent(value: str, should_pass: bool) -> None:

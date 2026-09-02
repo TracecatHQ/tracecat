@@ -271,20 +271,11 @@ def _normalize_float(type_: sa.Float, value: Decimal) -> float:
 
 
 def _validate_numeric_extent(value: Decimal) -> None:
-    if value.is_zero():
-        return
-
     decimal_tuple = value.as_tuple()
     exponent = decimal_tuple.exponent
     assert isinstance(exponent, int)
-    trailing_zeros = 0
-    for digit in reversed(decimal_tuple.digits):
-        if digit != 0:
-            break
-        trailing_zeros += 1
-    effective_exponent = exponent + trailing_zeros
-    whole_digits = max(value.adjusted() + 1, 0)
-    fractional_digits = max(-effective_exponent, 0)
+    whole_digits = 0 if value.is_zero() else max(value.adjusted() + 1, 0)
+    fractional_digits = max(-exponent, 0)
     if (
         whole_digits > POSTGRES_NUMERIC_MAX_WHOLE_DIGITS
         or fractional_digits > POSTGRES_NUMERIC_MAX_FRACTIONAL_DIGITS
