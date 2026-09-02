@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from time import monotonic
@@ -426,6 +427,7 @@ class SlackStreamSink:
             return
 
         is_error = final_error_text is not None
+        was_cancelled = False
         try:
             await self._flush_delta_buffer(force=True)
             if final_error_text:
@@ -482,9 +484,13 @@ class SlackStreamSink:
                     workspace_id=self._workspace_id,
                     error=str(exc),
                 )
+        except asyncio.CancelledError:
+            was_cancelled = True
+            raise
         finally:
-            await self._set_terminal_reaction(is_error=is_error)
             self._is_closed = True
+            if not was_cancelled:
+                await self._set_terminal_reaction(is_error=is_error)
 
     async def append(self, event: UnifiedStreamEvent) -> None:
         if self._is_closed:

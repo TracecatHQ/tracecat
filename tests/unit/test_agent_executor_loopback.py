@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 import tracecat.agent.executor.loopback as loopback_module
+from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE, MessageType, build_message
 from tracecat.agent.common.stream_types import (
@@ -907,6 +908,55 @@ async def test_handle_connection_bounds_protocol_error_stream_emission(
     stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
     writer.close.assert_called_once()
     writer.wait_closed.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_handle_connection_deadline_cancels_slack_terminal_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def stalled_operation(*_args: object, **_kwargs: object) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        loopback_module,
+        "TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS",
+        0.01,
+    )
+    slack_sink = SlackStreamSink(
+        slack_bot_token="xoxb-test",
+        channel_id="C123",
+        thread_ts="1700000000.000001",
+        reaction_ts="1700000000.000001",
+        session_id="session-1",
+        workspace_id="workspace-1",
+    )
+    append_stream_text = AsyncMock(side_effect=stalled_operation)
+    terminal_reaction = AsyncMock(side_effect=stalled_operation)
+    monkeypatch.setattr(slack_sink, "_append_stream_text", append_stream_text)
+    monkeypatch.setattr(slack_sink, "_set_terminal_reaction", terminal_reaction)
+
+    handler = _make_handler()
+    handler._stream_sink = slack_sink
+    reader = asyncio.StreamReader()
+    reader.feed_data(build_message(MessageType.EVENT, b"{"))
+    reader.feed_eof()
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    result = await asyncio.wait_for(
+        handler.handle_connection(
+            reader,
+            cast(asyncio.StreamWriter, writer),
+        ),
+        timeout=0.2,
+    )
+
+    assert result.classification is not None
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    assert result.terminal_stream_error_emitted is False
+    append_stream_text.assert_awaited_once()
+    terminal_reaction.assert_not_awaited()
+    assert slack_sink._is_closed is True
 
 
 @pytest.mark.parametrize(
