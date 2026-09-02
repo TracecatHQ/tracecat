@@ -558,6 +558,13 @@ def test_audit_script_has_no_top_level_yaml_import() -> None:
             id="revert-wrapper-quoting-a-pre-cutoff-title-is-left-alone",
         ),
         pytest.param(
+            # Every capitalizer rule matches a lowercase letter, so a
+            # description the author already capitalized has nothing to match.
+            "- feat(ui): Case comment replies (#2600)",
+            "- feat(ui): Case comment replies (#2600)",
+            id="already-capital",
+        ),
+        pytest.param(
             "- fix(functions): regex_extract corner case (#2800)",
             "- fix(functions): regex_extract corner case (#2800)",
             id="identifier-holds-an-underscore",
