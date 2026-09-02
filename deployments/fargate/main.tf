@@ -73,7 +73,6 @@ module "ecs" {
   tracecat_app_env                              = var.tracecat_app_env
   platform_otel_enabled                         = var.platform_otel_enabled
   otel_exporter_otlp_endpoint                   = var.otel_exporter_otlp_endpoint
-  executor_otel_exporter_otlp_endpoint          = var.executor_otel_exporter_otlp_endpoint
   otel_exporter_otlp_headers_arn                = var.otel_exporter_otlp_headers_arn
   audit_trusted_proxy_cidrs                     = var.audit_trusted_proxy_cidrs
   otel_traces_sampler                           = var.otel_traces_sampler

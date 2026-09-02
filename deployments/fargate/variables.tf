@@ -230,12 +230,6 @@ variable "otel_exporter_otlp_endpoint" {
   default     = null
 }
 
-variable "executor_otel_exporter_otlp_endpoint" {
-  type        = string
-  description = "Credential-free internal OTLP gateway endpoint used by executor tasks"
-  default     = null
-}
-
 variable "otel_exporter_otlp_headers_arn" {
   type        = string
   description = "Optional Secrets Manager ARN containing platform OTLP exporter headers"

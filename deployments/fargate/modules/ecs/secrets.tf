@@ -313,10 +313,13 @@ locals {
     local.platform_otel_headers_secret,
   )
 
-  # Executor processes may pass environment values across a sandbox boundary,
-  # so platform exporter credentials must stay out of both executor task
-  # environments. They export through the credential-free private gateway.
-  executor_secrets = local.tracecat_temporal_secrets
+  # Executor subprocesses get an explicit minimal environment, and the
+  # execution role rather than the task role reads this secret, so executors
+  # carry the platform exporter header like the other services.
+  executor_secrets = concat(
+    local.tracecat_temporal_secrets,
+    local.platform_otel_headers_secret,
+  )
 
   litellm_secrets = local.tracecat_base_secrets
 
