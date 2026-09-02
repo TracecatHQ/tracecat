@@ -646,6 +646,42 @@ def test_normalizes_large_numeric_integer_to_decimal() -> None:
     assert isinstance(expression.right.type, sa.Numeric)
 
 
+def test_normalizes_lossless_numeric_string_to_decimal() -> None:
+    resolver = StubResolver(
+        {
+            "value": ResolvedField(
+                expr=sa.column("value", sa.Numeric()),
+                kind=FieldKind.NUMBER,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+    value = "0.1234567890123456789"
+
+    expression = compile_filter(
+        Condition(field="value", op=FilterOp.EQ, value=value), resolver
+    )
+    _, params = _compile_sql(expression)
+
+    assert list(params.values()) == [Decimal(value)]
+
+
+@pytest.mark.parametrize("value", ["not-a-number", "NaN", "Infinity"])
+def test_rejects_invalid_numeric_string(value: str) -> None:
+    resolver = StubResolver(
+        {
+            "value": ResolvedField(
+                expr=sa.column("value", sa.Numeric()),
+                kind=FieldKind.NUMBER,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+
+    with pytest.raises(TracecatValidationError, match="field 'value'"):
+        compile_filter(Condition(field="value", op=FilterOp.EQ, value=value), resolver)
+
+
 @pytest.mark.parametrize("value", [10**309, Decimal("1e10000")])
 def test_rejects_values_that_overflow_float(value: int | Decimal) -> None:
     resolver = StubResolver(

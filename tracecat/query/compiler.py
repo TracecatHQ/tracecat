@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
@@ -131,13 +131,17 @@ def _matches_kind_value(kind: FieldKind, value: FilterScalar) -> bool:
         case FieldKind.TEXT | FieldKind.ENUM | FieldKind.TAG:
             return isinstance(value, str) and "\x00" not in value
         case FieldKind.NUMBER:
-            if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
+            if isinstance(value, bool) or not isinstance(
+                value, int | float | Decimal | str
+            ):
                 return False
-            if isinstance(value, float):
-                return math.isfinite(value)
-            if isinstance(value, Decimal):
-                return value.is_finite()
-            return True
+            try:
+                decimal_value = Decimal(
+                    value.strip() if isinstance(value, str) else str(value)
+                )
+            except (InvalidOperation, ValueError):
+                return False
+            return decimal_value.is_finite()
         case FieldKind.BOOLEAN:
             return isinstance(value, bool)
         case FieldKind.TEMPORAL:
@@ -207,14 +211,15 @@ def _normalize_scalar(
 def _normalize_number(
     value_type: TypeEngine[Any], value: FilterScalar
 ) -> int | float | Decimal:
-    if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
+    if isinstance(value, bool) or not isinstance(value, int | float | Decimal | str):
         raise TypeError
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError
-    if isinstance(value, Decimal) and not value.is_finite():
+    try:
+        decimal_value = Decimal(value.strip() if isinstance(value, str) else str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError from exc
+    if not decimal_value.is_finite():
         raise ValueError
     if isinstance(value_type, sa.Integer):
-        decimal_value = Decimal(str(value))
         if decimal_value != decimal_value.to_integral_value():
             raise ValueError
         integer_value = int(decimal_value)
@@ -233,8 +238,8 @@ def _normalize_number(
     if isinstance(value_type, sa.Numeric):
         # SQLAlchemy otherwise infers an integer literal as BIGINT, even when the
         # compared expression is NUMERIC. Decimal forces the correct bind type.
-        return Decimal(str(value))
-    return value
+        return decimal_value
+    return decimal_value if isinstance(value, str) else value
 
 
 def _integer_bounds(type_: sa.Integer) -> tuple[int, int]:
