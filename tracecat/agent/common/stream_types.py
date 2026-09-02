@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from tracecat.agent.approvals.types import PersistedApprovalDecision
 
@@ -188,13 +188,27 @@ class UnifiedStreamEvent:
     def from_dict(cls, data: dict[str, Any]) -> UnifiedStreamEvent:
         """Construct from dict (orjson parsed)."""
         approval_items = None
-        if data.get("approval_items"):
+        raw_approval_items = data.get("approval_items")
+        if raw_approval_items is not None and not isinstance(raw_approval_items, list):
+            raise ValueError("Stream event approval_items must be a JSON array")
+        if raw_approval_items:
+            if not all(isinstance(item, dict) for item in raw_approval_items):
+                raise ValueError(
+                    "Stream event approval_items entries must be JSON objects"
+                )
             approval_items = [
-                ToolCallContent.from_dict(item) for item in data["approval_items"]
+                ToolCallContent.from_dict(cast(dict[str, Any], item))
+                for item in raw_approval_items
             ]
+
         artifact_data = None
-        if data.get("artifact_data"):
-            artifact_data = ArtifactEventContent.from_dict(data["artifact_data"])
+        raw_artifact_data = data.get("artifact_data")
+        if raw_artifact_data is not None:
+            if not isinstance(raw_artifact_data, dict):
+                raise ValueError("Stream event artifact_data must be a JSON object")
+            artifact_data = ArtifactEventContent.from_dict(
+                cast(dict[str, Any], raw_artifact_data)
+            )
 
         timestamp = data.get("timestamp")
         if isinstance(timestamp, str):
