@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from types import TracebackType
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import orjson
@@ -31,7 +31,11 @@ from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseSeverity, CaseStatus
 from tracecat.db.models import AgentSessionHistory
-from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 
 
 class _FakeStream:
@@ -758,6 +762,42 @@ async def test_process_runtime_events_classifies_disconnect_and_marks_streamed()
     )
     assert handler._result.terminal_stream_error_emitted is True
     stream.error.assert_awaited_once_with("Runtime disconnected during execution")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"{",
+        orjson.dumps({"event": {"type": StreamEventType.TEXT_DELTA.value}}),
+    ],
+)
+async def test_handle_connection_classifies_invalid_runtime_envelope_as_protocol_failure(
+    payload: bytes,
+) -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = asyncio.StreamReader()
+    reader.feed_data(build_message(MessageType.EVENT, payload))
+    reader.feed_eof()
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    result = await handler.handle_connection(
+        reader,
+        cast(asyncio.StreamWriter, writer),
+    )
+
+    assert result.error == "Runtime sent an invalid event envelope"
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    assert result.terminal_stream_error_emitted is True
+    writer.close.assert_called_once()
+    writer.wait_closed.assert_awaited_once()
 
 
 @pytest.mark.anyio

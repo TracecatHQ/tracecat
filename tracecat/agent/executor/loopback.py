@@ -76,6 +76,10 @@ type SessionLineKind = Literal["chat-message", "internal", "compaction"]
 type CompactionPhase = Literal["started", "completed", "failed"]
 
 
+class RuntimeEnvelopeProtocolError(ValueError):
+    """The sandbox runtime sent an event that violates the socket protocol."""
+
+
 class ClaudeSessionMessage(TypedDict):
     """Message payload embedded in a Claude Code JSONL session line."""
 
@@ -252,10 +256,13 @@ class FanoutStreamSink:
 
 def _runtime_envelope_from_json(payload: bytes) -> RuntimeEventEnvelope:
     """Decode a socket payload into a typed runtime event envelope."""
-    decoded = orjson.loads(payload)
-    if not isinstance(decoded, dict):
-        raise ValueError("Runtime event payload must be a JSON object")
-    return RuntimeEventEnvelope.from_dict(cast(dict[str, Any], decoded))
+    try:
+        decoded = orjson.loads(payload)
+        if not isinstance(decoded, dict):
+            raise ValueError("Runtime event payload must be a JSON object")
+        return RuntimeEventEnvelope.from_dict(cast(dict[str, Any], decoded))
+    except (orjson.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise RuntimeEnvelopeProtocolError from exc
 
 
 def _session_line_from_json(session_line: str) -> ClaudeSessionLine:
@@ -526,6 +533,15 @@ class LoopbackHandler:
             logger.warning("Runtime disconnected unexpectedly during execution")
             self._result.error = "Runtime disconnected unexpectedly"
             self._result.classification = agent_executor_unavailable()
+            if self._stream_sink:
+                await self._emit_terminal_stream_error(
+                    self._stream_sink,
+                    self._result.error,
+                )
+        except RuntimeEnvelopeProtocolError as e:
+            logger.warning("Runtime sent an invalid event envelope")
+            self._result.error = "Runtime sent an invalid event envelope"
+            self._result.classification = agent_executor_protocol_failed(e)
             if self._stream_sink:
                 await self._emit_terminal_stream_error(
                     self._stream_sink,
