@@ -35,6 +35,7 @@ from tracecat.executor.error_policy import (
 )
 from tracecat.executor.service import dispatch_action
 from tracecat.logger import logger
+from tracecat.observability.otel import set_current_span_attributes
 from tracecat.runtime.errors import RetryDisposition, RuntimeErrorOwner
 from tracecat.storage.object import StoredObject, action_key, get_object_storage
 from tracecat.temporal.errors import (
@@ -115,6 +116,18 @@ class ExecutorActivities:
 
         act_info = activity.info()
         act_attempt = act_info.attempt
+        set_current_span_attributes(
+            {
+                "tracecat.workspace.id": (
+                    str(role.workspace_id) if role.workspace_id else None
+                ),
+                "tracecat.workflow.id": str(input.run_context.wf_id),
+                "tracecat.workflow.execution.id": str(input.run_context.wf_exec_id),
+                "tracecat.action.name": action_name,
+                "temporal.activity.attempt": act_attempt,
+                "temporal.task_queue": act_info.task_queue,
+            }
+        )
         log.debug(
             "Execute action activity details",
             task=task,

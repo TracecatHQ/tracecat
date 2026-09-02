@@ -87,6 +87,7 @@ from tracecat.pagination import CursorPaginationParams
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.storage.object import (
@@ -101,7 +102,7 @@ from tracecat.storage.utils import (
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
-from tracecat.temporal.errors import ErrorTransportDetail
+from tracecat.temporal.errors import ErrorTransportDetail, extract_error_classification
 from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
 from tracecat.workflow.executions.enums import (
@@ -3841,16 +3842,14 @@ async def test_workflow_error_handler_success(
 
 
 @pytest.mark.parametrize(
-    "id_or_alias,expected_err_msg",
+    "id_or_alias",
     [
         pytest.param(
             "wf-00000000000000000000000000000000",
-            "workflow.definition.not_found: Tracecat could not load a published workflow definition",
             id="id-no-match",
         ),
         pytest.param(
             "invalid_error_handler",
-            "WorkflowAliasResolutionError: Couldn't find matching workflow for alias 'invalid_error_handler'",
             id="alias-no-match",
         ),
     ],
@@ -3863,7 +3862,6 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     temporal_client: Client,
     failing_dsl: DSLInput,
     id_or_alias: str,
-    expected_err_msg: str,
     test_worker_factory,
     test_executor_worker_factory,
 ):
@@ -3892,15 +3890,10 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
         executor_worker = test_executor_worker_factory(temporal_client)
         _ = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     assert str(exc_info.value) == "Workflow execution failed"
-    cause0 = exc_info.value.cause
-    assert isinstance(cause0, ActivityError)
-    cause1 = cause0.cause
-    assert isinstance(cause1, ApplicationError)
-    assert str(cause1) == expected_err_msg
-    if id_or_alias == "invalid_error_handler":
-        err = str(cause1)
-        assert "Activity task failed" not in err
-        assert "timed out" not in err.lower()
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.ACTION_EXECUTION_FAILED
 
 
 @pytest.mark.anyio

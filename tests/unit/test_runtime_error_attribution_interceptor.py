@@ -5,10 +5,7 @@ from temporalio.exceptions import (
     TimeoutType,
 )
 
-from tracecat.dsl.interceptor import (
-    _SentryWrappedWorkflowError,
-    _unclassified_retry_disposition,
-)
+from tracecat.dsl.interceptor import _unclassified_retry_disposition
 from tracecat.runtime.errors import RetryDisposition
 
 
@@ -62,18 +59,6 @@ def test_unclassified_raw_error_remains_non_retryable() -> None:
     )
 
 
-def test_unclassified_sentry_wrapper_uses_raw_source_disposition() -> None:
-    try:
-        try:
-            raise RuntimeError("Unknown workflow failure")
-        except RuntimeError as error:
-            raise _SentryWrappedWorkflowError("Sentry workflow wrapper") from error
-    except _SentryWrappedWorkflowError as wrapped:
-        assert (
-            _unclassified_retry_disposition(wrapped) is RetryDisposition.NON_RETRYABLE
-        )
-
-
 def test_unclassified_explicit_application_error_keeps_retryability() -> None:
     try:
         try:
@@ -82,17 +67,3 @@ def test_unclassified_explicit_application_error_keeps_retryability() -> None:
             raise ApplicationError("Explicit retryable failure") from error
     except ApplicationError as wrapped:
         assert _unclassified_retry_disposition(wrapped) is RetryDisposition.RETRYABLE
-
-
-def test_unclassified_sentry_wrapper_preserves_nested_application_retryability() -> (
-    None
-):
-    activity_error = _activity_error_from(
-        ApplicationError("Permanent activity failure", non_retryable=True)
-    )
-    try:
-        raise _SentryWrappedWorkflowError("Sentry workflow wrapper") from activity_error
-    except _SentryWrappedWorkflowError as wrapped:
-        assert (
-            _unclassified_retry_disposition(wrapped) is RetryDisposition.NON_RETRYABLE
-        )

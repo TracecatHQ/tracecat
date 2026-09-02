@@ -236,6 +236,12 @@ variable "otel_exporter_otlp_headers_arn" {
   default     = null
 }
 
+variable "audit_trusted_proxy_cidrs" {
+  type        = string
+  description = "Comma-separated CIDRs the API treats as its own proxy hops when resolving audit client IPs. Empty uses the built-in private-range default."
+  default     = ""
+}
+
 variable "log_level" {
   type        = string
   description = "Log level for the application"
@@ -799,6 +805,12 @@ variable "temporal_num_history_shards" {
   type        = string
   description = "Number of history shards for Temporal"
   default     = "512"
+}
+
+variable "temporal_default_namespace_retention" {
+  type        = string
+  description = "Workflow history retention for the Temporal namespace created by auto-setup. Applied at namespace creation only."
+  default     = "24h"
 }
 
 variable "caddy_cpu" {

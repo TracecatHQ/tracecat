@@ -2027,6 +2027,7 @@ class DSLWorkflow:
             "Error running workflow, running error handler",
             type=error.__class__.__name__,
         )
+        handler_failure: Exception | None = None
         try:
             handler_wf_id = await self._get_error_handler_workflow_id(args)
             if handler_wf_id is None:
@@ -2057,14 +2058,26 @@ class DSLWorkflow:
                 )
                 await self._run_error_handler_workflow(err_run_args)
         except Exception as handler_error:
-            if stamp_terminal_owner:
-                self._upsert_terminal_error_owner(handler_error)
             self.logger.error(
                 "Failed to run error handler workflow",
                 error_type=type(handler_error).__name__,
             )
-            raise handler_error from error
+            if not workflow.patched(
+                WorkflowPatch.PRESERVE_ORIGINAL_ERROR_AFTER_HANDLER_FAILURE
+            ):
+                if stamp_terminal_owner:
+                    self._upsert_terminal_error_owner(handler_error)
+                raise handler_error from error
+            if is_cancelled_exception(handler_error):
+                raise
+            handler_failure = handler_error
 
+        # Leave the failed handler in Temporal activity/child history and logs,
+        # but keep the classified workflow failure as the terminal cause. The
+        # interceptor owns the single terminal search-attribute upsert. Raising
+        # outside the handler's except block avoids chaining it back onto `error`.
+        if handler_failure is not None:
+            raise error from None
         if stamp_terminal_owner:
             self._upsert_terminal_error_owner(error)
         raise error

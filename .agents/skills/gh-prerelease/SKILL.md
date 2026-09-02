@@ -239,34 +239,36 @@ gh pr view "$N" --json number,title,labels,author,url
 
 #### 8d. Categorize per `.github/release-drafter.yml`
 
-Drop any PR carrying an `exclude-labels` value (`skip changelog`, `release`).
+Read `.github/release-drafter.yml` and derive the buckets from it. Do not copy
+the category list into this skill: the last copy drifted, and a stale copy
+silently files changes under headings the real release notes do not have.
 
-For the rest, bucket each PR into the **first** matching category in this order. The list mirrors `.github/release-drafter.yml` exactly — if that file changes, update this list:
+From that file you need:
 
-| # | Category title           | Labels that match                                                                                  |
-|---|--------------------------|----------------------------------------------------------------------------------------------------|
-| 1 | Breaking changes         | `breaking`, `breaking ui`, `breaking frontend`, `breaking engine`, `breaking app`, `breaking infra` |
-| 2 | Deprecations             | `deprecation`                                                                                       |
-| 3 | Security                 | `security`                                                                                          |
-| 4 | Playbooks                | `playbook`                                                                                          |
-| 5 | Integrations             | `integrations`                                                                                      |
-| 6 | Agents                   | `agents`                                                                                            |
-| 7 | Performance improvements | `performance`                                                                                       |
-| 8 | Enhancements             | `enhancement`                                                                                       |
-| 9 | Bug fixes                | `fix`                                                                                               |
-| 10| Infrastructure           | `infra`                                                                                             |
-| 11| Documentation            | `documentation`                                                                                     |
-| 12| Dependencies             | `dependencies`                                                                                      |
-| 13| Build system             | `build`                                                                                             |
-| 14| Other improvements       | `internal`                                                                                          |
+- `exclude-labels`: drop any PR carrying one of these.
+- `categories`, in order: bucket each remaining PR into the **first** category
+  whose `labels` intersect the PR's labels. Use the category's `title`
+  verbatim.
 
-Anything left with no matching label goes under a trailing **Other** section. Do not silently drop PRs.
+Anything left with no matching label goes under a trailing **Other** section. Do
+not silently drop PRs.
 
-Format each entry as `- <cleaned-title> (#<number>)` (matches release-drafter's `change-template`). Strip conventional-commit prefixes from the title using the same replacer regex the config uses:
+Format each entry as `- <title> (#<number>)`, matching the config's
+`change-template`, then apply every rule in the config's `replacers:` to the
+assembled body, in order. Read them from the file the way you read
+`categories:`; do not restate them here.
 
-```
-^(build|chore|ci|depr|deps|docs|feat|fix|helm|infra|perf|refactor|release|revert|security|style|test)(\(.*\))?(\!)?:\s
-```
+They are not cosmetic, and they are not only scope aliases. They rewrite the
+type prefix too -- `chore(deps)` and `fix(deps)` become `build(deps)`, a scope
+that merely repeats its type is dropped, `feat!(api)` moves the bang to
+`feat(api)!` -- and they capitalize the first letter of most descriptions.
+Three shapes are spared, and the config lists them: a first word holding `_` or
+`.`, a first word with a capital after its first letter, and an explicit list of
+lowercase names that must not be Title-cased. Read the guard from the file
+rather than reasoning about which of the three applies.
+
+Skip the replacers and this skill's output disagrees with the stable release
+notes for the same commits.
 
 #### 8e. Assemble the body
 

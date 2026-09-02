@@ -66,6 +66,9 @@ locals {
     # Agent timeout ceiling: every process that parses workflow DSL or
     # enforces the clamp must agree, so it rides the common env.
     TRACECAT__AGENT_SANDBOX_TIMEOUT = var.agent_sandbox_timeout
+    # Audit client-IP attribution: both api and mcp resolve X-Forwarded-For,
+    # so it rides the common env. Empty uses the built-in private-range default.
+    TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = var.audit_trusted_proxy_cidrs
   }
 
   tracecat_platform_otel_env = {
@@ -190,6 +193,7 @@ locals {
         TRACECAT__API_URL                             = local.internal_api_url
         TRACECAT__DB_ENDPOINT                         = local.core_db_hostname
         TRACECAT__SERVICE_NAME                        = "executor"
+        SENTRY_DSN                                    = var.sentry_dsn
         TRACECAT__EXECUTOR_BACKEND                    = "direct"
         TRACECAT__EXECUTOR_QUEUE                      = var.executor_queue
         TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = var.executor_registry_cache_max_entries
@@ -332,6 +336,7 @@ locals {
       TEMPORAL_BROADCAST_ADDRESS        = "0.0.0.0"
       BIND_ON_IP                        = "0.0.0.0"
       NUM_HISTORY_SHARDS                = var.temporal_num_history_shards
+      DEFAULT_NAMESPACE_RETENTION       = var.temporal_default_namespace_retention
       SQL_TLS                           = var.temporal_db_tls_enabled
       SQL_TLS_ENABLED                   = var.temporal_db_tls_enabled
       SQL_TLS_DISABLE_HOST_VERIFICATION = !var.temporal_db_tls_enable_host_verification

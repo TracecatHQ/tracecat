@@ -7,6 +7,7 @@ services:
     environment:
       - BASE_DOMAIN=${BASE_DOMAIN}
       - ADDRESS=${ADDRESS}
+      - TRACECAT__TRUSTED_PROXY_CIDRS=${TRACECAT__TRUSTED_PROXY_CIDRS:-127.0.0.1/32}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
@@ -20,6 +21,7 @@ services:
       - ${API_PORT:-8000}:8000
     environment:
       # App
+      TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS: ${TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS:-}
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
       TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}
@@ -262,6 +264,8 @@ services:
       TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-16}
       TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS: ${TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS:-16}
       TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY: ${TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY:-4}
+      # Sentry
+      SENTRY_DSN: ${SENTRY_DSN:-}
       # Redis
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3/MinIO wheel access)
@@ -503,6 +507,7 @@ services:
       target: development
     restart: on-failure:3
     environment:
+      TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS: ${TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS:-}
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
       TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
@@ -650,6 +655,7 @@ services:
       - POSTGRES_USER=${TEMPORAL__POSTGRES_USER}
       - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD}
       - POSTGRES_SEEDS=temporal_postgres_db
+      - DEFAULT_NAMESPACE_RETENTION=${TEMPORAL__DEFAULT_NAMESPACE_RETENTION:-24h}
       - LOG_LEVEL=warn
     healthcheck:
       test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
