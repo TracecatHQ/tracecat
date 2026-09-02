@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio.common import TypedSearchAttributes
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
 from tracecat_ee.agent.workflows.durable import (
     BUILD_AGENT_TOOL_DEFINITIONS_PATCH,
@@ -587,7 +587,7 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
             AsyncMock(),
         ) as emit_terminal_done_mock,
     ):
-        with pytest.raises(ActivityError):
+        with pytest.raises(ApplicationError):
             await workflow_instance.run(workflow_args)
 
     # Legacy replay (all patches off) on the pre-stream error path: should_stream
