@@ -27,6 +27,8 @@ ACCEPT = [
     "fix(functions): regex_extract corner case",
     "feat(cases+actions): add a case linking action",
     "feat(audit): stream audit logs via webhook",
+    "ci: pin actions to immutable SHAs",
+    "fix(engine): retry backoff",
 ]
 
 REJECT: list[tuple[str, str]] = [
@@ -36,6 +38,7 @@ REJECT: list[tuple[str, str]] = [
     ("feat(integration): add Okta event hooks", "unknown-scope"),
     ("feat(jira): add issue search", "unknown-scope"),
     ("refactor(app): update case filtering", "ambiguous-scope"),
+    ("ci(workflows): pin actions to immutable SHAs", "ambiguous-scope"),
     ("deps: bump orjson", "unknown-type"),
     ("deprecation(registry): remove old thing", "depr-no-replacement"),
     ("feat(ui+api+ee): x", "too-many-scopes"),
@@ -94,6 +97,22 @@ def test_retired_app_scope_explains_itself() -> None:
         assert f"`{candidate}`" in messages
 
 
+def test_rejected_workflows_scope_names_both_readings() -> None:
+    """The message is the whole user-facing value of rejecting this scope.
+
+    Neither reading is a rewrite of the other: GitHub Actions work drops the
+    scope entirely, engine work replaces it. A message naming only one of the
+    two sends half the authors to the wrong place.
+    """
+    messages = " ".join(
+        v.message
+        for v in check_title("ci(workflows): pin actions", CONVENTIONS).violations
+    )
+    assert "GitHub Actions" in messages
+    assert "`ci:`" in messages
+    assert "`engine`" in messages
+
+
 def test_all_violations_are_reported_not_just_the_first() -> None:
     report = check_title("style(app): x.", CONVENTIONS)
     assert set(report.codes) == {"unknown-type", "ambiguous-scope", "trailing-period"}
@@ -103,9 +122,9 @@ def test_compound_scope_resolves_to_both_area_labels() -> None:
     """`feat(cases+actions)` is the worked example in CONTRIBUTING.md."""
     title = "feat(cases+actions): add a case linking action"
     assert check_title(title, CONVENTIONS).ok
-    assert CONVENTIONS.scope_label("cases", type_="feat") == "cases"
-    assert CONVENTIONS.scope_label("actions", type_="feat") == "actions"
-    assert CONVENTIONS.scope_label("functions", type_="fix") == "functions"
+    assert CONVENTIONS.scope_label("cases") == "cases"
+    assert CONVENTIONS.scope_label("actions") == "actions"
+    assert CONVENTIONS.scope_label("functions") == "functions"
 
 
 def test_audit_is_canonical_not_an_alias_for_api() -> None:
@@ -117,9 +136,9 @@ def test_audit_is_canonical_not_an_alias_for_api() -> None:
     result = check_title("fix(audit): preserve client attribution", CONVENTIONS)
     assert result.ok, [v.message for v in result.violations]
     assert "audit" not in CONVENTIONS.scope_aliases
-    assert CONVENTIONS.scope_label("audit", type_="fix") == "audit"
+    assert CONVENTIONS.scope_label("audit") == "audit"
     # The distinction the scope exists to draw.
-    assert CONVENTIONS.scope_label("logging", type_="fix") == "logging"
+    assert CONVENTIONS.scope_label("logging") == "logging"
 
 
 def _suggestion_cases() -> list[tuple[str, str]]:

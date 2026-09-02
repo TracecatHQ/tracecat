@@ -186,26 +186,31 @@ def test_scope_alias_produces_the_canonical_area_label(
 
 
 @pytest.mark.parametrize(
-    ("title", "expected"),
+    ("title", "type_"),
     [
-        ("ci(workflows): pin actions to immutable SHAs", "cicd"),
-        ("feat(workflows): add a workflow alias resolver", "engine"),
-        ("fix(workflows): resolve alias collisions", "engine"),
+        ("ci(workflows): pin actions to immutable SHAs", "ci"),
+        ("feat(workflows): add a workflow alias resolver", "feat"),
+        ("fix(workflows): resolve alias collisions", "fix"),
     ],
 )
-def test_workflows_is_disambiguated_by_type(title: str, expected: str) -> None:
-    assert expected in autolabel(title)
+def test_workflows_gets_no_area_label_whatever_the_type(
+    title: str, type_: str, conventions: Conventions
+) -> None:
+    """`workflows` used to resolve to `cicd` under `ci` and `engine` otherwise.
 
-
-def test_ci_workflows_is_not_labelled_as_engine() -> None:
-    assert "engine" not in autolabel("ci(workflows): pin actions")
+    It is ambiguous now, so it labels like `app`: the type label and nothing
+    else. The equality also pins the other half of the change -- `workflows`
+    stays in the vendor-absorption lookahead, so no `integrations` label leaks
+    in from there.
+    """
+    assert autolabel(title) == {conventions.types[type_]}
 
 
 @pytest.mark.parametrize("scope", sorted(set(CONVENTIONS.canonical_scopes) - {"ui"}))
 def test_compound_scopes_label_like_their_components(
     scope: str, conventions: Conventions
 ) -> None:
-    expected = conventions.scope_label(scope, type_="feat")
+    expected = conventions.scope_label(scope)
     assert expected is not None
     for compound in (f"{scope}+ui", f"ui+{scope}"):
         labels = autolabel(f"feat({compound}): example change")

@@ -118,7 +118,7 @@ def _check_type(type_: str, conventions: Conventions) -> tuple[Violation | None,
 
 def _check_scope_part(part: str, conventions: Conventions) -> Violation | None:
     """Validate one canonical scope component."""
-    if part in conventions.scopes or part in conventions.scopes_by_type:
+    if part in conventions.scopes:
         return None
 
     canonical = conventions.scope_aliases.get(part)
@@ -386,9 +386,6 @@ def render_taxonomy(conventions: Conventions) -> str:
     lines += [
         f"  {name:<14} {label}" for name, label in sorted(conventions.scopes.items())
     ]
-    for name, by_type in sorted(conventions.scopes_by_type.items()):
-        rendered = ", ".join(f"{k}={v}" for k, v in sorted(by_type.items()))
-        lines.append(f"  {name:<14} {rendered}")
 
     lines.append("")
     lines.append("Old spellings (rewrite these):")

@@ -16,9 +16,6 @@ CONVENTIONS_PATH: Final = (
     Path(__file__).resolve().parents[1] / ".github" / "commit-conventions.toml"
 )
 
-# Key used in [scopes_by_type.<scope>] for "any other type".
-TYPE_FALLBACK: Final = "*"
-
 
 class ConventionsError(Exception):
     """The conventions file is missing, unparseable, or internally inconsistent."""
@@ -50,7 +47,6 @@ class Conventions:
     legacy_scopes: Mapping[str, LegacyType]
     scopes: Mapping[str, str]
     scope_aliases: Mapping[str, str]
-    scopes_by_type: Mapping[str, Mapping[str, str]]
     ambiguous_scopes: Mapping[str, tuple[str, ...]]
     ambiguous_scope_notes: Mapping[str, str]
     deprecation_type: str
@@ -62,30 +58,21 @@ class Conventions:
 
     @property
     def canonical_scopes(self) -> tuple[str, ...]:
-        """Scopes an author may write, including the type-disambiguated ones."""
-        return tuple(sorted({*self.scopes, *self.scopes_by_type}))
+        """Scopes an author may write."""
+        return tuple(sorted(self.scopes))
 
-    def scope_label(self, scope: str, *, type_: str) -> str | None:
-        """Area label for a canonical scope under `type_`, or None if unknown."""
-        if scope in self.scopes:
-            return self.scopes[scope]
-        by_type = self.scopes_by_type.get(scope)
-        if by_type is None:
-            return None
-        return by_type.get(type_, by_type.get(TYPE_FALLBACK))
+    def scope_label(self, scope: str) -> str | None:
+        """Area label for a canonical scope, or None if it is not one."""
+        return self.scopes.get(scope)
 
     def all_labels(self) -> frozenset[str]:
         """Every label the system can put on a pull request."""
-        by_type: set[str] = set()
-        for mapping in self.scopes_by_type.values():
-            by_type.update(mapping.values())
         return frozenset(
             {
                 *self.types.values(),
                 *(legacy.label for legacy in self.legacy_types.values()),
                 *(legacy.label for legacy in self.legacy_scopes.values()),
                 *self.scopes.values(),
-                *by_type,
                 self.breaking_label,
                 *self.extra_labels,
                 *self.exclude_labels,
@@ -165,23 +152,6 @@ def load_conventions(path: Path | None = None) -> Conventions:
             )
         legacy_scopes[name] = LegacyType(label=label, suggest=suggest)
 
-    by_type_raw = raw.get("scopes_by_type", {})
-    if not isinstance(by_type_raw, dict):
-        raise ConventionsError("[scopes_by_type] must be a table")
-    scopes_by_type: dict[str, dict[str, str]] = {}
-    for name, entry in by_type_raw.items():
-        if not isinstance(entry, dict) or not all(
-            isinstance(value, str) for value in entry.values()
-        ):
-            raise ConventionsError(
-                f"[scopes_by_type.{name}] must map type names to label strings"
-            )
-        if TYPE_FALLBACK not in entry:
-            raise ConventionsError(
-                f'[scopes_by_type.{name}] needs a "{TYPE_FALLBACK}" fallback'
-            )
-        scopes_by_type[name] = dict(entry)  # pyright: ignore[reportUnknownArgumentType]
-
     ambiguous_raw = raw.get("ambiguous_scopes", {})
     if not isinstance(ambiguous_raw, dict):
         raise ConventionsError("[ambiguous_scopes] must be a table")
@@ -206,7 +176,6 @@ def load_conventions(path: Path | None = None) -> Conventions:
         legacy_scopes=legacy_scopes,
         scopes=_require_str_map(raw, "scopes"),
         scope_aliases=_require_str_map(raw, "scope_aliases"),
-        scopes_by_type=scopes_by_type,
         ambiguous_scopes=ambiguous,
         ambiguous_scope_notes=_require_str_map(raw, "ambiguous_scope_notes"),
         deprecation_type=str(raw.get("deprecation", {}).get("type", "deprecation")),
@@ -230,12 +199,6 @@ def _validate(conventions: Conventions) -> None:
     if overlap:
         raise ConventionsError(
             f"scopes are both canonical and aliases: {', '.join(overlap)}"
-        )
-
-    shadowed = sorted(set(conventions.scopes) & set(conventions.scopes_by_type))
-    if shadowed:
-        raise ConventionsError(
-            f"scopes appear in both [scopes] and [scopes_by_type]: {', '.join(shadowed)}"
         )
 
     ambiguous_conflict = sorted(

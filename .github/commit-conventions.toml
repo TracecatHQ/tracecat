@@ -228,13 +228,6 @@ playbooks = "docs"
 # as `build`. Deliberately different from `admin`, which is the org admin API.
 admin-cli = "build"
 
-# Scopes whose area depends on the type. `ci(workflows)` is GitHub Actions;
-# `feat(workflows)` is the product's workflow engine. The "*" key is the
-# fallback for every other type.
-[scopes_by_type.workflows]
-ci = "cicd"
-"*" = "engine"
-
 # Scopes that read as two different things depending on who wrote them. These
 # are never auto-mapped, in either direction: guessing here silently files
 # changes under the wrong product area, which is worse than a failed check.
@@ -242,6 +235,15 @@ ci = "cicd"
 # `app` is the reason this list exists. It has 89 historical uses and meant the
 # backend, not the frontend, in nearly all of them. Anyone reading it today
 # assumes the opposite.
+#
+# `workflows` arrives from the other direction: not a spelling that drifted,
+# but a word that names two unrelated things at once. It used to resolve by
+# type -- `ci(workflows)` was GitHub Actions, anything else was the engine --
+# through a [scopes_by_type] table that existed for this one scope. History
+# never asked for it: 1 `ci(workflows)` against 121 bare `ci:`, and the 8
+# other `(workflows)` titles split between both readings. The table is gone
+# and the scope is rejected: GitHub Actions changes are a bare `ci:`, and
+# workflow-engine changes are `engine`.
 [ambiguous_scopes]
 app = ["api", "engine", "cases"]
 dev = ["build", "infra"]
@@ -249,9 +251,11 @@ config = ["api", "infra"]
 service = ["api", "engine"]
 tracecat = ["api", "engine", "ui"]
 ai = ["agents", "actions"]
+workflows = ["engine"]
 
 [ambiguous_scope_notes]
 app = "retired: it historically meant the backend, not the frontend"
+workflows = "GitHub Actions to one reader, the product's workflow engine to another; GitHub Actions work is a bare `ci:` with no scope"
 
 # Anything that is neither canonical, alias, nor ambiguous is treated as a
 # vendor name. The autolabeler absorbs those into `integrations` so the 69

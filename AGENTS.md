@@ -372,7 +372,6 @@ rendered release notes are normalized, by the `replacers:` block in
   | `skills` | Agent skills |
   | `tables` | Workspace tables |
   | `ui` | The Next.js app and React UI |
-  | `workflows` | GitHub Actions when the type is ci, the workflow engine otherwise |
 
   <!-- END commit-conventions:scopes -->
 
@@ -397,9 +396,13 @@ rendered release notes are normalized, by the `replacers:` block in
   linking action`. A change lands in the first section its labels match, so
   that example appears under Case management, not Core actions. Needing three
   scopes usually means the PR should be split.
-- Scopes that used to mean two different things are rejected outright: `app`,
-  `dev`, `config`, `service`, `tracecat`, `ai`. `app` is the reason the list
-  exists; it historically meant the backend, not the frontend.
+- Scopes that name two different things are rejected outright: `app`, `dev`,
+  `config`, `service`, `tracecat`, `ai`, `workflows`. `app` is the reason the
+  list exists; it historically meant the backend, not the frontend.
+- `workflows` is the one that is ambiguous by construction rather than by
+  history: it reads as GitHub Actions to one person and as the workflow engine
+  to another. GitHub Actions work is a bare `ci:` with no scope, and
+  workflow-engine work is `engine`.
 - Everything else the checker rejects is an old spelling with a canonical
   replacement it will name for you, e.g. `registry` to `integrations`, `agent`
   to `agents`, `ee` to `enterprise`, `udfs` and `core` to `actions`.
