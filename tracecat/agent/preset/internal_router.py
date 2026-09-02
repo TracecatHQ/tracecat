@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Mapping
 from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, StringConstraints
 
 from tracecat.agent.preset.schemas import (
@@ -285,7 +285,6 @@ async def delete_preset_by_slug(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     slug: str,
-    confirm_unlink: bool = Query(default=False),
 ) -> None:
     """Delete an agent preset by slug."""
     service = AgentPresetService(session, role=role)
@@ -296,9 +295,9 @@ async def delete_preset_by_slug(
             detail=f"Agent preset with slug '{slug}' not found",
         )
     try:
-        await service.delete_preset(preset, confirm_unlink=confirm_unlink)
-    except TracecatValidationError as exc:
+        await service.delete_preset(preset)
+    except TracecatNotFoundError as exc:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=exc.detail if exc.detail is not None else str(exc),
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
         ) from exc

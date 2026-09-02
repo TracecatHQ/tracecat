@@ -5615,6 +5615,7 @@ export const agentPresetsDeleteAgentPreset = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      404: "Agent preset not found",
       422: "Validation Error",
     },
   })

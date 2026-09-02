@@ -16931,6 +16931,10 @@ export type $OpenApiTs = {
          */
         204: void
         /**
+         * Agent preset not found
+         */
+        404: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
