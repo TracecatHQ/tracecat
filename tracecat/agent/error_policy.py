@@ -55,12 +55,16 @@ def agent_session_initialization_failed(
 
 def user_agent_execution_failed(
     error: BaseException | None = None,
+    *,
+    retryable: bool = False,
 ) -> RuntimeErrorClassification:
-    """Classify a terminal error explicitly returned by the agent runtime."""
+    """Classify an error owned by the agent caller or its direct provider."""
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.AGENT_EXECUTION_FAILED,
         message="Agent execution failed",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        retry_disposition=(
+            RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
+        ),
         cause=error,
     )
 

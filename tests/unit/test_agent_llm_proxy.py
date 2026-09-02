@@ -17,7 +17,11 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMRoutingPlan,
     LLMSocketProxy,
 )
-from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 
 
 class _FakeWriter:
@@ -237,8 +241,9 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
     assert "Rate limit exceeded" in error.message
     assert "provider quota exhausted" in error.message
     assert "request_id=trace-test-123" in error.message
-    assert error.classification.owner is RuntimeErrorOwner.USER
-    assert error.classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert error.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert error.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert error.classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
 @pytest.mark.anyio
@@ -287,14 +292,27 @@ async def test_forward_request_classifies_platform_http_failures_at_source(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status_code", "expected_retry_disposition"),
+    [
+        (503, RetryDisposition.NON_RETRYABLE),
+        (429, RetryDisposition.RETRYABLE),
+    ],
+)
 async def test_forward_request_classifies_direct_provider_http_failure_as_user_owned(
     tmp_path: Path,
+    status_code: int,
+    expected_retry_disposition: RetryDisposition,
 ) -> None:
     errors: list[LLMProxyError] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         assert str(request.url) == "https://customer-provider.example/v1/messages"
-        return httpx.Response(503, request=request, json={"error": "unavailable"})
+        return httpx.Response(
+            status_code,
+            request=request,
+            json={"error": "unavailable"},
+        )
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
@@ -328,6 +346,7 @@ async def test_forward_request_classifies_direct_provider_http_failure_as_user_o
     assert len(errors) == 1
     assert errors[0].classification.owner is RuntimeErrorOwner.USER
     assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert errors[0].classification.retry_disposition is expected_retry_disposition
 
 
 @pytest.mark.anyio

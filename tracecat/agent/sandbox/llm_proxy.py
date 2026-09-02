@@ -126,6 +126,10 @@ def _http_error_classification(
     *,
     route_is_direct: bool,
 ) -> RuntimeErrorClassification:
+    if status_code == 429:
+        if route_is_direct:
+            return user_agent_execution_failed(retryable=True)
+        return agent_executor_unavailable()
     if route_is_direct:
         return user_agent_execution_failed()
     if status_code in {408, 504}:
