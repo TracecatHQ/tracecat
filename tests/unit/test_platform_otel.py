@@ -56,6 +56,22 @@ def test_platform_tracing_is_disabled_by_default() -> None:
     assert temporal_tracing_interceptor() is None
 
 
+def test_platform_relay_reads_only_credential_free_endpoint_routing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-gateway:4318")
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        "http://otel-gateway:4318/v1/traces",
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=secret")
+
+    assert platform_otel.platform_otel_collector_env() == {
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-gateway:4318",
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": ("http://otel-gateway:4318/v1/traces"),
+    }
+
+
 def test_platform_tracing_initialization_is_idempotent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

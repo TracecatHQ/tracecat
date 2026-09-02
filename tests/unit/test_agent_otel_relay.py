@@ -27,7 +27,8 @@ from tracecat.agent.sandbox.otel_relay import (
     MAX_BODY_SIZE,
     OtelSocketReceiver,
     PlatformTraceParent,
-    reparent_platform_trace_body,
+    canonicalize_tenant_trace_body,
+    project_platform_trace_body,
     resolve_collector_url,
 )
 from tracecat.agent.tokens import mint_agent_otel_token
@@ -141,10 +142,12 @@ def isolated_delivery_pool(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     # The pool is module-global; a leaked task must not poison the next test.
     otel_relay._delivery_tasks.clear()
     otel_relay._post_semaphores.clear()
+    otel_relay._projection_semaphores.clear()
     otel_relay._pending_bytes = 0
     yield
     otel_relay._delivery_tasks.clear()
     otel_relay._post_semaphores.clear()
+    otel_relay._projection_semaphores.clear()
     otel_relay._pending_bytes = 0
 
 
@@ -289,7 +292,7 @@ async def test_resolve_collector_url_returns_none_for_unknown_path() -> None:
     )
 
 
-def test_platform_native_trace_is_joined_under_trusted_parent() -> None:
+def test_platform_native_trace_is_sanitized_and_joined_under_trusted_parent() -> None:
     request = ExportTraceServiceRequest()
     resource_spans = request.resource_spans.add()
     resource_spans.resource.attributes.append(
@@ -300,17 +303,39 @@ def test_platform_native_trace_is_joined_under_trusted_parent() -> None:
     )
     scope_spans = resource_spans.scope_spans.add()
     root = scope_spans.spans.add(
-        name="claude.root",
+        name="claude_code.interaction",
         trace_id=b"\x11" * 16,
         span_id=b"\x21" * 8,
         flags=0,
     )
-    scope_spans.spans.add(
-        name="claude.child",
+    root.attributes.extend(
+        [
+            KeyValue(key="user_prompt_length", value=AnyValue(int_value=42)),
+            KeyValue(
+                key="user_prompt", value=AnyValue(string_value="sensitive prompt")
+            ),
+        ]
+    )
+    root.events.add(
+        name="prompt",
+        attributes=[
+            KeyValue(key="content", value=AnyValue(string_value="sensitive event"))
+        ],
+    )
+    tool = scope_spans.spans.add(
+        name="claude_code.tool",
         trace_id=b"\x11" * 16,
         span_id=b"\x22" * 8,
         parent_span_id=root.span_id,
         flags=0,
+    )
+    tool.attributes.extend(
+        [
+            KeyValue(key="tool_name", value=AnyValue(string_value="Read")),
+            KeyValue(
+                key="file_path", value=AnyValue(string_value="/private/customer.txt")
+            ),
+        ]
     )
     parent = PlatformTraceParent(
         trace_id=b"\xaa" * 16,
@@ -322,12 +347,13 @@ def test_platform_native_trace_is_joined_under_trusted_parent() -> None:
         },
     )
 
-    rewritten = reparent_platform_trace_body(
+    rewritten = project_platform_trace_body(
         request.SerializeToString(),
         content_type="application/x-protobuf",
         parent=parent,
     )
 
+    assert rewritten is not None
     parsed = ExportTraceServiceRequest.FromString(rewritten)
     parsed_resource_spans = parsed.resource_spans[0]
     parsed_spans = parsed_resource_spans.scope_spans[0].spans
@@ -335,24 +361,162 @@ def test_platform_native_trace_is_joined_under_trusted_parent() -> None:
     assert parsed_spans[0].parent_span_id == parent.span_id
     assert parsed_spans[1].parent_span_id == parsed_spans[0].span_id
     assert all(span.flags & 1 for span in parsed_spans)
+    assert [attribute.key for attribute in parsed_spans[0].attributes] == [
+        "user_prompt_length"
+    ]
+    assert [attribute.key for attribute in parsed_spans[1].attributes] == ["tool_name"]
+    assert not parsed_spans[0].events
+    assert not parsed_spans[1].events
     attributes = {
         attribute.key: attribute.value.string_value
         for attribute in parsed_resource_spans.resource.attributes
     }
-    assert attributes == parent.resource_attributes
+    assert attributes == {
+        "service.name": "tracecat-agent-native",
+        "service.namespace": "tracecat",
+        **parent.resource_attributes,
+    }
 
 
-def test_non_platform_trace_body_is_not_rewritten() -> None:
+def test_tenant_trace_keeps_topology_and_deduplicates_trusted_attributes() -> None:
+    request = ExportTraceServiceRequest()
+    resource_spans = request.resource_spans.add()
+    resource_spans.resource.attributes.extend(
+        [
+            KeyValue(key="tracecat.agent.run.id", value=AnyValue(string_value="one")),
+            KeyValue(key="tracecat.agent.run.id", value=AnyValue(string_value="two")),
+        ]
+    )
+    span = resource_spans.scope_spans.add().spans.add(
+        name="claude_code.interaction",
+        trace_id=b"\x11" * 16,
+        span_id=b"\x21" * 8,
+    )
+
+    rewritten = canonicalize_tenant_trace_body(
+        request.SerializeToString(),
+        content_type="application/x-protobuf",
+        trusted_attributes={"tracecat.agent.run.id": "trusted"},
+    )
+
+    parsed = ExportTraceServiceRequest.FromString(rewritten)
+    parsed_resource = parsed.resource_spans[0]
+    assert parsed_resource.scope_spans[0].spans[0].trace_id == span.trace_id
+    run_attributes = [
+        attribute.value.string_value
+        for attribute in parsed_resource.resource.attributes
+        if attribute.key == "tracecat.agent.run.id"
+    ]
+    assert run_attributes == ["trusted"]
+
+
+def test_non_platform_trace_body_is_not_projected() -> None:
     body = b"synthetic-tenant-payload"
+    parent = PlatformTraceParent(
+        trace_id=b"\xaa" * 16,
+        span_id=b"\xbb" * 8,
+        trace_flags=1,
+        resource_attributes={},
+    )
 
     assert (
-        reparent_platform_trace_body(
+        project_platform_trace_body(
             body,
             content_type="application/x-protobuf",
-            parent=None,
+            parent=parent,
         )
-        == body
+        is None
     )
+
+
+@pytest.mark.anyio
+async def test_trace_batch_fans_out_original_and_sanitized_copies(
+    short_socket_dir: Path,
+    mock_transport: _MockTransport,
+    receiver_identity: _ReceiverIdentity,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projected_off_loop: list[bool] = []
+    real_to_thread = asyncio.to_thread
+
+    async def track_to_thread(
+        func: Callable[..., object], /, *args: object, **kwargs: object
+    ) -> object:
+        projected_off_loop.append(True)
+        return await real_to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(otel_relay.asyncio, "to_thread", track_to_thread)
+    request = ExportTraceServiceRequest()
+    resource_spans = request.resource_spans.add()
+    span = resource_spans.scope_spans.add().spans.add(
+        name="claude_code.llm_request",
+        trace_id=b"\x11" * 16,
+        span_id=b"\x21" * 8,
+    )
+    span.attributes.extend(
+        [
+            KeyValue(key="input_tokens", value=AnyValue(int_value=12)),
+            KeyValue(
+                key="request.prompt", value=AnyValue(string_value="tenant content")
+            ),
+        ]
+    )
+    parent = PlatformTraceParent(
+        trace_id=b"\xaa" * 16,
+        span_id=b"\xbb" * 8,
+        trace_flags=1,
+        resource_attributes={"tracecat.agent.run.id": str(uuid.uuid4())},
+    )
+    receiver = OtelSocketReceiver(
+        socket_path=short_socket_dir / "fanout.sock",
+        collector_env={"OTEL_EXPORTER_OTLP_ENDPOINT": "https://tenant.example.com"},
+        headers={"Authorization": SecretStr("Bearer tenant")},
+        expected_workspace_id=receiver_identity.workspace_id,
+        expected_organization_id=receiver_identity.organization_id,
+        expected_session_id=receiver_identity.session_id,
+        platform_trace_parent=parent,
+        platform_collector_env={
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-gateway.internal:4318"
+        },
+    )
+    await receiver.start()
+    try:
+        status, _, _ = await _send_request(
+            receiver.socket_path,
+            method="POST",
+            path="/v1/traces",
+            body=request.SerializeToString(),
+            authorization=f"Bearer {receiver_identity.token}",
+        )
+        assert status == 202
+        await _wait_until(lambda: not otel_relay._delivery_tasks)
+    finally:
+        await receiver.stop()
+
+    assert len(mock_transport.requests) == 2
+    assert projected_off_loop == [True]
+    requests_by_host = {
+        request.url.host: request for request in mock_transport.requests
+    }
+    tenant_request = ExportTraceServiceRequest.FromString(
+        requests_by_host["tenant.example.com"].content
+    )
+    platform_request = ExportTraceServiceRequest.FromString(
+        requests_by_host["otel-gateway.internal"].content
+    )
+    tenant_span = tenant_request.resource_spans[0].scope_spans[0].spans[0]
+    platform_span = platform_request.resource_spans[0].scope_spans[0].spans[0]
+    assert tenant_span.trace_id == b"\x11" * 16
+    assert {attribute.key for attribute in tenant_span.attributes} == {
+        "input_tokens",
+        "request.prompt",
+    }
+    assert requests_by_host["tenant.example.com"].headers["authorization"] == (
+        "Bearer tenant"
+    )
+    assert platform_span.trace_id == parent.trace_id
+    assert {attribute.key for attribute in platform_span.attributes} == {"input_tokens"}
+    assert "authorization" not in requests_by_host["otel-gateway.internal"].headers
 
 
 @pytest.mark.anyio

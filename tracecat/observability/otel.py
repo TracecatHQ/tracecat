@@ -7,6 +7,7 @@ settings. Platform services export to the operator-controlled OTLP endpoint.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -150,6 +151,19 @@ def _load_platform_exporter_headers() -> dict[str, str] | None:
     if not headers:
         raise ValueError("Platform OTel header secret has no valid headers")
     return dict(headers)
+
+
+def platform_otel_collector_env() -> dict[str, str]:
+    """Return only credential-free endpoint routing for the local relay.
+
+    Executor processes may use this endpoint only when it is an internal
+    gateway that owns any upstream collector credentials.
+    """
+    keys = (
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    )
+    return {key: value for key in keys if (value := os.environ.get(key))}
 
 
 def initialize_platform_tracing(

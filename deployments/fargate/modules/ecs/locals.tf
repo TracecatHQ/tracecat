@@ -78,6 +78,13 @@ locals {
     OTEL_TRACES_SAMPLER_ARG         = var.otel_traces_sampler_arg
   }
 
+  # Executor code shares the task role with untrusted direct subprocesses in
+  # Fargate. Route it through a credential-free private gateway; the gateway,
+  # not the executor task, owns any upstream collector credential.
+  tracecat_executor_platform_otel_env = merge(local.tracecat_platform_otel_env, {
+    OTEL_EXPORTER_OTLP_ENDPOINT = var.executor_otel_exporter_otlp_endpoint
+  })
+
   tracecat_temporal_payload_encryption_env = {
     TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED           = var.temporal_payload_encryption_enabled
     TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN       = var.temporal_payload_encryption_keyring_arn
@@ -188,7 +195,7 @@ locals {
   executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
-      local.tracecat_platform_otel_env,
+      local.tracecat_executor_platform_otel_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
@@ -198,7 +205,6 @@ locals {
         TRACECAT__DB_ENDPOINT                         = local.core_db_hostname
         TRACECAT__SERVICE_NAME                        = "executor"
         SENTRY_DSN                                    = var.sentry_dsn
-        TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN    = var.otel_exporter_otlp_headers_arn
         TRACECAT__EXECUTOR_BACKEND                    = "direct"
         TRACECAT__EXECUTOR_QUEUE                      = var.executor_queue
         TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = var.executor_registry_cache_max_entries
@@ -220,7 +226,7 @@ locals {
   agent_executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
-      local.tracecat_platform_otel_env,
+      local.tracecat_executor_platform_otel_env,
       local.tracecat_litellm_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
@@ -230,7 +236,6 @@ locals {
         TRACECAT__API_URL                                  = local.internal_api_url
         TRACECAT__DB_ENDPOINT                              = local.core_db_hostname
         TRACECAT__SERVICE_NAME                             = "agent-executor"
-        TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN         = var.otel_exporter_otlp_headers_arn
         TRACECAT__EXECUTOR_BACKEND                         = "direct"
         TRACECAT__AGENT_QUEUE                              = var.agent_queue
         TRACECAT__AGENT_EXECUTOR_QUEUE                     = var.agent_executor_queue

@@ -8,12 +8,14 @@ import tempfile
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
+from enum import StrEnum
 from importlib.resources import as_file, files
 from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
 
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 from tracecat_ee.workspace_chat.policy import (
@@ -98,7 +100,11 @@ from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.integrations.mcp_validation import MCPSecretResolutionError
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
-from tracecat.observability.otel import platform_span, set_current_span_attributes
+from tracecat.observability.otel import (
+    platform_otel_collector_env,
+    platform_span,
+    set_current_span_attributes,
+)
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.settings.service import SettingsService
 from tracecat.storage import blob
@@ -111,6 +117,27 @@ from .schemas import (
 
 BROKER_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
 GRACEFUL_CANCEL_TIMEOUT_SECONDS = 30.0
+
+
+class AgentTraceAttribute(StrEnum):
+    """Tracecat-owned attributes used to correlate one agent turn."""
+
+    ORGANIZATION_ID = "tracecat.organization.id"
+    WORKSPACE_ID = "tracecat.workspace.id"
+    SESSION_ID = "tracecat.agent.session.id"
+    RUN_ID = "tracecat.agent.run.id"
+    WORKFLOW_ID = "tracecat.workflow.id"
+    WORKFLOW_EXECUTION_ID = "tracecat.workflow.execution.id"
+    ACTION_REF = "tracecat.action.ref"
+    TRIGGER_TYPE = "tracecat.trigger.type"
+    OUTCOME = "tracecat.agent.outcome"
+
+
+class AgentRuntimeOutcome(StrEnum):
+    SUCCESS = "success"
+    FAILURE = "failure"
+    APPROVAL = "approval"
+    CANCELLED = "cancelled"
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +251,42 @@ class AgentExecutorResult(BaseModel):
     # Tool calls the interrupt aborted mid-flight (errored after cancellation
     # or never resolved). None on legacy results that predate this field.
     interrupted_tool_call_ids: list[str] | None = None
+
+
+def _agent_correlation_attributes(
+    input: AgentExecutorInput,
+) -> dict[str, str | None]:
+    """Build the single trusted correlation mapping for an agent turn."""
+    return {
+        AgentTraceAttribute.ORGANIZATION_ID: (
+            str(input.role.organization_id)
+            if input.role.organization_id is not None
+            else None
+        ),
+        AgentTraceAttribute.WORKSPACE_ID: str(input.workspace_id),
+        AgentTraceAttribute.SESSION_ID: str(input.session_id),
+        AgentTraceAttribute.RUN_ID: (
+            str(input.curr_run_id) if input.curr_run_id is not None else None
+        ),
+        AgentTraceAttribute.WORKFLOW_ID: (
+            str(input.origin_workflow_id)
+            if input.origin_workflow_id is not None
+            else None
+        ),
+        AgentTraceAttribute.WORKFLOW_EXECUTION_ID: input.origin_workflow_execution_id,
+        AgentTraceAttribute.ACTION_REF: input.origin_action_ref,
+        AgentTraceAttribute.TRIGGER_TYPE: input.origin_trigger_type,
+    }
+
+
+def _agent_runtime_outcome(result: AgentExecutorResult) -> AgentRuntimeOutcome:
+    if result.approval_requested:
+        return AgentRuntimeOutcome.APPROVAL
+    if result.cancelled:
+        return AgentRuntimeOutcome.CANCELLED
+    if result.success:
+        return AgentRuntimeOutcome.SUCCESS
+    return AgentRuntimeOutcome.FAILURE
 
 
 class ExecuteApprovedToolsInput(BaseModel):
@@ -484,28 +547,7 @@ class SandboxedAgentExecutor:
         if not span_context.is_valid:
             return None
 
-        raw_attributes = {
-            "tracecat.organization.id": (
-                str(self.input.role.organization_id)
-                if self.input.role.organization_id is not None
-                else None
-            ),
-            "tracecat.workspace.id": str(self.input.workspace_id),
-            "tracecat.agent.session.id": str(self.input.session_id),
-            "tracecat.agent.run.id": (
-                str(self.input.curr_run_id)
-                if self.input.curr_run_id is not None
-                else None
-            ),
-            "tracecat.workflow.id": (
-                str(self.input.origin_workflow_id)
-                if self.input.origin_workflow_id is not None
-                else None
-            ),
-            "tracecat.workflow.execution.id": (self.input.origin_workflow_execution_id),
-            "tracecat.action.ref": self.input.origin_action_ref,
-            "tracecat.trigger.type": self.input.origin_trigger_type,
-        }
+        raw_attributes = _agent_correlation_attributes(self.input)
         return PlatformTraceParent(
             trace_id=span_context.trace_id.to_bytes(16, byteorder="big"),
             span_id=span_context.span_id.to_bytes(8, byteorder="big"),
@@ -520,6 +562,7 @@ class SandboxedAgentExecutor:
         resolved: ResolvedAgentOtelConfig,
         *,
         otel_auth_token: str,
+        platform_tracing: bool = False,
     ) -> dict[str, str]:
         """Build the sandbox-side OTel env.
 
@@ -528,6 +571,25 @@ class SandboxedAgentExecutor:
         host-side socket receiver to verify.
         """
         sandbox_env = dict(resolved.sandbox_env)
+        if platform_tracing:
+            sandbox_env.update(
+                {
+                    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+                    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
+                    "OTEL_TRACES_EXPORTER": "otlp",
+                    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+                }
+            )
+            if not resolved.enabled:
+                sandbox_env.update(
+                    {
+                        "OTEL_METRICS_EXPORTER": "none",
+                        "OTEL_LOGS_EXPORTER": "none",
+                        "OTEL_LOG_USER_PROMPTS": "0",
+                        "OTEL_LOG_TOOL_DETAILS": "0",
+                        "OTEL_LOG_TOOL_CONTENT": "0",
+                    }
+                )
         sandbox_env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
         sandbox_env["OTEL_EXPORTER_OTLP_HEADERS"] = (
             f"Authorization=Bearer {otel_auth_token}"
@@ -585,7 +647,12 @@ class SandboxedAgentExecutor:
             # decryption stay trusted-side, never cross Temporal payload boundary).
             otel_socket_path: Path | None = None
             resolved_otel = await self._resolve_agent_otel_config()
-            if resolved_otel.enabled:
+            platform_parent = self._platform_trace_parent()
+            platform_collector = (
+                platform_otel_collector_env() if platform_parent is not None else {}
+            )
+            telemetry_enabled = resolved_otel.enabled or bool(platform_collector)
+            if telemetry_enabled:
                 if self.input.agent_otel_auth_token is None:
                     logger.warning(
                         "Agent OTel enabled but auth token is missing; running without telemetry",
@@ -600,6 +667,7 @@ class SandboxedAgentExecutor:
                     init_payload.agent_otel_sandbox_env = self._build_sandbox_env(
                         resolved_otel,
                         otel_auth_token=self.input.agent_otel_auth_token,
+                        platform_tracing=bool(platform_collector),
                     )
                     otel_socket_path = socket_dir / OTEL_SOCKET_NAME
                     self._otel_receiver = OtelSocketReceiver(
@@ -609,7 +677,8 @@ class SandboxedAgentExecutor:
                         expected_workspace_id=self.input.workspace_id,
                         expected_organization_id=self.input.role.organization_id,
                         expected_session_id=self.input.session_id,
-                        platform_trace_parent=self._platform_trace_parent(),
+                        platform_trace_parent=platform_parent,
+                        platform_collector_env=platform_collector,
                     )
 
             # Create loopback handler
@@ -1393,24 +1462,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     activity_info = activity.info()
     set_current_span_attributes(
         {
-            "tracecat.organization.id": (
-                str(input.role.organization_id)
-                if input.role.organization_id is not None
-                else None
-            ),
-            "tracecat.workspace.id": str(input.workspace_id),
-            "tracecat.agent.session.id": str(input.session_id),
-            "tracecat.agent.run.id": (
-                str(input.curr_run_id) if input.curr_run_id is not None else None
-            ),
-            "tracecat.workflow.id": (
-                str(input.origin_workflow_id)
-                if input.origin_workflow_id is not None
-                else None
-            ),
-            "tracecat.workflow.execution.id": input.origin_workflow_execution_id,
-            "tracecat.action.ref": input.origin_action_ref,
-            "tracecat.trigger.type": input.origin_trigger_type,
+            **_agent_correlation_attributes(input),
             "temporal.activity.attempt": activity_info.attempt,
             "temporal.task_queue": activity_info.task_queue,
         }
@@ -1447,8 +1499,13 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     with platform_span(
         "tracecat.agent.runtime",
         attributes={"tracecat.agent.harness": "claude_code"},
-    ):
+    ) as runtime_span:
         result = await executor.run()
+        outcome = _agent_runtime_outcome(result)
+        if runtime_span is not None:
+            runtime_span.set_attribute(AgentTraceAttribute.OUTCOME, outcome)
+            if outcome is AgentRuntimeOutcome.FAILURE:
+                runtime_span.set_status(Status(status_code=StatusCode.ERROR))
 
     if result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")

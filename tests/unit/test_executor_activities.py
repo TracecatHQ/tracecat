@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from botocore.exceptions import HTTPClientError
+from opentelemetry.propagate import get_global_textmap, set_global_textmap
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
@@ -73,6 +74,17 @@ from tracecat.temporal.errors import (
     build_error_transport_detail,
     extract_error_classification,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_platform_tracing(monkeypatch: pytest.MonkeyPatch):
+    """Keep the process-global tracing runtime isolated between tests."""
+    propagator = get_global_textmap()
+    shutdown_platform_tracing()
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", False)
+    yield
+    shutdown_platform_tracing()
+    set_global_textmap(propagator)
 
 
 @pytest.fixture

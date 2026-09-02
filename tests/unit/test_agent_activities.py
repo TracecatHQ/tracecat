@@ -19,7 +19,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from opentelemetry import context as otel_context
 from opentelemetry import trace
-from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, TraceState
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import (
+    NonRecordingSpan,
+    SpanContext,
+    StatusCode,
+    TraceFlags,
+    TraceState,
+)
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent import activities as agent_activities
 from tracecat_ee.agent.activities import (
@@ -31,6 +40,7 @@ from tracecat_ee.agent.activities import (
     EmitSessionErrorInputs,
 )
 
+from tracecat import config
 from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -45,6 +55,7 @@ from tracecat.agent.executor.activity import (
     run_agent_activity,
 )
 from tracecat.agent.executor.loopback import LoopbackResult
+from tracecat.agent.otel_config import ResolvedAgentOtelConfig
 from tracecat.agent.runtime.session_paths import job_uv_state_dir
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.activities import (
@@ -69,6 +80,10 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.integrations.schemas import MCPToolSummary
+from tracecat.observability.otel import (
+    initialize_platform_tracing,
+    shutdown_platform_tracing,
+)
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 
@@ -1422,6 +1437,66 @@ class TestRunAgentActivity:
             assert result.success is False
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("result", "expected_outcome", "expected_status"),
+        [
+            (AgentExecutorResult(success=True), "success", StatusCode.UNSET),
+            (
+                AgentExecutorResult(success=True, approval_requested=True),
+                "approval",
+                StatusCode.UNSET,
+            ),
+            (
+                AgentExecutorResult(success=False, cancelled=True),
+                "cancelled",
+                StatusCode.UNSET,
+            ),
+            (AgentExecutorResult(success=False), "failure", StatusCode.ERROR),
+        ],
+    )
+    async def test_runtime_span_records_terminal_outcome(
+        self,
+        mock_executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        result: AgentExecutorResult,
+        expected_outcome: str,
+        expected_status: StatusCode,
+    ) -> None:
+        exporter = InMemorySpanExporter()
+        shutdown_platform_tracing()
+        monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+        runtime = initialize_platform_tracing(
+            "tracecat-agent-executor", exporter=exporter
+        )
+        assert runtime is not None
+        try:
+            with (
+                patch("tracecat.agent.executor.activity.activity") as mock_activity,
+                patch(
+                    "tracecat.agent.executor.activity.SandboxedAgentExecutor"
+                ) as mock_executor_cls,
+            ):
+                mock_activity.heartbeat = MagicMock()
+                mock_executor = MagicMock()
+                mock_executor.run = AsyncMock(return_value=result)
+                mock_executor_cls.return_value = mock_executor
+
+                await run_agent_activity(mock_executor_input)
+        finally:
+            shutdown_platform_tracing()
+
+        runtime_spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "tracecat.agent.runtime"
+        ]
+        assert len(runtime_spans) == 1
+        runtime_span = runtime_spans[0]
+        assert runtime_span.attributes is not None
+        assert runtime_span.attributes["tracecat.agent.outcome"] == expected_outcome
+        assert runtime_span.status.status_code is expected_status
+
+    @pytest.mark.anyio
     async def test_sends_heartbeats(self, mock_executor_input: AgentExecutorInput):
         """Test that heartbeats are sent during execution."""
         expected_result = AgentExecutorResult(success=True)
@@ -2291,8 +2366,6 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
     def test_build_sandbox_env_injects_receiver_bearer_jwt(self) -> None:
         """The host injects OTEL_EXPORTER_OTLP_HEADERS so Claude's exporter
         attaches the receiver JWT for the OtelSocketReceiver to verify."""
-        from tracecat.agent.otel_config import ResolvedAgentOtelConfig
-
         resolved = ResolvedAgentOtelConfig(
             enabled=True,
             sandbox_env={
@@ -2308,6 +2381,24 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in env
         assert env["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=Bearer receiver-jwt"
         assert env["OTEL_LOGS_EXPORTER"] == "otlp"
+
+    def test_platform_only_sandbox_env_enables_content_free_native_traces(
+        self,
+    ) -> None:
+        env = SandboxedAgentExecutor._build_sandbox_env(
+            ResolvedAgentOtelConfig(enabled=False),
+            otel_auth_token="receiver-jwt",
+            platform_tracing=True,
+        )
+
+        assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
+        assert env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "1"
+        assert env["OTEL_TRACES_EXPORTER"] == "otlp"
+        assert env["OTEL_METRICS_EXPORTER"] == "none"
+        assert env["OTEL_LOGS_EXPORTER"] == "none"
+        assert env["OTEL_LOG_USER_PROMPTS"] == "0"
+        assert env["OTEL_LOG_TOOL_DETAILS"] == "0"
+        assert env["OTEL_LOG_TOOL_CONTENT"] == "0"
 
     def test_platform_trace_parent_carries_trusted_workflow_origin(
         self,

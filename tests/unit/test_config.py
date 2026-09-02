@@ -68,15 +68,7 @@ REGISTRY_POLICY_ENV_VARS = {
     "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS",
     "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
 }
-TRACED_COMPOSE_SERVICES = ("api", "worker", "executor")
 SENTRY_WORKFLOW_COMPOSE_SERVICES = ("worker", "agent-worker", "executor")
-PLATFORM_OTEL_COMPOSE_ENV = (
-    "TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}",
-    "OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}",
-)
-PLATFORM_OTEL_HEADERS_COMPOSE_ENV = (
-    "OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}"
-)
 
 
 def _config_bool_env_vars() -> set[str]:
@@ -402,7 +394,12 @@ def test_platform_otel_env_is_forwarded_to_fargate_agent_services(
         source,
     )
     assert local_match is not None
-    assert "local.tracecat_platform_otel_env," in local_match.group("body")
+    expected_env = (
+        "local.tracecat_executor_platform_otel_env,"
+        if local_name == "agent_executor_env"
+        else "local.tracecat_platform_otel_env,"
+    )
+    assert expected_env in local_match.group("body")
 
 
 def test_fargate_agent_worker_receives_platform_otel_header_secret() -> None:
@@ -410,7 +407,7 @@ def test_fargate_agent_worker_receives_platform_otel_header_secret() -> None:
     assert "secrets     = local.agent_worker_secrets" in source
 
 
-def test_fargate_executors_load_platform_headers_by_arn() -> None:
+def test_fargate_executors_use_credential_free_platform_gateway() -> None:
     source = FARGATE_ECS_LOCALS_PATH.read_text()
     for local_name in ("executor_env", "agent_executor_env"):
         local_match = re.search(
@@ -418,14 +415,16 @@ def test_fargate_executors_load_platform_headers_by_arn() -> None:
             source,
         )
         assert local_match is not None
-        assert "TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN" in local_match.group("body")
+        assert "local.tracecat_executor_platform_otel_env" in local_match.group("body")
+        assert "TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN" not in local_match.group(
+            "body"
+        )
 
     iam_source = FARGATE_ECS_IAM_PATH.read_text()
     assert (
         'resource "aws_iam_role_policy_attachment" "executor_task_platform_otel_headers"'
-        in iam_source
+        not in iam_source
     )
-    assert "aws_iam_policy.platform_otel_headers_access[0].arn" in iam_source
 
 
 def test_platform_otel_operator_settings_are_not_advertised_in_env_example() -> None:

@@ -138,8 +138,6 @@ def _annotate_webhook_trace(
     )
     if response is not None and (trace_reference := current_trace_reference()):
         response["trace_id"] = trace_reference.trace_id
-        if trace_reference.trace_url is not None:
-            response["trace_url"] = trace_reference.trace_url
 
 
 async def _to_external_download_response(
