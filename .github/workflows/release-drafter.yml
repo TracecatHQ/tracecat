@@ -123,12 +123,57 @@ jobs:
       contents: write
       pull-requests: read
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
+        with:
+          python-version: "3.12"
+
       - name: Draft release
+        id: draft
         uses: release-drafter/release-drafter@6a93d829887aa2e0748befe2e808c66c0ec6e4c7 # v6
         with:
           disable-autolabeler: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Release Drafter lists a pull request under every category its labels
+      # match; its own source calls that intentional. This repo wants each
+      # change once, in the highest-ranked section that claimed it, which is
+      # what the `categories:` order in release-drafter.yml means. The action
+      # has no per-category `exclude-labels` and no first-match option, so the
+      # ranking is applied here, to the body it just wrote. Sections come out
+      # in config order, so first occurrence is highest rank.
+      - name: Keep each pull request in one section
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RELEASE_ID}" ]; then
+            echo "::warning::the draft step reported no release id, skipping"
+            exit 0
+          fi
+
+          gh api "repos/${REPO}/releases/${RELEASE_ID}" --jq .body > /tmp/body.md
+          python scripts/dedupe_release_notes.py < /tmp/body.md > /tmp/deduped.md
+
+          before=$(grep -c '^- ' /tmp/body.md || true)
+          after=$(grep -c '^- ' /tmp/deduped.md || true)
+          if [ "${before}" = "${after}" ]; then
+            echo "no duplicates across ${before} entries"
+            exit 0
+          fi
+
+          echo "removed $((before - after)) duplicate entries, ${after} remain"
+          jq -Rs '{body: .}' < /tmp/deduped.md > /tmp/payload.json
+          gh api --method PATCH "repos/${REPO}/releases/${RELEASE_ID}" \
+            --input /tmp/payload.json --silent
 
   # Same-repo PRs only: fork PRs get a read-only token, so the autolabeler
   # cannot write to them. Fork PRs are labelled by the backfill job once they

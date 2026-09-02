@@ -169,7 +169,7 @@ Five distinctions cover most of the doubt:
 - `audit` is the security audit log: what a workspace records about who did what, for someone reviewing it later. `logging` is application telemetry, what an operator reads to debug Tracecat itself. Audit work renders under Security, telemetry under Observability.
 - Vendor names are not scopes. Write `feat(integrations): add Jira issue search` and name the vendor in the description, where it is readable and searchable.
 
-At most two scopes, joined with `+`, as in `feat(cases+actions): add a case linking action`. A change lands in the first section its labels match, so that example appears under Case management, not Core actions: the reader cares that case management gained something, not which package it was built from. Needing three scopes usually means the pull request should be split.
+At most two scopes, joined with `+`, as in `feat(cases+actions): add a case linking action`. A change lands in the highest-ranked section its labels match, so that example appears under Case management, not Core actions: the reader cares that case management gained something, not which package it was built from. Needing three scopes usually means the pull request should be split.
 
 ### Breaking changes and deprecations
 
