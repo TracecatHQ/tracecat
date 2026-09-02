@@ -19,10 +19,11 @@ import os
 import random
 import time
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Final, Literal
 from uuid import UUID
 
 import httpx
@@ -33,6 +34,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 )
 from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from opentelemetry.proto.resource.v1.resource_pb2 import Resource
+from opentelemetry.proto.trace.v1.trace_pb2 import Span
 from pydantic import SecretStr
 
 from tracecat.agent.tokens import AgentOtelTokenClaims, verify_agent_otel_token
@@ -43,6 +45,8 @@ OTEL_SOCKET_NAME = "otel.sock"
 
 SignalPath = Literal["/v1/metrics", "/v1/logs", "/v1/traces"]
 
+_TRACES_PATH: Final[SignalPath] = "/v1/traces"
+
 # frozenset[SignalPath] so membership checks narrow parsed str paths.
 _SIGNAL_PATHS: frozenset[SignalPath] = frozenset(
     {"/v1/metrics", "/v1/logs", "/v1/traces"}
@@ -52,6 +56,37 @@ _SIGNAL_ENDPOINT_KEYS: dict[SignalPath, str] = {
     "/v1/metrics": "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
     "/v1/logs": "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
     "/v1/traces": "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+}
+
+# Canonical response for each counted rejection. The key is also the counter
+# bucket reported in the receiver's stop() summary.
+_RejectionKind = Literal[
+    "timeout",
+    "headers_too_large",
+    "malformed_request",
+    "method",
+    "path",
+    "identity",
+    "context",
+    "length_required",
+    "body_too_large",
+    "content_type",
+    "pool_capacity",
+    "collector",
+]
+_REJECTIONS: dict[_RejectionKind, tuple[int, str]] = {
+    "timeout": (408, "Request Timeout"),
+    "headers_too_large": (431, "Request Header Fields Too Large"),
+    "malformed_request": (400, "Bad Request"),
+    "method": (405, "Method Not Allowed"),
+    "path": (404, "Not Found"),
+    "identity": (401, "Unauthorized"),
+    "context": (403, "Forbidden"),
+    "length_required": (411, "Length Required"),
+    "body_too_large": (413, "Payload Too Large"),
+    "content_type": (415, "Unsupported Media Type"),
+    "pool_capacity": (503, "Service Unavailable"),
+    "collector": (503, "No Collector"),
 }
 
 _USER_AGENT = "tracecat-agent-otel-relay/1.0"
@@ -249,8 +284,8 @@ _delivery_tasks: dict[asyncio.Task[None], int] = {}
 # refund or the task entry being popped.
 _pending_bytes = 0
 
-# asyncio primitives bind to their loop; keyed per loop and swept alongside the
-# closed-loop task sweep in _spawn_delivery.
+# asyncio primitives bind to their loop; keyed per loop and swept alongside
+# the closed-loop task sweep.
 _post_semaphores: dict[asyncio.AbstractEventLoop, asyncio.Semaphore] = {}
 _projection_semaphores: dict[asyncio.AbstractEventLoop, asyncio.Semaphore] = {}
 
@@ -297,18 +332,19 @@ def _upsert_resource_attributes(
     attributes: Mapping[str, str],
 ) -> None:
     """Attach exactly one trusted value for every correlation field."""
-    for key, value in attributes.items():
-        for index in reversed(
-            [
-                index
-                for index, attribute in enumerate(resource.attributes)
-                if attribute.key == key
-            ]
-        ):
-            del resource.attributes[index]
-        resource.attributes.append(
-            KeyValue(key=key, value=AnyValue(string_value=value))
-        )
+    # Copy the survivors before clearing: upb may invalidate the removed
+    # elements, so the kept ones cannot be re-appended by reference.
+    kept = [
+        KeyValue(key=attribute.key, value=attribute.value)
+        for attribute in resource.attributes
+        if attribute.key not in attributes
+    ]
+    del resource.attributes[:]
+    resource.attributes.extend(kept)
+    resource.attributes.extend(
+        KeyValue(key=key, value=AnyValue(string_value=value))
+        for key, value in attributes.items()
+    )
 
 
 def canonicalize_tenant_trace_body(
@@ -358,6 +394,81 @@ def _safe_platform_attribute(attribute: KeyValue) -> KeyValue | None:
     return KeyValue(key=attribute.key, value=value)
 
 
+def _iter_spans(request: ExportTraceServiceRequest) -> Iterator[Span]:
+    """Yield every well-formed span across the batch, in document order."""
+    for resource_spans in request.resource_spans:
+        for scope_spans in resource_spans.scope_spans:
+            for span in scope_spans.spans:
+                if len(span.span_id) == 8:
+                    yield span
+
+
+def _platform_resource(parent: PlatformTraceParent) -> Resource:
+    """Build the content-free resource carrying only trusted correlation."""
+    resource = Resource(
+        attributes=[
+            KeyValue(
+                key="service.name",
+                value=AnyValue(string_value="tracecat-agent-native"),
+            ),
+            KeyValue(
+                key="service.namespace",
+                value=AnyValue(string_value="tracecat"),
+            ),
+        ]
+    )
+    _upsert_resource_attributes(resource, parent.resource_attributes)
+    return resource
+
+
+def _nearest_retained_ancestor(
+    span: Span,
+    span_by_id: Mapping[bytes, Span],
+    retained_ids: AbstractSet[bytes],
+) -> bytes:
+    """Walk parent links up to the closest retained span.
+
+    Returns ``b""`` when the chain leaves the batch or loops on itself, so the
+    caller can reparent the span onto the trusted platform parent instead.
+    """
+    ancestor_id = bytes(span.parent_span_id)
+    visited: set[bytes] = set()
+    while ancestor_id and ancestor_id not in retained_ids:
+        if ancestor_id in visited:
+            return b""
+        visited.add(ancestor_id)
+        ancestor = span_by_id.get(ancestor_id)
+        ancestor_id = bytes(ancestor.parent_span_id) if ancestor is not None else b""
+    return ancestor_id
+
+
+def _project_span(
+    span: Span,
+    *,
+    parent: PlatformTraceParent,
+    parent_span_id: bytes,
+) -> Span:
+    """Copy one retained span, keeping only allowlisted scalar attributes."""
+    projected = Span(
+        name=span.name,
+        trace_id=parent.trace_id,
+        span_id=span.span_id,
+        parent_span_id=parent_span_id,
+        start_time_unix_nano=span.start_time_unix_nano,
+        end_time_unix_nano=span.end_time_unix_nano,
+        kind=span.kind,
+        flags=(span.flags & ~1) | (parent.trace_flags & 1),
+    )
+    allowed_attributes = _PLATFORM_SPAN_ATTRIBUTES[span.name]
+    for attribute in span.attributes:
+        if attribute.key not in allowed_attributes:
+            continue
+        if safe_attribute := _safe_platform_attribute(attribute):
+            projected.attributes.append(safe_attribute)
+    projected.status.code = span.status.code
+    return projected
+
+
 def project_platform_trace_body(
     body: bytes,
     *,
@@ -368,7 +479,9 @@ def project_platform_trace_body(
 
     Only documented Claude span names and a small scalar attribute allowlist
     survive. Resource data, events, links, status descriptions, trace state,
-    prompts, commands, paths, tool I/O, and unknown spans are dropped.
+    prompts, commands, paths, tool I/O, and unknown spans are dropped. The
+    inbound resource and scope grouping carries nothing worth keeping, so every
+    retained span is re-emitted under one platform-owned resource and scope.
     """
     if content_type != "application/x-protobuf" or not body:
         return None
@@ -383,89 +496,30 @@ def project_platform_trace_body(
         )
         return None
 
-    all_spans = [
-        span
-        for resource_spans in request.resource_spans
-        for scope_spans in resource_spans.scope_spans
-        for span in scope_spans.spans
-    ]
-    span_by_id = {
-        bytes(span.span_id): span for span in all_spans if len(span.span_id) == 8
-    }
-    retained_ids = {
-        bytes(span.span_id)
-        for span in all_spans
-        if len(span.span_id) == 8 and span.name in _PLATFORM_SPAN_ATTRIBUTES
-    }
-    emitted_ids: set[bytes] = set()
-    projected = ExportTraceServiceRequest()
-
-    for resource_spans in request.resource_spans:
-        projected_resource_spans = None
-        for scope_spans in resource_spans.scope_spans:
-            retained = [
-                span
-                for span in scope_spans.spans
-                if bytes(span.span_id) in retained_ids
-                and bytes(span.span_id) not in emitted_ids
-            ]
-            if not retained:
-                continue
-            if projected_resource_spans is None:
-                projected_resource_spans = projected.resource_spans.add()
-                projected_resource_spans.resource.attributes.extend(
-                    [
-                        KeyValue(
-                            key="service.name",
-                            value=AnyValue(string_value="tracecat-agent-native"),
-                        ),
-                        KeyValue(
-                            key="service.namespace",
-                            value=AnyValue(string_value="tracecat"),
-                        ),
-                    ]
-                )
-                _upsert_resource_attributes(
-                    projected_resource_spans.resource,
-                    parent.resource_attributes,
-                )
-            projected_scope = projected_resource_spans.scope_spans.add()
-            projected_scope.scope.name = "tracecat.agent.native"
-            for span in retained:
-                span_id = bytes(span.span_id)
-                emitted_ids.add(span_id)
-                projected_span = projected_scope.spans.add(
-                    name=span.name,
-                    trace_id=parent.trace_id,
-                    span_id=span.span_id,
-                    start_time_unix_nano=span.start_time_unix_nano,
-                    end_time_unix_nano=span.end_time_unix_nano,
-                    kind=span.kind,
-                    flags=(span.flags & ~1) | (parent.trace_flags & 1),
-                )
-                allowed_attributes = _PLATFORM_SPAN_ATTRIBUTES[span.name]
-                for attribute in span.attributes:
-                    if attribute.key not in allowed_attributes:
-                        continue
-                    if safe_attribute := _safe_platform_attribute(attribute):
-                        projected_span.attributes.append(safe_attribute)
-                projected_span.status.code = span.status.code
-
-                ancestor_id = bytes(span.parent_span_id)
-                visited: set[bytes] = set()
-                while ancestor_id and ancestor_id not in retained_ids:
-                    if ancestor_id in visited:
-                        ancestor_id = b""
-                        break
-                    visited.add(ancestor_id)
-                    ancestor = span_by_id.get(ancestor_id)
-                    ancestor_id = (
-                        bytes(ancestor.parent_span_id) if ancestor is not None else b""
-                    )
-                projected_span.parent_span_id = ancestor_id or parent.span_id
-
-    if not emitted_ids:
+    span_by_id: dict[bytes, Span] = {}
+    retained: dict[bytes, Span] = {}
+    for span in _iter_spans(request):
+        span_id = bytes(span.span_id)
+        span_by_id.setdefault(span_id, span)
+        if span.name in _PLATFORM_SPAN_ATTRIBUTES:
+            retained.setdefault(span_id, span)
+    if not retained:
         return None
+
+    projected = ExportTraceServiceRequest()
+    projected_resource_spans = projected.resource_spans.add()
+    projected_resource_spans.resource.CopyFrom(_platform_resource(parent))
+    projected_scope = projected_resource_spans.scope_spans.add()
+    projected_scope.scope.name = "tracecat.agent.native"
+    for span in retained.values():
+        ancestor_id = _nearest_retained_ancestor(span, span_by_id, retained.keys())
+        projected_scope.spans.append(
+            _project_span(
+                span,
+                parent=parent,
+                parent_span_id=ancestor_id or parent.span_id,
+            )
+        )
     return projected.SerializeToString()
 
 
@@ -522,18 +576,26 @@ def _refund_pending_bytes(size: int) -> None:
     _pending_bytes -= size
 
 
-def _spawn_delivery(
-    delivery: _OtelDelivery, reserved_bytes: int
-) -> asyncio.Task[None] | None:
-    """Admit one pre-reserved delivery; ``None`` when the item cap is full.
+def _resize_reservation(reserved: int, needed: int) -> bool:
+    """Adjust an existing reservation to the exact size about to be admitted.
 
-    The caller already holds ``reserved_bytes`` of budget; on success that
-    reservation transfers to the task, on ``None`` the caller refunds it.
+    Returns ``False`` only when growth is refused; the caller's ``reserved``
+    is then untouched and stays its responsibility to refund.
     """
-    _sweep_closed_loops()
-    if len(_delivery_tasks) >= _MAX_PENDING_ITEMS:
-        return None
+    if needed > reserved:
+        return _reserve_pending_bytes(needed - reserved)
+    if needed < reserved:
+        _refund_pending_bytes(reserved - needed)
+    return True
 
+
+def _spawn_delivery(delivery: _OtelDelivery, reserved_bytes: int) -> asyncio.Task[None]:
+    """Hand one pre-reserved delivery to the pool.
+
+    Capacity is the caller's concern: ``_admit_batch`` sweeps and checks the
+    item cap for the whole batch before calling this. The caller's
+    ``reserved_bytes`` of budget transfers to the returned task.
+    """
     task = asyncio.get_running_loop().create_task(_deliver(delivery))
     _delivery_tasks[task] = reserved_bytes
     task.add_done_callback(_release_delivery_slot)
@@ -676,7 +738,13 @@ class OtelSocketReceiver:
         self._expected_organization_id = expected_organization_id
         self._expected_session_id = expected_session_id
         self._platform_trace_parent = platform_trace_parent
-        self._platform_collector_env = dict(platform_collector_env or {})
+        # Without a trusted parent there is nothing to join platform spans to,
+        # so the platform route stays unresolvable for every request.
+        self._platform_collector_env = (
+            dict(platform_collector_env or {})
+            if platform_trace_parent is not None
+            else {}
+        )
         self._server: asyncio.Server | None = None
         self._connection_tasks: set[asyncio.Task[None]] = set()
         self._pending_items = 0
@@ -780,103 +848,64 @@ class OtelSocketReceiver:
                 async with asyncio.timeout(_HEAD_READ_TIMEOUT_SECONDS):
                     head = await self._read_request_head(reader)
             except TimeoutError:
-                self._rejected["timeout"] += 1
-                await self._write_response(
-                    writer, status_code=408, reason="Request Timeout"
-                )
+                await self._reject(writer, "timeout")
                 return
             except _RequestTooLargeError:
-                self._rejected["headers_too_large"] += 1
-                await self._write_response(
-                    writer, status_code=431, reason="Request Header Fields Too Large"
-                )
+                await self._reject(writer, "headers_too_large")
                 return
             except _MalformedRequestError:
-                self._rejected["malformed_request"] += 1
-                await self._write_response(
-                    writer, status_code=400, reason="Bad Request"
-                )
+                await self._reject(writer, "malformed_request")
                 return
 
             if head is None:
                 return
             if head.method != "POST":
-                self._rejected["method"] += 1
-                await self._write_response(
-                    writer, status_code=405, reason="Method Not Allowed"
-                )
+                await self._reject(writer, "method")
                 return
 
             normalized_path = head.path.split("?", 1)[0]
             if normalized_path not in _SIGNAL_PATHS:
-                self._rejected["path"] += 1
-                await self._write_response(writer, status_code=404, reason="Not Found")
+                await self._reject(writer, "path")
                 return
 
             # Auth precedes every body byte: an unauthenticated sandbox must
             # not be able to make the host buffer a payload.
             claims = self._verify_inbound_auth(head.authorization)
             if claims is None:
-                self._rejected["identity"] += 1
-                await self._write_response(
-                    writer, status_code=401, reason="Unauthorized"
-                )
+                await self._reject(writer, "identity")
                 return
             if not self._claims_match_expected_context(claims):
-                self._rejected["context"] += 1
-                await self._write_response(writer, status_code=403, reason="Forbidden")
+                await self._reject(writer, "context")
                 return
 
             if head.content_length is None:
-                self._rejected["length_required"] += 1
-                await self._write_response(
-                    writer, status_code=411, reason="Length Required"
-                )
+                await self._reject(writer, "length_required")
                 return
             if head.content_length > MAX_BODY_SIZE:
-                self._rejected["body_too_large"] += 1
-                await self._write_response(
-                    writer, status_code=413, reason="Payload Too Large"
-                )
+                await self._reject(writer, "body_too_large")
                 return
 
             content_type = self._normalize_content_type(head.content_type)
             if content_type is None:
-                self._rejected["content_type"] += 1
-                await self._write_response(
-                    writer, status_code=415, reason="Unsupported Media Type"
-                )
+                await self._reject(writer, "content_type")
                 return
 
             # Charged before the body is read, so an authed sandbox cannot
             # buffer payloads the pool has no budget for.
             if not _reserve_pending_bytes(head.content_length):
-                self._rejected["pool_capacity"] += 1
-                await self._write_response(
-                    writer, status_code=503, reason="Service Unavailable"
-                )
+                await self._reject(writer, "pool_capacity")
                 return
             reserved = head.content_length
 
             # Resolved at admission so the delivery item stays self-contained.
-            tenant_collector_url = resolve_collector_url(
-                self._collector_env, normalized_path
-            )
-            platform_collector_url = (
+            tenant_url = resolve_collector_url(self._collector_env, normalized_path)
+            platform_url = (
                 resolve_collector_url(self._platform_collector_env, normalized_path)
-                if normalized_path == "/v1/traces"
-                and self._platform_trace_parent is not None
+                if normalized_path == _TRACES_PATH
                 else None
             )
-            if (
-                tenant_collector_url is None
-                and platform_collector_url is None
-                or not self._accepting
-            ):
-                self._rejected["collector"] += 1
-                await self._write_response(
-                    writer, status_code=503, reason="No Collector"
-                )
+            if not self._accepting or (tenant_url is None and platform_url is None):
+                await self._reject(writer, "collector")
                 return
 
             body = b""
@@ -885,92 +914,37 @@ class OtelSocketReceiver:
                     async with asyncio.timeout(_BODY_READ_TIMEOUT_SECONDS):
                         body = await reader.readexactly(head.content_length)
                 except TimeoutError:
-                    self._rejected["timeout"] += 1
-                    await self._write_response(
-                        writer, status_code=408, reason="Request Timeout"
-                    )
+                    await self._reject(writer, "timeout")
                     return
 
-            platform_body: bytes | None = None
-            tenant_body = body
-            if normalized_path == "/v1/traces":
-                async with _get_projection_semaphore():
-                    prepared = await asyncio.to_thread(
-                        _prepare_trace_bodies,
-                        body,
-                        content_type=content_type,
-                        parent=self._platform_trace_parent,
-                    )
-                tenant_body = prepared.tenant
-                platform_body = prepared.platform
+            deliveries = await self._plan_deliveries(
+                path=normalized_path,
+                content_type=content_type,
+                body=body,
+                tenant_url=tenant_url,
+                platform_url=platform_url,
+            )
+            if not deliveries:
+                # Projection dropped every span by policy. Acknowledge without
+                # delivery so the sandbox exporter does not retry the batch.
+                await self._write_response(writer, status_code=202, reason="Accepted")
+                return
 
-            deliveries: list[_OtelDelivery] = []
-            if tenant_collector_url is not None:
-                deliveries.append(
-                    _OtelDelivery(
-                        collector_url=tenant_collector_url,
-                        content_type=content_type,
-                        body=tenant_body,
-                        headers=dict(self._headers),
-                        signal_path=normalized_path,
-                        workspace_id=self._expected_workspace_id,
-                        organization_id=self._expected_organization_id,
-                        session_id=self._expected_session_id,
-                    )
-                )
-            if platform_collector_url is not None and platform_body is not None:
-                deliveries.append(
-                    _OtelDelivery(
-                        collector_url=platform_collector_url,
-                        content_type=content_type,
-                        body=platform_body,
-                        headers={},
-                        signal_path=normalized_path,
-                        workspace_id=self._expected_workspace_id,
-                        organization_id=self._expected_organization_id,
-                        session_id=self._expected_session_id,
-                    )
-                )
+            needed = sum(len(delivery.body) for delivery in deliveries)
+            if not _resize_reservation(reserved, needed):
+                await self._reject(writer, "pool_capacity")
+                return
+            reserved = needed
 
-            total_delivery_bytes = sum(len(delivery.body) for delivery in deliveries)
-            size_delta = total_delivery_bytes - reserved
-            if size_delta > 0 and not _reserve_pending_bytes(size_delta):
-                self._rejected["pool_capacity"] += 1
+            if not self._admit_batch(deliveries):
                 await self._write_response(
                     writer, status_code=503, reason="Service Unavailable"
                 )
                 return
-            if size_delta > 0:
-                reserved += size_delta
-            elif size_delta < 0:
-                _refund_pending_bytes(-size_delta)
-                reserved += size_delta
+            # Each spawned task now owns its body's share of the reservation.
+            reserved = 0
 
-            admitted = self._admit_batch(deliveries)
-            if admitted:
-                # Each spawned task now owns its body's share of the reservation.
-                reserved = 0
-
-            # A safe projection may intentionally contain no spans. Acknowledge
-            # it without delivery so the sandbox exporter does not retry data
-            # that policy deliberately dropped.
-            intentionally_dropped = (
-                normalized_path == "/v1/traces"
-                and platform_collector_url is not None
-                and platform_body is None
-                and tenant_collector_url is None
-            )
-            if not admitted and not intentionally_dropped:
-                await self._write_response(
-                    writer, status_code=503, reason="Service Unavailable"
-                )
-                return
-
-            await self._write_response(
-                writer,
-                status_code=202,
-                reason="Accepted",
-            )
+            await self._write_response(writer, status_code=202, reason="Accepted")
         except (asyncio.IncompleteReadError, ConnectionError):
             # Client disconnect mid-request is normal during sandbox teardown.
             return
@@ -987,6 +961,12 @@ class OtelSocketReceiver:
             except Exception:
                 pass
 
+    async def _reject(self, writer: asyncio.StreamWriter, kind: _RejectionKind) -> None:
+        """Count one rejection and write its canonical response."""
+        self._rejected[kind] += 1
+        status_code, reason = _REJECTIONS[kind]
+        await self._write_response(writer, status_code=status_code, reason=reason)
+
     @staticmethod
     def _normalize_content_type(content_type: str | None) -> str | None:
         """Return one canonical OTLP media type or reject the sandbox value."""
@@ -995,14 +975,84 @@ class OtelSocketReceiver:
             return None
         return media_type
 
+    def _delivery(
+        self,
+        *,
+        collector_url: str,
+        content_type: str,
+        body: bytes,
+        headers: dict[str, str],
+        path: SignalPath,
+    ) -> _OtelDelivery:
+        """Bind one resolved destination to this receiver's turn identity."""
+        return _OtelDelivery(
+            collector_url=collector_url,
+            content_type=content_type,
+            body=body,
+            headers=headers,
+            signal_path=path,
+            workspace_id=self._expected_workspace_id,
+            organization_id=self._expected_organization_id,
+            session_id=self._expected_session_id,
+        )
+
+    async def _plan_deliveries(
+        self,
+        *,
+        path: SignalPath,
+        content_type: str,
+        body: bytes,
+        tenant_url: str | None,
+        platform_url: str | None,
+    ) -> list[_OtelDelivery]:
+        """Resolve every destination one ingress body fans out to.
+
+        Trace payloads are rewritten off the event loop: the tenant copy is
+        canonicalized and the platform copy is projected down to allowlisted
+        spans, which may leave no platform body at all.
+        """
+        tenant_body = body
+        platform_body: bytes | None = None
+        if path == _TRACES_PATH:
+            async with _get_projection_semaphore():
+                prepared = await asyncio.to_thread(
+                    _prepare_trace_bodies,
+                    body,
+                    content_type=content_type,
+                    parent=self._platform_trace_parent,
+                )
+            tenant_body = prepared.tenant
+            platform_body = prepared.platform
+
+        deliveries: list[_OtelDelivery] = []
+        if tenant_url is not None:
+            deliveries.append(
+                self._delivery(
+                    collector_url=tenant_url,
+                    content_type=content_type,
+                    body=tenant_body,
+                    headers=dict(self._headers),
+                    path=path,
+                )
+            )
+        if platform_url is not None and platform_body is not None:
+            deliveries.append(
+                self._delivery(
+                    collector_url=platform_url,
+                    content_type=content_type,
+                    body=platform_body,
+                    headers={},
+                    path=path,
+                )
+            )
+        return deliveries
+
     def _admit_batch(self, deliveries: list[_OtelDelivery]) -> bool:
         """Atomically hand every destination for one ingress to the pool.
 
         A fan-out must not silently accept only the tenant or only the platform
         copy. Capacity is checked for the whole batch before any task is made.
         """
-        if not deliveries:
-            return False
         if self._pending_items + len(deliveries) > _MAX_PENDING_ITEMS_PER_TURN:
             for delivery in deliveries:
                 self._shed("turn_capacity", delivery)
@@ -1015,8 +1065,6 @@ class OtelSocketReceiver:
 
         for delivery in deliveries:
             task = _spawn_delivery(delivery, len(delivery.body))
-            if task is None:  # pragma: no cover - guarded above without an await
-                raise RuntimeError("OTel delivery pool capacity changed unexpectedly")
             self._pending_items += 1
             self._admitted[delivery.signal_path] += 1
             # Frees turn budget even after stop(); the pool owns the task itself.

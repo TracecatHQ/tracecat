@@ -118,19 +118,23 @@ from .schemas import (
 BROKER_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
 GRACEFUL_CANCEL_TIMEOUT_SECONDS = 30.0
 
+# Turns on the sandbox runtime's native trace exporter for platform tracing.
+_PLATFORM_TELEMETRY_ENV = {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
+    "OTEL_TRACES_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+}
 
-class AgentTraceAttribute(StrEnum):
-    """Tracecat-owned attributes used to correlate one agent turn."""
-
-    ORGANIZATION_ID = "tracecat.organization.id"
-    WORKSPACE_ID = "tracecat.workspace.id"
-    SESSION_ID = "tracecat.agent.session.id"
-    RUN_ID = "tracecat.agent.run.id"
-    WORKFLOW_ID = "tracecat.workflow.id"
-    WORKFLOW_EXECUTION_ID = "tracecat.workflow.execution.id"
-    ACTION_REF = "tracecat.action.ref"
-    TRIGGER_TYPE = "tracecat.trigger.type"
-    OUTCOME = "tracecat.agent.outcome"
+# Silences every tenant-facing signal when the tenant has no OTel config of
+# their own, so platform tracing alone never emits their prompts or tool I/O.
+_PLATFORM_ONLY_TELEMETRY_ENV = {
+    "OTEL_METRICS_EXPORTER": "none",
+    "OTEL_LOGS_EXPORTER": "none",
+    "OTEL_LOG_USER_PROMPTS": "0",
+    "OTEL_LOG_TOOL_DETAILS": "0",
+    "OTEL_LOG_TOOL_CONTENT": "0",
+}
 
 
 class AgentRuntimeOutcome(StrEnum):
@@ -253,30 +257,19 @@ class AgentExecutorResult(BaseModel):
     interrupted_tool_call_ids: list[str] | None = None
 
 
-def _agent_correlation_attributes(
-    input: AgentExecutorInput,
-) -> dict[str, str | None]:
+def _agent_correlation_attributes(input: AgentExecutorInput) -> dict[str, str]:
     """Build the single trusted correlation mapping for an agent turn."""
-    return {
-        AgentTraceAttribute.ORGANIZATION_ID: (
-            str(input.role.organization_id)
-            if input.role.organization_id is not None
-            else None
-        ),
-        AgentTraceAttribute.WORKSPACE_ID: str(input.workspace_id),
-        AgentTraceAttribute.SESSION_ID: str(input.session_id),
-        AgentTraceAttribute.RUN_ID: (
-            str(input.curr_run_id) if input.curr_run_id is not None else None
-        ),
-        AgentTraceAttribute.WORKFLOW_ID: (
-            str(input.origin_workflow_id)
-            if input.origin_workflow_id is not None
-            else None
-        ),
-        AgentTraceAttribute.WORKFLOW_EXECUTION_ID: input.origin_workflow_execution_id,
-        AgentTraceAttribute.ACTION_REF: input.origin_action_ref,
-        AgentTraceAttribute.TRIGGER_TYPE: input.origin_trigger_type,
+    values: dict[str, str | uuid.UUID | None] = {
+        "tracecat.organization.id": input.role.organization_id,
+        "tracecat.workspace.id": input.workspace_id,
+        "tracecat.agent.session.id": input.session_id,
+        "tracecat.agent.run.id": input.curr_run_id,
+        "tracecat.workflow.id": input.origin_workflow_id,
+        "tracecat.workflow.execution.id": input.origin_workflow_execution_id,
+        "tracecat.action.ref": input.origin_action_ref,
+        "tracecat.trigger.type": input.origin_trigger_type,
     }
+    return {key: str(value) for key, value in values.items() if value is not None}
 
 
 def _agent_runtime_outcome(result: AgentExecutorResult) -> AgentRuntimeOutcome:
@@ -547,14 +540,11 @@ class SandboxedAgentExecutor:
         if not span_context.is_valid:
             return None
 
-        raw_attributes = _agent_correlation_attributes(self.input)
         return PlatformTraceParent(
             trace_id=span_context.trace_id.to_bytes(16, byteorder="big"),
             span_id=span_context.span_id.to_bytes(8, byteorder="big"),
             trace_flags=int(span_context.trace_flags),
-            resource_attributes={
-                key: value for key, value in raw_attributes.items() if value is not None
-            },
+            resource_attributes=_agent_correlation_attributes(self.input),
         )
 
     @staticmethod
@@ -572,24 +562,9 @@ class SandboxedAgentExecutor:
         """
         sandbox_env = dict(resolved.sandbox_env)
         if platform_tracing:
-            sandbox_env.update(
-                {
-                    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-                    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
-                    "OTEL_TRACES_EXPORTER": "otlp",
-                    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
-                }
-            )
+            sandbox_env.update(_PLATFORM_TELEMETRY_ENV)
             if not resolved.enabled:
-                sandbox_env.update(
-                    {
-                        "OTEL_METRICS_EXPORTER": "none",
-                        "OTEL_LOGS_EXPORTER": "none",
-                        "OTEL_LOG_USER_PROMPTS": "0",
-                        "OTEL_LOG_TOOL_DETAILS": "0",
-                        "OTEL_LOG_TOOL_CONTENT": "0",
-                    }
-                )
+                sandbox_env.update(_PLATFORM_ONLY_TELEMETRY_ENV)
         sandbox_env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
         sandbox_env["OTEL_EXPORTER_OTLP_HEADERS"] = (
             f"Authorization=Bearer {otel_auth_token}"
@@ -1503,7 +1478,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         result = await executor.run()
         outcome = _agent_runtime_outcome(result)
         if runtime_span is not None:
-            runtime_span.set_attribute(AgentTraceAttribute.OUTCOME, outcome)
+            runtime_span.set_attribute("tracecat.agent.outcome", outcome)
             if outcome is AgentRuntimeOutcome.FAILURE:
                 runtime_span.set_status(Status(status_code=StatusCode.ERROR))
 

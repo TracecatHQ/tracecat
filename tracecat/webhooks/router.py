@@ -122,17 +122,11 @@ def _annotate_webhook_trace(
     set_current_span_attributes(
         {
             "tracecat.organization.id": (
-                str(role.organization_id)
-                if role is not None and role.organization_id is not None
-                else None
+                role.organization_id if role is not None else None
             ),
-            "tracecat.workspace.id": (
-                str(role.workspace_id)
-                if role is not None and role.workspace_id is not None
-                else None
-            ),
-            "tracecat.workflow.id": str(wf_id),
-            "tracecat.workflow.execution.id": str(wf_exec_id),
+            "tracecat.workspace.id": role.workspace_id if role is not None else None,
+            "tracecat.workflow.id": wf_id,
+            "tracecat.workflow.execution.id": wf_exec_id,
             "tracecat.trigger.type": TriggerType.WEBHOOK.value,
         }
     )

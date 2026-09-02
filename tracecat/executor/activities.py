@@ -118,14 +118,10 @@ class ExecutorActivities:
         act_attempt = act_info.attempt
         set_current_span_attributes(
             {
-                "tracecat.organization.id": (
-                    str(role.organization_id) if role.organization_id else None
-                ),
-                "tracecat.workspace.id": (
-                    str(role.workspace_id) if role.workspace_id else None
-                ),
-                "tracecat.workflow.id": str(input.run_context.wf_id),
-                "tracecat.workflow.execution.id": str(input.run_context.wf_exec_id),
+                "tracecat.organization.id": role.organization_id,
+                "tracecat.workspace.id": role.workspace_id,
+                "tracecat.workflow.id": input.run_context.wf_id,
+                "tracecat.workflow.execution.id": input.run_context.wf_exec_id,
                 "tracecat.trigger.type": input.run_context.trigger_type,
                 "tracecat.action.ref": task.ref,
                 "tracecat.action.name": action_name,

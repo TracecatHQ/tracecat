@@ -509,13 +509,9 @@ async def send_message(
             )
         set_current_span_attributes(
             {
-                "tracecat.organization.id": (
-                    str(role.organization_id)
-                    if role.organization_id is not None
-                    else None
-                ),
-                "tracecat.workspace.id": str(workspace_id),
-                "tracecat.agent.session.id": str(session_id),
+                "tracecat.organization.id": role.organization_id,
+                "tracecat.workspace.id": workspace_id,
+                "tracecat.agent.session.id": session_id,
             }
         )
 
@@ -558,13 +554,7 @@ async def send_message(
                     if turn_response is not None
                     else agent_session.curr_run_id
                 )
-                set_current_span_attributes(
-                    {
-                        "tracecat.agent.run.id": (
-                            str(run_id) if run_id is not None else None
-                        )
-                    }
-                )
+                set_current_span_attributes({"tracecat.agent.run.id": run_id})
                 message_id = _bubble_id(session_id, run_id)
 
                 if rotated_stream_id is None:
@@ -636,7 +626,7 @@ async def send_message(
                         "New agent turn completed without a stream response"
                     )
                 set_current_span_attributes(
-                    {"tracecat.agent.run.id": str(turn_response.curr_run_id)}
+                    {"tracecat.agent.run.id": turn_response.curr_run_id}
                 )
                 message_id = _bubble_id(session_id, turn_response.curr_run_id)
 

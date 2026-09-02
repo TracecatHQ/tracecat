@@ -790,12 +790,12 @@ async def test_send_message_new_turn_uses_fresh_per_turn_stream() -> None:
         [
             call(
                 {
-                    "tracecat.organization.id": str(role.organization_id),
-                    "tracecat.workspace.id": str(workspace_id),
-                    "tracecat.agent.session.id": str(session_id),
+                    "tracecat.organization.id": role.organization_id,
+                    "tracecat.workspace.id": workspace_id,
+                    "tracecat.agent.session.id": session_id,
                 }
             ),
-            call({"tracecat.agent.run.id": str(run_id)}),
+            call({"tracecat.agent.run.id": run_id}),
         ]
     )
 

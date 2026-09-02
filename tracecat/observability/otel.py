@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import Lock
 from typing import TYPE_CHECKING, Final, Protocol
+from uuid import UUID
 
 import boto3
 from opentelemetry import context as otel_context
@@ -73,6 +74,8 @@ _TEMPORAL_FAILURE_TYPE: Final = "temporal.failure"
 _PLATFORM_INSTRUMENTATION_NAME: Final = "tracecat.platform"
 
 type _TraceCarrier = dict[str, list[str] | str]
+# Platform span attributes; UUIDs are stringified on the way in.
+type _PlatformAttributes = Mapping[str, str | int | bool | UUID | None]
 
 
 class _TemporalInputWithHeaders(Protocol):
@@ -369,21 +372,25 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
         return _TraceContextOnlyWorkflowTracingInterceptor
 
 
-def set_current_span_attributes(attributes: dict[str, str | int | bool | None]) -> None:
-    """Attach safe platform attributes to the current recording span."""
+def set_current_span_attributes(attributes: _PlatformAttributes) -> None:
+    """Attach safe platform attributes to the current recording span.
+
+    ``None`` values are dropped and UUIDs are stringified, so callers can pass
+    their identifiers straight through.
+    """
     span = trace.get_current_span()
     if not span.is_recording():
         return
     for key, value in attributes.items():
         if value is not None:
-            span.set_attribute(key, value)
+            span.set_attribute(key, str(value) if isinstance(value, UUID) else value)
 
 
 @contextmanager
 def platform_span(
     name: str,
     *,
-    attributes: dict[str, str | int | bool | None] | None = None,
+    attributes: _PlatformAttributes | None = None,
 ) -> Iterator[Span | None]:
     """Create a sanitized child span beneath the active platform trace."""
     runtime = get_platform_tracing()
@@ -397,9 +404,7 @@ def platform_span(
         set_status_on_exception=False,
     ) as span:
         if attributes:
-            for key, value in attributes.items():
-                if value is not None:
-                    span.set_attribute(key, value)
+            set_current_span_attributes(attributes)
         try:
             yield span
         except BaseException as exc:

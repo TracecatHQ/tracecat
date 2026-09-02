@@ -7,6 +7,7 @@ import dataclasses
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AsyncExitStack
 from datetime import timedelta
 
 from temporalio import workflow
@@ -120,7 +121,12 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     initialize_platform_tracing("tracecat-agent-worker")
 
-    try:
+    # LIFO teardown: storage cache, then tracing. The stack still runs later
+    # callbacks when an earlier one raises.
+    async with AsyncExitStack() as cleanup:
+        cleanup.callback(shutdown_platform_tracing)
+        cleanup.push_async_callback(close_storage_client_cache)
+
         client = await get_temporal_client()
 
         initialize_sentry_from_environment()
@@ -158,11 +164,6 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 await shutdown_event.wait()
                 logger.info("AgentWorker shutdown requested")
             logger.info("Temporal Worker context exited")
-    finally:
-        try:
-            await close_storage_client_cache()
-        finally:
-            shutdown_platform_tracing()
 
 
 if __name__ == "__main__":

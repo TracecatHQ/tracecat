@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AsyncExitStack
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -98,7 +99,13 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     )
     initialize_platform_tracing("tracecat-agent-executor")
 
-    try:
+    # LIFO teardown: storage cache, then runtime services, then tracing. The
+    # stack still runs later callbacks when an earlier one raises.
+    async with AsyncExitStack() as cleanup:
+        cleanup.callback(shutdown_platform_tracing)
+        cleanup.push_async_callback(_stop_runtime_services)
+        cleanup.push_async_callback(close_storage_client_cache)
+
         client = await _start_runtime_services()
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
             async with Worker(
@@ -125,14 +132,6 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 await shutdown_event.wait()
                 logger.info("AgentExecutorWorker shutdown requested")
             logger.info("Temporal Worker context exited")
-    finally:
-        try:
-            await close_storage_client_cache()
-        finally:
-            try:
-                await _stop_runtime_services()
-            finally:
-                shutdown_platform_tracing()
     if runtime_failure_reason is not None:
         raise RuntimeError(runtime_failure_reason)
 

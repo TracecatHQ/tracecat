@@ -1291,10 +1291,7 @@ class TestRunAgentActivity:
                     "tracecat.workspace.id": str(mock_executor_input.workspace_id),
                     "tracecat.agent.session.id": str(mock_executor_input.session_id),
                     "tracecat.agent.run.id": str(mock_executor_input.curr_run_id),
-                    "tracecat.workflow.id": None,
-                    "tracecat.workflow.execution.id": None,
-                    "tracecat.action.ref": None,
-                    "tracecat.trigger.type": None,
+                    # Absent workflow origin contributes no keys at all.
                     "temporal.activity.attempt": mock_activity.info.return_value.attempt,
                     "temporal.task_queue": mock_activity.info.return_value.task_queue,
                 }
