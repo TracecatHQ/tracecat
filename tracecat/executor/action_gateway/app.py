@@ -170,6 +170,8 @@ def _add_exception_handlers(app: FastAPI) -> None:
         auth_pool_exhausted_exception_handler,
         generic_exception_handler,
         http_exception_handler,
+        query_overflow_exception_handler,
+        query_timeout_exception_handler,
         tracecat_exception_handler,
     )
     from tracecat.db.exceptions import AuthPoolExhaustedError
@@ -178,6 +180,10 @@ def _add_exception_handlers(app: FastAPI) -> None:
         ScopeDeniedError,
         TracecatException,
     )
+    from tracecat.query.errors import (
+        TracecatQueryOverflowError,
+        TracecatQueryTimeoutError,
+    )
 
     app.add_exception_handler(Exception, generic_exception_handler)
     app.add_exception_handler(
@@ -185,6 +191,14 @@ def _add_exception_handlers(app: FastAPI) -> None:
         auth_pool_exhausted_exception_handler,
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(
+        TracecatQueryTimeoutError,
+        query_timeout_exception_handler,
+    )
+    app.add_exception_handler(
+        TracecatQueryOverflowError,
+        query_overflow_exception_handler,
+    )
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)
     app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)

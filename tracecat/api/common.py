@@ -25,6 +25,10 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.query.errors import (
+    TracecatQueryOverflowError,
+    TracecatQueryTimeoutError,
+)
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 # All Tracecat search attributes are Keyword-typed.
@@ -164,6 +168,58 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
             "message": msg,
             "detail": tracecat_exc.detail,
         },
+    )
+
+
+def _query_exception_response(
+    request: Request,
+    exc: TracecatQueryTimeoutError | TracecatQueryOverflowError,
+    *,
+    status_code: int,
+) -> Response:
+    logger.warning(
+        "Query execution rejected",
+        status_code=status_code,
+        exception_type=type(exc).__name__,
+        path=request.url.path,
+        role=ctx_role.get(),
+        detail=exc.detail,
+    )
+    return ORJSONResponse(
+        status_code=status_code,
+        content={
+            "type": type(exc).__name__,
+            "message": str(exc),
+            "detail": exc.detail,
+        },
+    )
+
+
+def query_timeout_exception_handler(request: Request, exc: Exception) -> Response:
+    """Return the stable 408 contract for timed-out shared queries."""
+    query_exc = (
+        exc
+        if isinstance(exc, TracecatQueryTimeoutError)
+        else TracecatQueryTimeoutError(str(exc))
+    )
+    return _query_exception_response(
+        request,
+        query_exc,
+        status_code=status.HTTP_408_REQUEST_TIMEOUT,
+    )
+
+
+def query_overflow_exception_handler(request: Request, exc: Exception) -> Response:
+    """Return the stable 400 contract for shared-query numeric overflow."""
+    query_exc = (
+        exc
+        if isinstance(exc, TracecatQueryOverflowError)
+        else TracecatQueryOverflowError(str(exc))
+    )
+    return _query_exception_response(
+        request,
+        query_exc,
+        status_code=status.HTTP_400_BAD_REQUEST,
     )
 
 

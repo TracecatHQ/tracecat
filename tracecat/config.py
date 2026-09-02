@@ -1076,6 +1076,28 @@ TRACECAT__S3_CONCURRENCY_LIMIT = int(
 TRACECAT__LIMIT_MIN = 1
 """Minimum list/search page size."""
 
+TRACECAT__LIMIT_AGG_GROUPS_MAX = bound_env(
+    "TRACECAT__LIMIT_AGG_GROUPS_MAX",
+    1000,
+    lower=1,
+)
+"""Maximum number of groups returned by an aggregation query."""
+
+TRACECAT__LIMIT_AGG_GROUPS_DEFAULT = bound_env(
+    "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT",
+    100,
+    lower=1,
+    upper=TRACECAT__LIMIT_AGG_GROUPS_MAX,
+)
+"""Default number of groups returned by an aggregation query."""
+
+TRACECAT__AGG_STATEMENT_TIMEOUT_MS = bound_env(
+    "TRACECAT__AGG_STATEMENT_TIMEOUT_MS",
+    30_000,
+    lower=1,
+)
+"""PostgreSQL statement timeout for aggregation queries, in milliseconds."""
+
 TRACECAT__LIMIT_DEFAULT = 20
 """Default list/search page size."""
 
