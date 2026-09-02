@@ -55,6 +55,7 @@ class Conventions:
     breaking_label: str
     extra_labels: tuple[str, ...]
     exclude_labels: tuple[str, ...]
+    no_section_labels: tuple[str, ...]
 
     @property
     def canonical_scopes(self) -> tuple[str, ...]:
@@ -186,6 +187,7 @@ def load_conventions(path: Path | None = None) -> Conventions:
         breaking_label=str(raw.get("labels", {}).get("breaking", "breaking")),
         extra_labels=_require_str_list(raw, "labels", "extra"),
         exclude_labels=_require_str_list(raw, "labels", "exclude"),
+        no_section_labels=_require_str_list(raw, "labels", "no_section"),
     )
     _validate(conventions)
     return conventions
@@ -194,6 +196,12 @@ def load_conventions(path: Path | None = None) -> Conventions:
 def _validate(conventions: Conventions) -> None:
     """Fail loudly on the mistakes that would otherwise mislabel silently."""
     canonical = set(conventions.canonical_scopes)
+
+    unknown = sorted(set(conventions.no_section_labels) - conventions.all_labels())
+    if unknown:
+        raise ConventionsError(
+            f"[labels].no_section names labels that do not exist: {', '.join(unknown)}"
+        )
 
     overlap = sorted(canonical & set(conventions.scope_aliases))
     if overlap:

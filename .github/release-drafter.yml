@@ -108,11 +108,14 @@ categories:
       - engine
 
   # 12
+  # `enterprise` is deliberately absent. It says who can use a change, not what
+  # the change is, so it must not claim a section: `feat(enterprise+cases)`
+  # belongs under Case management, and a bare `feat(enterprise)` under Features.
+  # See `[labels] no_section` in commit-conventions.toml.
   - title: API
     labels:
       - api
       - rbac
-      - enterprise
 
   # 13
   - title: User interface

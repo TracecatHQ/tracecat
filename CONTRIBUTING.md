@@ -147,7 +147,7 @@ Add a scope whenever the change belongs to one product area. Leave it off only w
 | `deps` | Dependency bumps |
 | `docs` | Documentation and playbooks |
 | `engine` | The Temporal workers, executors, and scheduler that run workflows |
-| `enterprise` | Enterprise edition and tiers |
+| `enterprise` | Enterprise edition and tiers; pair it with the area it changes |
 | `functions` | The FN.* inline expression functions |
 | `infra` | Databases, deployments, and cloud infrastructure |
 | `integrations` | Third-party vendor connectors and registry templates |
@@ -160,10 +160,11 @@ Add a scope whenever the change belongs to one product area. Leave it off only w
 
 <!-- END commit-conventions:scopes -->
 
-Six distinctions cover most of the doubt:
+Seven distinctions cover most of the doubt:
 
 - `actions` is the built-in `core.*` actions a user calls in a workflow. `functions` is the `FN.*` inline expression functions. `engine` is the Temporal workers and executors that run them. The first two are catalogs of things the platform offers; the third is the machinery.
 - `cases` and `tables` are core platform features with their own scopes and their own sections. Neither folds into `api` or `engine`.
+- `enterprise` says who may use a change, not what the change is, so it never decides the section. Pair it with the area: `feat(enterprise+cases)` lands in Case management, and a bare `feat(enterprise)` falls to Features.
 - `engine` is what runs; `infra` is what it runs on. If the change could ship by redeploying the same image, it is `infra`.
 - `workflows` is not a scope, because it reads as GitHub Actions to one person and as the workflow engine to another. A GitHub Actions change is a bare `ci:` with no scope; a workflow-engine change is `engine`.
 - `audit` is the security audit log: what a workspace records about who did what, for someone reviewing it later. `logging` is application telemetry, what an operator reads to debug Tracecat itself. Audit work renders under Security, telemetry under Observability.

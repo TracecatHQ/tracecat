@@ -287,11 +287,55 @@ def test_exclude_labels_match_the_toml(conventions: Conventions) -> None:
 
 
 def test_every_vocabulary_label_has_a_home(conventions: Conventions) -> None:
-    """A label with no category renders its PRs with no heading."""
+    """A label with no category renders its PRs with no heading.
+
+    `no_section` is the deliberate exception, declared in the TOML so that a
+    label which claims no category reads differently from one dropped by
+    accident.
+    """
     homeless = (
-        conventions.all_labels() - category_labels() - set(conventions.exclude_labels)
+        conventions.all_labels()
+        - category_labels()
+        - set(conventions.exclude_labels)
+        - set(conventions.no_section_labels)
     )
     assert not homeless, sorted(homeless)
+
+
+@pytest.mark.parametrize("label", sorted(CONVENTIONS.no_section_labels))
+def test_a_no_section_label_claims_no_category(
+    label: str, conventions: Conventions
+) -> None:
+    """Giving one a category would defeat the point of declaring it."""
+    assert label not in category_labels()
+    assert label not in conventions.exclude_labels
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        # The other scope decides, not `enterprise`.
+        ("feat(enterprise+cases): add case tasks", "Case management"),
+        ("feat(cases+enterprise): add case tasks", "Case management"),
+        ("fix(enterprise+ui): correct the tier badge", "User interface"),
+        # Alone, the type decides.
+        ("feat(enterprise): add a paid-tier gate", "Features"),
+        ("fix(enterprise): correct a tier check", "Fixes"),
+        ("refactor(enterprise): split the tier module", "Other changes"),
+    ],
+)
+def test_enterprise_never_claims_the_section(title: str, expected: str) -> None:
+    """`enterprise` says who may use a change, not what the change is.
+
+    It used to sit in the API category, so every paid feature was filed under
+    API rather than the product area it actually changed.
+    """
+    labels = autolabel(title)
+    assert "enterprise" in labels, labels
+    section = next(
+        c["title"] for c in DRAFTER["categories"] if labels & set(c["labels"])
+    )
+    assert section == expected, f"{title} -> {section}"
 
 
 def test_audit_script_has_no_top_level_yaml_import() -> None:
