@@ -3,6 +3,9 @@ from __future__ import annotations
 import importlib
 import importlib.machinery
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from types import ModuleType
 from typing import Annotated, Any, ForwardRef, Literal, TypedDict, get_args, get_origin
 
@@ -75,6 +78,99 @@ def test_import_and_reload_falls_back_when_loader_missing(
         assert result is sentinel
         assert calls == [module_name]
     finally:
+        sys.modules.pop(module_name, None)
+
+
+def test_import_and_reload_keeps_module_on_reload_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module_name = "temp_udf_reload_failure"
+    module_path = tmp_path / f"{module_name}.py"
+    module_path.write_text("value = 1\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    module = importlib.import_module(module_name)
+
+    def fail_reload(_: ModuleType) -> ModuleType:
+        raise ImportError("forced reload failure")
+
+    def unexpected_import(_: str) -> ModuleType:
+        raise AssertionError("reload failure should not trigger a fresh import")
+
+    monkeypatch.setattr(importlib, "reload", fail_reload)
+    monkeypatch.setattr(importlib, "import_module", unexpected_import)
+
+    try:
+        result = import_and_reload(module_name)
+
+        assert result is module
+        assert sys.modules.get(module_name) is module
+    finally:
+        sys.modules.pop(module_name, None)
+
+
+def test_import_and_reload_serializes_concurrent_reloads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module_name = "temp_udf_concurrent_reload"
+    module_path = tmp_path / f"{module_name}.py"
+    module_path.write_text("value = 1\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    module = importlib.import_module(module_name)
+
+    first_reload_entered = threading.Event()
+    second_call_started = threading.Event()
+    second_reload_entered = threading.Event()
+    release_first_reload = threading.Event()
+    state_lock = threading.Lock()
+    active_reloads = 0
+    max_active_reloads = 0
+    reload_calls = 0
+
+    def controlled_reload(target: ModuleType) -> ModuleType:
+        nonlocal active_reloads, max_active_reloads, reload_calls
+        with state_lock:
+            reload_calls += 1
+            call_number = reload_calls
+            active_reloads += 1
+            max_active_reloads = max(max_active_reloads, active_reloads)
+
+        try:
+            if call_number == 1:
+                first_reload_entered.set()
+                assert release_first_reload.wait(2)
+            else:
+                second_reload_entered.set()
+            return target
+        finally:
+            with state_lock:
+                active_reloads -= 1
+
+    def reload_module(*, signal_started: bool = False) -> ModuleType:
+        if signal_started:
+            second_call_started.set()
+        return import_and_reload(module_name)
+
+    monkeypatch.setattr(importlib, "reload", controlled_reload)
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(reload_module)
+            assert first_reload_entered.wait(2)
+
+            second = executor.submit(reload_module, signal_started=True)
+            assert second_call_started.wait(2)
+            assert not second_reload_entered.wait(0.1)
+
+            release_first_reload.set()
+            assert first.result(timeout=2) is module
+            assert second.result(timeout=2) is module
+
+        assert reload_calls == 2
+        assert max_active_reloads == 1
+    finally:
+        release_first_reload.set()
         sys.modules.pop(module_name, None)
 
 
