@@ -27,7 +27,11 @@ from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubag
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
 from tracecat.temporal.errors import extract_error_classification
 
@@ -438,6 +442,52 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
 
 
 @pytest.mark.anyio
+async def test_resolve_agents_config_classifies_malformed_persisted_agents_as_platform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version = SimpleNamespace(
+        id=uuid.uuid4(),
+        preset_id=uuid.uuid4(),
+        version=1,
+        agents={"enabled": True, "subagents": {}},
+        tool_approvals={},
+    )
+    service = SimpleNamespace(
+        resolve_agent_preset_version=AsyncMock(return_value=version),
+        use_latest_resource_versions=AsyncMock(return_value=False),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_agents_config_activity(
+            ResolveAgentsConfigActivityInput(
+                role=role,
+                agents=AgentSubagentsConfig.model_validate(
+                    {
+                        "enabled": True,
+                        "subagents": [{"preset": "malformed-child"}],
+                    }
+                ),
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
+    assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
 async def test_resolve_agents_config_rejects_invalid_fallback_alias(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -542,3 +592,45 @@ async def test_resolve_custom_model_provider_config_classifies_invalid_config(
     assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
     assert exc_info.value.message == "Agent configuration is invalid"
     assert "opaque-secret" not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_resolve_custom_model_provider_config_classifies_revoked_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog_id = uuid.uuid4()
+    service = SimpleNamespace(
+        session=SimpleNamespace(
+            execute=AsyncMock(
+                return_value=SimpleNamespace(
+                    scalar_one_or_none=lambda: SimpleNamespace(
+                        custom_provider_id=uuid.uuid4()
+                    )
+                )
+            )
+        ),
+        organization_id=uuid.uuid4(),
+        get_catalog_credentials=AsyncMock(
+            side_effect=TracecatAuthorizationError("catalog access revoked")
+        ),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda *_args, **_kwargs: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_custom_model_provider_config_activity(role, catalog_id)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert exc_info.value.non_retryable is True
+    assert "catalog access revoked" not in str(exc_info.value)

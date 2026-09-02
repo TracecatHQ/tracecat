@@ -25,6 +25,7 @@ from tracecat.agent.error_policy import (
     agent_session_initialization_failed,
     agent_workflow_internal_error,
     invalid_agent_configuration,
+    tenant_entitlement_denied,
     user_agent_execution_failed,
 )
 from tracecat.agent.executor.activity import AgentExecutorResult, SandboxedAgentExecutor
@@ -64,6 +65,12 @@ def _activity_error(cause: BaseException) -> ActivityError:
             invalid_agent_configuration,
             RuntimeErrorOwner.USER,
             RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+        (
+            tenant_entitlement_denied,
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
             RetryDisposition.NON_RETRYABLE,
         ),
         (

@@ -75,7 +75,7 @@ from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
@@ -168,6 +168,42 @@ class TestSessionActivities:
 
 
 class TestBuildToolDefinitionsActivity:
+    @pytest.mark.anyio
+    async def test_classifies_tool_approval_entitlement_denial(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        class _TierContext:
+            async def __aenter__(self) -> object:
+                return object()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities.TierService,
+            "with_session",
+            lambda: _TierContext(),
+        )
+        monkeypatch.setattr(
+            agent_activities.EntitlementService,
+            "check_entitlement",
+            AsyncMock(side_effect=EntitlementRequired("agent_addons")),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities._check_tool_approval_entitlement(mock_role)
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.non_retryable is True
+
     @pytest.mark.anyio
     async def test_maps_tool_definition_errors_to_application_error(
         self,

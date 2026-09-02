@@ -29,7 +29,10 @@ from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__DISABLE_NSJAIL,
 )
-from tracecat.agent.common.exceptions import AgentSandboxExecutionError
+from tracecat.agent.common.exceptions import (
+    AgentSandboxExecutionError,
+    AgentSandboxValidationError,
+)
 from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import ToolCallContent
@@ -45,6 +48,7 @@ from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
     agent_executor_unavailable,
+    invalid_agent_configuration,
 )
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
@@ -439,11 +443,11 @@ class SandboxedAgentExecutor:
             Direct route for the model config.
 
         Raises:
-            AgentSandboxExecutionError: If passthrough is enabled without a
+            AgentSandboxValidationError: If passthrough is enabled without a
                 resolved base URL.
         """
         if base_url is None:
-            raise AgentSandboxExecutionError(
+            raise AgentSandboxValidationError(
                 "Custom model provider passthrough requires a resolved base_url."
             )
         return LLMRoute(
@@ -595,6 +599,10 @@ class SandboxedAgentExecutor:
                 otel_socket_path=otel_socket_path,
             )
 
+        except AgentSandboxValidationError as e:
+            logger.error("Agent configuration is invalid", error=str(e))
+            result.error = str(e)
+            result.classification = invalid_agent_configuration(e)
         except AgentSandboxExecutionError as e:
             logger.error("Agent sandbox execution failed", error=str(e))
             result.error = str(e)

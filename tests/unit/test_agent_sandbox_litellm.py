@@ -71,6 +71,11 @@ from tracecat.agent.skill.service import SkillService
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.sandbox.types import (
     SandboxEgressRule,
     SandboxNetworkPolicy,
@@ -2848,6 +2853,54 @@ async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_in
         tmp_path / "sockets" / LLM_SOCKET_NAME
     )
     assert fake_broker.requests[0].enable_internet_access is True
+
+
+@pytest.mark.anyio
+async def test_executor_classifies_passthrough_without_base_url_as_invalid_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    valid_input = _make_passthrough_executor_input(enable_internet_access=False)
+    executor_input = valid_input.model_copy(
+        update={"config": replace(valid_input.config, base_url=None)}
+    )
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        del self
+        (tmp_path / "sockets").mkdir()
+        return tmp_path
+
+    async def fake_resolve_agent_otel_config(
+        self: SandboxedAgentExecutor,
+    ) -> SimpleNamespace:
+        del self
+        return SimpleNamespace(enabled=False)
+
+    async def fake_cleanup(self: SandboxedAgentExecutor) -> None:
+        del self
+
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_resolve_agent_otel_config",
+        fake_resolve_agent_otel_config,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_cleanup",
+        fake_cleanup,
+    )
+    result = await SandboxedAgentExecutor(input=executor_input).run()
+
+    assert result.success is False
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.USER
+    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
 
 
 @pytest.mark.anyio

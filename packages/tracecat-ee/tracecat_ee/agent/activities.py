@@ -22,6 +22,7 @@ from tracecat.agent.common.types import (
 from tracecat.agent.error_policy import (
     agent_preparation_failed,
     invalid_agent_configuration,
+    tenant_entitlement_denied,
 )
 from tracecat.agent.mcp.internal_tools import (
     BUILDER_BUNDLED_ACTIONS,
@@ -39,12 +40,13 @@ from tracecat.agent.tools import build_agent_tools
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.temporal.errors import raise_application_error_from_classification
-from tracecat.tiers.entitlements import Entitlement, EntitlementService
+from tracecat.tiers.entitlements import EntitlementService
+from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.service import TierService
 
 if TYPE_CHECKING:
@@ -221,10 +223,16 @@ class AgentActivities:
     async def _check_tool_approval_entitlement(role: Role) -> None:
         if role.organization_id is None:
             raise ValueError("Role must have organization_id to validate entitlements")
-        async with TierService.with_session() as tier_service:
-            entitlement_service = EntitlementService(tier_service)
-            await entitlement_service.check_entitlement(
-                role.organization_id, Entitlement.AGENT_ADDONS
+        try:
+            async with TierService.with_session() as tier_service:
+                entitlement_service = EntitlementService(tier_service)
+                await entitlement_service.check_entitlement(
+                    role.organization_id, Entitlement.AGENT_ADDONS
+                )
+        except EntitlementRequired as exc:
+            raise_application_error_from_classification(
+                tenant_entitlement_denied(exc),
+                exc.detail,
             )
 
     async def _build_scope_tool_definitions(

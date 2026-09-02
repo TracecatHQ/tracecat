@@ -21,6 +21,18 @@ def invalid_agent_configuration(
     )
 
 
+def tenant_entitlement_denied(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Classify a deterministic tenant feature-entitlement denial."""
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
+        message="This feature requires an upgraded plan",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
 def agent_preparation_failed(
     error: BaseException | None = None,
     *,
