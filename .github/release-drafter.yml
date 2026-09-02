@@ -192,7 +192,7 @@ autolabeler:
     title:
       - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:chore)(\([^)]*\))?!?: /'
 
-  # Example: ci(workflows): pin actions to immutable SHAs
+  # Example: ci: pin actions to immutable SHAs
   - label: cicd
     title:
       - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:ci)(\([^)]*\))?!?: /'
@@ -365,17 +365,11 @@ autolabeler:
     title:
       - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:frontend|canvas|ui|ux)(?:\+[a-z0-9_-]+)*\)!?: /'
 
-  # `workflows` is the one scope whose area depends on the type:
-  # ci(workflows) is GitHub Actions, feat(workflows) is the product engine.
-  # Example: ci(workflows): pin actions to immutable SHAs
-  - label: cicd
-    title:
-      - '/^(\[[A-Za-z0-9._-]+\]\s+)?ci\((?:[a-z0-9_-]+\+)*workflows(?:\+[a-z0-9_-]+)*\)!?: /'
-
-  # Example: feat(workflows): add a workflow alias resolver
-  - label: engine
-    title:
-      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?!ci\()[a-z]+\((?:[a-z0-9_-]+\+)*workflows(?:\+[a-z0-9_-]+)*\)!?: /'
+  # `workflows` has no rule of its own. It named GitHub Actions under `ci` and
+  # the product engine under every other type, which is what put it in
+  # [ambiguous_scopes]; like `app`, it now gets the type label and no area. It
+  # stays in the vendor-absorption lookahead below because it is still a known
+  # word: dropping it there would file `feat(workflows)` under Integrations.
 
   # Vendor absorption. Any scope that is neither canonical, an alias, nor on
   # the ambiguous list is read as a vendor name and filed under Integrations,

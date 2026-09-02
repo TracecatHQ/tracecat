@@ -219,11 +219,11 @@ def resolve_labels(parsed: ParsedTitle, conventions: Conventions) -> frozenset[s
 
     vendor_label = conventions.scopes["integrations"]
     for part in parsed.scope_parts:
-        label = conventions.scope_label(part, type_=parsed.type)
+        label = conventions.scope_label(part)
         if label is None:
             canonical = conventions.scope_aliases.get(part)
             if canonical is not None:
-                label = conventions.scope_label(canonical, type_=parsed.type)
+                label = conventions.scope_label(canonical)
         if label is None:
             legacy = conventions.legacy_scopes.get(part)
             if legacy is not None:

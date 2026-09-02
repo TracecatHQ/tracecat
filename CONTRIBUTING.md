@@ -157,15 +157,15 @@ Add a scope whenever the change belongs to one product area. Leave it off only w
 | `skills` | Agent skills |
 | `tables` | Workspace tables |
 | `ui` | The Next.js app and React UI |
-| `workflows` | GitHub Actions when the type is ci, the workflow engine otherwise |
 
 <!-- END commit-conventions:scopes -->
 
-Five distinctions cover most of the doubt:
+Six distinctions cover most of the doubt:
 
 - `actions` is the built-in `core.*` actions a user calls in a workflow. `functions` is the `FN.*` inline expression functions. `engine` is the Temporal workers and executors that run them. The first two are catalogs of things the platform offers; the third is the machinery.
 - `cases` and `tables` are core platform features with their own scopes and their own sections. Neither folds into `api` or `engine`.
 - `engine` is what runs; `infra` is what it runs on. If the change could ship by redeploying the same image, it is `infra`.
+- `workflows` is not a scope, because it reads as GitHub Actions to one person and as the workflow engine to another. A GitHub Actions change is a bare `ci:` with no scope; a workflow-engine change is `engine`.
 - `audit` is the security audit log: what a workspace records about who did what, for someone reviewing it later. `logging` is application telemetry, what an operator reads to debug Tracecat itself. Audit work renders under Security, telemetry under Observability.
 - Vendor names are not scopes. Write `feat(integrations): add Jira issue search` and name the vendor in the description, where it is readable and searchable.
 

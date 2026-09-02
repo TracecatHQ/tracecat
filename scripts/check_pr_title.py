@@ -118,7 +118,7 @@ def _check_type(type_: str, conventions: Conventions) -> tuple[Violation | None,
 
 def _check_scope_part(part: str, conventions: Conventions) -> Violation | None:
     """Validate one canonical scope component."""
-    if part in conventions.scopes or part in conventions.scopes_by_type:
+    if part in conventions.scopes:
         return None
 
     canonical = conventions.scope_aliases.get(part)
@@ -137,12 +137,17 @@ def _check_scope_part(part: str, conventions: Conventions) -> Violation | None:
 
     candidates = conventions.ambiguous_scopes.get(part)
     if candidates is not None:
+        # The note trails the candidates rather than interrupting them. A
+        # scope whose other reading takes no scope at all -- `workflows`, where
+        # the GitHub Actions answer is a bare `ci:` -- cannot be expressed as a
+        # candidate, and reading that before "pick one of these" made the two
+        # halves contradict each other.
         note = conventions.ambiguous_scope_notes.get(part)
-        detail = f" ({note})" if note else ""
+        detail = f" {note}" if note else ""
         return Violation(
             "ambiguous-scope",
-            f"`{part}` is ambiguous{detail}. "
-            f"Pick the area you actually changed: {_quote(candidates)}.",
+            f"`{part}` is ambiguous. "
+            f"Pick the area you actually changed: {_quote(candidates)}.{detail}",
         )
 
     # Two very different mistakes land here, so the message names both. Calling
@@ -386,9 +391,6 @@ def render_taxonomy(conventions: Conventions) -> str:
     lines += [
         f"  {name:<14} {label}" for name, label in sorted(conventions.scopes.items())
     ]
-    for name, by_type in sorted(conventions.scopes_by_type.items()):
-        rendered = ", ".join(f"{k}={v}" for k, v in sorted(by_type.items()))
-        lines.append(f"  {name:<14} {rendered}")
 
     lines.append("")
     lines.append("Old spellings (rewrite these):")
