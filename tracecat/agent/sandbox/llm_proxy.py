@@ -139,6 +139,19 @@ def _http_error_classification(
     return user_agent_execution_failed()
 
 
+def _transport_error_classification(
+    error: httpx.TransportError,
+    *,
+    route_is_direct: bool,
+    timed_out: bool,
+) -> RuntimeErrorClassification:
+    if route_is_direct:
+        return user_agent_execution_failed(error, retryable=True)
+    if timed_out:
+        return agent_executor_timed_out(error)
+    return agent_executor_unavailable(error)
+
+
 @dataclass(frozen=True, slots=True)
 class LLMForwardRequest:
     """Prepared upstream request after route-specific handling.
@@ -955,7 +968,11 @@ class LLMSocketProxy:
             if not _is_non_critical_path(path):
                 self._emit_error(
                     f"LiteLLM unavailable: {exc}",
-                    agent_executor_unavailable(exc),
+                    _transport_error_classification(
+                        exc,
+                        route_is_direct=route.is_direct,
+                        timed_out=False,
+                    ),
                 )
         except httpx.TimeoutException as exc:
             await self._write_error_response(
@@ -968,7 +985,11 @@ class LLMSocketProxy:
             if not _is_non_critical_path(path):
                 self._emit_error(
                     f"Gateway timeout ({type(exc).__name__}): {exc}",
-                    agent_executor_timed_out(exc),
+                    _transport_error_classification(
+                        exc,
+                        route_is_direct=route.is_direct,
+                        timed_out=True,
+                    ),
                 )
 
     async def _write_response(

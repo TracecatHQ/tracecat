@@ -386,6 +386,55 @@ async def test_forward_request_classifies_connect_failure_as_platform(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["connect", "timeout"])
+async def test_forward_request_classifies_direct_transport_failure_as_user_owned(
+    tmp_path: Path,
+    failure: str,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://customer-provider.example/v1/messages"
+        if failure == "connect":
+            raise httpx.ConnectError("provider unavailable", request=request)
+        raise httpx.ReadTimeout("provider timed out", request=request)
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(
+            direct_routes={
+                "customer-alias": LLMRoute(
+                    base_url="https://customer-provider.example",
+                    model_provider="custom-model-provider",
+                )
+            }
+        ),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Content-Type": "application/json"},
+                "body": b'{"model":"customer-alias","messages":[]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.USER
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
 async def test_write_stream_response_emits_error_after_headers_sent(
     tmp_path: Path,
 ) -> None:
