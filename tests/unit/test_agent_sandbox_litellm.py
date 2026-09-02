@@ -617,7 +617,7 @@ class _FakeLLMSocketProxy:
         *,
         socket_path: Path,
         routing_plan: LLMRoutingPlan,
-        on_error: Callable[[str], None] | None = None,
+        on_error: Callable[[llm_proxy_module.LLMProxyError], None] | None = None,
     ) -> None:
         del on_error
         self.socket_path = socket_path

@@ -31,6 +31,7 @@ from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseSeverity, CaseStatus
 from tracecat.db.models import AgentSessionHistory
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
 
 
 class _FakeStream:
@@ -643,6 +644,12 @@ async def test_process_runtime_events_emits_failed_compaction_on_runtime_error()
     ]
     stream.error.assert_awaited_once_with("request_timeout: LLM gateway timed out")
     stream.done.assert_not_awaited()
+    assert handler._result.classification is not None
+    assert handler._result.classification.owner is RuntimeErrorOwner.USER
+    assert (
+        handler._result.classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    )
+    assert handler._result.terminal_stream_error_emitted is True
 
 
 @pytest.mark.anyio
@@ -688,7 +695,13 @@ async def test_process_runtime_events_fails_when_done_arrives_without_result() -
     await handler._process_runtime_events(reader)
 
     assert handler._result.error == "Runtime completed without final result"
+    assert handler._result.classification is not None
+    assert (
+        handler._result.classification.kind
+        is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    )
     stream.error.assert_awaited_once_with("Runtime completed without final result")
+    assert handler._result.terminal_stream_error_emitted is True
     stream.done.assert_not_awaited()
 
 
@@ -716,9 +729,35 @@ async def test_process_runtime_events_fails_zero_work_completion() -> None:
         handler._result.error
         == "Runtime completed without assistant output or model usage"
     )
+    assert handler._result.classification is not None
+    assert (
+        handler._result.classification.kind
+        is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    )
     stream.error.assert_awaited_once_with(
         "Runtime completed without assistant output or model usage"
     )
+    assert handler._result.terminal_stream_error_emitted is True
+
+
+@pytest.mark.anyio
+async def test_process_runtime_events_classifies_disconnect_and_marks_streamed() -> (
+    None
+):
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+
+    await handler._process_runtime_events(_reader_for_envelopes())
+
+    assert handler._result.classification is not None
+    assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert (
+        handler._result.classification.kind
+        is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    )
+    assert handler._result.terminal_stream_error_emitted is True
+    stream.error.assert_awaited_once_with("Runtime disconnected during execution")
 
 
 @pytest.mark.anyio

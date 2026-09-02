@@ -21,6 +21,11 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from tracecat.agent.error_policy import (
+    agent_executor_unavailable,
+    invalid_agent_configuration,
+    user_agent_execution_failed,
+)
 from tracecat.dsl import interceptor as interceptor_module
 from tracecat.dsl.interceptor import (
     RuntimeErrorAttributionInterceptor,
@@ -305,6 +310,64 @@ async def test_user_failure_is_logged_without_a_sentry_event(
     sentry_sdk.flush()
 
     assert sentry_events == []
+
+
+@pytest.mark.anyio
+async def test_user_agent_executor_failure_does_not_emit_sentry(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+) -> None:
+    del workflow_runtime
+    error = application_error_from_classification(user_agent_execution_failed())
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
+
+    with pytest.raises(ApplicationError):
+        await attribution.execute_workflow(_workflow_input())
+    sentry_sdk.flush()
+
+    assert sentry_events == []
+
+
+@pytest.mark.anyio
+async def test_invalid_agent_configuration_does_not_emit_sentry(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+) -> None:
+    del workflow_runtime
+    error = application_error_from_classification(invalid_agent_configuration())
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
+
+    with pytest.raises(ApplicationError):
+        await attribution.execute_workflow(_workflow_input())
+    sentry_sdk.flush()
+
+    assert sentry_events == []
+
+
+@pytest.mark.anyio
+async def test_platform_agent_executor_failure_emits_one_sanitized_sentry_event(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+) -> None:
+    del workflow_runtime
+    error = application_error_from_classification(
+        agent_executor_unavailable(RuntimeError(_SENSITIVE_VALUE))
+    )
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
+
+    with pytest.raises(ApplicationError):
+        await attribution.execute_workflow(_workflow_input())
+    sentry_sdk.flush()
+
+    assert len(sentry_events) == 1
+    event = sentry_events[0]
+    assert "tags" in event
+    tags = event["tags"]
+    assert tags[SentryTag.ERROR_KIND.value] == (
+        RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE.value
+    )
+    assert tags[SentryTag.ERROR_OWNER.value] == "platform"
+    assert _SENSITIVE_VALUE not in json.dumps(event)
 
 
 @pytest.mark.anyio

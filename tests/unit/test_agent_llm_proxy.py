@@ -12,10 +12,12 @@ import pytest
 
 from tracecat.agent.observability import LLMGatewayLoadTracker
 from tracecat.agent.sandbox.llm_proxy import (
+    LLMProxyError,
     LLMRoute,
     LLMRoutingPlan,
     LLMSocketProxy,
 )
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
 
 
 class _FakeWriter:
@@ -144,7 +146,7 @@ async def test_forward_request_streams_litellm_response(
 async def test_forward_request_returns_upstream_error_response(
     tmp_path: Path,
 ) -> None:
-    errors: list[str] = []
+    errors: list[LLMProxyError] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         assert str(request.url) == "http://litellm:4000/v1/messages/count_tokens"
@@ -190,7 +192,7 @@ async def test_forward_request_returns_upstream_error_response(
 async def test_forward_request_emits_error_for_critical_upstream_http_error(
     tmp_path: Path,
 ) -> None:
-    errors: list[str] = []
+    errors: list[LLMProxyError] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         assert str(request.url) == "http://litellm:4000/v1/messages"
@@ -230,17 +232,101 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
     assert response_text.startswith("HTTP/1.1 429 Too Many Requests")
     assert "provider quota exhausted" in response_text
     assert len(errors) == 1
-    assert "LiteLLM request failed (429 Too Many Requests)" in errors[0]
-    assert "Rate limit exceeded" in errors[0]
-    assert "provider quota exhausted" in errors[0]
-    assert "request_id=trace-test-123" in errors[0]
+    error = errors[0]
+    assert "LiteLLM request failed (429 Too Many Requests)" in error.message
+    assert "Rate limit exceeded" in error.message
+    assert "provider quota exhausted" in error.message
+    assert "request_id=trace-test-123" in error.message
+    assert error.classification.owner is RuntimeErrorOwner.USER
+    assert error.classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status_code", "expected_kind"),
+    [
+        (500, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
+        (504, RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT),
+    ],
+)
+async def test_forward_request_classifies_platform_http_failures_at_source(
+    tmp_path: Path,
+    status_code: int,
+    expected_kind: RuntimeErrorKind,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code, request=request, json={"error": "failure"})
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Content-Type": "application/json"},
+                "body": b'{"messages":[]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert errors[0].classification.kind is expected_kind
+
+
+@pytest.mark.anyio
+async def test_forward_request_classifies_connect_failure_as_platform(
+    tmp_path: Path,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("gateway unavailable", request=request)
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Content-Type": "application/json"},
+                "body": b'{"messages":[]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
 
 
 @pytest.mark.anyio
 async def test_write_stream_response_emits_error_after_headers_sent(
     tmp_path: Path,
 ) -> None:
-    errors: list[str] = []
+    errors: list[LLMProxyError] = []
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
         routing_plan=_routing_plan(),
@@ -266,7 +352,11 @@ async def test_write_stream_response_emits_error_after_headers_sent(
     assert response_text.startswith("HTTP/1.1 200 OK")
     assert "event: error" in response_text
     assert "provider stream disconnected" in response_text
-    assert errors == ["LiteLLM stream failed: provider stream disconnected"]
+    assert [error.message for error in errors] == [
+        "LiteLLM stream failed: provider stream disconnected"
+    ]
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
 
 
 @pytest.mark.anyio
@@ -278,7 +368,7 @@ async def test_write_stream_response_surfaces_friendly_read_timeout(
         "tracecat.agent.sandbox.llm_proxy.app_config.TRACECAT__LLM_PROXY_READ_TIMEOUT",
         600.0,
     )
-    errors: list[str] = []
+    errors: list[LLMProxyError] = []
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
         routing_plan=_routing_plan(),
@@ -308,7 +398,9 @@ async def test_write_stream_response_surfaces_friendly_read_timeout(
     assert response_text.startswith("HTTP/1.1 200 OK")
     assert "event: error" in response_text
     assert expected_message in response_text
-    assert errors == [expected_message]
+    assert [error.message for error in errors] == [expected_message]
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
 
 
 @pytest.mark.anyio

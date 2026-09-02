@@ -19,6 +19,10 @@ from tracecat.agent.common.types import (
     MCPToolDefinition,
     is_http_mcp_server,
 )
+from tracecat.agent.error_policy import (
+    agent_preparation_failed,
+    invalid_agent_configuration,
+)
 from tracecat.agent.mcp.internal_tools import (
     BUILDER_BUNDLED_ACTIONS,
     BUILDER_INTERNAL_TOOL_NAMES,
@@ -39,6 +43,7 @@ from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.temporal.errors import raise_application_error_from_classification
 from tracecat.tiers.entitlements import Entitlement, EntitlementService
 from tracecat.tiers.service import TierService
 
@@ -251,11 +256,7 @@ class AgentActivities:
                 tool_approvals=args.tool_approvals,
             )
         except ValueError as e:
-            raise ApplicationError(
-                str(e),
-                type="AgentToolDefinitionError",
-                non_retryable=True,
-            ) from e
+            raise_application_error_from_classification(invalid_agent_configuration(e))
         # Convert to dict[str, MCPToolDefinition] keyed by canonical action name
         # Tools already have canonical names (with dots, e.g., "core.cases.list_cases")
         defs: dict[str, MCPToolDefinition] = {}
@@ -431,12 +432,9 @@ class AgentActivities:
                     server_count=len(hydrated_servers),
                 )
                 if args.fail_on_mcp_discovery_error:
-                    raise ApplicationError(
-                        "Failed to discover configured MCP tools for agent scope",
-                        str(e),
-                        type="AgentToolDefinitionError",
-                        non_retryable=True,
-                    ) from e
+                    raise_application_error_from_classification(
+                        invalid_agent_configuration(e)
+                    )
                 # Continue without user MCP tools - don't fail the whole operation
             finally:
                 # Defensive: ensure hydrated configs (with headers) drop out
@@ -514,9 +512,8 @@ class AgentActivities:
         results: dict[str, BuildToolDefsResult] = {}
         for scope in args.scopes:
             if scope.scope in results:
-                raise ApplicationError(
-                    f"Duplicate agent compile scope '{scope.scope}'",
-                    non_retryable=True,
+                raise_application_error_from_classification(
+                    agent_preparation_failed(retryable=False)
                 )
             results[scope.scope] = await self._build_scope_tool_definitions(
                 scope,

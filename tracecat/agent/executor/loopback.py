@@ -37,6 +37,11 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.error_policy import (
+    agent_executor_protocol_failed,
+    agent_executor_unavailable,
+    user_agent_execution_failed,
+)
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -60,6 +65,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatValidationError
 from tracecat.logger import logger
+from tracecat.runtime.errors import RuntimeErrorClassification
 
 type JsonScalar = str | int | float | bool | None
 type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
@@ -107,6 +113,7 @@ class LoopbackResult:
 
     success: bool
     error: str | None = None
+    classification: RuntimeErrorClassification | None = None
     terminal_stream_error_emitted: bool = False
     approval_requested: bool = False
     approval_items: list[ToolCallContent] = field(default_factory=list)
@@ -518,16 +525,25 @@ class LoopbackHandler:
         except asyncio.IncompleteReadError:
             logger.warning("Runtime disconnected unexpectedly during execution")
             self._result.error = "Runtime disconnected unexpectedly"
+            self._result.classification = agent_executor_unavailable()
             if self._stream_sink:
-                await self._emit_failed_compaction_if_pending()
-                await self._stream_sink.error(self._result.error)
+                await self._emit_terminal_stream_error(
+                    self._stream_sink,
+                    self._result.error,
+                )
         except Exception as e:
             logger.exception("Error handling runtime connection", error=str(e))
             self._result.error = f"Connection error: {e}"
+            self._result.classification = agent_executor_unavailable(e)
             if self._stream_sink:
                 try:
-                    await self._emit_failed_compaction_if_pending()
-                    await asyncio.wait_for(self._stream_sink.error(str(e)), timeout=5.0)
+                    await asyncio.wait_for(
+                        self._emit_terminal_stream_error(
+                            self._stream_sink,
+                            self._result.error,
+                        ),
+                        timeout=5.0,
+                    )
                 except TimeoutError:
                     logger.warning("Timeout emitting stream error")
         finally:
@@ -551,9 +567,12 @@ class LoopbackHandler:
                     "Runtime connection closed unexpectedly during execution"
                 )
                 self._result.error = "Runtime disconnected during execution"
+                self._result.classification = agent_executor_unavailable()
                 if self._stream_sink is not None:
-                    await self._emit_failed_compaction_if_pending()
-                    await self._stream_sink.error(self._result.error)
+                    await self._emit_terminal_stream_error(
+                        self._stream_sink,
+                        self._result.error,
+                    )
                 break
 
             envelope = _runtime_envelope_from_json(payload_bytes)
@@ -703,6 +722,9 @@ class LoopbackHandler:
         )
         await self._emit_terminal_stream_error(stream_sink, error_msg)
         self._result.error = error_msg
+        # Runtime-originated free-form errors are caller-owned by contract.
+        # Trusted host proxy and transport faults are classified before this boundary.
+        self._result.classification = user_agent_execution_failed()
         return True
 
     def _track_tool_event(self, event: UnifiedStreamEvent) -> None:
@@ -841,6 +863,8 @@ class LoopbackHandler:
         logger.error("Runtime error", error=error)
         await self._emit_terminal_stream_error(stream_sink, error)
         self._result.error = error
+        # See the stream-envelope branch above for this trust-boundary invariant.
+        self._result.classification = user_agent_execution_failed()
         return True
 
     async def send_error(self, error: str) -> None:
@@ -862,6 +886,7 @@ class LoopbackHandler:
         if validation_error := self._validate_runtime_completion():
             await self._emit_terminal_stream_error(stream_sink, validation_error)
             self._result.error = validation_error
+            self._result.classification = agent_executor_protocol_failed()
             return True
         self._result.success = True
         await self._emit_interrupt_notice_if_cancelled(stream_sink)

@@ -24,10 +24,17 @@ import orjson
 from fastapi import HTTPException
 
 from tracecat import config as app_config
+from tracecat.agent.error_policy import (
+    agent_executor_protocol_failed,
+    agent_executor_timed_out,
+    agent_executor_unavailable,
+    user_agent_execution_failed,
+)
 from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.types import Role
 from tracecat.logger import logger
+from tracecat.runtime.errors import RuntimeErrorClassification
 
 # Strip a trailing "/vN" segment (with optional trailing slash) from a
 # passthrough upstream URL. The contract for stored ``base_url`` is the
@@ -104,6 +111,22 @@ class ParsedRequest(TypedDict):
     path: str
     headers: dict[str, str]
     body: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class LLMProxyError:
+    """One terminal proxy error with source-owned runtime attribution."""
+
+    message: str
+    classification: RuntimeErrorClassification
+
+
+def _http_error_classification(status_code: int) -> RuntimeErrorClassification:
+    if status_code in {408, 504}:
+        return agent_executor_timed_out()
+    if status_code >= 500:
+        return agent_executor_unavailable()
+    return user_agent_execution_failed()
 
 
 @dataclass(frozen=True, slots=True)
@@ -544,7 +567,7 @@ class LLMSocketProxy:
         self,
         socket_path: Path,
         routing_plan: LLMRoutingPlan,
-        on_error: Callable[[str], None] | None = None,
+        on_error: Callable[[LLMProxyError], None] | None = None,
     ):
         """Initialize the LLM socket proxy.
 
@@ -629,13 +652,22 @@ class LLMSocketProxy:
         async for chunk in chunks:
             yield chunk
 
-    def _emit_error(self, message: str) -> None:
+    def _emit_error(
+        self,
+        message: str,
+        classification: RuntimeErrorClassification,
+    ) -> None:
         """Emit error via callback (only once)."""
         if not self._error_emitted:
             self._error_emitted = True
             logger.error("LLM proxy error", error=message, **_load_fields())
             if self._on_error:
-                self._on_error(message)
+                self._on_error(
+                    LLMProxyError(
+                        message=message,
+                        classification=classification,
+                    )
+                )
 
     @staticmethod
     def _is_client_disconnect_error(exc: Exception) -> bool:
@@ -682,7 +714,10 @@ class LLMSocketProxy:
                 logger.debug("Proxy error during shutdown (ignored)", error=str(e))
             else:
                 logger.exception("LLM proxy error", error=str(e))
-                self._emit_error(f"Proxy error: {e}")
+                self._emit_error(
+                    f"Proxy error: {e}",
+                    agent_executor_protocol_failed(e),
+                )
         finally:
             _proxy_load_tracker.end_connection()
             try:
@@ -709,12 +744,18 @@ class LLMSocketProxy:
             request_line_str = request_line.decode("utf-8").strip()
             parts = request_line_str.split(" ", 2)
             if len(parts) < 2:
-                self._emit_error("Malformed request line")
+                self._emit_error(
+                    "Malformed request line",
+                    agent_executor_protocol_failed(),
+                )
                 return None
             method = parts[0]
             path = parts[1]
         except (UnicodeDecodeError, ValueError):
-            self._emit_error("Invalid request encoding")
+            self._emit_error(
+                "Invalid request encoding",
+                agent_executor_protocol_failed(),
+            )
             return None
 
         # Read headers
@@ -743,7 +784,7 @@ class LLMSocketProxy:
                 content_length=content_length,
                 max_size=MAX_BODY_SIZE,
             )
-            self._emit_error("Request body too large")
+            self._emit_error("Request body too large", user_agent_execution_failed())
             return None
 
         # Read body if present
@@ -824,7 +865,10 @@ class LLMSocketProxy:
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
-            self._emit_error("LiteLLM proxy not initialized")
+            self._emit_error(
+                "LiteLLM proxy not initialized",
+                agent_executor_unavailable(),
+            )
             return
 
         path = request["path"]
@@ -867,7 +911,8 @@ class LLMSocketProxy:
                             reason_phrase=response.reason_phrase,
                             body=error_body,
                             trace_request_id=trace_request_id,
-                        )
+                        ),
+                        _http_error_classification(response.status_code),
                     )
                     body_chunks = [error_body]
                 else:
@@ -894,7 +939,10 @@ class LLMSocketProxy:
                 trace_request_id=trace_request_id,
             )
             if not _is_non_critical_path(path):
-                self._emit_error(f"LiteLLM unavailable: {exc}")
+                self._emit_error(
+                    f"LiteLLM unavailable: {exc}",
+                    agent_executor_unavailable(exc),
+                )
         except httpx.TimeoutException as exc:
             await self._write_error_response(
                 writer,
@@ -904,7 +952,10 @@ class LLMSocketProxy:
                 trace_request_id=trace_request_id,
             )
             if not _is_non_critical_path(path):
-                self._emit_error(f"Gateway timeout ({type(exc).__name__}): {exc}")
+                self._emit_error(
+                    f"Gateway timeout ({type(exc).__name__}): {exc}",
+                    agent_executor_timed_out(exc),
+                )
 
     async def _write_response(
         self,
@@ -1007,7 +1058,10 @@ class LLMSocketProxy:
                     trace_request_id=trace_request_id,
                 )
                 if path is not None and not _is_non_critical_path(path):
-                    self._emit_error(surfaced_error)
+                    self._emit_error(
+                        surfaced_error,
+                        _http_error_classification(status_code),
+                    )
                 error_payload = orjson.dumps(
                     {
                         "type": "error",

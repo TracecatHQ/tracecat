@@ -7,6 +7,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.preset.activities import (
     ResolveAgentPresetVersionRefActivityInput,
@@ -25,6 +26,8 @@ from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatValidationError
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
+from tracecat.temporal.errors import extract_error_classification
 
 
 class _AsyncContext:
@@ -407,3 +410,37 @@ async def test_resolve_custom_model_provider_config_activity_returns_base_url(
     assert result.base_url == "https://customer.example"
     assert result.model_name == "provider/custom-model"
     assert result.passthrough is True
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "credentials",
+    [None, {"CUSTOM_MODEL_PROVIDER_API_KEY": "opaque-secret"}],
+)
+async def test_resolve_custom_model_provider_config_classifies_invalid_config(
+    monkeypatch: pytest.MonkeyPatch,
+    credentials: dict[str, str] | None,
+) -> None:
+    service = SimpleNamespace(
+        get_workspace_provider_credentials=AsyncMock(return_value=credentials)
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda *_args, **_kwargs: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_custom_model_provider_config_activity(role)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert exc_info.value.message == "Agent configuration is invalid"
+    assert "opaque-secret" not in str(exc_info.value)
