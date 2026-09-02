@@ -516,6 +516,44 @@ async def test_write_stream_response_surfaces_friendly_read_timeout(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["disconnect", "timeout"])
+async def test_write_stream_response_keeps_direct_transport_failure_retryable(
+    tmp_path: Path,
+    failure: str,
+) -> None:
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    writer = _FakeWriter()
+
+    async def broken_stream() -> AsyncIterator[bytes]:
+        yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+        request = httpx.Request("POST", "https://customer-provider.example")
+        if failure == "timeout":
+            raise httpx.ReadTimeout("provider timed out", request=request)
+        raise httpx.ReadError("provider disconnected", request=request)
+
+    await socket_proxy._write_response(
+        cast(asyncio.StreamWriter, writer),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": "text/event-stream"},
+        body_chunks=broken_stream(),
+        trace_request_id="trace-test-direct-transport",
+        path="/v1/messages",
+        route_is_direct=True,
+    )
+
+    assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.USER
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
 async def test_forward_request_strips_authorization_for_passthrough_upstream(
     tmp_path: Path,
 ) -> None:

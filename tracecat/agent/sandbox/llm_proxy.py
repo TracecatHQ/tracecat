@@ -1094,12 +1094,21 @@ class LLMSocketProxy:
                     trace_request_id=trace_request_id,
                 )
                 if path is not None and not _is_non_critical_path(path):
-                    self._emit_error(
-                        surfaced_error,
-                        _http_error_classification(
+                    classification = (
+                        _transport_error_classification(
+                            exc,
+                            route_is_direct=route_is_direct,
+                            timed_out=isinstance(exc, httpx.TimeoutException),
+                        )
+                        if isinstance(exc, httpx.TransportError)
+                        else _http_error_classification(
                             status_code,
                             route_is_direct=route_is_direct,
-                        ),
+                        )
+                    )
+                    self._emit_error(
+                        surfaced_error,
+                        classification,
                     )
                 error_payload = orjson.dumps(
                     {
