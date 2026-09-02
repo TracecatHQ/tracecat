@@ -3540,9 +3540,18 @@ class TestSkillService:
         )
 
         assert isinstance(restored, SkillReadMinimal)
+        assert restored.current_version_id is not None
         assert restored.current_version_id not in {version_one.id, version_two.id}
+        restored_published_file = await skill_service.get_version_file(
+            skill_id=created.id,
+            version_id=restored.current_version_id,
+            path="references/guide.md",
+        )
         assert restored.name == version_one.name
         assert restored.description == version_one.description
+        assert restored_published_file is not None
+        assert restored_published_file.kind == "inline"
+        assert restored_published_file.text_content == "Version one"
         assert restored_draft is not None
         assert restored_draft.draft_revision == current_draft.draft_revision
         assert restored_draft.name == "version-two"
