@@ -1,0 +1,35 @@
+CONTRIBUTING.md
+  s_c5002332a8185a::t_27c967d95face5 163,168
+scripts/check_pr_title.py
+  s_c5002332a8185a::t_27c967d95face5 121
+.github/release-drafter.yml
+  s_c5002332a8185a::t_27c967d95face5 195,368-372
+.github/commit-conventions.toml
+  s_c5002332a8185a::t_27c967d95face5 238-246,254,258
+tests/unit/test_commit_conventions.py
+  s_c5002332a8185a::t_27c967d95face5 189,191-193,196-199,201-206,213
+scripts/audit_commit_conventions.py
+  s_c5002332a8185a::t_27c967d95face5 222,226
+scripts/commit_conventions.py
+  s_c5002332a8185a::t_27c967d95face5 61-66
+tests/unit/test_check_pr_title.py
+  s_c5002332a8185a::t_27c967d95face5 30-31,41,100-115,125-127,139,141
+AGENTS.md
+  s_c5002332a8185a::t_27c967d95face5 401-407
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fa4997f3a98b09dd4061198b095023f9ea11de84",
+  "prompts": {},
+  "sessions": {
+    "s_c5002332a8185a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "831b7546-2af0-4f8f-af70-e9256e652a68",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
