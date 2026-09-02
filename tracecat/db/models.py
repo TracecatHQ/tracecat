@@ -2893,7 +2893,6 @@ class AgentCustomProvider(OrganizationModel):
     )
     encrypted_config: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     api_key_header: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    max_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_refreshed_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )

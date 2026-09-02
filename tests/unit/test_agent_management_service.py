@@ -546,6 +546,70 @@ async def test_get_catalog_credentials_distinct_models_share_one_custom_provider
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("db")
+async def test_get_catalog_credentials_projects_custom_provider_row_max_output_tokens(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The output cap is per catalog row, so two models on one custom provider
+    resolve to their own (or no) LLM_MAX_OUTPUT_TOKENS."""
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Shared provider",
+        base_url="https://llm.example.com/v1",
+        passthrough=False,
+    )
+    session.add(provider)
+    await session.flush()
+
+    capped = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="small-model",
+        metadata={"id": "small-model", "max_output_tokens": 8192},
+        custom_provider_id=provider.id,
+    )
+    uncapped = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="big-model",
+        metadata={"id": "big-model", "max_output_tokens": None},
+        custom_provider_id=provider.id,
+    )
+    for catalog_row in (capped, uncapped):
+        await _grant_access(
+            session,
+            org_id=svc_organization.id,
+            catalog_id=catalog_row.id,
+        )
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+
+    capped_creds = await service.get_catalog_credentials(capped.id)
+    uncapped_creds = await service.get_catalog_credentials(uncapped.id)
+
+    assert capped_creds is not None
+    assert uncapped_creds is not None
+    assert capped_creds["LLM_MAX_OUTPUT_TOKENS"] == "8192"
+    assert parse_max_output_tokens(capped_creds) == 8192
+    assert "LLM_MAX_OUTPUT_TOKENS" not in uncapped_creds
+    assert capped_creds["CUSTOM_MODEL_PROVIDER_MODEL_NAME"] == "small-model"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
 async def test_get_catalog_credentials_legacy_placeholder_row_keeps_blob_model_name(
     session: AsyncSession,
     svc_organization: Organization,

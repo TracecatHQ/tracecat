@@ -163,7 +163,7 @@ class AgentConfig:
     enable_thinking: bool = True
     enable_internet_access: bool = False
     max_output_tokens: int | None = None
-    """Per-request output token cap from the model catalog/provider config."""
+    """Per-request output token cap from the model catalog entry."""
     resolved_skills: list[ResolvedSkillRef] | None = None
     builtin_skills: list[str] | None = None
     """Names of built-in platform skills to stage into the agent's skills

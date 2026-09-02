@@ -1523,19 +1523,6 @@ export const $AgentCustomProviderCreate = {
       ],
       title: "Custom Headers",
     },
-    max_output_tokens: {
-      anyOf: [
-        {
-          type: "integer",
-          maximum: 1000000,
-          minimum: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Output Tokens",
-    },
   },
   type: "object",
   required: ["display_name"],
@@ -1612,17 +1599,6 @@ export const $AgentCustomProviderRead = {
       ],
       title: "Api Key Header",
     },
-    max_output_tokens: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Output Tokens",
-    },
     last_refreshed_at: {
       anyOf: [
         {
@@ -1644,7 +1620,6 @@ export const $AgentCustomProviderRead = {
     "base_url",
     "passthrough",
     "api_key_header",
-    "max_output_tokens",
     "last_refreshed_at",
   ],
   title: "AgentCustomProviderRead",
@@ -1724,19 +1699,6 @@ export const $AgentCustomProviderUpdate = {
         },
       ],
       title: "Custom Headers",
-    },
-    max_output_tokens: {
-      anyOf: [
-        {
-          type: "integer",
-          maximum: 1000000,
-          minimum: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Output Tokens",
     },
   },
   type: "object",
@@ -12751,6 +12713,34 @@ export const $CustomOAuthProviderCreate = {
   ],
   title: "CustomOAuthProviderCreate",
   description: "Request payload for creating a custom OAuth provider.",
+} as const
+
+export const $CustomProviderCatalogUpdate = {
+  properties: {
+    model_provider: {
+      type: "string",
+      const: "custom-model-provider",
+      title: "Model Provider",
+    },
+    max_output_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 1000000,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Output Tokens",
+    },
+  },
+  type: "object",
+  required: ["model_provider"],
+  title: "CustomProviderCatalogUpdate",
+  description:
+    "Editable metadata on a model discovered from a custom provider.",
 } as const
 
 export const $DSLConfig_Input = {

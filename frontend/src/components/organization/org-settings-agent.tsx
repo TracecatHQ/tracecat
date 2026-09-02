@@ -142,10 +142,6 @@ function parseMaxOutputTokens(value: string | undefined): number | null {
   return Number(trimmed)
 }
 
-function formatMaxOutputTokens(value: number | null | undefined): string {
-  return value == null ? "" : String(value)
-}
-
 function getCatalogMetadataMaxOutputTokens(
   metadata: Record<string, unknown> | null | undefined
 ): string {
@@ -161,7 +157,6 @@ const customProviderSchema = z
     apiKey: z.string().optional(),
     customHeadersJson: z.string().optional(),
     passthrough: z.boolean(),
-    maxOutputTokens: maxOutputTokensSchema,
   })
   .superRefine((value, ctx) => {
     const raw = value.customHeadersJson?.trim()
@@ -207,7 +202,6 @@ const DEFAULT_CUSTOM_PROVIDER_VALUES: CustomProviderFormValues = {
   apiKey: "",
   customHeadersJson: "",
   passthrough: false,
-  maxOutputTokens: "",
 }
 
 const CLOUD_CATALOG_PROVIDERS = [
@@ -793,7 +787,6 @@ function getProviderDialogDefaults(
     apiKey: "",
     customHeadersJson: "",
     passthrough: provider.passthrough,
-    maxOutputTokens: formatMaxOutputTokens(provider.max_output_tokens),
   }
 }
 
@@ -807,7 +800,6 @@ function buildProviderCreatePayload(
     api_key: normalizeOptional(values.apiKey),
     custom_headers: parseCustomHeaders(values.customHeadersJson),
     passthrough: values.passthrough,
-    max_output_tokens: parseMaxOutputTokens(values.maxOutputTokens),
   }
 }
 
@@ -819,7 +811,6 @@ function buildProviderUpdatePayload(
     base_url: normalizeOptional(values.baseUrl),
     api_key_header: normalizeOptional(values.apiKeyHeader),
     passthrough: values.passthrough,
-    max_output_tokens: parseMaxOutputTokens(values.maxOutputTokens),
   }
 
   const apiKey = normalizeOptional(values.apiKey)
@@ -1102,29 +1093,6 @@ function CustomProviderDialog({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="maxOutputTokens"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Max output tokens</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      inputMode="numeric"
-                      placeholder="e.g. 8192"
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Optional cap on output tokens per request. Overrides the
-                    agent runtime default; set this if your endpoint rejects
-                    large max_tokens values.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
             <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
               <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-sm [&[data-state=open]>svg]:rotate-180">
                 <ChevronDown className="size-4 transition-transform duration-200" />
@@ -1188,13 +1156,139 @@ function CustomProviderDialog({
   )
 }
 
+const customModelSettingsSchema = z.object({
+  max_output_tokens: maxOutputTokensSchema,
+})
+
+type CustomModelSettingsFormValues = z.infer<typeof customModelSettingsSchema>
+
+function CustomModelSettingsDialog({
+  model,
+  onOpenChange,
+}: {
+  model: ModelCatalogEntry | null
+  onOpenChange: (open: boolean) => void
+}) {
+  const queryClient = useQueryClient()
+  const form = useForm<CustomModelSettingsFormValues>({
+    resolver: zodResolver(customModelSettingsSchema),
+    mode: "onBlur",
+    defaultValues: {
+      max_output_tokens: getCatalogMetadataMaxOutputTokens(model?.metadata),
+    },
+  })
+
+  useEffect(() => {
+    if (!model) {
+      return
+    }
+    form.reset({
+      max_output_tokens: getCatalogMetadataMaxOutputTokens(model.metadata),
+    })
+  }, [form, model])
+
+  const saveMutation = useMutation({
+    mutationFn: async (values: CustomModelSettingsFormValues) => {
+      if (!model) {
+        return
+      }
+      return await updateCatalogEntry({
+        catalogId: model.id,
+        requestBody: {
+          model_provider: "custom-model-provider",
+          max_output_tokens: parseMaxOutputTokens(values.max_output_tokens),
+        },
+      })
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["organization", "agent-catalog"],
+      })
+      onOpenChange(false)
+      toast({
+        title: "Model updated",
+        description: "Saved the model settings.",
+      })
+    },
+    onError: (error: ApiError) => {
+      toast({
+        title: "Update failed",
+        description:
+          getApiErrorDetail(error) ?? "Unable to save the model settings.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={model !== null}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit model settings</DialogTitle>
+          <DialogDescription>
+            {model ? getCustomSourceModelTitle(model) : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form
+            className="space-y-4"
+            onSubmit={form.handleSubmit((values) =>
+              saveMutation.mutateAsync(values)
+            )}
+          >
+            <FormField
+              control={form.control}
+              name="max_output_tokens"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Max output tokens</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      inputMode="numeric"
+                      placeholder="e.g. 8192"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Optional cap on output tokens per request. Overrides the
+                    agent runtime default; set this if the model rejects large
+                    max_tokens values. Kept when the source is refreshed.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter>
+              <Button
+                onClick={() => onOpenChange(false)}
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button disabled={saveMutation.isPending} type="submit">
+                {saveMutation.isPending ? (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                ) : null}
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function CustomSourceModelRow({
   disabled,
   model,
+  onEdit,
   onToggle,
 }: {
   disabled: boolean
   model: ModelCatalogEntry
+  onEdit: (model: ModelCatalogEntry) => void
   onToggle: (model: ModelCatalogEntry) => Promise<void>
 }) {
   const title = getCustomSourceModelTitle(model)
@@ -1251,6 +1345,9 @@ function CustomSourceModelRow({
             }}
           >
             {model.enabled ? "Disable" : "Enable"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onEdit(model)}>
+            Edit settings
           </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={async () => {
@@ -2042,6 +2139,8 @@ export function OrgSettingsAgentForm() {
   const [deletingProvider, setDeletingProvider] =
     useState<AgentCustomProviderRead | null>(null)
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null)
+  const [editingCustomModel, setEditingCustomModel] =
+    useState<ModelCatalogEntry | null>(null)
   const [customProviderDialogOpen, setCustomProviderDialogOpen] =
     useState(false)
   const [cloudModelDialog, setCloudModelDialog] = useState<{
@@ -2991,6 +3090,7 @@ export function OrgSettingsAgentForm() {
                           disabled={!agentAddonsEnabled || isSelectionUpdating}
                           key={getModelSelectionKey(toModelSelection(model))}
                           model={model}
+                          onEdit={setEditingCustomModel}
                           onToggle={handleModelToggle}
                         />
                       ))}
@@ -3073,6 +3173,15 @@ export function OrgSettingsAgentForm() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CustomModelSettingsDialog
+        model={editingCustomModel}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingCustomModel(null)
+          }
+        }}
+      />
 
       <CloudCatalogModelDialog
         entry={cloudModelDialog?.entry ?? null}

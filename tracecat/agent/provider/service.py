@@ -90,7 +90,6 @@ class AgentCustomProviderService(BaseOrgService):
             base_url=provider.base_url,
             passthrough=provider.passthrough,
             api_key_header=provider.api_key_header,
-            max_output_tokens=provider.max_output_tokens,
             encrypted_config=encrypted_config,
         )
         self.session.add(model)

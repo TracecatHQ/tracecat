@@ -447,7 +447,7 @@ class TracecatCallbackHandler(CustomLogger):
             _strip_bedrock_unsupported_params(data)
 
         # Apply after model_settings so a per-request value can't exceed the
-        # catalog/provider cap.
+        # catalog cap.
         _apply_max_output_tokens_cap(data, creds)
 
         logger.info(
@@ -526,7 +526,7 @@ def _apply_max_output_tokens_cap(
     payload: dict[str, Any],
     creds: Mapping[str, str],
 ) -> None:
-    """Cap output token params to the catalog/provider configured limit.
+    """Cap output token params to the catalog-configured limit.
 
     Sets ``max_tokens`` when the request omits it and lowers any present
     ``max_tokens`` / ``max_completion_tokens`` above the cap. An extended

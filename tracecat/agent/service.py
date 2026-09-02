@@ -96,6 +96,15 @@ _CLOUD_PROVIDER_TARGET_KEYS: dict[CloudProviderSlug, tuple[CloudTargetKey, ...]]
 }
 
 
+def _metadata_max_output_tokens(row: AgentCatalog) -> int | None:
+    """Read the per-model output token cap stored on catalog metadata."""
+    metadata = row.model_metadata if isinstance(row.model_metadata, dict) else {}
+    value = metadata.get("max_output_tokens")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value >= 1 else None
+
+
 def parse_max_output_tokens(credentials: Mapping[str, str]) -> int | None:
     """Read the output token cap from runtime credentials, if configured."""
     raw = credentials.get(MAX_OUTPUT_TOKENS_CREDENTIAL_KEY)
@@ -681,10 +690,8 @@ class AgentManagementService(BaseOrgService):
             credentials["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = (
                 "true" if provider_row.passthrough else "false"
             )
-            if provider_row.max_output_tokens is not None:
-                credentials[MAX_OUTPUT_TOKENS_CREDENTIAL_KEY] = str(
-                    provider_row.max_output_tokens
-                )
+            if (cap := _metadata_max_output_tokens(row)) is not None:
+                credentials[MAX_OUTPUT_TOKENS_CREDENTIAL_KEY] = str(cap)
             # Pin the selected row's model_name so the shared provider blob
             # can't override it. The legacy backfill row is the exception: its
             # "custom" placeholder isn't a real model, so leave the blob's
@@ -723,7 +730,7 @@ class AgentManagementService(BaseOrgService):
         config: AgentConfig,
         credentials: dict[str, str],
     ) -> AgentConfig:
-        """Apply the catalog/provider output token cap to the agent config."""
+        """Apply the catalog model's output token cap to the agent config."""
         max_output_tokens = parse_max_output_tokens(credentials)
         if max_output_tokens is None:
             return config

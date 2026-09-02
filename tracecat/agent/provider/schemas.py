@@ -28,7 +28,6 @@ class AgentCustomProviderCreate(BaseModel):
     api_key_header: str | None = Field(default=None, max_length=120)
     api_key: str | None = Field(default=None)
     custom_headers: dict[str, str] | None = Field(default=None)
-    max_output_tokens: int | None = Field(default=None, ge=1, le=1_000_000)
 
     @field_validator("base_url")
     @classmethod
@@ -47,7 +46,6 @@ class AgentCustomProviderRead(BaseModel):
     base_url: str | None
     passthrough: bool
     api_key_header: str | None
-    max_output_tokens: int | None
     last_refreshed_at: datetime | None
 
 
@@ -60,7 +58,6 @@ class AgentCustomProviderUpdate(BaseModel):
     api_key_header: str | None = Field(default=None, max_length=120)
     api_key: str | None = None
     custom_headers: dict[str, str] | None = None
-    max_output_tokens: int | None = Field(default=None, ge=1, le=1_000_000)
 
     @field_validator("base_url")
     @classmethod

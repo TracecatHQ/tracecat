@@ -415,7 +415,6 @@ export type AgentCustomProviderCreate = {
   custom_headers?: {
     [key: string]: string
   } | null
-  max_output_tokens?: number | null
 }
 
 /**
@@ -436,7 +435,6 @@ export type AgentCustomProviderRead = {
   base_url: string | null
   passthrough: boolean
   api_key_header: string | null
-  max_output_tokens: number | null
   last_refreshed_at: string | null
 }
 
@@ -452,7 +450,6 @@ export type AgentCustomProviderUpdate = {
   custom_headers?: {
     [key: string]: string
   } | null
-  max_output_tokens?: number | null
 }
 
 export type AgentFolderCreate = {
@@ -3732,6 +3729,14 @@ export type CustomOAuthProviderCreate = {
    * OAuth client secret for the provider
    */
   client_secret?: string | null
+}
+
+/**
+ * Editable metadata on a model discovered from a custom provider.
+ */
+export type CustomProviderCatalogUpdate = {
+  model_provider: "custom-model-provider"
+  max_output_tokens?: number | null
 }
 
 /**
@@ -11702,6 +11707,7 @@ export type UpdateCatalogEntryData = {
     | AzureOpenAICatalogUpdate
     | AzureAICatalogUpdate
     | VertexAICatalogUpdate
+    | CustomProviderCatalogUpdate
 }
 
 export type UpdateCatalogEntryResponse = AgentCatalogRead
