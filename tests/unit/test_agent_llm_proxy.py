@@ -287,6 +287,50 @@ async def test_forward_request_classifies_platform_http_failures_at_source(
 
 
 @pytest.mark.anyio
+async def test_forward_request_classifies_direct_provider_http_failure_as_user_owned(
+    tmp_path: Path,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://customer-provider.example/v1/messages"
+        return httpx.Response(503, request=request, json={"error": "unavailable"})
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(
+            direct_routes={
+                "customer-alias": LLMRoute(
+                    base_url="https://customer-provider.example",
+                    model_provider="custom-model-provider",
+                )
+            }
+        ),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Content-Type": "application/json"},
+                "body": b'{"model":"customer-alias","messages":[]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.USER
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+
+
+@pytest.mark.anyio
 async def test_forward_request_classifies_connect_failure_as_platform(
     tmp_path: Path,
 ) -> None:

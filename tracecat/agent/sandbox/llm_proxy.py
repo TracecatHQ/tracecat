@@ -121,7 +121,13 @@ class LLMProxyError:
     classification: RuntimeErrorClassification
 
 
-def _http_error_classification(status_code: int) -> RuntimeErrorClassification:
+def _http_error_classification(
+    status_code: int,
+    *,
+    route_is_direct: bool,
+) -> RuntimeErrorClassification:
+    if route_is_direct:
+        return user_agent_execution_failed()
     if status_code in {408, 504}:
         return agent_executor_timed_out()
     if status_code >= 500:
@@ -912,7 +918,10 @@ class LLMSocketProxy:
                             body=error_body,
                             trace_request_id=trace_request_id,
                         ),
-                        _http_error_classification(response.status_code),
+                        _http_error_classification(
+                            response.status_code,
+                            route_is_direct=route.is_direct,
+                        ),
                     )
                     body_chunks = [error_body]
                 else:
@@ -929,6 +938,7 @@ class LLMSocketProxy:
                     request_counter=request_counter,
                     method=method,
                     path=path,
+                    route_is_direct=route.is_direct,
                 )
         except httpx.ConnectError as exc:
             await self._write_error_response(
@@ -970,6 +980,7 @@ class LLMSocketProxy:
         request_counter: int | None = None,
         method: str | None = None,
         path: str | None = None,
+        route_is_direct: bool = False,
     ) -> None:
         """Write an HTTP response head and stream the response body."""
         content_type = next(
@@ -1060,7 +1071,10 @@ class LLMSocketProxy:
                 if path is not None and not _is_non_critical_path(path):
                     self._emit_error(
                         surfaced_error,
-                        _http_error_classification(status_code),
+                        _http_error_classification(
+                            status_code,
+                            route_is_direct=route_is_direct,
+                        ),
                     )
                 error_payload = orjson.dumps(
                     {
