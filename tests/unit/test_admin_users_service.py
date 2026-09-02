@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped
 from tracecat_ee.admin.users.schemas import AdminUserCreate
 from tracecat_ee.admin.users.service import AdminUserService
 
+from tests.membership import grant_org_membership, grant_workspace_membership
 from tracecat import config
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
@@ -22,7 +23,6 @@ from tracecat.db.models import (
     AccessToken,
     Membership,
     Organization,
-    OrganizationMembership,
     User,
     UserRoleAssignment,
     Workspace,
@@ -74,8 +74,8 @@ async def test_create_user_creates_platform_user_without_memberships(
 
     org_membership_result = await session.execute(
         select(func.count())
-        .select_from(OrganizationMembership)
-        .where(OrganizationMembership.user_id == created.id)
+        .select_from(Membership)
+        .where(Membership.user_id == created.id, Membership.workspace_id.is_(None))
     )
     org_membership_count = org_membership_result.scalar_one()
     assert org_membership_count == 0
@@ -83,7 +83,10 @@ async def test_create_user_creates_platform_user_without_memberships(
     workspace_membership_result = await session.execute(
         select(func.count())
         .select_from(Membership)
-        .where(Membership.user_id == created.id)
+        .where(
+            Membership.user_id == created.id,
+            Membership.workspace_id.is_not(None),
+        )
     )
     workspace_membership_count = workspace_membership_result.scalar_one()
     assert workspace_membership_count == 0
@@ -181,8 +184,8 @@ async def test_create_user_provisions_default_org_in_single_tenant(
 
     membership_count = await session.scalar(
         select(func.count())
-        .select_from(OrganizationMembership)
-        .where(OrganizationMembership.user_id == created.id)
+        .select_from(Membership)
+        .where(Membership.user_id == created.id, Membership.workspace_id.is_(None))
     )
     role_slug = await session.scalar(
         select(DBRole.slug)
@@ -195,7 +198,10 @@ async def test_create_user_provisions_default_org_in_single_tenant(
     workspace_membership_count = await session.scalar(
         select(func.count())
         .select_from(Membership)
-        .where(Membership.user_id == created.id)
+        .where(
+            Membership.user_id == created.id,
+            Membership.workspace_id.is_not(None),
+        )
     )
 
     assert membership_count == 1
@@ -280,12 +286,13 @@ async def test_delete_user_clears_sessions_and_memberships(
     session.add(workspace)
     await session.flush()
     token = AccessToken(token=f"token-{uuid.uuid4().hex}", user_id=user.id)
-    session.add_all(
-        [
-            token,
-            OrganizationMembership(user_id=user.id, organization_id=org.id),
-            Membership(user_id=user.id, workspace_id=workspace.id),
-        ]
+    session.add(token)
+    await grant_org_membership(session, user_id=user.id, organization_id=org.id)
+    await grant_workspace_membership(
+        session,
+        user_id=user.id,
+        organization_id=org.id,
+        workspace_id=workspace.id,
     )
     await session.commit()
 
@@ -310,8 +317,9 @@ async def test_delete_user_clears_sessions_and_memberships(
     )
     assert (
         await session.scalar(
-            select(OrganizationMembership).where(
-                OrganizationMembership.user_id == user_id
+            select(Membership).where(
+                Membership.user_id == user_id,
+                Membership.workspace_id.is_(None),
             )
         )
         is None

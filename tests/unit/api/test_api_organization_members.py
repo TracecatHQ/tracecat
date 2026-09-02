@@ -93,7 +93,9 @@ async def test_list_current_user_organization_memberships(
     compiled = stmt.compile()
     sql = str(compiled)
 
-    assert "organization_membership.user_id = " in sql
+    assert "membership.user_id = " in sql
+    # Org presence is the NULL-workspace row of derived membership.
+    assert "membership.workspace_id IS NULL" in sql
     assert "organization.is_active" in sql
     assert test_admin_role.user_id in compiled.params.values()
 

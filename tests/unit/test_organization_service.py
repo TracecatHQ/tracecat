@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.membership import grant_org_membership
 from tracecat import config
 from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, generate_managed_api_key
 from tracecat.auth.schemas import UserRole
@@ -25,7 +26,6 @@ from tracecat.db.models import (
     Membership,
     Organization,
     OrganizationInvitation,
-    OrganizationMembership,
     RoleScope,
     Scope,
     ServiceAccount,
@@ -92,11 +92,7 @@ async def user_in_org1(session: AsyncSession, org1: Organization) -> User:
     session.add(user)
     await session.flush()
 
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=org1.id,
-    )
-    session.add(membership)
+    await grant_org_membership(session, user_id=user.id, organization_id=org1.id)
     await session.commit()
     return user
 
@@ -121,12 +117,7 @@ async def admin_in_org1(session: AsyncSession, org1: Organization) -> User:
     session.add(user)
     await session.flush()
 
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=org1.id,
-    )
-    session.add(membership)
-
+    # The org-wide admin assignment below is what makes this user a member.
     await seed_system_scopes(session)
     admin_db_role = DBRole(
         id=uuid.uuid4(),
@@ -168,11 +159,7 @@ async def user_in_org2(session: AsyncSession, org2: Organization) -> User:
     session.add(user)
     await session.flush()
 
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=org2.id,
-    )
-    session.add(membership)
+    await grant_org_membership(session, user_id=user.id, organization_id=org2.id)
     await session.commit()
     return user
 
@@ -204,6 +191,16 @@ def create_superuser_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Rol
 @pytest.fixture
 async def org1_member_role(session: AsyncSession, org1: Organization) -> DBRole:
     """Create an RBAC 'organization-member' role for org1."""
+    existing = (
+        await session.execute(
+            select(DBRole).where(
+                DBRole.organization_id == org1.id,
+                DBRole.slug == "organization-member",
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
     role = DBRole(
         id=uuid.uuid4(),
         name="Organization Member",
@@ -219,6 +216,16 @@ async def org1_member_role(session: AsyncSession, org1: Organization) -> DBRole:
 @pytest.fixture
 async def org1_admin_role(session: AsyncSession, org1: Organization) -> DBRole:
     """Create an RBAC 'organization-admin' role for org1."""
+    existing = (
+        await session.execute(
+            select(DBRole).where(
+                DBRole.organization_id == org1.id,
+                DBRole.slug == "organization-admin",
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
     role = DBRole(
         id=uuid.uuid4(),
         name="Organization Admin",
@@ -400,9 +407,10 @@ class TestOrganizationServiceDeleteMember:
         )
         assert (
             await session.scalar(
-                select(OrganizationMembership).where(
-                    OrganizationMembership.user_id == user_id,
-                    OrganizationMembership.organization_id == org1.id,
+                select(Membership).where(
+                    Membership.user_id == user_id,
+                    Membership.organization_id == org1.id,
+                    Membership.workspace_id.is_(None),
                 )
             )
             is None
@@ -424,10 +432,6 @@ class TestOrganizationServiceDeleteMember:
             name="Organization Member",
             slug="organization-member",
             description="Default member role",
-            organization_id=org2.id,
-        )
-        org2_membership = OrganizationMembership(
-            user_id=user_in_org1.id,
             organization_id=org2.id,
         )
         workspace_org1 = Workspace(
@@ -453,7 +457,6 @@ class TestOrganizationServiceDeleteMember:
         session.add_all(
             [
                 org2_member_role,
-                org2_membership,
                 workspace_org1,
                 workspace_org2,
                 group_org1,
@@ -461,18 +464,20 @@ class TestOrganizationServiceDeleteMember:
             ]
         )
         await session.flush()
+        # Use the org2 member role created above rather than seeding a new one.
+        session.add(
+            UserRoleAssignment(
+                organization_id=org2.id,
+                user_id=user_in_org1.id,
+                workspace_id=None,
+                role_id=org2_member_role.id,
+            )
+        )
+        await session.flush()
 
         token = AccessToken(
             token=f"token-{uuid.uuid4().hex}",
             user_id=user_in_org1.id,
-        )
-        org1_workspace_membership = Membership(
-            user_id=user_in_org1.id,
-            workspace_id=workspace_org1.id,
-        )
-        org2_workspace_membership = Membership(
-            user_id=user_in_org1.id,
-            workspace_id=workspace_org2.id,
         )
         org1_role_assignment = UserRoleAssignment(
             organization_id=org1.id,
@@ -499,8 +504,6 @@ class TestOrganizationServiceDeleteMember:
         session.add_all(
             [
                 token,
-                org1_workspace_membership,
-                org2_workspace_membership,
                 org1_role_assignment,
                 org2_role_assignment,
                 org1_group_member,
@@ -529,18 +532,20 @@ class TestOrganizationServiceDeleteMember:
         )
         assert (
             await session.scalar(
-                select(OrganizationMembership).where(
-                    OrganizationMembership.user_id == user_id,
-                    OrganizationMembership.organization_id == org1.id,
+                select(Membership).where(
+                    Membership.user_id == user_id,
+                    Membership.organization_id == org1.id,
+                    Membership.workspace_id.is_(None),
                 )
             )
             is None
         )
         assert (
             await session.scalar(
-                select(OrganizationMembership).where(
-                    OrganizationMembership.user_id == user_id,
-                    OrganizationMembership.organization_id == org2.id,
+                select(Membership).where(
+                    Membership.user_id == user_id,
+                    Membership.organization_id == org2.id,
+                    Membership.workspace_id.is_(None),
                 )
             )
             is not None
@@ -637,11 +642,9 @@ class TestOrganizationServiceDeleteMember:
         session.add(superuser)
         await session.flush()
 
-        membership = OrganizationMembership(
-            user_id=superuser.id,
-            organization_id=org1.id,
+        await grant_org_membership(
+            session, user_id=superuser.id, organization_id=org1.id
         )
-        session.add(membership)
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -702,8 +705,9 @@ class TestOrganizationServiceDeleteOrganization:
             select(Organization).where(Organization.id == org1.id)
         )
         membership_result = await session.execute(
-            select(OrganizationMembership).where(
-                OrganizationMembership.organization_id == org1.id
+            select(Membership).where(
+                Membership.organization_id == org1.id,
+                Membership.workspace_id.is_(None),
             )
         )
         assert org_result.scalar_one_or_none() is None
@@ -988,7 +992,7 @@ class TestOrganizationServiceAddMember:
         org1: Organization,
         admin_in_org1: User,
     ):
-        """Test add_member creates an OrganizationMembership record."""
+        """Test add_member makes the user an organization member."""
         # Create a new user not yet in the org
         new_user = User(
             id=uuid.uuid4(),

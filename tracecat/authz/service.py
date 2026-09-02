@@ -263,7 +263,10 @@ class MembershipService(BaseService):
 
         This is used by the authorization middleware to cache user permissions.
         """
-        statement = select(Membership).where(Membership.user_id == user_id)
+        statement = select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.workspace_id.is_not(None),
+        )
         result = await self.session.execute(statement)
         return result.scalars().all()
 
@@ -320,11 +323,6 @@ class MembershipService(BaseService):
             )
         )
 
-        membership = Membership(
-            user_id=params.user_id,
-            workspace_id=workspace_id,
-        )
-        self.session.add(membership)
         self.session.add(
             UserRoleAssignment(
                 organization_id=organization_id,
@@ -345,12 +343,8 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
-        await self.session.execute(
-            delete(Membership).where(
-                Membership.workspace_id == workspace_id,
-                Membership.user_id == user_id,
-            )
-        )
+        # Membership is derived, so deleting the workspace-scoped assignments
+        # delists the user. Group-derived access needs a group change instead.
         await self.session.execute(
             delete(UserRoleAssignment).where(
                 UserRoleAssignment.workspace_id == workspace_id,

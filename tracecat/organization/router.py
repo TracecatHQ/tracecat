@@ -13,10 +13,10 @@ from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
+    Membership,
     Organization,
     OrganizationDomain,
     OrganizationInvitation,
-    OrganizationMembership,
     User,
     UserRoleAssignment,
 )
@@ -112,11 +112,12 @@ async def list_current_user_organization_memberships(
     stmt = (
         select(Organization.id, Organization.name)
         .join(
-            OrganizationMembership,
-            OrganizationMembership.organization_id == Organization.id,
+            Membership,
+            Membership.organization_id == Organization.id,
         )
         .where(
-            OrganizationMembership.user_id == role.user_id,
+            Membership.user_id == role.user_id,
+            Membership.workspace_id.is_(None),
             Organization.is_active.is_(True),
         )
         .order_by(Organization.name.asc(), Organization.id.asc())
@@ -252,13 +253,14 @@ async def get_current_org_member(
     statement = (
         select(User)
         .join(
-            OrganizationMembership,
-            OrganizationMembership.user_id == User.id,  # pyright: ignore[reportArgumentType]
+            Membership,
+            Membership.user_id == User.id,  # pyright: ignore[reportArgumentType]
         )
         .where(
             and_(
                 User.id == role.user_id,  # pyright: ignore[reportArgumentType]
-                OrganizationMembership.organization_id == role.organization_id,  # pyright: ignore[reportArgumentType]
+                Membership.organization_id == role.organization_id,  # pyright: ignore[reportArgumentType]
+                Membership.workspace_id.is_(None),
             )
         )
     )

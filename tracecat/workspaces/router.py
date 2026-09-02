@@ -235,7 +235,7 @@ async def list_workspace_memberships(
     return [
         WorkspaceMembershipRead(
             user_id=membership.user_id,
-            workspace_id=membership.workspace_id,
+            workspace_id=workspace_id,
         )
         for membership in memberships
     ]
@@ -291,7 +291,7 @@ async def get_workspace_membership(
     membership = membership_with_org.membership
     return WorkspaceMembershipRead(
         user_id=membership.user_id,
-        workspace_id=membership.workspace_id,
+        workspace_id=workspace_id,
     )
 
 

@@ -83,9 +83,9 @@ from tracecat.config import (
 )
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
+    Membership,
     OrganizationDomain,
     OrganizationInvitation,
-    OrganizationMembership,
     SAMLRequestData,
     User,
 )
@@ -954,9 +954,10 @@ async def sso_acs(
             )
 
     # Ensure user can access this organization.
-    membership_stmt = select(OrganizationMembership).where(
-        OrganizationMembership.user_id == user.id,  # pyright: ignore[reportArgumentType]
-        OrganizationMembership.organization_id == organization_id,
+    membership_stmt = select(Membership).where(
+        Membership.user_id == user.id,  # pyright: ignore[reportArgumentType]
+        Membership.organization_id == organization_id,
+        Membership.workspace_id.is_(None),
     )
     existing_membership = (
         await db_session.execute(membership_stmt)

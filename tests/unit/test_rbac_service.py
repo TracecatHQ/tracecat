@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.rbac.service import RBACService
 
+from tests.membership import grant_workspace_membership
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
@@ -18,7 +19,6 @@ from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
     Organization,
-    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -55,12 +55,21 @@ async def user(session: AsyncSession, org: Organization) -> User:
     session.add(user)
     await session.flush()
 
-    # Add org membership
-    membership = OrganizationMembership(
-        user_id=user.id,
+    # Grant membership through a workspace-scoped role so the single org-wide
+    # assignment slot stays free for tests that create one.
+    membership_workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Membership Workspace",
         organization_id=org.id,
     )
-    session.add(membership)
+    session.add(membership_workspace)
+    await session.flush()
+    await grant_workspace_membership(
+        session,
+        user_id=user.id,
+        organization_id=org.id,
+        workspace_id=membership_workspace.id,
+    )
     await session.commit()
     await session.refresh(user)
     return user
@@ -142,8 +151,8 @@ async def role(
     )
     session.add(admin_user)
     await session.flush()
-    session.add(OrganizationMembership(user_id=admin_user.id, organization_id=org.id))
 
+    # The org-wide assignment below is what makes this user an org member.
     admin_role = DBRole(
         name="Test Org Admin",
         slug=None,
@@ -743,11 +752,19 @@ class TestRBACServiceUserAssignments:
         )
         session.add(other_org)
         await session.flush()
-        session.add(
-            OrganizationMembership(
-                user_id=user.id,
-                organization_id=other_org.id,
-            )
+        # Workspace-scoped grant keeps the org-wide slot free for the assertion.
+        other_workspace = Workspace(
+            id=uuid.uuid4(),
+            name="Other Org Workspace",
+            organization_id=other_org.id,
+        )
+        session.add(other_workspace)
+        await session.flush()
+        await grant_workspace_membership(
+            session,
+            user_id=user.id,
+            organization_id=other_org.id,
+            workspace_id=other_workspace.id,
         )
         await session.commit()
 

@@ -52,9 +52,9 @@ from tracecat.db.engine import (
 )
 from tracecat.db.models import (
     AccessToken,
+    Membership,
     OAuthAccount,
     OrganizationDomain,
-    OrganizationMembership,
     User,
 )
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
@@ -191,8 +191,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         return not await self._any_org_saml_enforced(org_ids)
 
     async def _list_user_org_ids(self, user_id: uuid.UUID) -> set[OrganizationID]:
-        statement = select(OrganizationMembership.organization_id).where(
-            OrganizationMembership.user_id == user_id
+        statement = select(Membership.organization_id).where(
+            Membership.user_id == user_id,
+            Membership.workspace_id.is_(None),
         )
         async with get_async_session_auth_context_manager() as session:
             result = await session.execute(statement)

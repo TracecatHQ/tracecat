@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.membership import grant_org_membership, grant_workspace_membership
 from tracecat import config
 from tracecat.auth.credentials import (
     RoleACL,
@@ -28,7 +29,6 @@ from tracecat.contexts import ctx_agent_session_id, ctx_role
 from tracecat.db.models import (
     Membership,
     Organization,
-    OrganizationMembership,
     User,
     Workspace,
 )
@@ -936,7 +936,7 @@ async def test_cache_size_limit(monkeypatch: pytest.MonkeyPatch):
 async def test_organization_id_populated_when_require_workspace_no(
     mocker, monkeypatch: pytest.MonkeyPatch
 ):
-    """Test that organization_id is inferred from OrganizationMembership when require_workspace="no"."""
+    """Test that organization_id is inferred from membership when require_workspace="no"."""
 
     monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
@@ -953,11 +953,11 @@ async def test_organization_id_populated_when_require_workspace_no(
     # The code does: org_ids = org_membership_result.scalars().all()
     mock_session = AsyncMock()
 
-    # First call: OrganizationMembership query returns the org_id
+    # First call: membership query returns the org_id
     org_result = MagicMock()
     org_result.scalars.return_value.all.return_value = [test_org_id]
 
-    # Second call: OrganizationMembership lookup for org_role returns None
+    # Second call: membership lookup for org_role returns None
     org_role_result = MagicMock()
     org_role_result.scalar_one_or_none.return_value = None
 
@@ -979,7 +979,7 @@ async def test_organization_id_populated_when_require_workspace_no(
     request.state = MagicMock()
     request.state.auth_cache = None
 
-    # Test with require_workspace="no" - organization_id should be inferred from OrganizationMembership
+    # Test with require_workspace="no" - organization_id should be inferred from membership
     role = await _role_dependency(
         request=request,
         session=mock_session,
@@ -991,7 +991,7 @@ async def test_organization_id_populated_when_require_workspace_no(
         require_workspace="no",
     )
 
-    # Verify organization_id was inferred from the user's OrganizationMembership
+    # Verify organization_id was inferred from the user's membership
     assert role.organization_id == test_org_id
     assert role.workspace_id is None
     assert role.user_id == mock_user.id
@@ -1029,16 +1029,14 @@ async def test_role_dependency_infers_org_from_single_membership(
     session.add_all([org, user, workspace])
     await session.commit()
 
-    membership = Membership(
-        user_id=user.id,
-        workspace_id=workspace.id,
-    )
-    # Also create organization membership - required for org context resolution
-    org_membership = OrganizationMembership(
+    # Org membership is required for org context resolution.
+    await grant_org_membership(session, user_id=user.id, organization_id=org.id)
+    await grant_workspace_membership(
+        session,
         user_id=user.id,
         organization_id=org.id,
+        workspace_id=workspace.id,
     )
-    session.add_all([membership, org_membership])
     await session.commit()
 
     request = MagicMock(spec=Request)
@@ -1111,22 +1109,14 @@ async def test_role_dependency_uses_stable_org_for_multi_org_without_workspace(
     session.add_all([org_a, org_b, user, workspace_a, workspace_b])
     await session.commit()
 
-    memberships = [
-        Membership(
+    for org, workspace in ((org_a, workspace_a), (org_b, workspace_b)):
+        await grant_org_membership(session, user_id=user.id, organization_id=org.id)
+        await grant_workspace_membership(
+            session,
             user_id=user.id,
-            workspace_id=workspace_a.id,
-        ),
-        Membership(
-            user_id=user.id,
-            workspace_id=workspace_b.id,
-        ),
-    ]
-    # Also create organization memberships for both orgs
-    org_memberships = [
-        OrganizationMembership(user_id=user.id, organization_id=org_a.id),
-        OrganizationMembership(user_id=user.id, organization_id=org_b.id),
-    ]
-    session.add_all(memberships + org_memberships)
+            organization_id=org.id,
+            workspace_id=workspace.id,
+        )
     await session.commit()
 
     request = MagicMock(spec=Request)

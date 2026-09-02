@@ -25,6 +25,7 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import require_scope
+from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
     AccessToken,
@@ -35,10 +36,11 @@ from tracecat.db.models import (
     Membership,
     Organization,
     OrganizationInvitation,
-    OrganizationMembership,
     User,
     UserRoleAssignment,
-    Workspace,
+)
+from tracecat.db.models import (
+    Role as DBRole,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -59,8 +61,8 @@ async def accept_invitation_for_user(
     *,
     user_id: UserID,
     token: str,
-) -> OrganizationMembership:
-    """Accept an invitation and create organization membership + RBAC assignment.
+) -> Membership:
+    """Accept an invitation and assign the invitation's organization role.
 
     This is a standalone function (not a method) because invitation acceptance
     doesn't require organization context - the user may not belong to any
@@ -76,7 +78,7 @@ async def accept_invitation_for_user(
         token: The unique invitation token.
 
     Returns:
-        OrganizationMembership: The created membership record.
+        Membership: The derived organization membership row.
 
     Raises:
         TracecatNotFoundError: If the invitation doesn't exist.
@@ -150,34 +152,6 @@ async def accept_invitation_for_user(
             # Shouldn't reach here, but handle gracefully
             raise TracecatAuthorizationError("Invitation is no longer valid")
 
-        # Upsert membership — idempotent if single-tenant defaults already ran.
-        membership_stmt = (
-            pg_insert(OrganizationMembership)
-            .values(
-                user_id=user_id,
-                organization_id=invitation.organization_id,
-            )
-            .on_conflict_do_nothing(
-                index_elements=[
-                    OrganizationMembership.user_id,
-                    OrganizationMembership.organization_id,
-                ]
-            )
-            .returning(OrganizationMembership)
-        )
-        membership_result = await session.execute(membership_stmt)
-        membership = membership_result.scalar_one_or_none()
-        if membership is None:
-            # Row already existed; fetch it.
-            existing = await session.execute(
-                select(OrganizationMembership).where(
-                    OrganizationMembership.user_id == user_id,
-                    OrganizationMembership.organization_id
-                    == invitation.organization_id,
-                )
-            )
-            membership = existing.scalar_one()
-
         # Upsert the org-wide role assignment to the invitation's role.
         # Uses on_conflict_do_update so a pre-existing organization-member row
         # (written by single-tenant defaults during SSO auto-provisioning) is
@@ -202,7 +176,16 @@ async def accept_invitation_for_user(
         await session.execute(assignment_stmt)
 
         await session.commit()
-        await session.refresh(membership)
+
+        membership = (
+            await session.execute(
+                select(Membership).where(
+                    Membership.user_id == user_id,
+                    Membership.organization_id == invitation.organization_id,
+                    Membership.workspace_id.is_(None),
+                )
+            )
+        ).scalar_one()
     except TracecatAuthorizationError:
         # Re-raise auth errors without logging as failure (expected user errors)
         raise
@@ -247,16 +230,17 @@ class OrgService(BaseOrgService):
         Retrieve a list of all members in the organization.
 
         This method queries the database to obtain all user records
-        associated with the organization via OrganizationMembership.
+        associated with the organization via derived membership.
 
         Returns:
             Sequence[User]: A sequence of User objects.
         """
         statement = select(User).join(
-            OrganizationMembership,
+            Membership,
             and_(
-                OrganizationMembership.user_id == User.id,
-                OrganizationMembership.organization_id == self.organization_id,
+                Membership.user_id == User.id,
+                Membership.organization_id == self.organization_id,
+                Membership.workspace_id.is_(None),
             ),
         )
         result = await self.session.execute(statement)
@@ -277,10 +261,11 @@ class OrgService(BaseOrgService):
         statement = (
             select(User)
             .join(
-                OrganizationMembership,
+                Membership,
                 and_(
-                    OrganizationMembership.user_id == User.id,
-                    OrganizationMembership.organization_id == self.organization_id,
+                    Membership.user_id == User.id,
+                    Membership.organization_id == self.organization_id,
+                    Membership.workspace_id.is_(None),
                 ),
             )
             .where(cast(User.id, UUID) == user_id)
@@ -333,19 +318,12 @@ class OrgService(BaseOrgService):
             .values(revoked_at=datetime.now(UTC), revoked_by=self.role.user_id)
         )
 
-        workspace_ids = select(Workspace.id).where(
-            Workspace.organization_id == self.organization_id
-        )
         group_ids = select(Group.id).where(
             Group.organization_id == self.organization_id
         )
 
-        await self.session.execute(
-            delete(Membership).where(
-                Membership.user_id == user.id,
-                Membership.workspace_id.in_(workspace_ids),
-            )
-        )
+        # Removing every assignment and group membership in the org delists the
+        # user from the org and all its workspaces.
         await self.session.execute(
             delete(UserRoleAssignment).where(
                 UserRoleAssignment.user_id == user.id,
@@ -356,12 +334,6 @@ class OrgService(BaseOrgService):
             delete(GroupMember).where(
                 GroupMember.user_id == user.id,
                 GroupMember.group_id.in_(group_ids),
-            )
-        )
-        await self.session.execute(
-            delete(OrganizationMembership).where(
-                OrganizationMembership.user_id == user.id,
-                OrganizationMembership.organization_id == self.organization_id,
             )
         )
 
@@ -401,32 +373,59 @@ class OrgService(BaseOrgService):
         *,
         user_id: UserID,
         organization_id: OrganizationID,
-    ) -> OrganizationMembership:
+    ) -> Membership:
         """Add a user to an organization.
 
-        This method creates an OrganizationMembership record linking a user
-        to an organization. It is typically called from the invitation flow
-        when a user accepts an invitation.
+        Assigns the ``organization-member`` role, which is what makes the user
+        an organization member. Typically called from the invitation flow when
+        a user accepts an invitation.
 
         Note: This method does not require scope checks as it is
         intended to be called by internal services (e.g., invitation service).
-        RBAC role assignment is handled separately.
 
         Args:
             user_id: The unique identifier of the user to add.
             organization_id: The unique identifier of the organization.
 
         Returns:
-            OrganizationMembership: The created membership record.
+            Membership: The derived organization membership row.
+
+        Raises:
+            TracecatNotFoundError: If the organization-member role is missing.
         """
-        membership = OrganizationMembership(
-            user_id=user_id,
-            organization_id=organization_id,
+        role_stmt = select(DBRole.id).where(
+            DBRole.organization_id == organization_id,
+            DBRole.slug == "organization-member",
         )
-        self.session.add(membership)
+        role_id = (await self.session.execute(role_stmt)).scalar_one_or_none()
+        if role_id is None:
+            # Seeding is idempotent; orgs created before seeding still resolve.
+            await seed_system_roles_for_org(self.session, organization_id)
+            role_id = (await self.session.execute(role_stmt)).scalar_one_or_none()
+        if role_id is None:
+            raise TracecatNotFoundError(
+                "organization-member role not found for organization"
+            )
+
+        self.session.add(
+            UserRoleAssignment(
+                organization_id=organization_id,
+                user_id=user_id,
+                workspace_id=None,
+                role_id=role_id,
+            )
+        )
         await self.session.commit()
-        await self.session.refresh(membership)
-        return membership
+
+        return (
+            await self.session.execute(
+                select(Membership).where(
+                    Membership.user_id == user_id,
+                    Membership.organization_id == organization_id,
+                    Membership.workspace_id.is_(None),
+                )
+            )
+        ).scalar_one()
 
     @audit_log(resource_type="organization", action="delete")
     @require_scope("org:delete")
@@ -460,10 +459,11 @@ class OrgService(BaseOrgService):
             select(AccessToken)
             .join(User, cast(AccessToken.user_id, UUID) == User.id)
             .join(
-                OrganizationMembership,
+                Membership,
                 and_(
-                    OrganizationMembership.user_id == User.id,
-                    OrganizationMembership.organization_id == self.organization_id,
+                    Membership.user_id == User.id,
+                    Membership.organization_id == self.organization_id,
+                    Membership.workspace_id.is_(None),
                 ),
             )
             .options(contains_eager(AccessToken.user))
@@ -487,10 +487,11 @@ class OrgService(BaseOrgService):
             select(AccessToken)
             .join(User, cast(AccessToken.user_id, UUID) == User.id)
             .join(
-                OrganizationMembership,
+                Membership,
                 and_(
-                    OrganizationMembership.user_id == User.id,
-                    OrganizationMembership.organization_id == self.organization_id,
+                    Membership.user_id == User.id,
+                    Membership.organization_id == self.organization_id,
+                    Membership.workspace_id.is_(None),
                 ),
             )
             .where(AccessToken.id == session_id)
@@ -535,10 +536,11 @@ class OrgService(BaseOrgService):
 
         # Check if user with this email is already a member (case-insensitive)
         existing_member_stmt = (
-            select(OrganizationMembership)
-            .join(User, OrganizationMembership.user_id == User.id)
+            select(Membership)
+            .join(User, Membership.user_id == User.id)
             .where(
-                OrganizationMembership.organization_id == self.organization_id,
+                Membership.organization_id == self.organization_id,
+                Membership.workspace_id.is_(None),
                 func.lower(User.email) == email.lower(),
             )
         )
@@ -655,7 +657,7 @@ class OrgService(BaseOrgService):
             raise TracecatNotFoundError("Invitation not found")
         return invitation
 
-    async def accept_invitation(self, token: str) -> OrganizationMembership:
+    async def accept_invitation(self, token: str) -> Membership:
         """Accept an invitation and create organization membership + RBAC assignment.
 
         This method validates the invitation token, checks expiry and status,
@@ -671,7 +673,7 @@ class OrgService(BaseOrgService):
             token: The unique invitation token.
 
         Returns:
-            OrganizationMembership: The created membership record.
+            Membership: The derived organization membership row.
 
         Raises:
             TracecatNotFoundError: If the invitation doesn't exist.
@@ -743,14 +745,8 @@ class OrgService(BaseOrgService):
                 # Shouldn't reach here, but handle gracefully
                 raise TracecatAuthorizationError("Invitation is no longer valid")
 
-            # Create membership (still needed for org membership existence checks)
-            membership = OrganizationMembership(
-                user_id=self.role.user_id,
-                organization_id=invitation.organization_id,
-            )
-            self.session.add(membership)
-
-            # Create RBAC role assignment from invitation's role_id
+            # Create RBAC role assignment from invitation's role_id; org
+            # membership is derived from it.
             assignment = UserRoleAssignment(
                 organization_id=invitation.organization_id,
                 user_id=self.role.user_id,
@@ -760,7 +756,16 @@ class OrgService(BaseOrgService):
             self.session.add(assignment)
 
             await self.session.commit()
-            await self.session.refresh(membership)
+
+            membership = (
+                await self.session.execute(
+                    select(Membership).where(
+                        Membership.user_id == self.role.user_id,
+                        Membership.organization_id == invitation.organization_id,
+                        Membership.workspace_id.is_(None),
+                    )
+                )
+            ).scalar_one()
         except TracecatAuthorizationError:
             # Re-raise auth errors without logging as failure (expected user errors)
             raise

@@ -10,15 +10,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import tracecat.mcp.personal_access_tokens.service as mcp_pat_service
+from tests.membership import grant_org_membership, grant_workspace_membership
 from tracecat.auth.api_keys import generate_managed_api_key
 from tracecat.auth.credentials import _authenticate_api_key
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     MCPPersonalAccessToken,
-    Membership,
     Organization,
-    OrganizationMembership,
     User,
     Workspace,
 )
@@ -63,14 +62,16 @@ async def _create_user_org_workspace(
     await session.flush()
 
     if org_membership:
-        session.add(
-            OrganizationMembership(
-                user_id=user.id,
-                organization_id=organization.id,
-            )
+        await grant_org_membership(
+            session, user_id=user.id, organization_id=organization.id
         )
     if workspace_membership:
-        session.add(Membership(user_id=user.id, workspace_id=workspace.id))
+        await grant_workspace_membership(
+            session,
+            user_id=user.id,
+            organization_id=organization.id,
+            workspace_id=workspace.id,
+        )
     await session.commit()
     return user, organization, workspace
 

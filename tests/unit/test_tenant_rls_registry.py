@@ -5,14 +5,16 @@ from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy import Table
 
 from tracecat.auth.types import Role
 from tracecat.cases.service import CaseFieldsService
-from tracecat.db.models import Base
+from tracecat.db.models import Base, Membership
 from tracecat.db.tenant_rls import (
     ALL_TENANT_RLS_TABLES,
     ORG_OPTIONAL_WORKSPACE_POLICY_TABLES,
     ORG_POLICY_TABLES,
+    RECLASSIFIED_TO_ORG_SCOPED_TABLES,
     SPECIAL_ORG_POLICY_TABLES,
     SPECIAL_TENANT_POLICY_TABLES,
     SPECIAL_WORKSPACE_POLICY_TABLES,
@@ -31,7 +33,10 @@ def workflow_bucket() -> Iterator[None]:
 def _mapped_table_names() -> set[str]:
     table_names: set[str] = set()
     for mapper in Base.registry.mappers:
-        table_name = getattr(mapper.local_table, "name", None)
+        local_table = mapper.local_table
+        if not isinstance(local_table, Table):
+            continue
+        table_name = local_table.name
         if isinstance(table_name, str):
             table_names.add(table_name)
     return table_names
@@ -41,6 +46,8 @@ def _mapped_table_names_with_column(column_name: str) -> set[str]:
     table_names: set[str] = set()
     for mapper in Base.registry.mappers:
         local_table = mapper.local_table
+        if not isinstance(local_table, Table):
+            continue
         table_name = getattr(local_table, "name", None)
         if isinstance(table_name, str) and column_name in local_table.columns:
             table_names.add(table_name)
@@ -53,6 +60,9 @@ def test_all_workspace_keyed_models_are_registered_for_tenant_rls() -> None:
         WORKSPACE_POLICY_TABLES
         | ORG_OPTIONAL_WORKSPACE_POLICY_TABLES
         | SPECIAL_WORKSPACE_POLICY_TABLES
+        # Assignments are org-owned; the org clause alone isolates tenants and
+        # keeps other-workspace rows visible to org-presence reads.
+        | frozenset(RECLASSIFIED_TO_ORG_SCOPED_TABLES)
     )
 
     missing_workspace_coverage = workspace_keyed_tables - covered_workspace_tables
@@ -87,6 +97,17 @@ def test_tenant_rls_registry_contains_only_mapped_tables() -> None:
         "Tenant RLS registry contains tables that are not mapped in SQLAlchemy: "
         f"{sorted(stale_registry_entries)}"
     )
+
+
+def test_membership_selectable_is_not_registered_for_tenant_rls() -> None:
+    assert "membership" not in ALL_TENANT_RLS_TABLES
+    assert not isinstance(Membership.__table__, Table)
+
+
+def test_assignment_tables_use_plain_org_policy() -> None:
+    for table in RECLASSIFIED_TO_ORG_SCOPED_TABLES:
+        assert table in ORG_POLICY_TABLES
+        assert table not in ORG_OPTIONAL_WORKSPACE_POLICY_TABLES
 
 
 def test_agent_tag_link_is_registered_for_tenant_rls() -> None:

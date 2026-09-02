@@ -42,7 +42,6 @@ INITIAL_WORKSPACE_SCOPED_TABLES = (
     "file",
     "chat",
     "chat_message",
-    "membership",
     "invitation",
     "oauth_integration",
     "oauth_provider",
@@ -53,7 +52,6 @@ INITIAL_ORG_SCOPED_TABLES = (
     "organization_secret",
     "organization_settings",
     "organization_domain",
-    "organization_membership",
     "organization_invitation",
     "organization_tier",
     "registry_repository",
@@ -65,6 +63,12 @@ INITIAL_ORG_SCOPED_TABLES = (
 )
 
 INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
+    "user_role_assignment",
+    "group_role_assignment",
+)
+
+# Reclassified so org-presence queries can read assignments from other workspaces.
+RECLASSIFIED_TO_ORG_SCOPED_TABLES = (
     "user_role_assignment",
     "group_role_assignment",
 )
@@ -121,10 +125,15 @@ CURRENT_WORKSPACE_SCOPED_TABLES = (
 CURRENT_ORG_SCOPED_TABLES = (
     *INITIAL_ORG_SCOPED_TABLES,
     *POST_RLS_ORG_SCOPED_TABLES,
+    *RECLASSIFIED_TO_ORG_SCOPED_TABLES,
 )
-CURRENT_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
-    *INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES,
-    *POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES,
+CURRENT_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = tuple(
+    table
+    for table in (
+        *INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES,
+        *POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES,
+    )
+    if table not in RECLASSIFIED_TO_ORG_SCOPED_TABLES
 )
 
 WORKSPACE_POLICY_TABLES = frozenset(CURRENT_WORKSPACE_SCOPED_TABLES)

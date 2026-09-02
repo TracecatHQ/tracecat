@@ -22,7 +22,7 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
-    OrganizationMembership,
+    Membership,
     RoleScope,
     Scope,
     User,
@@ -439,9 +439,10 @@ class RBACService(BaseOrgService):
         await self._ensure_group_membership_assignable(group_id)
 
         # Verify user belongs to this organization
-        stmt = select(OrganizationMembership).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == self.organization_id,
+        stmt = select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == self.organization_id,
+            Membership.workspace_id.is_(None),
         )
         result = await self.session.execute(stmt)
         if result.scalar_one_or_none() is None:
@@ -700,9 +701,10 @@ class RBACService(BaseOrgService):
             Created UserRoleAssignment
         """
         # Verify user belongs to this organization
-        stmt = select(OrganizationMembership).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == self.organization_id,
+        stmt = select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == self.organization_id,
+            Membership.workspace_id.is_(None),
         )
         result = await self.session.execute(stmt)
         if result.scalar_one_or_none() is None:

@@ -4,7 +4,6 @@ import uuid
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
@@ -143,12 +142,6 @@ async def test_delete_membership_removes_membership_and_assignment(
 ) -> None:
     """Deleting membership should also delete workspace direct role assignment."""
     session.add(
-        Membership(
-            user_id=member_user.id,
-            workspace_id=workspace.id,
-        )
-    )
-    session.add(
         UserRoleAssignment(
             organization_id=organization.id,
             user_id=member_user.id,
@@ -266,28 +259,40 @@ async def test_create_membership_heals_stale_workspace_assignment(
     assert assignment_list[0].assigned_by == actor_user.id
 
 
-async def test_create_membership_duplicate_raises_integrity_error(
+async def test_create_membership_is_idempotent(
     session: AsyncSession,
     membership_service: MembershipService,
+    organization: Organization,
     workspace: Workspace,
     member_user: User,
     workspace_editor_role: DBRole,
 ) -> None:
-    """Creating an existing membership should raise an integrity conflict."""
+    """Re-adding an existing member replaces the assignment rather than failing."""
     assert workspace_editor_role.slug == "workspace-editor"
     session.add(
-        Membership(
+        UserRoleAssignment(
+            organization_id=organization.id,
             user_id=member_user.id,
             workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
         )
     )
     await session.commit()
 
-    with pytest.raises(IntegrityError):
-        await membership_service.create_membership(
-            workspace_id=workspace.id,
-            params=WorkspaceMembershipCreate(user_id=member_user.id),
+    await membership_service.create_membership(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipCreate(user_id=member_user.id),
+    )
+
+    assignments = (
+        await session.execute(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.workspace_id == workspace.id,
+                UserRoleAssignment.user_id == member_user.id,
+            )
         )
+    ).scalars()
+    assert len(list(assignments)) == 1
 
 
 @pytest.fixture

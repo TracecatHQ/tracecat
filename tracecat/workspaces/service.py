@@ -21,9 +21,7 @@ from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Invitation,
     Membership,
-    OrganizationMembership,
     Ownership,
-    User,
     UserRoleAssignment,
     Workspace,
 )
@@ -130,14 +128,11 @@ class WorkspaceService(BaseOrgService):
         name: str,
         *,
         override_id: UUID4 | None = None,
-        users: list[User] | None = None,
     ) -> Workspace:
         """Create a new workspace."""
         kwargs = {
             "name": name,
             "organization_id": self.organization_id,
-            # Workspace model defines the relationship as "members"
-            "members": users or [],
         }
         if override_id:
             kwargs["id"] = override_id
@@ -479,24 +474,15 @@ class WorkspaceService(BaseOrgService):
         workspace = invitation.workspace
         organization_id = workspace.organization_id
 
-        # Check if user is already a member of the organization
-        org_membership_stmt = select(OrganizationMembership).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == organization_id,
+        # Org membership is derived from assignments: absence of any assignment
+        # in this org means we must also grant the org-member role.
+        org_membership_stmt = select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == organization_id,
+            Membership.workspace_id.is_(None),
         )
         result = await self.session.execute(org_membership_stmt)
-        org_membership = result.scalar_one_or_none()
-
-        # If not in org, auto-create membership and assign org-member RBAC role
-        created_org_membership = False
-        if org_membership is None:
-            org_membership = OrganizationMembership(
-                user_id=user_id,
-                organization_id=organization_id,
-            )
-            self.session.add(org_membership)
-            created_org_membership = True
-            await self.session.flush()
+        created_org_membership = result.first() is None
 
         # Check if user is already a member of the workspace
         ws_membership_stmt = select(Membership).where(
@@ -530,14 +516,7 @@ class WorkspaceService(BaseOrgService):
             # Shouldn't reach here, but handle gracefully
             raise TracecatValidationError("Invitation is no longer valid")
 
-        # Create workspace membership
-        membership = Membership(
-            user_id=user_id,
-            workspace_id=invitation.workspace_id,
-        )
-        self.session.add(membership)
-
-        # Create RBAC role assignment for the workspace
+        # Create RBAC role assignment for the workspace; membership follows.
         ws_assignment = UserRoleAssignment(
             organization_id=organization_id,
             user_id=user_id,
@@ -565,7 +544,15 @@ class WorkspaceService(BaseOrgService):
                 self.session.add(org_assignment)
 
         await self.session.commit()
-        await self.session.refresh(membership)
+
+        membership = (
+            await self.session.execute(
+                select(Membership).where(
+                    Membership.user_id == user_id,
+                    Membership.workspace_id == invitation.workspace_id,
+                )
+            )
+        ).scalar_one()
         return membership
 
     @require_scope("workspace:member:remove")

@@ -50,8 +50,8 @@ from tracecat.contexts import ctx_agent_session_id, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import AuthSession, get_async_session_auth_context_manager
 from tracecat.db.models import (
+    Membership,
     Organization,
-    OrganizationMembership,
     ServiceAccount,
     ServiceAccountApiKey,
     User,
@@ -609,14 +609,15 @@ async def _resolve_org_for_regular_user(
             cookie_org_id = None
         if cookie_org_id is not None:
             membership_stmt = (
-                select(OrganizationMembership.organization_id)
+                select(Membership.organization_id)
                 .join(
                     Organization,
-                    Organization.id == OrganizationMembership.organization_id,
+                    Organization.id == Membership.organization_id,
                 )
                 .where(
-                    OrganizationMembership.user_id == user.id,
-                    OrganizationMembership.organization_id == cookie_org_id,
+                    Membership.user_id == user.id,
+                    Membership.organization_id == cookie_org_id,
+                    Membership.workspace_id.is_(None),
                     Organization.is_active.is_(True),
                 )
             )
@@ -627,10 +628,11 @@ async def _resolve_org_for_regular_user(
                 return cookie_org_id
 
     org_mem_stmt = (
-        select(OrganizationMembership.organization_id)
-        .join(Organization, Organization.id == OrganizationMembership.organization_id)
+        select(Membership.organization_id)
+        .join(Organization, Organization.id == Membership.organization_id)
         .where(
-            OrganizationMembership.user_id == user.id,
+            Membership.user_id == user.id,
+            Membership.workspace_id.is_(None),
             Organization.is_active.is_(True),
         )
         .order_by(Organization.created_at.asc(), Organization.id.asc())

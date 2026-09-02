@@ -8,6 +8,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.membership import grant_org_membership, grant_workspace_membership
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
@@ -15,7 +16,6 @@ from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     Membership,
     Organization,
-    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -130,11 +130,11 @@ class TestWorkspaceService:
         session.add_all([workspace, other_workspace, member])
         await session.flush()
 
-        session.add(
-            Membership(
-                user_id=member.id,
-                workspace_id=workspace.id,
-            )
+        await grant_workspace_membership(
+            session,
+            user_id=member.id,
+            organization_id=svc_organization.id,
+            workspace_id=workspace.id,
         )
         await session.commit()
 
@@ -565,6 +565,17 @@ async def rbac_roles(session: AsyncSession, inv_org: Organization) -> dict[str, 
         ("workspace-admin", "Workspace Admin"),
         ("workspace-viewer", "Workspace Viewer"),
     ]:
+        existing = (
+            await session.execute(
+                select(DBRole).where(
+                    DBRole.organization_id == inv_org.id,
+                    DBRole.slug == slug,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            roles[slug] = str(existing.id)
+            continue
         role = DBRole(
             id=uuid.uuid4(),
             name=name,
@@ -606,11 +617,7 @@ async def admin_user(session: AsyncSession, inv_org: Organization) -> User:
     session.add(user)
     await session.flush()
 
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=inv_org.id,
-    )
-    session.add(membership)
+    await grant_org_membership(session, user_id=user.id, organization_id=inv_org.id)
     await session.commit()
     return user
 
@@ -630,11 +637,7 @@ async def basic_user(session: AsyncSession, inv_org: Organization) -> User:
     session.add(user)
     await session.flush()
 
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=inv_org.id,
-    )
-    session.add(membership)
+    await grant_org_membership(session, user_id=user.id, organization_id=inv_org.id)
     await session.commit()
     return user
 
@@ -1015,9 +1018,10 @@ class TestAcceptInvitation:
 
         # Verify org membership was created
         result = await session.execute(
-            select(OrganizationMembership).where(
-                OrganizationMembership.user_id == external_user.id,
-                OrganizationMembership.organization_id == inv_org.id,
+            select(Membership).where(
+                Membership.user_id == external_user.id,
+                Membership.organization_id == inv_org.id,
+                Membership.workspace_id.is_(None),
             )
         )
         org_membership = result.scalar_one()
@@ -1112,11 +1116,12 @@ class TestAcceptInvitation:
     ):
         """Test accepting invitation when user is already a workspace member fails."""
         # Add basic_user to workspace
-        ws_membership = Membership(
+        await grant_workspace_membership(
+            session,
             user_id=basic_user.id,
+            organization_id=inv_org.id,
             workspace_id=inv_workspace.id,
         )
-        session.add(ws_membership)
         await session.commit()
 
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)

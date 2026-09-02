@@ -16,7 +16,7 @@ from tracecat import config
 from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
-    OrganizationMembership,
+    Membership,
     User,
     WatchtowerAgent,
     WatchtowerAgentSession,
@@ -605,8 +605,9 @@ async def _resolve_unambiguous_org(
         return workspace_org_id
 
     memberships_result = await session.execute(
-        select(OrganizationMembership.organization_id).where(
-            OrganizationMembership.user_id == user_id
+        select(Membership.organization_id).where(
+            Membership.user_id == user_id,
+            Membership.workspace_id.is_(None),
         )
     )
     organization_ids = set(memberships_result.scalars().all())

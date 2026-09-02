@@ -56,7 +56,6 @@ from tracecat.db.engine import (
 from tracecat.db.models import (
     Membership,
     Organization,
-    OrganizationMembership,
     User,
     Workspace,
 )
@@ -1120,8 +1119,8 @@ async def resolve_org_membership(
 ) -> OrgRole:
     """Check the user belongs to a specific organization.
 
-    The OrganizationMembership model is a simple link table without a role
-    column. Membership presence means the user is at least a member.
+    Membership is derived from role assignments; presence of an org row means
+    the user is at least a member.
 
     Args:
         user_id: The user to look up.
@@ -1135,9 +1134,10 @@ async def resolve_org_membership(
     """
     async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(
-            select(OrganizationMembership).where(
-                OrganizationMembership.user_id == user_id,
-                OrganizationMembership.organization_id == organization_id,
+            select(Membership).where(
+                Membership.user_id == user_id,
+                Membership.organization_id == organization_id,
+                Membership.workspace_id.is_(None),
             )
         )
         membership = result.scalars().first()
@@ -1262,12 +1262,11 @@ async def list_user_workspaces(
 
         # Resolve the user's organization(s)
         org_stmt = (
-            select(OrganizationMembership.organization_id)
-            .join(
-                Organization, Organization.id == OrganizationMembership.organization_id
-            )
+            select(Membership.organization_id)
+            .join(Organization, Organization.id == Membership.organization_id)
             .where(
-                OrganizationMembership.user_id == user.id,
+                Membership.user_id == user.id,
+                Membership.workspace_id.is_(None),
                 Organization.is_active.is_(True),
             )
         )
@@ -1435,12 +1434,11 @@ async def resolve_org_role_for_request(
 
     async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(
-            select(OrganizationMembership.organization_id)
-            .join(
-                Organization, Organization.id == OrganizationMembership.organization_id
-            )
+            select(Membership.organization_id)
+            .join(Organization, Organization.id == Membership.organization_id)
             .where(
-                OrganizationMembership.user_id == user.id,
+                Membership.user_id == user.id,
+                Membership.workspace_id.is_(None),
                 Organization.is_active.is_(True),
             )
         )

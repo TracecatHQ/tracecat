@@ -430,7 +430,7 @@ async def _resolve_org_role(
 ) -> Role:
     """Resolve a role with organization context for the caller's token.
 
-    Queries the caller's active OrganizationMembership rows directly. Errors
+    Queries the caller's active organization membership rows directly. Errors
     with a clear message on the multi-org case; multi-org callers must pass
     org_id explicitly unless the token itself is scoped to exactly one
     organization (see `resolve_org_role_for_request`).
