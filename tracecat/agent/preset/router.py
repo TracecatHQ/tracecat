@@ -128,10 +128,6 @@ async def update_agent_preset(
 async def delete_agent_preset(
     *,
     preset_id: uuid.UUID,
-    confirm_unlink: bool = Query(
-        default=False,
-        description="Confirm unlinking this preset from active parent agents.",
-    ),
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
 ) -> None:
@@ -143,16 +139,11 @@ async def delete_agent_preset(
             detail=f"Agent preset {preset_id} not found",
         )
     try:
-        await service.delete_preset(preset, confirm_unlink=confirm_unlink)
+        await service.delete_preset(preset)
     except TracecatNotFoundError as e:
         # The preset can be soft-deleted between the lookup above and the
         # service's row lock; surface that race as a 404, not a 500.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except TracecatValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=e.detail if e.detail is not None else str(e),
-        ) from e
 
 
 @router.get(

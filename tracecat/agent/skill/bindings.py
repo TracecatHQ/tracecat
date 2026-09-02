@@ -139,19 +139,15 @@ class SkillBindingService(BaseWorkspaceService):
         )
         rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
         resolved: list[ResolvedSkillRef] = []
-        archived_skills: list[str] = []
         for (
             skill_id,
             skill_name,
             skill_version_id,
             manifest_sha256,
-            deleted_at,
-            archived_at,
+            _deleted_at,
+            _archived_at,
         ) in rows:
             if skill_name is None:
-                continue
-            if deleted_at is not None or archived_at is not None:
-                archived_skills.append(f"{skill_name} ({skill_id})")
                 continue
             resolved.append(
                 ResolvedSkillRef(
@@ -161,24 +157,7 @@ class SkillBindingService(BaseWorkspaceService):
                     manifest_sha256=manifest_sha256,
                 )
             )
-        self._raise_if_archived_skills(archived_skills, preset_version_id)
         return resolved
-
-    @staticmethod
-    def _raise_if_archived_skills(
-        archived_skills: list[str], preset_version_id: uuid.UUID
-    ) -> None:
-        """Reject resolution when any referenced Skill is archived."""
-
-        if archived_skills:
-            raise TracecatValidationError(
-                "Some skills are archived and cannot be resolved",
-                detail={
-                    "code": "skill_archived",
-                    "skills": sorted(archived_skills),
-                    "preset_version_id": str(preset_version_id),
-                },
-            )
 
     async def _get_latest_skill_refs_for_preset_version(
         self, preset_version_id: uuid.UUID
@@ -222,20 +201,16 @@ class SkillBindingService(BaseWorkspaceService):
         )
         rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
         resolved: list[ResolvedSkillRef] = []
-        archived_skills: list[str] = []
         missing_current: list[str] = []
         for (
             skill_id,
             skill_name,
             current_version_id,
-            deleted_at,
-            archived_at,
+            _deleted_at,
+            _archived_at,
             current_version_name,
             manifest_sha256,
         ) in rows:
-            if deleted_at is not None or archived_at is not None:
-                archived_skills.append(f"{skill_name} ({skill_id})")
-                continue
             if current_version_id is None:
                 missing_current.append(f"{skill_name} ({skill_id})")
                 continue
@@ -250,7 +225,6 @@ class SkillBindingService(BaseWorkspaceService):
                 )
             )
 
-        self._raise_if_archived_skills(archived_skills, preset_version_id)
         if missing_current:
             raise TracecatValidationError(
                 "Some skills have no current published version",

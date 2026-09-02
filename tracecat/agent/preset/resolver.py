@@ -33,6 +33,7 @@ class AgentPresetResolutionService(Protocol):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        include_deleted: bool = False,
     ) -> Awaitable[AgentPresetVersion]: ...
 
     def get_preset(self, preset_id: uuid.UUID) -> Awaitable[AgentPreset | None]: ...
@@ -45,6 +46,7 @@ class AgentPresetResolutionService(Protocol):
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
         resolve_dependencies_from_heads: bool = True,
+        include_deleted: bool = False,
     ) -> Awaitable[AgentConfig]: ...
 
 
@@ -154,11 +156,13 @@ async def resolve_agents_config(
                     # Pinned identity, but the caller wants the newest version.
                     version = await service.resolve_agent_preset_version(
                         preset_id=preset_id,
+                        include_deleted=True,
                     )
                 else:
                     # Resolve the exact persisted version.
                     version = await service.resolve_agent_preset_version(
                         preset_version_id=preset_version_id,
+                        include_deleted=True,
                     )
             case AttachedSubagentRef(preset=preset_slug, preset_version=preset_version):
                 # Unresolved ref has no persisted UUID; resolve by slug.
@@ -208,6 +212,7 @@ async def resolve_agents_config(
             child_config = await service.resolve_agent_preset_config(
                 preset_version_id=version.id,
                 resolve_dependencies_from_heads=follow_latest_versions,
+                include_deleted=True,
             )
             description = (
                 ref.description

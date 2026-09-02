@@ -11828,10 +11828,6 @@ export type AgentPresetsUpdateAgentPresetData = {
 export type AgentPresetsUpdateAgentPresetResponse = AgentPresetRead
 
 export type AgentPresetsDeleteAgentPresetData = {
-  /**
-   * Confirm unlinking this preset from active parent agents.
-   */
-  confirmUnlink?: boolean
   presetId: string
   workspaceId: string
 }
@@ -12056,10 +12052,6 @@ export type AgentSkillsGetSkillResponse = SkillRead
 
 export type AgentSkillsArchiveSkillData = {
   skillId: string
-  /**
-   * Unlink this skill from active agent presets before archiving.
-   */
-  unlinkFromPresets?: boolean
   workspaceId: string
 }
 

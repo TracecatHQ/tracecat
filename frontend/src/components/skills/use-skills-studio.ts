@@ -776,7 +776,6 @@ export function useSkillsStudio(params: {
     try {
       await deleteSkill({
         skillId: deleteSkillTarget.id,
-        unlinkFromPresets: true,
       })
       setShowDeleteSkillDialog(false)
       setDeleteSkillTarget(null)

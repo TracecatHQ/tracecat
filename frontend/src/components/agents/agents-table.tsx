@@ -409,7 +409,6 @@ export function AgentsTable() {
       await deleteAgentPreset({
         presetId: selectedPreset.id,
         presetName: selectedPreset.name,
-        confirmUnlink: true,
       })
       setDeleteDialogOpen(false)
       setSelectedPreset(null)

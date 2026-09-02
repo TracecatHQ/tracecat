@@ -25,7 +25,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
-from tracecat.agent.dependencies.service import AgentDependencyService
 from tracecat.agent.skill.bindings import SkillBindingService
 from tracecat.agent.skill.schemas import (
     NewSkillName,
@@ -3128,16 +3127,12 @@ class SkillService(SkillBindingService):
     async def archive_skill(
         self,
         skill_id: uuid.UUID,
-        *,
-        unlink_from_presets: bool = False,
     ) -> None:
-        """Archive a skill, publishing removals from active presets first."""
+        """Soft-delete a skill without rewriting existing preset references."""
 
-        dependency_service = AgentDependencyService(self.session, role=self.role)
-        skill = await dependency_service.unlink_skill_from_active_presets(
-            skill_id,
-            unlink_from_presets=unlink_from_presets,
-        )
+        skill = await self._get_skill_for_update(skill_id)
+        if skill is None:
+            raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
         archived_at = datetime.now(UTC)
         skill.archived_at = archived_at
         skill.deleted_at = archived_at
