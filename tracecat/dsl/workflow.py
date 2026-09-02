@@ -240,15 +240,11 @@ def _build_agent_child_search_attributes(
     return _inherit_search_attributes_with_alias(info.typed_search_attributes, alias)
 
 
-def _agent_child_workflow_id(
-    *,
-    session_id: uuid.UUID,
-    run_id: uuid.UUID,
-) -> AgentWorkflowID:
-    """Select the replay-safe workflow ID for one agent child run."""
+def _agent_child_run_id(*, session_id: uuid.UUID) -> uuid.UUID:
+    """Create a per-run ID without advancing UUID state during legacy replay."""
     if workflow.patched(WorkflowPatch.AGENT_CHILD_RUN_ID):
-        return AgentWorkflowID(run_id)
-    return AgentWorkflowID(session_id)
+        return workflow.uuid4()
+    return session_id
 
 
 @workflow.defn
@@ -1030,7 +1026,7 @@ class DSLWorkflow:
                         wf_info, task.ref
                     )
                     session_id = action_args.session_id or workflow.uuid4()
-                    run_id = workflow.uuid4()
+                    run_id = _agent_child_run_id(session_id=session_id)
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
@@ -1068,10 +1064,7 @@ class DSLWorkflow:
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
                         arg=arg,
-                        id=_agent_child_workflow_id(
-                            session_id=session_id,
-                            run_id=run_id,
-                        ),
+                        id=AgentWorkflowID(run_id),
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         # Route to agent worker queue for session activities
                         task_queue=config.TRACECAT__AGENT_QUEUE,
@@ -1106,7 +1099,7 @@ class DSLWorkflow:
                         wf_info, task.ref
                     )
                     session_id = workflow.uuid4()
-                    run_id = workflow.uuid4()
+                    run_id = _agent_child_run_id(session_id=session_id)
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
@@ -1145,10 +1138,7 @@ class DSLWorkflow:
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
                         arg=arg,
-                        id=_agent_child_workflow_id(
-                            session_id=session_id,
-                            run_id=run_id,
-                        ),
+                        id=AgentWorkflowID(run_id),
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         # Route to agent worker queue for session activities
                         task_queue=config.TRACECAT__AGENT_QUEUE,
@@ -1206,7 +1196,7 @@ class DSLWorkflow:
                         wf_info, task.ref
                     )
                     session_id = preset_action_args.session_id or workflow.uuid4()
-                    run_id = workflow.uuid4()
+                    run_id = _agent_child_run_id(session_id=session_id)
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
@@ -1235,10 +1225,7 @@ class DSLWorkflow:
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
                         arg=arg,
-                        id=_agent_child_workflow_id(
-                            session_id=session_id,
-                            run_id=run_id,
-                        ),
+                        id=AgentWorkflowID(run_id),
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         # Route to agent worker queue for session activities
                         task_queue=config.TRACECAT__AGENT_QUEUE,
