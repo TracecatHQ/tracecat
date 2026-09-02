@@ -90,6 +90,7 @@ async def test_slackbot_interface_prepares_direct_agent_config(
                 "model_settings": None,
                 "retries": 6,
                 "limit_messages": 5,
+                "environment": "default",
             }
         ),
     )
@@ -257,6 +258,7 @@ async def test_slackbot_prepare_failure_after_ack_clears_slack(
                 "model_settings": None,
                 "retries": 6,
                 "limit_messages": 5,
+                "environment": "default",
             }
         ),
     )
