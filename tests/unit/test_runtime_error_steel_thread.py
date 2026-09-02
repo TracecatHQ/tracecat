@@ -1079,6 +1079,10 @@ async def test_error_handler_failure_preserves_original_terminal_owner() -> None
             "_run_error_handler_workflow",
             new=AsyncMock(side_effect=handler_error),
         ),
+        patch(
+            "tracecat.dsl.workflow.workflow.patched",
+            return_value=True,
+        ) as patched_mock,
         patch("tracecat.dsl.workflow.workflow.upsert_search_attributes") as upsert_mock,
         patch("tracecat.dsl.workflow.workflow.info"),
         patch(
@@ -1098,6 +1102,9 @@ async def test_error_handler_failure_preserves_original_terminal_owner() -> None
 
     assert exc_info.value is original_error
     assert handler_error.__context__ is original_error
+    patched_mock.assert_called_once_with(
+        WorkflowPatch.PRESERVE_ORIGINAL_ERROR_AFTER_HANDLER_FAILURE
+    )
     upsert_mock.assert_not_called()
 
 
@@ -1119,6 +1126,10 @@ async def test_unclassified_handler_failure_preserves_original_owner() -> None:
             "_get_error_handler_workflow_id",
             new=AsyncMock(side_effect=handler_error),
         ),
+        patch(
+            "tracecat.dsl.workflow.workflow.patched",
+            return_value=True,
+        ) as patched_mock,
         patch("tracecat.dsl.workflow.workflow.upsert_search_attributes") as upsert_mock,
     ):
         try:
@@ -1133,6 +1144,9 @@ async def test_unclassified_handler_failure_preserves_original_owner() -> None:
 
     assert exc_info.value is original_error
     assert handler_error.__context__ is original_error
+    patched_mock.assert_called_once_with(
+        WorkflowPatch.PRESERVE_ORIGINAL_ERROR_AFTER_HANDLER_FAILURE
+    )
     upsert_mock.assert_not_called()
 
 
@@ -1162,6 +1176,10 @@ async def test_error_handler_lookup_failure_defers_owner_stamp_to_interceptor() 
             DSLWorkflow,
             "_upsert_terminal_error_owner",
         ) as upsert_mock,
+        patch(
+            "tracecat.dsl.workflow.workflow.patched",
+            return_value=True,
+        ),
         pytest.raises(ApplicationError) as exc_info,
     ):
         await instance._handle_application_error(
@@ -1197,6 +1215,10 @@ async def test_error_handler_detail_failure_defers_owner_stamp_to_interceptor() 
             DSLWorkflow,
             "_upsert_terminal_error_owner",
         ) as upsert_mock,
+        patch(
+            "tracecat.dsl.workflow.workflow.patched",
+            return_value=True,
+        ),
         pytest.raises(ApplicationError) as exc_info,
     ):
         await instance._handle_application_error(
@@ -1271,6 +1293,7 @@ def test_error_handler_owner_timing_has_distinct_replay_patch() -> None:
     assert WorkflowPatch.ERROR_OWNER_AFTER_HANDLER not in {
         WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE,
         WorkflowPatch.ERROR_OWNER_CONTROL_FLOW,
+        WorkflowPatch.PRESERVE_ORIGINAL_ERROR_AFTER_HANDLER_FAILURE,
     }
 
 

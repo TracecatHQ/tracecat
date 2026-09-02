@@ -2062,6 +2062,12 @@ class DSLWorkflow:
                 "Failed to run error handler workflow",
                 error_type=type(handler_error).__name__,
             )
+            if not workflow.patched(
+                WorkflowPatch.PRESERVE_ORIGINAL_ERROR_AFTER_HANDLER_FAILURE
+            ):
+                if stamp_terminal_owner:
+                    self._upsert_terminal_error_owner(handler_error)
+                raise handler_error from error
             if is_cancelled_exception(handler_error):
                 raise
             handler_failure = handler_error

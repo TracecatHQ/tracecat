@@ -5,12 +5,12 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator, Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Never
+from typing import Any, Never
 
 import pytest
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
-from temporalio.client import Client, WorkflowFailureError
+from temporalio.client import Client, WorkflowFailureError, WorkflowHandle
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, Worker
@@ -161,12 +161,81 @@ class _LegacyHandlerTerminalWorkflow(DSLWorkflow):
         *,
         stamp_terminal_owner: bool,
     ) -> Never:
-        del stamp_terminal_owner
         try:
             await self._get_error_handler_workflow_id(args)
         except Exception as handler_error:
-            raise handler_error from None
+            if stamp_terminal_owner:
+                self._upsert_terminal_error_owner(handler_error)
+            raise handler_error from error
         raise AssertionError("The synthetic handler lookup should fail")
+
+
+def _handler_failure_run_args() -> DSLRunArgs:
+    wf_id = WorkflowUUID.new_uuid4()
+    return DSLRunArgs(
+        role=Role(
+            type="service",
+            service_id="tracecat-runner",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+        ),
+        wf_id=wf_id,
+        dsl=DSLInput(
+            title="Error handler replay probe",
+            description="Capture error-handler failure behavior",
+            entrypoint=DSLEntrypoint(ref="run"),
+            actions=[
+                ActionStatement(
+                    ref="run",
+                    action="core.noop",
+                    args={},
+                )
+            ],
+            error_handler="synthetic-missing-handler",
+        ),
+        trigger_inputs=InlineObject(data={"source": "replay-test"}),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test"},
+            actions={"core.noop": "tracecat_registry"},
+        ),
+        time_anchor=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+
+async def _record_handler_failure(
+    temporal_client: Client,
+    workflow_class: type[DSLWorkflow],
+) -> tuple[WorkflowHandle[Any, Any], WorkflowFailureError]:
+    task_queue = f"dsl-handler-replay-{uuid.uuid4()}"
+    run_args = _handler_failure_run_args()
+    async with (
+        Worker(
+            client=temporal_client,
+            task_queue=task_queue,
+            activities=[
+                _disable_workflow_concurrency_limits,
+                _legacy_missing_error_handler,
+            ],
+            workflows=[workflow_class],
+            workflow_runner=new_sandbox_runner(),
+            interceptors=[RuntimeErrorAttributionInterceptor()],
+        ),
+        Worker(
+            client=temporal_client,
+            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            activities=[_classified_action_failure_activity],
+        ),
+    ):
+        handle = await temporal_client.start_workflow(
+            "DSLWorkflow",
+            run_args,
+            id=generate_exec_id(run_args.wf_id),
+            task_queue=task_queue,
+            execution_timeout=timedelta(seconds=30),
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await handle.result()
+    return handle, exc_info.value
 
 
 @pytest.mark.anyio
@@ -299,74 +368,23 @@ async def test_dsl_workflow_replays_legacy_subflow_failure_history(
 
 
 @pytest.mark.anyio
-async def test_dsl_workflow_replays_handler_terminal_replacement_history(
+async def test_dsl_workflow_handler_failure_preserves_original_with_one_upsert(
     replay_env: WorkflowEnvironment,
 ) -> None:
-    """Preserving the causal failure keeps the terminal command topology stable."""
+    """New histories keep the causal failure and one terminal owner upsert."""
     temporal_client = replay_env.client
-    task_queue = f"dsl-handler-replay-{uuid.uuid4()}"
-    wf_id = WorkflowUUID.new_uuid4()
-    run_args = DSLRunArgs(
-        role=Role(
-            type="service",
-            service_id="tracecat-runner",
-            workspace_id=uuid.uuid4(),
-            organization_id=uuid.uuid4(),
-        ),
-        wf_id=wf_id,
-        dsl=DSLInput(
-            title="Error handler replay probe",
-            description="Capture the former handler terminal replacement",
-            entrypoint=DSLEntrypoint(ref="run"),
-            actions=[
-                ActionStatement(
-                    ref="run",
-                    action="core.noop",
-                    args={},
-                )
-            ],
-            error_handler="synthetic-missing-handler",
-        ),
-        trigger_inputs=InlineObject(data={"source": "replay-test"}),
-        registry_lock=RegistryLock(
-            origins={"tracecat_registry": "test"},
-            actions={"core.noop": "tracecat_registry"},
-        ),
-        time_anchor=datetime(2026, 1, 1, tzinfo=UTC),
+    handle, recorded_failure = await _record_handler_failure(
+        temporal_client,
+        DSLWorkflow,
     )
 
-    async with (
-        Worker(
-            client=temporal_client,
-            task_queue=task_queue,
-            activities=[
-                _disable_workflow_concurrency_limits,
-                _legacy_missing_error_handler,
-            ],
-            workflows=[_LegacyHandlerTerminalWorkflow],
-            workflow_runner=new_sandbox_runner(),
-            interceptors=[RuntimeErrorAttributionInterceptor()],
-        ),
-        Worker(
-            client=temporal_client,
-            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-            activities=[_classified_action_failure_activity],
-        ),
-    ):
-        handle = await temporal_client.start_workflow(
-            "DSLWorkflow",
-            run_args,
-            id=generate_exec_id(wf_id),
-            task_queue=task_queue,
-            execution_timeout=timedelta(seconds=30),
-        )
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await handle.result()
-
-    recorded_classification = extract_error_classification(exc_info.value)
+    recorded_classification = extract_error_classification(recorded_failure)
     assert recorded_classification is not None
-    assert recorded_classification.owner is RuntimeErrorOwner.PLATFORM
+    assert recorded_classification.owner is RuntimeErrorOwner.USER
+    assert recorded_classification.kind is RuntimeErrorKind.ACTION_EXECUTION_FAILED
     history = await handle.fetch_history()
+    patch_ids = await recorded_patch_ids(temporal_client, history)
+    assert WorkflowPatch.PRESERVE_ORIGINAL_ERROR_AFTER_HANDLER_FAILURE in patch_ids
     activity_failure_events = [
         event
         for event in history.events
@@ -397,11 +415,64 @@ async def test_dsl_workflow_replays_handler_terminal_replacement_history(
     )
     terminal_classification = extract_error_classification(recorded_error)
     assert terminal_classification is not None
+    assert terminal_classification.owner is RuntimeErrorOwner.USER
+    assert terminal_classification.kind is RuntimeErrorKind.ACTION_EXECUTION_FAILED
+    assert (await handle.describe()).typed_search_attributes.get(
+        TemporalSearchAttr.ERROR_OWNER.key
+    ) == RuntimeErrorOwner.USER.value
+
+
+@pytest.mark.anyio
+async def test_dsl_workflow_replays_handler_terminal_replacement_history(
+    replay_env: WorkflowEnvironment,
+) -> None:
+    """The preservation patch replays the exact former terminal command path."""
+    temporal_client = replay_env.client
+    handle, recorded_failure = await _record_handler_failure(
+        temporal_client,
+        _LegacyHandlerTerminalWorkflow,
+    )
+
+    recorded_classification = extract_error_classification(recorded_failure)
+    assert recorded_classification is not None
+    assert recorded_classification.owner is RuntimeErrorOwner.PLATFORM
+    history = await handle.fetch_history()
+    activity_failure_events = [
+        event
+        for event in history.events
+        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED
+    ]
+    assert len(activity_failure_events) == 2
+    handler_failure_event = activity_failure_events[-1]
+    terminal_events = [
+        event.event_type
+        for event in history.events
+        if event.event_id > handler_failure_event.event_id
+        if (
+            event.event_type == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED
+            or (
+                event.event_type
+                == EventType.EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES
+                and TemporalSearchAttr.ERROR_OWNER.value
+                in event.upsert_workflow_search_attributes_event_attributes.search_attributes.indexed_fields
+            )
+        )
+    ]
+    assert terminal_events == [
+        EventType.EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES,
+        EventType.EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES,
+        EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,
+    ]
+    recorded_error = await temporal_client.data_converter.decode_failure(
+        history.events[-1].workflow_execution_failed_event_attributes.failure
+    )
+    terminal_classification = extract_error_classification(recorded_error)
+    assert terminal_classification is not None
     assert terminal_classification.owner is RuntimeErrorOwner.PLATFORM
     assert terminal_classification.kind is RuntimeErrorKind.RUNTIME_UNCLASSIFIED
     assert (await handle.describe()).typed_search_attributes.get(
         TemporalSearchAttr.ERROR_OWNER.key
-    ) == RuntimeErrorOwner.PLATFORM.value
+    ) == RuntimeErrorOwner.USER.value
 
     replay_result = await Replayer(
         workflows=[DSLWorkflow],
