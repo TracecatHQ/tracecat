@@ -10,8 +10,10 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.preset.activities import (
+    ResolveAgentPresetConfigActivityInput,
     ResolveAgentPresetVersionRefActivityInput,
     ResolveAgentsConfigActivityInput,
+    resolve_agent_preset_config_activity,
     resolve_agent_preset_version_ref_activity,
     resolve_agents_config_activity,
     resolve_custom_model_provider_config_activity,
@@ -25,7 +27,7 @@ from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubag
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
 from tracecat.temporal.errors import extract_error_classification
 
@@ -36,6 +38,17 @@ class _AsyncContext:
 
     async def __aenter__(self) -> object:
         return self._value
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
+class _FailingAsyncContext:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    async def __aenter__(self) -> None:
+        raise self._error
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         return None
@@ -85,6 +98,47 @@ async def test_resolve_agent_preset_version_ref_activity_returns_ids(
     )
     assert result.preset_id == version.preset_id
     assert result.preset_version_id == version.id
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error",
+    [
+        TracecatNotFoundError("Agent preset not found"),
+        TracecatValidationError("Preset version does not belong to preset"),
+    ],
+)
+async def test_resolve_agent_preset_config_classifies_user_input_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    service = SimpleNamespace(
+        with_preset_config=lambda **_: _FailingAsyncContext(error)
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_agent_preset_config_activity(
+            ResolveAgentPresetConfigActivityInput(
+                role=role,
+                preset_slug="missing-preset",
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert exc_info.value.non_retryable is True
 
 
 def test_resolve_agents_config_result_derives_session_binding() -> None:

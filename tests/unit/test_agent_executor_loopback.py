@@ -922,7 +922,9 @@ async def test_handle_connection_classifies_invalid_runtime_envelope_as_protocol
         {"type": "message", "message": []},
         {"type": "message"},
         {"type": "session_line", "session_line": 1, "sdk_session_id": "sdk"},
+        {"type": "session_line", "session_line": "{}", "sdk_session_id": ""},
         {"type": "session_line", "session_line": "{}", "internal": 1},
+        {"type": "session_update", "sdk_session_id": "", "sdk_session_data": "{}"},
         {"type": "session_update", "sdk_session_id": "sdk"},
         {"type": "error"},
         {"type": "result", "result_usage": []},
@@ -997,6 +999,9 @@ async def test_handle_connection_classifies_malformed_session_line_as_protocol_f
     assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
     assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
     stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    assert result.terminal_stream_error_emitted is True
+    writer.close.assert_called_once()
+    writer.wait_closed.assert_awaited_once()
 
 
 @pytest.mark.anyio

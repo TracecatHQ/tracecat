@@ -1115,6 +1115,23 @@ class LLMSocketProxy:
                     logger.debug(
                         "Failed to send SSE error event, client likely disconnected"
                     )
+            elif isinstance(exc, httpx.TransportError):
+                status_code = 504 if isinstance(exc, httpx.TimeoutException) else 502
+                logger.warning(
+                    "Response body transport error after headers sent",
+                    status_code=status_code,
+                    error_type=type(exc).__name__,
+                    trace_request_id=trace_request_id,
+                )
+                if path is not None and not _is_non_critical_path(path):
+                    self._emit_error(
+                        f"LiteLLM response failed: {str(exc)[:512]}",
+                        _transport_error_classification(
+                            exc,
+                            route_is_direct=route_is_direct,
+                            timed_out=isinstance(exc, httpx.TimeoutException),
+                        ),
+                    )
             else:
                 raise
 

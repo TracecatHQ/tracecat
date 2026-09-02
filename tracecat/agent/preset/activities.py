@@ -19,6 +19,7 @@ from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentCatalog
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.temporal.errors import raise_application_error_from_classification
 
 
@@ -65,14 +66,17 @@ class ResolveAgentsConfigActivityInput(BaseModel):
 async def resolve_agent_preset_config_activity(
     args: ResolveAgentPresetConfigActivityInput,
 ) -> AgentConfigPayload:
-    async with AgentManagementService.with_session(role=args.role) as service:
-        async with service.with_preset_config(
-            preset_id=args.preset_id,
-            slug=args.preset_slug,
-            preset_version_id=args.preset_version_id,
-            preset_version=args.preset_version,
-        ) as config:
-            return agent_config_to_payload(config)
+    try:
+        async with AgentManagementService.with_session(role=args.role) as service:
+            async with service.with_preset_config(
+                preset_id=args.preset_id,
+                slug=args.preset_slug,
+                preset_version_id=args.preset_version_id,
+                preset_version=args.preset_version,
+            ) as config:
+                return agent_config_to_payload(config)
+    except (TracecatNotFoundError, TracecatValidationError) as exc:
+        raise_application_error_from_classification(invalid_agent_configuration(exc))
 
 
 @activity.defn

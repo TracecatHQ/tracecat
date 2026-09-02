@@ -462,6 +462,76 @@ async def test_forward_request_classifies_error_body_read_failure_by_route(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("direct", "expected_owner", "expected_kind"),
+    [
+        (
+            False,
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+        ),
+        (True, RuntimeErrorOwner.USER, RuntimeErrorKind.AGENT_EXECUTION_FAILED),
+    ],
+)
+async def test_forward_request_does_not_write_second_response_after_body_failure(
+    tmp_path: Path,
+    direct: bool,
+    expected_owner: RuntimeErrorOwner,
+    expected_kind: RuntimeErrorKind,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json", "Content-Length": "100"},
+            request=request,
+            stream=_FailingResponseStream(request),
+        )
+
+    direct_routes = (
+        {
+            "customer-alias": LLMRoute(
+                base_url="https://customer-provider.example",
+                model_provider="custom-model-provider",
+            )
+        }
+        if direct
+        else None
+    )
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(direct_routes=direct_routes),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+    body = b'{"model":"customer-alias","messages":[]}' if direct else b'{"messages":[]}'
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Content-Type": "application/json"},
+                "body": body,
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert response_text.count("HTTP/1.1") == 1
+    assert len(errors) == 1
+    assert errors[0].classification.owner is expected_owner
+    assert errors[0].classification.kind is expected_kind
+    assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("failure", ["connect", "timeout"])
 async def test_forward_request_classifies_direct_transport_failure_as_user_owned(
     tmp_path: Path,

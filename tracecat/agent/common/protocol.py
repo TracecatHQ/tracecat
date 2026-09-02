@@ -245,13 +245,13 @@ class RuntimeEventEnvelope:
                 raise ValueError("Runtime stream event must include event")
             case "message" if message is None:
                 raise ValueError("Runtime message event must include message")
-            case "session_line" if session_line is None or sdk_session_id is None:
+            case "session_line" if session_line is None or not sdk_session_id:
                 raise ValueError(
-                    "Runtime session_line event must include session_line and sdk_session_id"
+                    "Runtime session_line event must include session_line and a non-empty sdk_session_id"
                 )
-            case "session_update" if sdk_session_id is None or sdk_session_data is None:
+            case "session_update" if not sdk_session_id or sdk_session_data is None:
                 raise ValueError(
-                    "Runtime session_update event must include sdk_session_id and sdk_session_data"
+                    "Runtime session_update event must include a non-empty sdk_session_id and sdk_session_data"
                 )
             case "error" if error is None:
                 raise ValueError("Runtime error event must include error")
