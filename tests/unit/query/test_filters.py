@@ -5,6 +5,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from tracecat.query.filters import (
     MAX_FILTER_CONDITIONS,
+    MAX_FILTER_VALUES,
     AndClause,
     Condition,
     Filter,
@@ -105,4 +106,35 @@ def test_filter_rejects_tree_over_maximum_condition_count() -> None:
     with pytest.raises(ValidationError, match="maximum condition count 50"):
         FILTER_ADAPTER.validate_python(
             {"and": [_condition(index) for index in range(MAX_FILTER_CONDITIONS + 1)]}
+        )
+
+
+def test_filter_accepts_maximum_value_count() -> None:
+    parsed = FILTER_ADAPTER.validate_python(
+        {"field": "status", "op": "in", "value": list(range(MAX_FILTER_VALUES))}
+    )
+
+    assert isinstance(parsed, Condition)
+
+
+def test_filter_rejects_single_condition_over_maximum_value_count() -> None:
+    with pytest.raises(ValidationError, match="maximum value count 1000"):
+        FILTER_ADAPTER.validate_python(
+            {
+                "field": "status",
+                "op": "in",
+                "value": list(range(MAX_FILTER_VALUES + 1)),
+            }
+        )
+
+
+def test_filter_rejects_combined_tree_over_maximum_value_count() -> None:
+    with pytest.raises(ValidationError, match="maximum value count 1000"):
+        FILTER_ADAPTER.validate_python(
+            {
+                "and": [
+                    {"field": "first", "op": "in", "value": list(range(501))},
+                    {"field": "second", "op": "in", "value": list(range(500))},
+                ]
+            }
         )

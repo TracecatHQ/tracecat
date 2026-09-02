@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -100,6 +101,11 @@ class _Row(_Base):
     __tablename__ = "query_compiler_test_row"
 
     value: Mapped[str] = mapped_column(primary_key=True)
+
+
+class _NativeStatus(StrEnum):
+    OPEN = "open"
+    CLOSED = "closed"
 
 
 def _expression(kind: FieldKind) -> ColumnElement[Any]:
@@ -381,9 +387,12 @@ def test_exists_factory_receives_validated_condition() -> None:
     expression = compile_filter(
         Condition(field="tags", op=FilterOp.CONTAINS, value="malware"), resolver
     )
+    sql, _ = _compile_sql(expression)
 
     assert isinstance(expression, ColumnElement)
     assert received == [(FilterOp.CONTAINS, "malware")]
+    assert "EXISTS" in sql
+    assert "tag =" in sql
 
 
 def test_accepts_orm_instrumented_attribute() -> None:
@@ -498,6 +507,75 @@ def test_normalizes_direct_expression_values() -> None:
             )
         )
         assert list(params.values()) == [expected]
+
+
+def test_normalizes_native_enum_values() -> None:
+    expression = sa.column("status", sa.Enum(_NativeStatus))
+    resolver = StubResolver(
+        {
+            "status": ResolvedField(
+                expr=expression,
+                kind=FieldKind.ENUM,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+
+    _, params = _compile_sql(
+        compile_filter(
+            Condition(field="status", op=FilterOp.IN, value=["open", "closed"]),
+            resolver,
+        )
+    )
+
+    assert list(params.values()) == [[_NativeStatus.OPEN, _NativeStatus.CLOSED]]
+
+
+def test_rejects_unknown_native_enum_value() -> None:
+    resolver = StubResolver(
+        {
+            "status": ResolvedField(
+                expr=sa.column("status", sa.Enum(_NativeStatus)),
+                kind=FieldKind.ENUM,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+
+    with pytest.raises(TracecatValidationError, match="field 'status'"):
+        compile_filter(
+            Condition(field="status", op=FilterOp.EQ, value="invalid"), resolver
+        )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2026-09-01T12:00:00", datetime(2026, 9, 1, 12)),
+        ("2026-09-01T12:00:00-04:00", datetime(2026, 9, 1, 12)),
+        (date(2026, 9, 1), datetime(2026, 9, 1)),
+    ],
+)
+def test_normalizes_timezone_free_datetime_without_tzinfo(
+    value: str | date, expected: datetime
+) -> None:
+    resolver = StubResolver(
+        {
+            "created_at": ResolvedField(
+                expr=sa.column("created_at", sa.DateTime(timezone=False)),
+                kind=FieldKind.TEMPORAL,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+
+    _, params = _compile_sql(
+        compile_filter(
+            Condition(field="created_at", op=FilterOp.EQ, value=value), resolver
+        )
+    )
+
+    assert list(params.values()) == [expected]
 
 
 @pytest.mark.parametrize(

@@ -18,6 +18,7 @@ from pydantic import (
 
 MAX_FILTER_DEPTH = 4
 MAX_FILTER_CONDITIONS = 50
+MAX_FILTER_VALUES = 1_000
 
 
 class FilterOp(StrEnum):
@@ -54,6 +55,11 @@ class Condition(_FilterModel):
     field: str = Field(min_length=1)
     op: FilterOp
     value: FilterValue | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def validate_tree_limits(self) -> Self:
+        _validate_tree_limits(self)
+        return self
 
 
 class AndClause(_FilterModel):
@@ -130,28 +136,33 @@ type Filter = Annotated[
 ]
 
 
-def _tree_stats(node: Filter, *, depth: int = 1) -> tuple[int, int]:
+def _tree_stats(node: Filter, *, depth: int = 1) -> tuple[int, int, int]:
     match node:
-        case Condition():
-            return depth, 1
+        case Condition(value=value):
+            value_count = len(value) if isinstance(value, list) else value is not None
+            return depth, 1, int(value_count)
         case AndClause(and_=children) | OrClause(or_=children):
             stats = [_tree_stats(child, depth=depth + 1) for child in children]
         case NotClause(not_=child):
             stats = [_tree_stats(child, depth=depth + 1)]
 
-    return max(node_depth for node_depth, _ in stats), sum(
-        condition_count for _, condition_count in stats
+    return (
+        max(node_depth for node_depth, _, _ in stats),
+        sum(condition_count for _, condition_count, _ in stats),
+        sum(value_count for _, _, value_count in stats),
     )
 
 
 def _validate_tree_limits(node: Filter) -> None:
-    depth, condition_count = _tree_stats(node)
+    depth, condition_count, value_count = _tree_stats(node)
     if depth > MAX_FILTER_DEPTH:
         raise ValueError(f"Filter tree exceeds maximum depth {MAX_FILTER_DEPTH}")
     if condition_count > MAX_FILTER_CONDITIONS:
         raise ValueError(
             f"Filter tree exceeds maximum condition count {MAX_FILTER_CONDITIONS}"
         )
+    if value_count > MAX_FILTER_VALUES:
+        raise ValueError(f"Filter tree exceeds maximum value count {MAX_FILTER_VALUES}")
 
 
 AndClause.model_rebuild(_types_namespace={"Filter": Filter})

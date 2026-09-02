@@ -141,7 +141,7 @@ def _normalize_value(
     resolved: ResolvedField,
     expression: ColumnElement[Any],
     value: FilterValue | None,
-) -> FilterValue | None:
+) -> object | list[object] | None:
     if value is None:
         return None
     if isinstance(value, list):
@@ -157,13 +157,15 @@ def _normalize_scalar(
     kind: FieldKind,
     expression: ColumnElement[Any],
     value: FilterScalar,
-) -> FilterScalar:
+) -> object:
     try:
         match kind:
             case FieldKind.NUMBER:
                 return _normalize_number(expression, value)
             case FieldKind.TEMPORAL:
                 return _normalize_temporal(expression, value)
+            case FieldKind.ENUM:
+                return _normalize_enum(expression, value)
             case FieldKind.UUID:
                 if isinstance(value, UUID):
                     return value
@@ -218,7 +220,22 @@ def _normalize_temporal(
         parsed = datetime(value.year, value.month, value.day, tzinfo=UTC)
     else:
         parsed = _parse_iso_datetime(value)
+    if isinstance(expression.type, sa.DateTime) and not expression.type.timezone:
+        return parsed.replace(tzinfo=None)
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
+
+def _normalize_enum(expression: ColumnElement[Any], value: FilterScalar) -> object:
+    if not isinstance(value, str):
+        raise TypeError
+    if not isinstance(expression.type, sa.Enum):
+        return value
+
+    if enum_class := expression.type.enum_class:
+        return enum_class(value)
+    if value not in expression.type.enums:
+        raise ValueError
+    return value
 
 
 def _parse_iso_datetime(value: str) -> datetime:
@@ -229,7 +246,7 @@ def _parse_iso_datetime(value: str) -> datetime:
 def _compile_expression(
     condition: Condition,
     expression: ColumnElement[Any],
-    value: FilterValue | None,
+    value: object | list[object] | None,
 ) -> ColumnElement[bool]:
     match condition.op:
         case FilterOp.EQ:
