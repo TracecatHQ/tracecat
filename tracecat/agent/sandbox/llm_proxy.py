@@ -24,6 +24,7 @@ import orjson
 from fastapi import HTTPException
 
 from tracecat import config as app_config
+from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
@@ -33,6 +34,7 @@ from tracecat.agent.error_policy import (
 from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
 from tracecat.runtime.errors import RuntimeErrorClassification
 
@@ -228,7 +230,12 @@ class LLMRoute:
         if not self.is_direct:
             return None
         if self.catalog_id is not None:
-            creds = await svc.get_catalog_credentials(self.catalog_id)
+            try:
+                creds = await svc.get_catalog_credentials(self.catalog_id)
+            except TracecatAuthorizationError as exc:
+                raise AgentSandboxValidationError(
+                    "Custom model provider is not available for this workspace."
+                ) from exc
         else:
             creds = await svc.get_runtime_provider_credentials(
                 "custom-model-provider",
