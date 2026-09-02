@@ -682,12 +682,83 @@ def test_rejects_invalid_numeric_string(value: str) -> None:
         compile_filter(Condition(field="value", op=FilterOp.EQ, value=value), resolver)
 
 
+@pytest.mark.parametrize(
+    ("value", "should_pass"),
+    [
+        ("1e131071", True),
+        ("1e131072", False),
+        ("1e-16383", True),
+        ("1e-16384", False),
+    ],
+)
+def test_validates_postgresql_numeric_extent(value: str, should_pass: bool) -> None:
+    resolver = StubResolver(
+        {
+            "value": ResolvedField(
+                expr=sa.column("value", sa.Numeric()),
+                kind=FieldKind.NUMBER,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+    condition = Condition(field="value", op=FilterOp.EQ, value=value)
+
+    if should_pass:
+        _, params = _compile_sql(compile_filter(condition, resolver))
+        assert list(params.values()) == [Decimal(value)]
+    else:
+        with pytest.raises(TracecatValidationError, match="field 'value'"):
+            compile_filter(condition, resolver)
+
+
+def test_rejects_extreme_exponent_before_integer_conversion() -> None:
+    resolver = StubResolver(
+        {
+            "value": ResolvedField(
+                expr=sa.column("value", sa.BigInteger()),
+                kind=FieldKind.NUMBER,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+
+    with pytest.raises(TracecatValidationError, match="field 'value'"):
+        compile_filter(
+            Condition(field="value", op=FilterOp.EQ, value="1e1000000"), resolver
+        )
+
+
 @pytest.mark.parametrize("value", [10**309, Decimal("1e10000")])
 def test_rejects_values_that_overflow_float(value: int | Decimal) -> None:
     resolver = StubResolver(
         {
             "value": ResolvedField(
                 expr=sa.column("value", sa.Float()),
+                kind=FieldKind.NUMBER,
+                allowed_ops=ALL_OPS,
+            )
+        }
+    )
+
+    with pytest.raises(TracecatValidationError, match="field 'value'"):
+        compile_filter(Condition(field="value", op=FilterOp.EQ, value=value), resolver)
+
+
+@pytest.mark.parametrize(
+    ("sql_type", "value"),
+    [
+        (sa.Float(), "1e-400"),
+        (sa.REAL(), "1e100"),
+        (sa.Float(precision=24), "1e100"),
+    ],
+)
+def test_rejects_float_underflow_and_type_overflow(
+    sql_type: sa.Float, value: str
+) -> None:
+    resolver = StubResolver(
+        {
+            "value": ResolvedField(
+                expr=sa.column("value", sql_type),
                 kind=FieldKind.NUMBER,
                 allowed_ops=ALL_OPS,
             )

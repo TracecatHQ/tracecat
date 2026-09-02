@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import struct
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -35,6 +36,8 @@ POSTGRES_INTEGER_MIN = -(2**31)
 POSTGRES_INTEGER_MAX = 2**31 - 1
 POSTGRES_BIGINT_MIN = -(2**63)
 POSTGRES_BIGINT_MAX = 2**63 - 1
+POSTGRES_NUMERIC_MAX_WHOLE_DIGITS = 131_072
+POSTGRES_NUMERIC_MAX_FRACTIONAL_DIGITS = 16_383
 
 
 def compile_filter(node: Filter, resolver: FieldResolver) -> ColumnElement[bool]:
@@ -220,22 +223,16 @@ def _normalize_number(
     if not decimal_value.is_finite():
         raise ValueError
     if isinstance(value_type, sa.Integer):
+        lower_bound, upper_bound = _integer_bounds(value_type)
+        if not Decimal(lower_bound) <= decimal_value <= Decimal(upper_bound):
+            raise ValueError
         if decimal_value != decimal_value.to_integral_value():
             raise ValueError
-        integer_value = int(decimal_value)
-        lower_bound, upper_bound = _integer_bounds(value_type)
-        if not lower_bound <= integer_value <= upper_bound:
-            raise ValueError
-        return integer_value
+        return int(decimal_value)
     if isinstance(value_type, sa.Float):
-        try:
-            float_value = float(value)
-        except OverflowError as exc:
-            raise ValueError from exc
-        if not math.isfinite(float_value):
-            raise ValueError
-        return float_value
+        return _normalize_float(value_type, decimal_value)
     if isinstance(value_type, sa.Numeric):
+        _validate_numeric_extent(decimal_value)
         # SQLAlchemy otherwise infers an integer literal as BIGINT, even when the
         # compared expression is NUMERIC. Decimal forces the correct bind type.
         return decimal_value
@@ -248,6 +245,51 @@ def _integer_bounds(type_: sa.Integer) -> tuple[int, int]:
     if isinstance(type_, sa.BigInteger):
         return POSTGRES_BIGINT_MIN, POSTGRES_BIGINT_MAX
     return POSTGRES_INTEGER_MIN, POSTGRES_INTEGER_MAX
+
+
+def _normalize_float(type_: sa.Float, value: Decimal) -> float:
+    try:
+        float_value = float(value)
+    except OverflowError as exc:
+        raise ValueError from exc
+    if not math.isfinite(float_value) or (float_value == 0 and not value.is_zero()):
+        raise ValueError
+
+    if isinstance(type_, sa.REAL) or (
+        type_.precision is not None and type_.precision <= 24
+    ):
+        try:
+            packed = struct.pack("!f", float_value)
+        except OverflowError as exc:
+            raise ValueError from exc
+        float32_value = struct.unpack("!f", packed)[0]
+        if not math.isfinite(float32_value) or (
+            float32_value == 0 and not value.is_zero()
+        ):
+            raise ValueError
+    return float_value
+
+
+def _validate_numeric_extent(value: Decimal) -> None:
+    if value.is_zero():
+        return
+
+    decimal_tuple = value.as_tuple()
+    exponent = decimal_tuple.exponent
+    assert isinstance(exponent, int)
+    trailing_zeros = 0
+    for digit in reversed(decimal_tuple.digits):
+        if digit != 0:
+            break
+        trailing_zeros += 1
+    effective_exponent = exponent + trailing_zeros
+    whole_digits = max(value.adjusted() + 1, 0)
+    fractional_digits = max(-effective_exponent, 0)
+    if (
+        whole_digits > POSTGRES_NUMERIC_MAX_WHOLE_DIGITS
+        or fractional_digits > POSTGRES_NUMERIC_MAX_FRACTIONAL_DIGITS
+    ):
+        raise ValueError
 
 
 def _normalize_temporal(
