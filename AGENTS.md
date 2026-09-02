@@ -434,6 +434,14 @@ Removing something takes three PRs, usually across three releases:
   express.
 - Before hand-labeling, list existing repo labels with `gh label list` and
   pick from that set. See "Never invent vocabulary" below.
+- The autolabeler only ever adds. Retitle a pull request and the labels its
+  old title earned stay put, so `fix(workflows): ...` retitled to `ci: ...`
+  keeps `engine` alongside the new `cicd` and lands in two sections. Remove the
+  stale ones yourself:
+  `gh api --method DELETE repos/TracecatHQ/tracecat/issues/<pr>/labels/<label>`.
+  This is deliberate rather than a gap: the backfill and the autolabeler both
+  add only, so a label applied by hand for nuance the title cannot express is
+  never silently removed.
 - `gh pr edit` subcommands fail on this repo because of the Projects-classic
   deprecation. Apply labels with
   `gh api repos/TracecatHQ/tracecat/issues/<pr-number>/labels -f "labels[]=<label>"`.

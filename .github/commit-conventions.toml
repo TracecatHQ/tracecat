@@ -253,9 +253,11 @@ tracecat = ["api", "engine", "ui"]
 ai = ["agents", "actions"]
 workflows = ["engine"]
 
+# Written as complete sentences: the checker appends them after the list of
+# candidates, so a note can name a replacement that is not itself a scope.
 [ambiguous_scope_notes]
-app = "retired: it historically meant the backend, not the frontend"
-workflows = "GitHub Actions to one reader, the product's workflow engine to another; GitHub Actions work is a bare `ci:` with no scope"
+app = "It is retired: it historically meant the backend, not the frontend."
+workflows = "It reads as GitHub Actions to another reader; if that is what you changed, drop the scope and write a bare `ci:`."
 
 # Anything that is neither canonical, alias, nor ambiguous is treated as a
 # vendor name. The autolabeler absorbs those into `integrations` so the 69

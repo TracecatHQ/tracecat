@@ -111,6 +111,21 @@ def test_rejected_workflows_scope_names_both_readings() -> None:
     assert "GitHub Actions" in messages
     assert "`ci:`" in messages
     assert "`engine`" in messages
+    # The bare-`ci:` guidance has to trail the candidate list. Read before it,
+    # "pick the area you changed: `engine`" contradicts "write no scope at all".
+    assert messages.index("`engine`") < messages.index("`ci:`")
+
+
+@pytest.mark.parametrize("scope", sorted(CONVENTIONS.ambiguous_scope_notes))
+def test_an_ambiguous_note_is_a_sentence_after_the_candidates(scope: str) -> None:
+    """Notes are appended, so a fragment reads as a run-on against the list."""
+    note = CONVENTIONS.ambiguous_scope_notes[scope]
+    assert note[:1].isupper(), note
+    assert note.endswith("."), note
+    messages = " ".join(
+        v.message for v in check_title(f"fix({scope}): x", CONVENTIONS).violations
+    )
+    assert messages.endswith(note)
 
 
 def test_all_violations_are_reported_not_just_the_first() -> None:
