@@ -443,7 +443,7 @@ def _activities(state: _HarnessState) -> list[Callable[..., Any]]:
         del input
         state.executor_calls += 1
         if state.injection.point is FaultPoint.EXECUTOR_TIMEOUT:
-            await asyncio.sleep(60)
+            await asyncio.sleep(2)
             raise AssertionError("executor timeout activity unexpectedly completed")
         if state.injection.point is FaultPoint.EXECUTOR_ACTIVITY:
             if state.injection.classification is not None:
