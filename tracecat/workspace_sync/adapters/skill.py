@@ -401,13 +401,21 @@ class SkillAdapter(DirectoryManifestAdapter):
                 )
             if current is None or not await self._version_matches_desired(
                 workspace_service,
-                skill_service,
                 current=current,
                 desired=spec,
             ):
+                prior_file_refs = (
+                    await self._file_refs_for_version(
+                        workspace_service,
+                        current.id,
+                    )
+                    if current is not None
+                    else None
+                )
                 file_refs = await self._materialize_file_refs(
                     skill_service,
                     spec,
+                    prior_file_refs=prior_file_refs,
                 )
                 current = await skill_service.publish_version_from_blob_refs(
                     skill=skill,
@@ -436,7 +444,6 @@ class SkillAdapter(DirectoryManifestAdapter):
     async def _version_matches_desired(
         self,
         workspace_service: SyncMappingService,
-        skill_service: SkillService,
         *,
         current: SkillVersion,
         desired: SkillResourceSpec,
@@ -447,16 +454,9 @@ class SkillAdapter(DirectoryManifestAdapter):
             return False
         rows = await self._skill_version_rows(workspace_service, current.id)
         current_files = {
-            version_file.path: (blob_row.sha256, version_file.content_type)
-            for version_file, blob_row in rows
+            version_file.path: blob_row.sha256 for version_file, blob_row in rows
         }
-        desired_files = {
-            file.path: (
-                file.sha256,
-                skill_service._guess_content_type(file.path),
-            )
-            for file in desired.files
-        }
+        desired_files = {file.path: file.sha256 for file in desired.files}
         return current_files == desired_files
 
     async def _file_refs_for_version(
@@ -480,6 +480,8 @@ class SkillAdapter(DirectoryManifestAdapter):
         self,
         skill_service: SkillService,
         spec: SkillResourceSpec,
+        *,
+        prior_file_refs: Mapping[str, SkillFileBlobRef] | None = None,
     ) -> dict[str, SkillFileBlobRef]:
         """Materialize a Git-owned Skill head's declared file blobs."""
 
@@ -498,6 +500,14 @@ class SkillAdapter(DirectoryManifestAdapter):
                     f"Skill {spec.slug!r} head "
                     f"file {file_spec.path!r} could not be decoded: {e}"
                 ) from e
+            prior_ref = (
+                prior_file_refs.get(file_spec.path)
+                if prior_file_refs is not None
+                else None
+            )
+            if prior_ref is not None and prior_ref.blob.sha256 == file_spec.sha256:
+                file_refs[file_spec.path] = prior_ref
+                continue
             blob_row = await skill_service._get_or_create_blob(content=content)
             file_refs[file_spec.path] = SkillFileBlobRef(
                 blob=blob_row,

@@ -2920,6 +2920,72 @@ async def test_pull_older_skill_content_rolls_forward_a_new_version(
 
 
 @pytest.mark.anyio
+async def test_pull_unchanged_skill_ignores_inferred_content_type(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    git_tree = _skill_git_tree(
+        source_id="qa-enrichment-skill",
+        slug="qa-enrichment-skill",
+        name="QA enrichment skill",
+    )
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="f" * 40,
+            tree_sha="tree-1",
+            files=git_tree,
+        ),
+        VcsTreeSnapshot(
+            commit_sha="g" * 40,
+            tree_sha="tree-2",
+            files=git_tree,
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="f" * 40))
+        skill = await session.scalar(
+            select(Skill).where(
+                Skill.workspace_id == svc_role.workspace_id,
+                Skill.slug == "qa-enrichment-skill",
+            )
+        )
+        assert skill is not None
+        assert skill.current_version_id is not None
+        first_version_id = skill.current_version_id
+
+        with patch(
+            "tracecat.agent.skill.service.SkillService._guess_content_type",
+            return_value="application/octet-stream",
+        ):
+            second_result = await service.pull(options=PullOptions(commit_sha="g" * 40))
+
+    assert first_result.success is True
+    assert second_result.success is True
+    await session.refresh(skill)
+    assert skill.current_version_id == first_version_id
+    version_ids = list(
+        (
+            await session.scalars(
+                select(SkillVersion.id).where(
+                    SkillVersion.workspace_id == svc_role.workspace_id,
+                    SkillVersion.skill_id == skill.id,
+                )
+            )
+        ).all()
+    )
+    assert version_ids == [first_version_id]
+
+
+@pytest.mark.anyio
 async def test_pull_agent_preset_slug_swap_reuses_source_id_mappings(
     session: AsyncSession,
     svc_role: Role,
