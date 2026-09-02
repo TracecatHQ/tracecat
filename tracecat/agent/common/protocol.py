@@ -144,6 +144,7 @@ type RuntimeEventType = Literal[
 
 _RUNTIME_EVENT_TYPES: frozenset[str] = frozenset(get_args(RuntimeEventType.__value__))
 _RUNTIME_LOG_LEVELS = frozenset({"debug", "info", "warning", "error"})
+_RUNTIME_LOG_EXTRA_RESERVED_KEYS = frozenset({"self", "level", "message", "session_id"})
 
 
 def _is_runtime_event_type(value: object) -> TypeGuard[RuntimeEventType]:
@@ -233,8 +234,11 @@ class RuntimeEventEnvelope:
         internal = boolean(data, "internal", path="runtime_event")
         if log_level is not None and log_level not in _RUNTIME_LOG_LEVELS:
             raise ValueError("Runtime event log_level has an unknown log level")
-        if log_extra is not None and "session_id" in log_extra:
-            raise ValueError("Runtime event log_extra cannot override session_id")
+        if (
+            log_extra is not None
+            and _RUNTIME_LOG_EXTRA_RESERVED_KEYS & log_extra.keys()
+        ):
+            raise ValueError("Runtime event log_extra contains a reserved key")
 
         match raw_type:
             case "stream_event" if event is None:

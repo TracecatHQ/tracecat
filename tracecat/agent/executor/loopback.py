@@ -259,20 +259,20 @@ def _runtime_envelope_from_json(payload: bytes) -> RuntimeEventEnvelope:
         decoded = orjson.loads(payload)
         if not isinstance(decoded, dict):
             raise ValueError("Runtime event payload must be a JSON object")
-        envelope = RuntimeEventEnvelope.from_dict(cast(dict[str, Any], decoded))
-        if envelope.type == "session_line" and envelope.session_line is not None:
-            _session_line_from_json(envelope.session_line)
-        return envelope
+        return RuntimeEventEnvelope.from_dict(cast(dict[str, Any], decoded))
     except (orjson.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise RuntimeEnvelopeProtocolError from exc
 
 
 def _session_line_from_json(session_line: str) -> ClaudeSessionLine:
     """Decode and validate the outer shape of a Claude Code JSONL line."""
-    decoded = orjson.loads(session_line)
-    if not isinstance(decoded, dict):
-        raise ValueError("Claude session line must be a JSON object")
-    return cast(ClaudeSessionLine, decoded)
+    try:
+        decoded = orjson.loads(session_line)
+        if not isinstance(decoded, dict):
+            raise ValueError("Claude session line must be a JSON object")
+        return cast(ClaudeSessionLine, decoded)
+    except (orjson.JSONDecodeError, ValueError) as exc:
+        raise RuntimeEnvelopeProtocolError from exc
 
 
 class LoopbackHandler:
@@ -613,7 +613,10 @@ class LoopbackHandler:
                 pass
 
             case "session_line":
-                if envelope.session_line and envelope.sdk_session_id:
+                if (
+                    envelope.session_line is not None
+                    and envelope.sdk_session_id is not None
+                ):
                     await self.send_session_line(
                         envelope.sdk_session_id,
                         envelope.session_line,

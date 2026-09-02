@@ -957,38 +957,27 @@ class LLMSocketProxy:
                     path=path,
                     route_is_direct=route.is_direct,
                 )
-        except httpx.ConnectError as exc:
+        except httpx.TransportError as exc:
+            timed_out = isinstance(exc, httpx.TimeoutException)
             await self._write_error_response(
                 writer,
-                status_code=502,
-                detail="LiteLLM unavailable",
+                status_code=504 if timed_out else 502,
+                detail="Gateway timeout" if timed_out else "LiteLLM unavailable",
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
             if not _is_non_critical_path(path):
-                self._emit_error(
-                    f"LiteLLM unavailable: {exc}",
-                    _transport_error_classification(
-                        exc,
-                        route_is_direct=route.is_direct,
-                        timed_out=False,
-                    ),
+                message = (
+                    f"Gateway timeout ({type(exc).__name__}): {exc}"
+                    if timed_out
+                    else f"LiteLLM unavailable: {exc}"
                 )
-        except httpx.TimeoutException as exc:
-            await self._write_error_response(
-                writer,
-                status_code=504,
-                detail="Gateway timeout",
-                request_counter=request_counter,
-                trace_request_id=trace_request_id,
-            )
-            if not _is_non_critical_path(path):
                 self._emit_error(
-                    f"Gateway timeout ({type(exc).__name__}): {exc}",
+                    message,
                     _transport_error_classification(
                         exc,
                         route_is_direct=route.is_direct,
-                        timed_out=True,
+                        timed_out=timed_out,
                     ),
                 )
 

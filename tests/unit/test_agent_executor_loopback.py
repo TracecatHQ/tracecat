@@ -922,8 +922,6 @@ async def test_handle_connection_classifies_invalid_runtime_envelope_as_protocol
         {"type": "message", "message": []},
         {"type": "message"},
         {"type": "session_line", "session_line": 1, "sdk_session_id": "sdk"},
-        {"type": "session_line", "session_line": "{", "sdk_session_id": "sdk"},
-        {"type": "session_line", "session_line": "[]", "sdk_session_id": "sdk"},
         {"type": "session_line", "session_line": "{}", "internal": 1},
         {"type": "session_update", "sdk_session_id": "sdk"},
         {"type": "error"},
@@ -944,6 +942,24 @@ async def test_handle_connection_classifies_invalid_runtime_envelope_as_protocol
             "log_message": "message",
             "log_extra": {"session_id": "spoofed"},
         },
+        {
+            "type": "log",
+            "log_level": "info",
+            "log_message": "message",
+            "log_extra": {"self": "spoofed"},
+        },
+        {
+            "type": "log",
+            "log_level": "info",
+            "log_message": "message",
+            "log_extra": {"level": "spoofed"},
+        },
+        {
+            "type": "log",
+            "log_level": "info",
+            "log_message": "message",
+            "log_extra": {"message": "spoofed"},
+        },
     ],
 )
 def test_runtime_envelope_parser_rejects_malformed_typed_fields(
@@ -951,6 +967,36 @@ def test_runtime_envelope_parser_rejects_malformed_typed_fields(
 ) -> None:
     with pytest.raises(RuntimeEnvelopeProtocolError):
         _runtime_envelope_from_json(orjson.dumps(envelope))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("session_line", ["", "{", "[]"])
+async def test_handle_connection_classifies_malformed_session_line_as_protocol_failure(
+    session_line: str,
+) -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(
+        RuntimeEventEnvelope.from_session_line(
+            "sdk-session",
+            session_line,
+        )
+    )
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    result = await handler.handle_connection(
+        reader,
+        cast(asyncio.StreamWriter, writer),
+    )
+
+    assert result.error == "Runtime sent an invalid event envelope"
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
 
 
 @pytest.mark.anyio
