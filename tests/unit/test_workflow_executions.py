@@ -14,6 +14,7 @@ Objectives
 import datetime
 import hashlib
 import uuid
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -23,7 +24,7 @@ from pydantic import BaseModel
 from temporalio.api.enums.v1 import EventType, ParentClosePolicy, PendingActivityState
 from temporalio.api.failure.v1 import Failure
 from temporalio.api.history.v1 import HistoryEvent
-from temporalio.client import Client, WorkflowHandle
+from temporalio.client import Client, WorkflowExecution, WorkflowHandle
 from temporalio.converter import DefaultPayloadConverter
 
 from tracecat.auth.types import Role
@@ -60,6 +61,7 @@ from tracecat.workflow.executions.service import (
     WF_TRIGGER_REF,
     WorkflowExecutionsService,
     _sanitize_action_result,
+    _WorkflowRunResetDescription,
 )
 from tracecat.workspaces.service import WorkspaceService
 
@@ -188,6 +190,23 @@ def create_mock_timestamp(event_time_seconds: int = 1640995200) -> Mock:
         event_time_seconds, tz=datetime.UTC
     )
     return mock_timestamp
+
+
+def create_reset_lineage_execution(
+    run_id: str, *, start_offset_seconds: int
+) -> WorkflowExecution:
+    """Create the minimal WorkflowExecution shape needed by reset lineage tests."""
+    return cast(
+        WorkflowExecution,
+        SimpleNamespace(
+            id="wf_test/exec_test",
+            run_id=run_id,
+            start_time=datetime.datetime.fromtimestamp(
+                1640995200 + start_offset_seconds,
+                tz=datetime.UTC,
+            ),
+        ),
+    )
 
 
 def create_mock_child_workflow_initiated_event(
@@ -2192,6 +2211,224 @@ class TestWorkflowExecutionEvents:
                 assert event.while_iteration is None
                 assert event.while_continue is None
 
+    async def test_reset_points_label_completed_action(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Reset checkpoints after a closed action use action-aware labels."""
+        first_checkpoint = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+        scheduled = create_mock_history_event(
+            event_id=3,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+        )
+        completed = create_mock_history_event(
+            event_id=4,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=3,
+        )
+        action_checkpoint = create_mock_history_event(
+            event_id=5,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield first_checkpoint
+            yield scheduled
+            yield completed
+            yield action_checkpoint
+
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        action_event = WorkflowExecutionEventCompact(
+            source_event_id=3,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="action_a",
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event",
+            AsyncMock(return_value=action_event),
+        ):
+            points = await workflow_executions_service.list_reset_points(
+                workflow_exec_id
+            )
+
+        resettable_points = [point for point in points if point.is_resettable]
+        assert resettable_points[0].label == "Workflow start"
+        assert resettable_points[0].is_start is True
+        assert resettable_points[1].label == "After Action A"
+        assert resettable_points[1].action_ref == "action_a"
+        assert resettable_points[1].action_name == "core.transform.reshape"
+        assert resettable_points[1].action_event_id == 4
+        assert resettable_points[1].action_relation == "after"
+
+    async def test_reset_points_label_scheduled_action(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Reset checkpoints after a source event identify scheduled actions."""
+        first_checkpoint = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+        scheduled = create_mock_history_event(
+            event_id=3,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+        )
+        scheduled_checkpoint = create_mock_history_event(
+            event_id=4,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield first_checkpoint
+            yield scheduled
+            yield scheduled_checkpoint
+
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        action_event = WorkflowExecutionEventCompact(
+            source_event_id=3,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="action_b",
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event",
+            AsyncMock(return_value=action_event),
+        ):
+            points = await workflow_executions_service.list_reset_points(
+                workflow_exec_id
+            )
+
+        resettable_points = [point for point in points if point.is_resettable]
+        assert resettable_points[1].label == "After scheduling Action B"
+        assert resettable_points[1].action_event_id == 3
+        assert resettable_points[1].action_relation == "after_scheduling"
+
+    async def test_reset_points_fallback_without_action_context(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Reset point labels fall back to event IDs when no action is available."""
+        first_checkpoint = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+        later_checkpoint = create_mock_history_event(
+            event_id=5,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield first_checkpoint
+            yield later_checkpoint
+
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        points = await workflow_executions_service.list_reset_points(workflow_exec_id)
+
+        resettable_points = [point for point in points if point.is_resettable]
+        assert resettable_points[0].label == "Workflow start"
+        assert resettable_points[1].label == "Event 5"
+        assert resettable_points[1].action_ref is None
+
+    async def test_reset_points_do_not_reuse_stale_action_context(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Only the first reset checkpoint after an action uses that action label."""
+        first_checkpoint = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+        scheduled = create_mock_history_event(
+            event_id=3,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+        )
+        completed = create_mock_history_event(
+            event_id=4,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=3,
+        )
+        action_checkpoint = create_mock_history_event(
+            event_id=5,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+        system_checkpoint = create_mock_history_event(
+            event_id=8,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield first_checkpoint
+            yield scheduled
+            yield completed
+            yield action_checkpoint
+            yield system_checkpoint
+
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        action_event = WorkflowExecutionEventCompact(
+            source_event_id=3,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="action_a",
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event",
+            AsyncMock(return_value=action_event),
+        ):
+            points = await workflow_executions_service.list_reset_points(
+                workflow_exec_id
+            )
+
+        resettable_points = [point for point in points if point.is_resettable]
+        assert resettable_points[1].label == "After Action A"
+        assert resettable_points[2].label == "Event 8"
+        assert resettable_points[2].action_ref is None
+        assert resettable_points[2].action_relation is None
+
 
 # === Timeout Resolution Tests ===
 
@@ -2602,3 +2839,87 @@ async def test_list_executions_paginated_emits_prev_cursor_history(
     assert rewound_page.has_previous is False
     assert rewound_page.prev_cursor is None
     assert calls == [None, b"page-2", None]
+
+
+def test_build_reset_lineage_marks_original_and_reset_runs() -> None:
+    original = create_reset_lineage_execution("run-original", start_offset_seconds=0)
+    reset_1 = create_reset_lineage_execution("run-reset-1", start_offset_seconds=10)
+    reset_2 = create_reset_lineage_execution("run-reset-2", start_offset_seconds=20)
+
+    lineage = WorkflowExecutionsService._build_reset_lineage_from_descriptions(
+        [
+            _WorkflowRunResetDescription(
+                execution=reset_2,
+                first_run_id="run-original",
+                reset_run_id=None,
+            ),
+            _WorkflowRunResetDescription(
+                execution=original,
+                first_run_id="run-original",
+                reset_run_id="run-reset-1",
+            ),
+            _WorkflowRunResetDescription(
+                execution=reset_1,
+                first_run_id="run-original",
+                reset_run_id="run-reset-2",
+            ),
+        ]
+    )
+
+    original_lineage = lineage["run-original"]
+    assert original_lineage.has_been_reset is True
+    assert original_lineage.is_reset_run is False
+    assert original_lineage.original_run_id == "run-original"
+    assert original_lineage.reset_run_count == 2
+    assert original_lineage.reset_run_index is None
+
+    reset_1_lineage = lineage["run-reset-1"]
+    assert reset_1_lineage.has_been_reset is True
+    assert reset_1_lineage.is_reset_run is True
+    assert reset_1_lineage.original_run_id == "run-original"
+    assert reset_1_lineage.reset_run_count == 2
+    assert reset_1_lineage.reset_run_index == 1
+
+    reset_2_lineage = lineage["run-reset-2"]
+    assert reset_2_lineage.has_been_reset is True
+    assert reset_2_lineage.is_reset_run is True
+    assert reset_2_lineage.original_run_id == "run-original"
+    assert reset_2_lineage.reset_run_count == 2
+    assert reset_2_lineage.reset_run_index == 2
+
+
+def test_build_reset_lineage_returns_empty_without_reset_runs() -> None:
+    original = create_reset_lineage_execution("run-original", start_offset_seconds=0)
+
+    lineage = WorkflowExecutionsService._build_reset_lineage_from_descriptions(
+        [
+            _WorkflowRunResetDescription(
+                execution=original,
+                first_run_id="run-original",
+                reset_run_id=None,
+            )
+        ]
+    )
+
+    assert lineage == {}
+
+
+def test_build_reset_lineage_counts_unseen_reset_successors() -> None:
+    original = create_reset_lineage_execution("run-original", start_offset_seconds=0)
+
+    lineage = WorkflowExecutionsService._build_reset_lineage_from_descriptions(
+        [
+            _WorkflowRunResetDescription(
+                execution=original,
+                first_run_id="run-original",
+                reset_run_id="run-reset-1",
+            )
+        ]
+    )
+
+    original_lineage = lineage["run-original"]
+    assert original_lineage.has_been_reset is True
+    assert original_lineage.is_reset_run is False
+    assert original_lineage.original_run_id == "run-original"
+    assert original_lineage.reset_run_count == 1
+    assert original_lineage.reset_run_index is None
