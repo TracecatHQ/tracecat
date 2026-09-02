@@ -162,13 +162,14 @@ async def test_resolve_preset_subagent_allows_no_attached_children() -> None:
 
 
 @pytest.mark.anyio
-async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
+async def test_resolve_agents_config_follows_current_preset_head(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     preset_id = uuid.uuid4()
-    preset_version_id = uuid.uuid4()
+    attached_version_id = uuid.uuid4()
+    current_version_id = uuid.uuid4()
     version = SimpleNamespace(
-        id=preset_version_id,
+        id=current_version_id,
         preset_id=preset_id,
         version=4,
         agents={},
@@ -209,7 +210,7 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
                         description=None,
                         max_turns=None,
                         preset_id=preset_id,
-                        preset_version_id=preset_version_id,
+                        preset_version_id=attached_version_id,
                     )
                 ],
             ),
@@ -220,7 +221,12 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
         preset_id=preset_id,
         include_deleted=True,
     )
-    assert result.subagents[0].binding.preset_version_id == preset_version_id
+    service.resolve_agent_preset_config.assert_awaited_once_with(
+        preset_version_id=current_version_id,
+        resolve_dependencies_from_heads=True,
+        include_deleted=True,
+    )
+    assert result.subagents[0].binding.preset_version_id == current_version_id
     assert result.subagents[0].binding.preset_version == 4
 
 
