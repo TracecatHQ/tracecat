@@ -573,6 +573,15 @@ async def test_terminal_error_streams_error_and_closes_only_external_sink() -> N
     redis_stream.done.assert_not_awaited()
     external_stream.done.assert_awaited_once()
     assert handler._external_stream_done_emitted is True
+    assert handler._result.classification is not None
+    assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert (
+        handler._result.classification.kind
+        is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    )
+    assert (
+        handler._result.classification.retry_disposition is RetryDisposition.RETRYABLE
+    )
 
 
 @pytest.mark.anyio
@@ -649,9 +658,13 @@ async def test_process_runtime_events_emits_failed_compaction_on_runtime_error()
     stream.error.assert_awaited_once_with("request_timeout: LLM gateway timed out")
     stream.done.assert_not_awaited()
     assert handler._result.classification is not None
-    assert handler._result.classification.owner is RuntimeErrorOwner.USER
+    assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
     assert (
-        handler._result.classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+        handler._result.classification.kind
+        is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    )
+    assert (
+        handler._result.classification.retry_disposition is RetryDisposition.RETRYABLE
     )
     assert handler._result.terminal_stream_error_emitted is True
 

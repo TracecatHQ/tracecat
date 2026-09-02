@@ -40,7 +40,6 @@ from tracecat.agent.common.stream_types import (
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_unavailable,
-    user_agent_execution_failed,
 )
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
@@ -738,9 +737,11 @@ class LoopbackHandler:
         )
         await self._emit_terminal_stream_error(stream_sink, error_msg)
         self._result.error = error_msg
-        # Runtime-originated free-form errors are caller-owned by contract.
-        # Trusted host proxy and transport faults are classified before this boundary.
-        self._result.classification = user_agent_execution_failed()
+        # The runtime error event carries no trusted ownership metadata. Known
+        # route/status failures are classified by the host-side LLM proxy before
+        # they reach this fallback, so do not blame the caller for an untyped
+        # runtime or provider failure.
+        self._result.classification = agent_executor_unavailable()
         return True
 
     def _track_tool_event(self, event: UnifiedStreamEvent) -> None:
@@ -879,8 +880,9 @@ class LoopbackHandler:
         logger.error("Runtime error", error=error)
         await self._emit_terminal_stream_error(stream_sink, error)
         self._result.error = error
-        # See the stream-envelope branch above for this trust-boundary invariant.
-        self._result.classification = user_agent_execution_failed()
+        # Top-level runtime errors are emitted by the runtime's unexpected-error
+        # boundary and carry no trusted ownership metadata.
+        self._result.classification = agent_executor_unavailable()
         return True
 
     async def send_error(self, error: str) -> None:
