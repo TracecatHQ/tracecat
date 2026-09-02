@@ -1263,6 +1263,51 @@ class TestTableRows:
         assert "updated_at" in updated
         assert isinstance(updated["updated_at"], datetime)
 
+    async def test_insert_row_preserves_null_for_text_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Inserting None into a TEXT column should store SQL NULL, not "None"."""
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": None, "age": 30})
+        )
+        assert inserted["name"] is None
+
+        retrieved = await tables_service.get_row(table, inserted["id"])
+        assert retrieved["name"] is None
+
+    async def test_update_row_preserves_null_for_text_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Updating a TEXT column to None should store SQL NULL, not "None"."""
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Alice", "age": 25})
+        )
+        row_id: UUID = inserted["id"]
+
+        updated = await tables_service.update_row(table, row_id, {"name": None})
+        assert updated["name"] is None
+
+        retrieved = await tables_service.get_row(table, row_id)
+        assert retrieved["name"] is None
+
+    async def test_insert_row_and_batch_insert_rows_agree_on_null_text(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """insert_row and batch_insert_rows must store the same value for a
+        None TEXT column. Before the fix, insert_row stored the string "None"
+        while batch_insert_rows stored real SQL NULL for the same input.
+        """
+        single = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": None, "age": 30})
+        )
+        await tables_service.batch_insert_rows(table, [{"name": None, "age": 31}])
+
+        rows = await _list_rows(tables_service, table)
+        batch_row = next(r for r in rows if r["id"] != single["id"])
+
+        assert single["name"] is None
+        assert batch_row["name"] is None
+
     async def test_delete_row(
         self, tables_service: TablesService, table: Table
     ) -> None:
