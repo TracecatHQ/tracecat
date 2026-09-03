@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 from unittest.mock import Mock
@@ -18,7 +18,7 @@ from sentry_sdk.integrations.starlette import StarletteIntegration
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import (
@@ -43,8 +43,9 @@ from tracecat.observability.sentry import (
     SentryTag,
     _sanitize_platform_event,
     capture_api_background_task_failure,
-    initialize_sentry,
-    initialize_sentry_from_environment,
+    initialize_api_sentry,
+    initialize_worker_sentry,
+    initialize_worker_sentry_from_environment,
 )
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -95,11 +96,29 @@ async def _run_workflow() -> None:
 def sentry_events(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[Event]]:
     monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", "worker")
     transport = _InMemoryTransport()
-    initialize_sentry(
+    initialize_worker_sentry(
         dsn="https://public@example.com/1",
         environment="test-eu",
         release="tracecat@test",
-        service_name="worker",
+        transport=transport,
+    )
+    yield transport.events
+    sentry_sdk.flush()
+    sentry_sdk.init(
+        dsn=None,
+        default_integrations=False,
+        auto_enabling_integrations=False,
+    )
+
+
+@pytest.fixture
+def api_sentry_events(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[Event]]:
+    monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", "api")
+    transport = _InMemoryTransport()
+    initialize_api_sentry(
+        dsn="https://public@example.com/1",
+        environment="test-eu",
+        release="tracecat@test",
         transport=transport,
     )
     yield transport.events
@@ -157,9 +176,9 @@ def test_sentry_environment_bootstrap_is_disabled_without_dsn(
     else:
         monkeypatch.setenv("SENTRY_DSN", dsn)
     initializer = Mock()
-    monkeypatch.setattr(sentry_module, "initialize_sentry", initializer)
+    monkeypatch.setattr(sentry_module, "initialize_worker_sentry", initializer)
 
-    initialize_sentry_from_environment()
+    initialize_worker_sentry_from_environment()
     initializer.assert_not_called()
 
 
@@ -181,15 +200,13 @@ def test_sentry_environment_bootstrap_initializes_shared_worker_configuration(
     )
     monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", "worker")
     initializer = Mock()
-    monkeypatch.setattr(sentry_module, "initialize_sentry", initializer)
+    monkeypatch.setattr(sentry_module, "initialize_worker_sentry", initializer)
 
-    initialize_sentry_from_environment()
+    initialize_worker_sentry_from_environment()
     initializer.assert_called_once_with(
         dsn="https://public@example.com/1",
         environment="production-eu-cloud",
         release="tracecat@1.2.3",
-        service_name="worker",
-        enable_fastapi_integration=False,
     )
 
 
@@ -199,10 +216,10 @@ def test_sentry_environment_bootstrap_failure_does_not_escape(
     monkeypatch.setenv("SENTRY_DSN", "https://public@example.com/1")
     initializer = Mock(side_effect=RuntimeError("synthetic initialization failure"))
     warning = Mock()
-    monkeypatch.setattr(sentry_module, "initialize_sentry", initializer)
+    monkeypatch.setattr(sentry_module, "initialize_worker_sentry", initializer)
     monkeypatch.setattr(sentry_module.logger, "warning", warning)
 
-    initialize_sentry_from_environment()
+    initialize_worker_sentry_from_environment()
 
     warning.assert_called_once_with(
         "Failed to initialize Sentry; continuing without telemetry",
@@ -319,18 +336,8 @@ async def test_unclassified_platform_failure_is_attributed_then_captured_once(
 
 
 def test_fastapi_integration_captures_sanitized_unhandled_request_failure(
-    monkeypatch: pytest.MonkeyPatch,
+    api_sentry_events: list[Event],
 ) -> None:
-    monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", "api")
-    transport = _InMemoryTransport()
-    initialize_sentry(
-        dsn="https://public@example.com/1",
-        environment="test-eu",
-        release="tracecat@test",
-        service_name="api",
-        enable_fastapi_integration=True,
-        transport=transport,
-    )
     app = FastAPI()
 
     async def failing_route(item_id: str) -> None:
@@ -348,8 +355,8 @@ def test_fastapi_integration_captures_sanitized_unhandled_request_failure(
     sentry_sdk.flush()
 
     assert response.status_code == 500
-    assert len(transport.events) == 1
-    event = transport.events[0]
+    assert len(api_sentry_events) == 1
+    event = api_sentry_events[0]
     assert "tags" in event
     assert event["tags"] == {
         SentryTag.API_METHOD.value: "GET",
@@ -363,30 +370,53 @@ def test_fastapi_integration_captures_sanitized_unhandled_request_failure(
         "route": "/items/{item_id}",
     }
     assert set(contexts) <= {"runtime", "tracecat_api_request"}
+    assert event.get("transaction") == "/items/{item_id}"
+    assert "transaction_info" not in event
     assert "fingerprint" not in event
     assert "exception" in event
     assert "values" in event["exception"]
     assert event["exception"]["values"][-1]["value"] == "Tracecat API failure"
     assert not {"breadcrumbs", "extra", "request", "user"} & event.keys()
     assert _SENSITIVE_VALUE not in json.dumps(event)
-    sentry_sdk.init(
-        dsn=None,
-        default_integrations=False,
-        auto_enabling_integrations=False,
-    )
+
+
+def test_fastapi_integration_removes_unmatched_request_credentials(
+    api_sentry_events: list[Event],
+) -> None:
+    app = FastAPI()
+
+    async def failing_middleware(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        del request, call_next
+        raise RuntimeError(_SENSITIVE_VALUE)
+
+    app.middleware("http")(failing_middleware)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.request(
+            f"{_SENSITIVE_VALUE}-method",
+            f"/webhooks/workflow-id/{_SENSITIVE_VALUE}",
+        )
+    sentry_sdk.flush()
+
+    assert response.status_code == 500
+    assert len(api_sentry_events) == 1
+    event = api_sentry_events[0]
+    assert event.get("transaction") == "unmatched"
+    assert "transaction_info" not in event
+    tags = event.get("tags")
+    assert tags is not None
+    assert tags[SentryTag.API_METHOD.value] == "UNKNOWN"
+    assert tags[SentryTag.API_ROUTE.value] == "unmatched"
+    assert _SENSITIVE_VALUE not in json.dumps(event)
 
 
 def test_api_sentry_configuration_enables_only_framework_and_flush_integrations(
-    monkeypatch: pytest.MonkeyPatch,
+    api_sentry_events: list[Event],
 ) -> None:
-    monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", "api")
-    initialize_sentry(
-        dsn="https://public@example.com/1",
-        environment="test-eu",
-        release="tracecat@test",
-        service_name="api",
-        enable_fastapi_integration=True,
-    )
+    del api_sentry_events
 
     client = cast(Client, sentry_sdk.get_client())
     integrations = cast(Mapping[str, object], client.integrations)
@@ -399,18 +429,8 @@ def test_api_sentry_configuration_enables_only_framework_and_flush_integrations(
 
 
 def test_fastapi_integration_does_not_capture_handled_http_error(
-    monkeypatch: pytest.MonkeyPatch,
+    api_sentry_events: list[Event],
 ) -> None:
-    monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", "api")
-    transport = _InMemoryTransport()
-    initialize_sentry(
-        dsn="https://public@example.com/1",
-        environment="test-eu",
-        release="tracecat@test",
-        service_name="api",
-        enable_fastapi_integration=True,
-        transport=transport,
-    )
     app = FastAPI()
 
     async def expected_http_error() -> None:
@@ -423,22 +443,12 @@ def test_fastapi_integration_does_not_capture_handled_http_error(
     sentry_sdk.flush()
 
     assert response.status_code == 503
-    assert transport.events == []
+    assert api_sentry_events == []
 
 
 def test_service_task_failure_emits_only_stable_task_name(
-    monkeypatch: pytest.MonkeyPatch,
+    api_sentry_events: list[Event],
 ) -> None:
-    monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", "api")
-    transport = _InMemoryTransport()
-    initialize_sentry(
-        dsn="https://public@example.com/1",
-        environment="test-eu",
-        release="tracecat@test",
-        service_name="api",
-        enable_fastapi_integration=True,
-        transport=transport,
-    )
     error = RuntimeError(_SENSITIVE_VALUE)
 
     capture_api_background_task_failure(
@@ -447,8 +457,8 @@ def test_service_task_failure_emits_only_stable_task_name(
     )
     sentry_sdk.flush()
 
-    assert len(transport.events) == 1
-    event = transport.events[0]
+    assert len(api_sentry_events) == 1
+    event = api_sentry_events[0]
     assert "tags" in event
     assert event["tags"][SentryTag.SERVICE_NAME.value] == "api"
     assert event["tags"][SentryTag.SERVICE_TASK_NAME.value] == (
@@ -468,11 +478,6 @@ def test_service_task_failure_emits_only_stable_task_name(
     assert event["exception"]["values"][-1]["value"] == "Tracecat API failure"
     assert not {"breadcrumbs", "extra", "request", "user"} & event.keys()
     assert _SENSITIVE_VALUE not in json.dumps(event)
-    sentry_sdk.init(
-        dsn=None,
-        default_integrations=False,
-        auto_enabling_integrations=False,
-    )
 
 
 def test_sentry_reporting_failure_does_not_escape(

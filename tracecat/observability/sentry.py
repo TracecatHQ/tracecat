@@ -1,10 +1,11 @@
 """Privacy-bounded Sentry configuration for Tracecat services."""
 
 import os
-from collections.abc import MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, cast
+from functools import partial
+from typing import Any, Protocol, cast
 
 import sentry_sdk
 from sentry_sdk.integrations import Integration
@@ -46,13 +47,52 @@ class SentryTag(StrEnum):
     SERVICE_TASK_NAME = "tracecat.service.task.name"
 
 
-_ALLOWED_TAGS = frozenset(SentryTag)
-_ALLOWED_CONTEXT_FIELDS = {
+_WORKER_ALLOWED_TAGS = frozenset(
+    {
+        SentryTag.SERVICE_NAME.value,
+        SentryTag.ERROR_OWNER.value,
+        SentryTag.ERROR_KIND.value,
+        SentryTag.ERROR_RETRY_DISPOSITION.value,
+        SentryTag.ERROR_CAUSE_TYPE.value,
+        SentryTag.WORKFLOW_TYPE.value,
+        SentryTag.WORKFLOW_ATTEMPT.value,
+        SentryTag.TRIGGER_TYPE.value,
+    }
+)
+_API_ALLOWED_TAGS = frozenset(
+    {
+        SentryTag.SERVICE_NAME.value,
+        SentryTag.API_METHOD.value,
+        SentryTag.API_ROUTE.value,
+        SentryTag.SERVICE_TASK_NAME.value,
+    }
+)
+_WORKER_ALLOWED_CONTEXT_FIELDS = {
     "runtime": frozenset({"name", "version"}),
     "tracecat_workflow": frozenset({"run_id", "type", "attempt", "trigger_type"}),
+}
+_API_ALLOWED_CONTEXT_FIELDS = {
+    "runtime": frozenset({"name", "version"}),
     "tracecat_api_request": frozenset({"method", "route"}),
     "tracecat_service_task": frozenset({"name"}),
 }
+_SAFE_HTTP_METHODS = frozenset(
+    {"CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"}
+)
+
+type _BeforeSend = Callable[[Event, Hint], Event | None]
+type _ContextFieldPolicy = Mapping[str, frozenset[str]]
+
+
+class _SentryInitializer(Protocol):
+    def __call__(
+        self,
+        *,
+        dsn: str,
+        environment: str,
+        release: str,
+        transport: Transport | None = None,
+    ) -> None: ...
 
 
 def capture_platform_failure(
@@ -145,9 +185,13 @@ def _enrich_api_request_event(
     """Keep only stable request metadata supplied by the framework integration."""
     request = event.get("request")
     if not isinstance(request, MutableMapping):
+        event.pop("transaction", None)
+        event.pop("transaction_info", None)
         return
-    method = request.get("method")
-    method = method if isinstance(method, str) else "UNKNOWN"
+    raw_method = request.get("method")
+    method = raw_method.upper() if isinstance(raw_method, str) else "UNKNOWN"
+    if method not in _SAFE_HTTP_METHODS:
+        method = "UNKNOWN"
     transaction = event.get("transaction")
     transaction_info = cast(
         MutableMapping[str, Any], event.get("transaction_info") or {}
@@ -158,7 +202,12 @@ def _enrich_api_request_event(
         else "unmatched"
     )
 
-    tags[SentryTag.SERVICE_NAME.value] = "api"
+    # Sentry uses the raw URL as the transaction name before route resolution.
+    # Replace it even though the request field is removed below: webhook URLs
+    # contain a credential in the path.
+    event["transaction"] = route
+    event.pop("transaction_info", None)
+
     tags[SentryTag.API_METHOD.value] = method
     tags[SentryTag.API_ROUTE.value] = route
     contexts = cast(MutableMapping[str, Any], event.get("contexts") or {})
@@ -166,13 +215,19 @@ def _enrich_api_request_event(
     event["contexts"] = dict(contexts)
 
 
-def _sanitize_event(event: Event, *, safe_value: str) -> Event:
+def _sanitize_event(
+    event: Event,
+    *,
+    safe_value: str,
+    allowed_tags: frozenset[str],
+    allowed_context_fields: _ContextFieldPolicy,
+) -> Event:
     """Reduce a Sentry event to the shared privacy-reviewed schema."""
     tags = cast(MutableMapping[str, Any], event.get("tags") or {})
-    event["tags"] = {key: value for key, value in tags.items() if key in _ALLOWED_TAGS}
+    event["tags"] = {key: value for key, value in tags.items() if key in allowed_tags}
     contexts = cast(MutableMapping[str, Any], event.get("contexts") or {})
     sanitized_contexts: dict[str, dict[str, Any]] = {}
-    for context_name, allowed_fields in _ALLOWED_CONTEXT_FIELDS.items():
+    for context_name, allowed_fields in allowed_context_fields.items():
         context = contexts.get(context_name)
         if not isinstance(context, MutableMapping):
             continue
@@ -205,45 +260,45 @@ def _sanitize_platform_event(event: Event, hint: Hint) -> Event | None:
     if tags.get(SentryTag.ERROR_OWNER) != "platform":
         return None
     kind = tags.get(SentryTag.ERROR_KIND, "unclassified")
-    return _sanitize_event(event, safe_value=f"Tracecat platform failure ({kind})")
+    return _sanitize_event(
+        event,
+        safe_value=f"Tracecat platform failure ({kind})",
+        allowed_tags=_WORKER_ALLOWED_TAGS,
+        allowed_context_fields=_WORKER_ALLOWED_CONTEXT_FIELDS,
+    )
 
 
-def _sanitize_api_event(event: Event, hint: Hint) -> Event:
+def _sanitize_api_event(
+    event: Event,
+    hint: Hint,
+    *,
+    service_name: str,
+) -> Event:
     """Strip API events to stable, privacy-reviewed metadata."""
     del hint
     tags = cast(MutableMapping[str, Any], event.get("tags") or {})
-    tags.setdefault(SentryTag.SERVICE_NAME.value, "api")
+    tags[SentryTag.SERVICE_NAME.value] = service_name
     _enrich_api_request_event(event, tags)
     event["tags"] = dict(tags)
-    return _sanitize_event(event, safe_value="Tracecat API failure")
+    return _sanitize_event(
+        event,
+        safe_value="Tracecat API failure",
+        allowed_tags=_API_ALLOWED_TAGS,
+        allowed_context_fields=_API_ALLOWED_CONTEXT_FIELDS,
+    )
 
 
-def initialize_sentry(
+def _initialize_sentry(
     *,
     dsn: str,
     environment: str,
     release: str,
     service_name: str,
-    enable_fastapi_integration: bool = False,
+    integrations: list[Integration],
+    before_send: _BeforeSend,
     transport: Transport | None = None,
 ) -> None:
-    """Initialize the privacy-bounded Sentry client for a service process."""
-    integrations: list[Integration] = [AtexitIntegration()]
-    if enable_fastapi_integration:
-        integrations.extend(
-            [
-                StarletteIntegration(
-                    transaction_style="url",
-                    failed_request_status_codes=set(),
-                    middleware_spans=False,
-                ),
-                FastApiIntegration(
-                    transaction_style="url",
-                    failed_request_status_codes=set(),
-                    middleware_spans=False,
-                ),
-            ]
-        )
+    """Initialize a Sentry client with an explicit service privacy profile."""
     sentry_sdk.init(
         dsn=dsn,
         environment=environment,
@@ -256,20 +311,64 @@ def initialize_sentry(
         include_local_variables=False,
         max_breadcrumbs=0,
         max_request_body_size="never",
-        before_send=(
-            _sanitize_api_event
-            if enable_fastapi_integration
-            else _sanitize_platform_event
-        ),
+        before_send=before_send,
         transport=transport,
     )
 
 
-def initialize_sentry_from_environment(
+def initialize_worker_sentry(
     *,
-    enable_fastapi_integration: bool = False,
+    dsn: str,
+    environment: str,
+    release: str,
+    transport: Transport | None = None,
 ) -> None:
-    """Best-effort initialize Sentry when a DSN is present."""
+    """Initialize explicit platform-failure capture for a worker process."""
+    _initialize_sentry(
+        dsn=dsn,
+        environment=environment,
+        release=release,
+        service_name=config.TRACECAT__SERVICE_NAME,
+        integrations=[AtexitIntegration()],
+        before_send=_sanitize_platform_event,
+        transport=transport,
+    )
+
+
+def initialize_api_sentry(
+    *,
+    dsn: str,
+    environment: str,
+    release: str,
+    transport: Transport | None = None,
+) -> None:
+    """Initialize privacy-bounded automatic capture for the API process."""
+    service_name = config.TRACECAT__SERVICE_NAME
+    _initialize_sentry(
+        dsn=dsn,
+        environment=environment,
+        release=release,
+        service_name=service_name,
+        integrations=[
+            AtexitIntegration(),
+            StarletteIntegration(
+                transaction_style="url",
+                failed_request_status_codes=set(),
+                middleware_spans=False,
+            ),
+            FastApiIntegration(
+                transaction_style="url",
+                failed_request_status_codes=set(),
+                middleware_spans=False,
+            ),
+        ],
+        before_send=partial(_sanitize_api_event, service_name=service_name),
+        transport=transport,
+    )
+
+
+def _initialize_sentry_from_environment(initializer: _SentryInitializer) -> None:
+    """Best-effort initialize one explicit Sentry service profile."""
     if not (dsn := os.environ.get("SENTRY_DSN")):
         return
 
@@ -285,12 +384,10 @@ def initialize_sentry_from_environment(
         temporal_namespace=temporal_namespace,
     )
     try:
-        initialize_sentry(
+        initializer(
             dsn=dsn,
             environment=environment,
             release=f"tracecat@{APP_VERSION}",
-            service_name=config.TRACECAT__SERVICE_NAME,
-            enable_fastapi_integration=enable_fastapi_integration,
         )
     except Exception as error:
         logger.warning(
@@ -304,3 +401,13 @@ def initialize_sentry_from_environment(
         app_env=app_env,
         temporal_namespace=temporal_namespace,
     )
+
+
+def initialize_worker_sentry_from_environment() -> None:
+    """Best-effort initialize the worker Sentry profile from the environment."""
+    _initialize_sentry_from_environment(initialize_worker_sentry)
+
+
+def initialize_api_sentry_from_environment() -> None:
+    """Best-effort initialize the API Sentry profile from the environment."""
+    _initialize_sentry_from_environment(initialize_api_sentry)

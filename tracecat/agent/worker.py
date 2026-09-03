@@ -48,7 +48,9 @@ with workflow.unsafe.imports_passed_through():
         RuntimeErrorAttributionInterceptor,
     )
     from tracecat.logger import logger
-    from tracecat.observability.sentry import initialize_sentry_from_environment
+    from tracecat.observability.sentry import (
+        initialize_worker_sentry_from_environment,
+    )
     from tracecat.storage.blob import close_storage_client_cache
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
@@ -116,7 +118,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     client = await get_temporal_client()
 
-    initialize_sentry_from_environment()
+    initialize_worker_sentry_from_environment()
     interceptors = [RuntimeErrorAttributionInterceptor()]
 
     activities = get_activities()
