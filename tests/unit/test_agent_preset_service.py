@@ -2909,6 +2909,12 @@ class TestAgentPresetService:
         binding = await agent_preset_service.subagents.get_head_binding(parent.id)
         assert len(binding.subagents) == 1
         assert binding.subagents[0].preset_id == child.id
+        assert parent.current_version_id is not None
+        version_binding = await agent_preset_service.subagents.get_version_binding(
+            parent.current_version_id
+        )
+        assert len(version_binding.subagents) == 1
+        assert version_binding.subagents[0].preset_id == child.id
 
     async def test_restore_version_locks_skill_bindings_during_validation(
         self,
