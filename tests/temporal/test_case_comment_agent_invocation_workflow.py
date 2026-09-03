@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from sqlalchemy import delete, select
 from temporalio import activity, workflow
+from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.service import RPCError
@@ -374,11 +375,14 @@ async def test_parent_preserves_failure_across_cleanup(
             if origin == "cancelled":
                 await asyncio.wait_for(_CHILD_WAITING.wait(), timeout=5)
                 await handle.cancel()
-            with pytest.raises(WorkflowFailureError) as exc_info:
-                await handle.result()
+            with env.auto_time_skipping_disabled():
+                with pytest.raises(WorkflowFailureError) as exc_info:
+                    await asyncio.wait_for(handle.result(), timeout=5)
+            history = await handle.fetch_history()
+            event_names = [EventType.Name(event.event_type) for event in history.events]
 
-    assert len(_FAILURES) == 1
-    assert _FAILURES[0].kind == origin
+    assert len(_FAILURES) == 1, (exc_info.value.cause, event_names)
+    assert _FAILURES[0].kind == origin, event_names
     original_error = root_cause(exc_info.value)
     if origin == "cancelled":
         assert isinstance(original_error, CancelledError)
@@ -394,14 +398,17 @@ async def test_failure_cleanup_survives_repeated_cancellation(
     cleanup_started = asyncio.Event()
     release_cleanup = asyncio.Event()
 
-    async def slow_cleanup(*args: object, **kwargs: object) -> None:
+    async def slow_cleanup() -> None:
         cleanup_started.set()
         await release_cleanup.wait()
 
+    def start_activity(*args: object, **kwargs: object) -> asyncio.Task[None]:
+        return asyncio.ensure_future(slow_cleanup())
+
     monkeypatch.setattr(
         invocation_workflows.workflow,
-        "execute_activity",
-        slow_cleanup,
+        "start_activity",
+        start_activity,
     )
     invocation_id = uuid.uuid4()
     cleanup_task = asyncio.create_task(

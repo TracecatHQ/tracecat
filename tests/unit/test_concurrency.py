@@ -617,6 +617,44 @@ async def test_drain_future_returns_failure_after_repeated_cancellation() -> Non
 
 
 @pytest.mark.anyio
+async def test_drain_future_ignores_cancellation_racing_success() -> None:
+    """A completed future's success wins over racing caller cancellation."""
+    fut = asyncio.get_running_loop().create_future()
+    draining_task = asyncio.create_task(drain_future_through_cancellation(fut))
+    await asyncio.sleep(0)
+
+    fut.set_result(None)
+    draining_task.cancel()
+    assert await draining_task is None
+
+
+@pytest.mark.anyio
+async def test_drain_future_reports_failure_racing_cancellation() -> None:
+    """A completed future's failure wins over racing caller cancellation."""
+    fut = asyncio.get_running_loop().create_future()
+    draining_task = asyncio.create_task(drain_future_through_cancellation(fut))
+    await asyncio.sleep(0)
+
+    error = RuntimeError("cleanup failed")
+    fut.set_exception(error)
+    draining_task.cancel()
+    assert await draining_task is error
+
+
+@pytest.mark.anyio
+async def test_drain_future_reports_cancelled_future() -> None:
+    """A future's own cancellation is returned as its terminal outcome."""
+    fut = asyncio.get_running_loop().create_future()
+    draining_task = asyncio.create_task(drain_future_through_cancellation(fut))
+    await asyncio.sleep(0)
+
+    fut.cancel()
+    draining_task.cancel()
+    result = await draining_task
+    assert isinstance(result, asyncio.CancelledError)
+
+
+@pytest.mark.anyio
 async def test_rejoin_future_finishes_through_repeated_cancellation() -> None:
     started = asyncio.Event()
     release = asyncio.Event()

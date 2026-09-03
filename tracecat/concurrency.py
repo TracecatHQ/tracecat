@@ -13,16 +13,20 @@ T = TypeVar("T")
 async def drain_future_through_cancellation[T](
     future: asyncio.Future[T],
 ) -> BaseException | None:
-    """Wait through caller cancellation and return any terminal future error."""
+    """Wait through caller cancellation and return any terminal future error.
+
+    Caller cancellation is swallowed while the future is still running. Once
+    the future finishes, its own outcome wins: ``None`` on success, otherwise
+    the exception it raised (including its own cancellation).
+    """
     while not future.done():
         try:
             await asyncio.shield(future)
-        except asyncio.CancelledError as error:
-            if future.cancelled():
-                return error
-            continue
-        except Exception as error:
-            return error
+        except asyncio.CancelledError:
+            if not future.cancelled():
+                continue
+        except Exception:
+            pass
 
     try:
         future.result()
