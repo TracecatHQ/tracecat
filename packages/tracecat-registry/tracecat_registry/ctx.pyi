@@ -7,9 +7,8 @@ from typing import Any, Literal, TypeVar
 from uuid import UUID
 
 from tracecat_registry import types
-from tracecat_registry import types as registry_types
 from tracecat_registry._internal.models import WorkflowExecutionID
-from tracecat_registry.sdk.agents import AgentConfig, CursorPage, RankableItem
+from tracecat_registry.sdk.agents import CursorPage
 from tracecat_registry.sdk.client import TracecatClient
 from tracecat_registry.sdk.types import CasePriority, CaseSeverity, CaseStatus, Unset
 from tracecat_registry.sdk.workflows import JsonPatchOperation
@@ -17,50 +16,6 @@ from tracecat_registry.sdk.workflows import JsonPatchOperation
 T = TypeVar("T")
 
 class _AgentsAsync:
-    async def run(
-        self,
-        *,
-        user_prompt: str,
-        config: AgentConfig | None = ...,
-        preset_slug: str | None = ...,
-        preset_version: int | None = ...,  # Deprecated: current head is always used.
-        max_requests: int = ...,
-        max_tool_calls: int | None = ...,
-    ) -> registry_types.AgentOutputRead: ...
-    async def rank_items(
-        self,
-        *,
-        items: list[RankableItem],
-        criteria_prompt: str,
-        model_name: str,
-        model_provider: str,
-        catalog_id: uuid.UUID | None = ...,
-        model_settings: dict[str, object] | None = ...,
-        max_requests: int = ...,
-        retries: int = ...,
-        base_url: str | None = ...,
-        min_items: int | None = ...,
-        max_items: int | None = ...,
-    ) -> list[str | int]: ...
-    async def rank_items_pairwise(
-        self,
-        *,
-        items: list[RankableItem],
-        criteria_prompt: str,
-        model_name: str,
-        model_provider: str,
-        catalog_id: uuid.UUID | None = ...,
-        id_field: str = ...,
-        batch_size: int = ...,
-        num_passes: int = ...,
-        refinement_ratio: float = ...,
-        model_settings: dict[str, object] | None = ...,
-        max_requests: int = ...,
-        retries: int = ...,
-        base_url: str | None = ...,
-        min_items: int | None = ...,
-        max_items: int | None = ...,
-    ) -> list[str | int]: ...
     async def list_presets(self) -> list[dict[str, Any]]: ...
     async def create_preset(
         self,
@@ -157,49 +112,6 @@ class _AgentsAsync:
 class _Agents:
     @property
     def aio(self) -> _AgentsAsync: ...
-    def run(
-        self,
-        *,
-        user_prompt: str,
-        config: AgentConfig | None = ...,
-        preset_slug: str | None = ...,
-        max_requests: int = ...,
-        max_tool_calls: int | None = ...,
-    ) -> registry_types.AgentOutputRead: ...
-    def rank_items(
-        self,
-        *,
-        items: list[RankableItem],
-        criteria_prompt: str,
-        model_name: str,
-        model_provider: str,
-        catalog_id: uuid.UUID | None = ...,
-        model_settings: dict[str, object] | None = ...,
-        max_requests: int = ...,
-        retries: int = ...,
-        base_url: str | None = ...,
-        min_items: int | None = ...,
-        max_items: int | None = ...,
-    ) -> list[str | int]: ...
-    def rank_items_pairwise(
-        self,
-        *,
-        items: list[RankableItem],
-        criteria_prompt: str,
-        model_name: str,
-        model_provider: str,
-        catalog_id: uuid.UUID | None = ...,
-        id_field: str = ...,
-        batch_size: int = ...,
-        num_passes: int = ...,
-        refinement_ratio: float = ...,
-        model_settings: dict[str, object] | None = ...,
-        max_requests: int = ...,
-        retries: int = ...,
-        base_url: str | None = ...,
-        min_items: int | None = ...,
-        max_items: int | None = ...,
-    ) -> list[str | int]: ...
     def list_presets(self) -> list[dict[str, Any]]: ...
     def create_preset(
         self,

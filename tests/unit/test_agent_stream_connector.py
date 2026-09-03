@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import orjson
 import pytest
@@ -13,6 +14,35 @@ from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamKeepAlive
 from tracecat.chat import tokens
 from tracecat.redis.client import RedisClient
+
+
+async def _empty_event_stream() -> AsyncIterator[None]:
+    if False:
+        yield
+
+
+def test_sse_vercel_format_uses_vercel_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    client = SimpleNamespace()
+    stream = AgentStream(
+        client=cast(RedisClient, client),
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
+    expected_stream = _empty_event_stream()
+    adapter = Mock(return_value=expected_stream)
+
+    monkeypatch.setattr("tracecat.agent.adapter.vercel.sse_vercel", adapter)
+
+    result = stream.sse(
+        AsyncMock(return_value=False),
+        last_id="0-0",
+        format="vercel",
+    )
+
+    assert result is expected_stream
+    adapter.assert_called_once()
 
 
 @pytest.mark.anyio

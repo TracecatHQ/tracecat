@@ -3399,6 +3399,60 @@ async def test_create_table_accepts_columns(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_create_column_adds_column_to_table(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    table_id = uuid.uuid4()
+    column_id = uuid.uuid4()
+    fake_table = SimpleNamespace(id=table_id, name="iocs")
+    captured = {}
+
+    async def _get_table(parsed_table_id):
+        assert parsed_table_id == table_id
+        return fake_table
+
+    async def _create_column(table, params):
+        captured["table"] = table
+        captured["params"] = params
+        return SimpleNamespace(
+            id=column_id,
+            name=params.name,
+            type=params.type.value,
+            nullable=params.nullable,
+            default=params.default,
+            options=params.options,
+        )
+
+    table_service = SimpleNamespace(get_table=_get_table, create_column=_create_column)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        "tracecat.tables.service.TablesService.with_session",
+        lambda role: _AsyncContext(table_service),
+    )
+
+    result = await _tool(mcp_server.create_column)(
+        workspace_id=str(uuid.uuid4()),
+        table_id=str(table_id),
+        column=mcp_server.TableColumnCreate(
+            name="severity",
+            type=mcp_server.SqlType.SELECT,
+            options=["low", "high"],
+        ),
+    )
+
+    payload = _payload(result)
+    assert payload["id"] == str(column_id)
+    assert payload["name"] == "severity"
+    assert payload["type"] == "SELECT"
+    assert payload["options"] == ["low", "high"]
+    assert payload["is_index"] is False
+    assert captured["table"] is fake_table
+    assert captured["params"].name == "severity"
+
+
+@pytest.mark.anyio
 async def test_get_action_context_includes_configuration(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
@@ -10676,7 +10730,9 @@ async def test_publish_skill_uses_workspace_skill_service(
 
 
 def _prompt_source_text() -> str:
-    return "\n".join([mcp_server._MCP_INSTRUCTIONS, mcp_server._DSL_REFERENCE_TEXT])
+    return "\n".join(
+        [mcp_server._MCP_INSTRUCTIONS_RENDERED, mcp_server._DSL_REFERENCE_TEXT]
+    )
 
 
 def _prompt_fenced_blocks(language: str) -> list[str]:
@@ -10828,10 +10884,20 @@ def test_prompt_expressions_respect_prompt_action_result_shapes() -> None:
 
 
 def test_mcp_instruction_text_stays_within_context_budget() -> None:
-    assert len(mcp_server._MCP_INSTRUCTIONS) <= 14500, (
+    # The rendered skill-transfer warning is longer than its placeholder and is
+    # required guidance for clients that cannot read local skill directories.
+    assert len(mcp_server._MCP_INSTRUCTIONS_RENDERED) <= 15000, (
         "MCP instructions exceeded the prompt budget. Compress existing guidance "
         "or intentionally raise this ceiling with a clear reason."
     )
+
+
+def test_mcp_instruction_named_placeholders_are_all_rendered() -> None:
+    assert not re.findall(
+        r"\{_[A-Z][A-Z0-9_]*\}",
+        mcp_server._MCP_INSTRUCTIONS_RENDERED,
+    )
+    assert mcp_server._SKILL_FILE_WARNING in mcp_server._MCP_INSTRUCTIONS_RENDERED
 
 
 def test_dsl_reference_text_stays_within_context_budget() -> None:

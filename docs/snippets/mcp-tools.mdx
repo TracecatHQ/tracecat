@@ -141,6 +141,10 @@
 
 <ResponseField name="update_case_trigger" type="tool">
   Update an existing case trigger for a workflow.
+
+  This tool replaces the whole trigger: every call sends `status`, `event_types` and `tag_filters`, so pass all three. Omitting `event_types` or `tag_filters` clears them, and omitting `status` fails the write outright because the column is non-null. Call `get_case_trigger` first and send its current values back, changing only what you mean to change. Patching `/case_trigger` through `edit_workflow` is partial, unlike this tool.
+
+  Valid `event_types` values: case_created, case_updated, case_closed, case_reopened, case_viewed, priority_changed, severity_changed, status_changed, fields_changed, assignee_changed, attachment_created, attachment_deleted, tag_added, tag_removed, payload_changed, task_created, task_deleted, task_status_changed, task_priority_changed, task_workflow_changed, task_assignee_changed, dropdown_value_changed, table_row_linked, table_row_unlinked, comment_created, comment_updated, comment_deleted, comment_reply_created, comment_reply_updated, comment_reply_deleted.
 </ResponseField>
 
 <ResponseField name="list_workflow_tags" type="tool">
@@ -337,6 +341,10 @@
 
 <ResponseField name="update_table" type="tool">
   Update table metadata.
+</ResponseField>
+
+<ResponseField name="create_column" type="tool">
+  Add a column to an existing table. This alters the table schema, so tell the user which table and column you are about to change and get their confirmation before calling this tool.
 </ResponseField>
 
 <ResponseField name="insert_table_row" type="tool">

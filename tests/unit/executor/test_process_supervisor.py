@@ -41,6 +41,14 @@ async def _wait_for_file(path: Path) -> None:
     raise AssertionError(f"Timed out waiting for {path}")
 
 
+async def _wait_for_process_exit(pid: int) -> None:
+    for _ in range(500):
+        if not _process_is_running(pid):
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"Timed out waiting for process {pid} to exit")
+
+
 def _write_action_script(path: Path) -> None:
     path.write_text(
         """
@@ -269,7 +277,10 @@ async def test_parent_death_resumes_monitor_and_reaps_action_tree(
 
         assert process.returncode == -signal.SIGKILL, stderr.decode()
         assert stdout == b""
-        assert not _process_is_running(monitor_pid)
+        # The stopped monitor cleans up asynchronously after the supervisor
+        # dies: PDEATHSIG's SIGCONT resumes it, then it reaps the action tree
+        # before exiting. Wait for that instead of sampling instantly.
+        await _wait_for_process_exit(monitor_pid)
         assert not _process_is_running(action_pid)
         assert not _process_is_running(detached_pid)
     finally:

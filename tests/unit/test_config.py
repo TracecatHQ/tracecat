@@ -418,6 +418,23 @@ def test_action_gateway_socket_uses_default_for_empty_string(
         importlib.reload(tracecat_config)
 
 
+def test_copilot_skills_dir_uses_default_for_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__COPILOT_SKILLS_DIR", "")
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert (
+                reloaded_config.TRACECAT__COPILOT_SKILLS_DIR
+                == "/var/lib/tracecat/copilot-skills"
+            )
+    finally:
+        importlib.reload(tracecat_config)
+
+
 @pytest.mark.parametrize(
     ("sandbox_timeout", "expected_drain_timeout"),
     [(None, 3660), (900, 960), (7200, 7260)],
@@ -447,6 +464,60 @@ def test_agent_executor_drain_default_covers_all_supported_timeouts(
                 reloaded_config.TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT
                 == expected_drain_timeout
             )
+    finally:
+        importlib.reload(tracecat_config)
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        pytest.param(
+            {},
+            (100, 1000, 30_000),
+            id="defaults",
+        ),
+        pytest.param(
+            {
+                "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT": "250",
+                "TRACECAT__LIMIT_AGG_GROUPS_MAX": "2000",
+                "TRACECAT__AGG_STATEMENT_TIMEOUT_MS": "15000",
+            },
+            (250, 2000, 15_000),
+            id="operator-overrides",
+        ),
+        pytest.param(
+            {
+                "TRACECAT__AGG_STATEMENT_TIMEOUT_MS": "2147483648",
+            },
+            (100, 1000, 2_147_483_647),
+            id="timeout-clamped-to-postgres-maximum",
+        ),
+    ],
+)
+def test_aggregation_query_config(
+    monkeypatch: pytest.MonkeyPatch,
+    values: dict[str, str],
+    expected: tuple[int, int, int],
+) -> None:
+    names = (
+        "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT",
+        "TRACECAT__LIMIT_AGG_GROUPS_MAX",
+        "TRACECAT__AGG_STATEMENT_TIMEOUT_MS",
+    )
+    try:
+        with monkeypatch.context() as env:
+            for name in names:
+                env.delenv(name, raising=False)
+            for name, value in values.items():
+                env.setenv(name, value)
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert (
+                reloaded_config.TRACECAT__LIMIT_AGG_GROUPS_DEFAULT,
+                reloaded_config.TRACECAT__LIMIT_AGG_GROUPS_MAX,
+                reloaded_config.TRACECAT__AGG_STATEMENT_TIMEOUT_MS,
+            ) == expected
     finally:
         importlib.reload(tracecat_config)
 

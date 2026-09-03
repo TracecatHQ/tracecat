@@ -10,13 +10,19 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard, get_args
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
     MCPToolDefinition,
     SandboxAgentConfig,
     SandboxSubagentConfig,
+)
+from tracecat.agent.common.wire import (
+    boolean,
+    optional_integer,
+    optional_object,
+    optional_string,
 )
 
 
@@ -125,6 +131,27 @@ class RuntimeInitPayload:
         return result
 
 
+type RuntimeEventType = Literal[
+    "stream_event",
+    "message",
+    "session_line",
+    "session_update",
+    "result",
+    "error",
+    "done",
+    "log",
+]
+
+_RUNTIME_EVENT_TYPES: frozenset[str] = frozenset(get_args(RuntimeEventType.__value__))
+_RUNTIME_LOG_LEVELS = frozenset({"debug", "info", "warning", "error"})
+_RUNTIME_LOG_EXTRA_RESERVED_KEYS = frozenset({"self", "level", "message", "session_id"})
+
+
+def _is_runtime_event_type(value: object) -> TypeGuard[RuntimeEventType]:
+    """Narrow a wire value using the canonical runtime event type definition."""
+    return isinstance(value, str) and value in _RUNTIME_EVENT_TYPES
+
+
 @dataclass(kw_only=True, slots=True)
 class RuntimeEventEnvelope:
     """Envelope for events sent from runtime to orchestrator.
@@ -143,16 +170,7 @@ class RuntimeEventEnvelope:
     when persisting messages to ensure proper authorization.
     """
 
-    type: Literal[
-        "stream_event",
-        "message",
-        "session_line",
-        "session_update",
-        "result",
-        "error",
-        "done",
-        "log",
-    ]
+    type: RuntimeEventType
     event: UnifiedStreamEvent | None = None  # For type="stream_event"
     message: dict[str, Any] | None = None  # For type="message" (serialized Message)
     session_line: str | None = None  # For type="session_line" (raw JSONL line)
@@ -175,29 +193,92 @@ class RuntimeEventEnvelope:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeEventEnvelope:
         """Construct from dict (orjson parsed)."""
+        raw_type = data.get("type")
+        if not _is_runtime_event_type(raw_type):
+            raise ValueError("Unknown runtime event envelope type")
+
+        raw_event = data.get("event")
+        if raw_type == "stream_event" and not isinstance(raw_event, dict):
+            raise ValueError("Runtime stream event payload must be a JSON object")
+        if raw_event is not None and not isinstance(raw_event, dict):
+            raise ValueError("Runtime event payload must be a JSON object")
+
         event = None
-        if data.get("event"):
-            event = UnifiedStreamEvent.from_dict(data["event"])
+        if raw_event is not None:
+            event = UnifiedStreamEvent.from_dict(raw_event)
+
+        message = optional_object(data, "message", path="runtime_event")
+        session_line = optional_string(data, "session_line", path="runtime_event")
+        sdk_session_id = optional_string(data, "sdk_session_id", path="runtime_event")
+        sdk_session_data = optional_string(
+            data,
+            "sdk_session_data",
+            path="runtime_event",
+        )
+        error = optional_string(data, "error", path="runtime_event")
+        result_usage = optional_object(data, "result_usage", path="runtime_event")
+        result_num_turns = optional_integer(
+            data,
+            "result_num_turns",
+            path="runtime_event",
+        )
+        result_duration_ms = optional_integer(
+            data,
+            "result_duration_ms",
+            path="runtime_event",
+        )
+        log_level = optional_string(data, "log_level", path="runtime_event")
+        log_message = optional_string(data, "log_message", path="runtime_event")
+        log_extra = optional_object(data, "log_extra", path="runtime_event")
+
+        internal = boolean(data, "internal", path="runtime_event")
+        if log_level is not None and log_level not in _RUNTIME_LOG_LEVELS:
+            raise ValueError("Runtime event log_level has an unknown log level")
+        if (
+            log_extra is not None
+            and _RUNTIME_LOG_EXTRA_RESERVED_KEYS & log_extra.keys()
+        ):
+            raise ValueError("Runtime event log_extra contains a reserved key")
+
+        match raw_type:
+            case "stream_event" if event is None:
+                raise ValueError("Runtime stream event must include event")
+            case "message" if message is None:
+                raise ValueError("Runtime message event must include message")
+            case "session_line" if session_line is None or not sdk_session_id:
+                raise ValueError(
+                    "Runtime session_line event must include session_line and a non-empty sdk_session_id"
+                )
+            case "session_update" if not sdk_session_id or sdk_session_data is None:
+                raise ValueError(
+                    "Runtime session_update event must include a non-empty sdk_session_id and sdk_session_data"
+                )
+            case "error" if error is None:
+                raise ValueError("Runtime error event must include error")
+            case "log" if log_level is None or log_message is None:
+                raise ValueError(
+                    "Runtime log event must include log_level and log_message"
+                )
 
         return cls(
-            type=data["type"],
+            type=raw_type,
             event=event,
-            message=data.get("message"),
-            session_line=data.get("session_line"),
-            internal=data.get("internal", False),
-            sdk_session_id=data.get("sdk_session_id"),
-            sdk_session_data=data.get("sdk_session_data"),
-            error=data.get("error"),
-            result_usage=data.get("result_usage"),
-            result_num_turns=data.get("result_num_turns"),
-            result_duration_ms=data.get("result_duration_ms"),
+            message=message,
+            session_line=session_line,
+            internal=internal,
+            sdk_session_id=sdk_session_id,
+            sdk_session_data=sdk_session_data,
+            error=error,
+            result_usage=result_usage,
+            result_num_turns=result_num_turns,
+            result_duration_ms=result_duration_ms,
             result_output=data.get(
                 "result_output",
                 data.get("result_structured_output", data.get("result_result")),
             ),
-            log_level=data.get("log_level"),
-            log_message=data.get("log_message"),
-            log_extra=data.get("log_extra"),
+            log_level=log_level,
+            log_message=log_message,
+            log_extra=log_extra,
         )
 
     def to_dict(self) -> dict[str, Any]:

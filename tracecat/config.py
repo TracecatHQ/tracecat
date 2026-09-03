@@ -227,6 +227,16 @@ TRACECAT__AGENT_SKILL_CACHE_DIR = os.environ.get(
 )
 """Directory for caching extracted published skills on executor workers."""
 
+TRACECAT__COPILOT_SKILLS_DIR = (
+    os.environ.get("TRACECAT__COPILOT_SKILLS_DIR") or "/var/lib/tracecat/copilot-skills"
+)
+"""Directory holding the built-in workspace-chat skills vendored from the public
+`tracecat-plugins` repository at image build time.
+
+Deliberately outside the Python package tree. These are markdown the agent reads,
+not code that gets imported, and keeping them out of `packages/` means neither the
+wheel build nor a development bind mount can serve a stale copy."""
+
 TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS = int(
     os.environ.get("TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS") or 8
 )
@@ -1075,6 +1085,32 @@ TRACECAT__S3_CONCURRENCY_LIMIT = int(
 # === API List/Search Limits === #
 TRACECAT__LIMIT_MIN = 1
 """Minimum list/search page size."""
+
+TRACECAT__LIMIT_AGG_GROUPS_MAX = bound_env(
+    "TRACECAT__LIMIT_AGG_GROUPS_MAX",
+    1000,
+    lower=1,
+)
+"""Maximum number of groups returned by an aggregation query."""
+
+TRACECAT__LIMIT_AGG_GROUPS_DEFAULT = bound_env(
+    "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT",
+    100,
+    lower=1,
+    upper=TRACECAT__LIMIT_AGG_GROUPS_MAX,
+)
+"""Default number of groups returned by an aggregation query."""
+
+POSTGRES_STATEMENT_TIMEOUT_MAX_MS = 2_147_483_647
+"""Largest PostgreSQL statement timeout accepted in milliseconds."""
+
+TRACECAT__AGG_STATEMENT_TIMEOUT_MS = bound_env(
+    "TRACECAT__AGG_STATEMENT_TIMEOUT_MS",
+    30_000,
+    lower=1,
+    upper=POSTGRES_STATEMENT_TIMEOUT_MAX_MS,
+)
+"""PostgreSQL statement timeout for aggregation queries, in milliseconds."""
 
 TRACECAT__LIMIT_DEFAULT = 20
 """Default list/search page size."""

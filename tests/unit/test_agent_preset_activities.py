@@ -7,10 +7,13 @@ from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.preset.activities import (
+    ResolveAgentPresetConfigActivityInput,
     ResolveAgentPresetVersionRefActivityInput,
     ResolveAgentsConfigActivityInput,
+    resolve_agent_preset_config_activity,
     resolve_agent_preset_version_ref_activity,
     resolve_agents_config_activity,
     resolve_custom_model_provider_config_activity,
@@ -24,7 +27,13 @@ from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubag
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
+from tracecat.temporal.errors import extract_error_classification
 
 
 class _AsyncContext:
@@ -33,6 +42,17 @@ class _AsyncContext:
 
     async def __aenter__(self) -> object:
         return self._value
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
+class _FailingAsyncContext:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    async def __aenter__(self) -> None:
+        raise self._error
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         return None
@@ -81,6 +101,47 @@ async def test_resolve_agent_preset_version_ref_activity_returns_ids(
     )
     assert result.preset_id == version.preset_id
     assert result.preset_version_id == version.id
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error",
+    [
+        TracecatNotFoundError("Agent preset not found"),
+        TracecatValidationError("Preset version does not belong to preset"),
+    ],
+)
+async def test_resolve_agent_preset_config_classifies_user_input_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    service = SimpleNamespace(
+        with_preset_config=lambda **_: _FailingAsyncContext(error)
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_agent_preset_config_activity(
+            ResolveAgentPresetConfigActivityInput(
+                role=role,
+                preset_slug="missing-preset",
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert exc_info.value.non_retryable is True
 
 
 def test_resolve_agents_config_result_derives_session_binding() -> None:
@@ -292,6 +353,46 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
 
 
 @pytest.mark.anyio
+async def test_resolve_agents_config_classifies_missing_subagent_preset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        resolve_agent_preset_version=AsyncMock(
+            side_effect=TracecatNotFoundError("Agent preset 'missing-child' not found")
+        ),
+        use_latest_resource_versions=AsyncMock(return_value=False),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_agents_config_activity(
+            ResolveAgentsConfigActivityInput(
+                role=role,
+                agents=AgentSubagentsConfig.model_validate(
+                    {
+                        "subagents": [{"preset": "missing-child"}],
+                    }
+                ),
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
 async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -318,13 +419,7 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
         lambda **_: _AsyncContext(service),
     )
 
-    with pytest.raises(
-        TracecatValidationError,
-        match=(
-            "Subagent preset 'approval-child' uses manual approvals, "
-            "which are not supported for subagents yet."
-        ),
-    ):
+    with pytest.raises(ApplicationError) as exc_info:
         await resolve_agents_config_activity(
             ResolveAgentsConfigActivityInput(
                 role=role,
@@ -335,6 +430,57 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
                 ),
             )
         )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
+async def test_resolve_agents_config_classifies_malformed_persisted_agents_as_platform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version = SimpleNamespace(
+        id=uuid.uuid4(),
+        preset_id=uuid.uuid4(),
+        version=1,
+        agents={"enabled": True, "subagents": {}},
+        tool_approvals={},
+    )
+    service = SimpleNamespace(
+        resolve_agent_preset_version=AsyncMock(return_value=version),
+        use_latest_resource_versions=AsyncMock(return_value=False),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_agents_config_activity(
+            ResolveAgentsConfigActivityInput(
+                role=role,
+                agents=AgentSubagentsConfig.model_validate(
+                    {
+                        "subagents": [{"preset": "malformed-child"}],
+                    }
+                ),
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
+    assert exc_info.value.non_retryable is True
 
 
 @pytest.mark.anyio
@@ -355,10 +501,7 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
         ),
     )
 
-    with pytest.raises(
-        TracecatValidationError,
-        match="Invalid subagent alias 'Bad Alias'",
-    ):
+    with pytest.raises(ApplicationError) as exc_info:
         await resolve_agents_config_activity(
             ResolveAgentsConfigActivityInput(
                 role=role,
@@ -369,6 +512,12 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
                 ),
             )
         )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert exc_info.value.non_retryable is True
 
 
 @pytest.mark.anyio
@@ -404,3 +553,79 @@ async def test_resolve_custom_model_provider_config_activity_returns_base_url(
     assert result.base_url == "https://customer.example"
     assert result.model_name == "provider/custom-model"
     assert result.passthrough is True
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "credentials",
+    [None, {"CUSTOM_MODEL_PROVIDER_API_KEY": "opaque-secret"}],
+)
+async def test_resolve_custom_model_provider_config_classifies_invalid_config(
+    monkeypatch: pytest.MonkeyPatch,
+    credentials: dict[str, str] | None,
+) -> None:
+    service = SimpleNamespace(
+        get_workspace_provider_credentials=AsyncMock(return_value=credentials)
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda *_args, **_kwargs: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_custom_model_provider_config_activity(role)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert exc_info.value.message == "Agent configuration is invalid"
+    assert "opaque-secret" not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_resolve_custom_model_provider_config_classifies_revoked_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog_id = uuid.uuid4()
+    service = SimpleNamespace(
+        session=SimpleNamespace(
+            execute=AsyncMock(
+                return_value=SimpleNamespace(
+                    scalar_one_or_none=lambda: SimpleNamespace(
+                        custom_provider_id=uuid.uuid4()
+                    )
+                )
+            )
+        ),
+        organization_id=uuid.uuid4(),
+        get_catalog_credentials=AsyncMock(
+            side_effect=TracecatAuthorizationError("catalog access revoked")
+        ),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda *_args, **_kwargs: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_custom_model_provider_config_activity(role, catalog_id)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert exc_info.value.non_retryable is True
+    assert "catalog access revoked" not in str(exc_info.value)

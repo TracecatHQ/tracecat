@@ -5,7 +5,7 @@ inside an NSJail sandbox without database access. All I/O happens via Unix socke
 
 Key design principles:
 - No database imports (no SQLAlchemy, no DB services)
-- No pydantic-ai imports
+- Minimal runtime imports
 - Minimal import footprint for fast cold start
 """
 

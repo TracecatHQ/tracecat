@@ -5518,73 +5518,6 @@ export const $AttachmentDeletedEventRead = {
   description: "Event for when an attachment is deleted from a case.",
 } as const
 
-export const $AudioUrl = {
-  properties: {
-    url: {
-      type: "string",
-      title: "Url",
-    },
-    force_download: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "string",
-          const: "allow-local",
-        },
-      ],
-      title: "Force Download",
-      default: false,
-    },
-    vendor_metadata: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Vendor Metadata",
-    },
-    kind: {
-      type: "string",
-      const: "audio-url",
-      title: "Kind",
-      default: "audio-url",
-    },
-    media_type: {
-      type: "string",
-      title: "Media Type",
-      description:
-        "Return the media type of the file, based on the URL or the provided `media_type`.",
-      readOnly: true,
-    },
-    identifier: {
-      type: "string",
-      title: "Identifier",
-      description: `The identifier of the file, such as a unique ID.
-
-This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-and the tool can look up the file in question by iterating over the message history and finding the matching \`FileUrl\`.
-
-This identifier is only automatically passed to the model when the \`FileUrl\` is returned by a tool.
-If you're passing the \`FileUrl\` as a user message, it's up to you to include a separate text part with the identifier,
-e.g. "This is file <identifier>:" preceding the \`FileUrl\`.
-
-It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-distinguish multiple files.`,
-      readOnly: true,
-    },
-  },
-  type: "object",
-  required: ["url", "media_type", "identifier"],
-  title: "AudioUrl",
-  description: "A URL to an audio file.",
-} as const
-
 export const $AuditSettingsRead = {
   properties: {
     audit_webhook_url: {
@@ -6130,92 +6063,6 @@ export const $BedrockCatalogUpdate = {
   title: "BedrockCatalogUpdate",
 } as const
 
-export const $BinaryContent = {
-  properties: {
-    data: {
-      type: "string",
-      contentEncoding: "base64",
-      contentMediaType: "application/octet-stream",
-      title: "Data",
-    },
-    media_type: {
-      anyOf: [
-        {
-          type: "string",
-          enum: [
-            "audio/wav",
-            "audio/mpeg",
-            "audio/ogg",
-            "audio/flac",
-            "audio/aiff",
-            "audio/aac",
-          ],
-        },
-        {
-          type: "string",
-          enum: ["image/jpeg", "image/png", "image/gif", "image/webp"],
-        },
-        {
-          type: "string",
-          enum: [
-            "application/pdf",
-            "text/plain",
-            "text/csv",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "text/html",
-            "text/markdown",
-            "application/msword",
-            "application/vnd.ms-excel",
-          ],
-        },
-        {
-          type: "string",
-        },
-      ],
-      title: "Media Type",
-    },
-    vendor_metadata: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Vendor Metadata",
-    },
-    kind: {
-      type: "string",
-      const: "binary",
-      title: "Kind",
-      default: "binary",
-    },
-    identifier: {
-      type: "string",
-      title: "Identifier",
-      description: `Identifier for the binary content, such as a unique ID.
-
-This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-and the tool can look up the file in question by iterating over the message history and finding the matching \`BinaryContent\`.
-
-This identifier is only automatically passed to the model when the \`BinaryContent\` is returned by a tool.
-If you're passing the \`BinaryContent\` as a user message, it's up to you to include a separate text part with the identifier,
-e.g. "This is file <identifier>:" preceding the \`BinaryContent\`.
-
-It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-distinguish multiple files.`,
-      readOnly: true,
-    },
-  },
-  type: "object",
-  required: ["data", "media_type", "identifier"],
-  title: "BinaryContent",
-  description: "Binary content, e.g. an audio or image file.",
-} as const
-
 export const $Body_auth_reset_forgot_password = {
   properties: {
     email: {
@@ -6406,25 +6253,6 @@ export const $BooleanApprovalDecision = {
   required: ["value", "metadata"],
   title: "BooleanApprovalDecision",
   description: "Persisted boolean decision enriched with submission metadata.",
-} as const
-
-export const $CachePoint = {
-  properties: {
-    kind: {
-      type: "string",
-      const: "cache-point",
-      title: "Kind",
-      default: "cache-point",
-    },
-    ttl: {
-      type: "string",
-      enum: ["5m", "1h"],
-      title: "Ttl",
-      default: "5m",
-    },
-  },
-  type: "object",
-  title: "CachePoint",
 } as const
 
 export const $CaseAgentSessionBackfillStatus = {
@@ -10368,7 +10196,6 @@ export const $ChatMessage = {
     },
     message: {
       anyOf: [
-        {},
         {
           $ref: "#/components/schemas/UserMessage",
         },
@@ -13045,73 +12872,6 @@ export const $DefaultModelSelectionUpdate = {
     "Payload for updating the organization's default model selection.",
 } as const
 
-export const $DocumentUrl = {
-  properties: {
-    url: {
-      type: "string",
-      title: "Url",
-    },
-    force_download: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "string",
-          const: "allow-local",
-        },
-      ],
-      title: "Force Download",
-      default: false,
-    },
-    vendor_metadata: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Vendor Metadata",
-    },
-    kind: {
-      type: "string",
-      const: "document-url",
-      title: "Kind",
-      default: "document-url",
-    },
-    media_type: {
-      type: "string",
-      title: "Media Type",
-      description:
-        "Return the media type of the file, based on the URL or the provided `media_type`.",
-      readOnly: true,
-    },
-    identifier: {
-      type: "string",
-      title: "Identifier",
-      description: `The identifier of the file, such as a unique ID.
-
-This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-and the tool can look up the file in question by iterating over the message history and finding the matching \`FileUrl\`.
-
-This identifier is only automatically passed to the model when the \`FileUrl\` is returned by a tool.
-If you're passing the \`FileUrl\` as a user message, it's up to you to include a separate text part with the identifier,
-e.g. "This is file <identifier>:" preceding the \`FileUrl\`.
-
-It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-distinguish multiple files.`,
-      readOnly: true,
-    },
-  },
-  type: "object",
-  required: ["url", "media_type", "identifier"],
-  title: "DocumentUrl",
-  description: "The URL of the document.",
-} as const
-
 export const $DropdownValueChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -13646,48 +13406,6 @@ export const $EntitlementsDict = {
   description: `TypedDict for tier entitlements stored in JSONB.
 
 All keys are optional (total=False) to support partial overrides.`,
-} as const
-
-export const $ErrorDetails = {
-  properties: {
-    type: {
-      type: "string",
-      title: "Type",
-    },
-    loc: {
-      items: {
-        anyOf: [
-          {
-            type: "integer",
-          },
-          {
-            type: "string",
-          },
-        ],
-      },
-      type: "array",
-      title: "Loc",
-    },
-    msg: {
-      type: "string",
-      title: "Msg",
-    },
-    input: {
-      title: "Input",
-    },
-    ctx: {
-      additionalProperties: true,
-      type: "object",
-      title: "Ctx",
-    },
-    url: {
-      type: "string",
-      title: "Url",
-    },
-  },
-  type: "object",
-  required: ["type", "loc", "msg", "input"],
-  title: "ErrorDetails",
 } as const
 
 export const $ErrorModel = {
@@ -15532,7 +15250,7 @@ export const $HTTPValidationError = {
 
 export const $HarnessType = {
   type: "string",
-  enum: ["pydantic-ai", "claude_code"],
+  enum: ["claude_code"],
   title: "HarnessType",
   description: "Supported agent harnesses.",
 } as const
@@ -15547,73 +15265,6 @@ export const $HealthResponse = {
   type: "object",
   required: ["status"],
   title: "HealthResponse",
-} as const
-
-export const $ImageUrl = {
-  properties: {
-    url: {
-      type: "string",
-      title: "Url",
-    },
-    force_download: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "string",
-          const: "allow-local",
-        },
-      ],
-      title: "Force Download",
-      default: false,
-    },
-    vendor_metadata: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Vendor Metadata",
-    },
-    kind: {
-      type: "string",
-      const: "image-url",
-      title: "Kind",
-      default: "image-url",
-    },
-    media_type: {
-      type: "string",
-      title: "Media Type",
-      description:
-        "Return the media type of the file, based on the URL or the provided `media_type`.",
-      readOnly: true,
-    },
-    identifier: {
-      type: "string",
-      title: "Identifier",
-      description: `The identifier of the file, such as a unique ID.
-
-This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-and the tool can look up the file in question by iterating over the message history and finding the matching \`FileUrl\`.
-
-This identifier is only automatically passed to the model when the \`FileUrl\` is returned by a tool.
-If you're passing the \`FileUrl\` as a user message, it's up to you to include a separate text part with the identifier,
-e.g. "This is file <identifier>:" preceding the \`FileUrl\`.
-
-It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-distinguish multiple files.`,
-      readOnly: true,
-    },
-  },
-  type: "object",
-  required: ["url", "media_type", "identifier"],
-  title: "ImageUrl",
-  description: "A URL to an image.",
 } as const
 
 export const $InboxGroup = {
@@ -22618,54 +22269,6 @@ export const $ResultMessage = {
   title: "ResultMessage",
 } as const
 
-export const $RetryPromptPart = {
-  properties: {
-    content: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/ErrorDetails",
-          },
-          type: "array",
-        },
-        {
-          type: "string",
-        },
-      ],
-      title: "Content",
-    },
-    tool_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tool Name",
-    },
-    tool_call_id: {
-      type: "string",
-      title: "Tool Call Id",
-    },
-    timestamp: {
-      type: "string",
-      format: "date-time",
-      title: "Timestamp",
-    },
-    part_kind: {
-      type: "string",
-      const: "retry-prompt",
-      title: "Part Kind",
-      default: "retry-prompt",
-    },
-  },
-  type: "object",
-  required: ["content"],
-  title: "RetryPromptPart",
-} as const
-
 export const $Role = {
   properties: {
     type: {
@@ -28298,126 +27901,6 @@ export const $ToolResultBlock = {
   title: "ToolResultBlock",
 } as const
 
-export const $ToolReturn = {
-  properties: {
-    return_value: {
-      $ref: "#/components/schemas/ToolReturnContent",
-    },
-    content: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          items: {
-            anyOf: [
-              {
-                type: "string",
-              },
-              {
-                oneOf: [
-                  {
-                    $ref: "#/components/schemas/ImageUrl",
-                  },
-                  {
-                    $ref: "#/components/schemas/AudioUrl",
-                  },
-                  {
-                    $ref: "#/components/schemas/DocumentUrl",
-                  },
-                  {
-                    $ref: "#/components/schemas/VideoUrl",
-                  },
-                  {
-                    $ref: "#/components/schemas/BinaryContent",
-                  },
-                ],
-                discriminator: {
-                  propertyName: "kind",
-                  mapping: {
-                    "audio-url": "#/components/schemas/AudioUrl",
-                    binary: "#/components/schemas/BinaryContent",
-                    "document-url": "#/components/schemas/DocumentUrl",
-                    "image-url": "#/components/schemas/ImageUrl",
-                    "video-url": "#/components/schemas/VideoUrl",
-                  },
-                },
-              },
-              {
-                $ref: "#/components/schemas/CachePoint",
-              },
-            ],
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Content",
-    },
-    metadata: {
-      title: "Metadata",
-    },
-    kind: {
-      type: "string",
-      const: "tool-return",
-      title: "Kind",
-      default: "tool-return",
-    },
-  },
-  type: "object",
-  required: ["return_value"],
-  title: "ToolReturn",
-} as const
-
-export const $ToolReturnContent = {
-  anyOf: [
-    {
-      oneOf: [
-        {
-          $ref: "#/components/schemas/ImageUrl",
-        },
-        {
-          $ref: "#/components/schemas/AudioUrl",
-        },
-        {
-          $ref: "#/components/schemas/DocumentUrl",
-        },
-        {
-          $ref: "#/components/schemas/VideoUrl",
-        },
-        {
-          $ref: "#/components/schemas/BinaryContent",
-        },
-      ],
-      discriminator: {
-        propertyName: "kind",
-        mapping: {
-          "audio-url": "#/components/schemas/AudioUrl",
-          binary: "#/components/schemas/BinaryContent",
-          "document-url": "#/components/schemas/DocumentUrl",
-          "image-url": "#/components/schemas/ImageUrl",
-          "video-url": "#/components/schemas/VideoUrl",
-        },
-      },
-    },
-    {
-      items: {
-        $ref: "#/components/schemas/ToolReturnContent",
-      },
-      type: "array",
-    },
-    {
-      additionalProperties: {
-        $ref: "#/components/schemas/ToolReturnContent",
-      },
-      type: "object",
-    },
-    {},
-  ],
-} as const
-
 export const $ToolUIPartInputAvailable = {
   properties: {
     type: {
@@ -29961,73 +29444,6 @@ export const $VertexAICatalogUpdate = {
   type: "object",
   required: ["model_provider", "vertex_model"],
   title: "VertexAICatalogUpdate",
-} as const
-
-export const $VideoUrl = {
-  properties: {
-    url: {
-      type: "string",
-      title: "Url",
-    },
-    force_download: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "string",
-          const: "allow-local",
-        },
-      ],
-      title: "Force Download",
-      default: false,
-    },
-    vendor_metadata: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Vendor Metadata",
-    },
-    kind: {
-      type: "string",
-      const: "video-url",
-      title: "Kind",
-      default: "video-url",
-    },
-    media_type: {
-      type: "string",
-      title: "Media Type",
-      description:
-        "Return the media type of the file, based on the URL or the provided `media_type`.",
-      readOnly: true,
-    },
-    identifier: {
-      type: "string",
-      title: "Identifier",
-      description: `The identifier of the file, such as a unique ID.
-
-This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-and the tool can look up the file in question by iterating over the message history and finding the matching \`FileUrl\`.
-
-This identifier is only automatically passed to the model when the \`FileUrl\` is returned by a tool.
-If you're passing the \`FileUrl\` as a user message, it's up to you to include a separate text part with the identifier,
-e.g. "This is file <identifier>:" preceding the \`FileUrl\`.
-
-It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-distinguish multiple files.`,
-      readOnly: true,
-    },
-  },
-  type: "object",
-  required: ["url", "media_type", "identifier"],
-  title: "VideoUrl",
-  description: "A URL to a video.",
 } as const
 
 export const $WaitResultOutput = {

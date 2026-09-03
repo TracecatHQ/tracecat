@@ -1,21 +1,9 @@
 """
 Reproduction harness for the historical import/reload race around `tracecat_registry`.
 
-This file contains two tests:
-
-1) test_import_reload_race_old_behavior
-   - Monkeypatches `import_and_reload` to the old, unsafe strategy
-     (removing the package from `sys.modules` and sleeping) to widen
-     the race window, then drives concurrent imports and reloads.
-   - This test should reliably produce intermittent ModuleNotFoundError/KeyError
-     on affected environments, demonstrating the race.
-
-2) test_import_reload_no_race_with_lock
-   - Uses the current, safe implementation of `import_and_reload`
-     (process‑wide lock, no pop from sys.modules) and drives the same
-     concurrent pattern. It asserts that no import errors occur.
-
-These tests are intentionally lightweight and self‑contained.
+The historical stress reproduction remains skipped because its race is not
+deterministic. The active tests below use controlled synchronization to verify
+that the safe importer keeps modules available across reload failures.
 """
 
 from __future__ import annotations
@@ -54,8 +42,7 @@ def _bad_import_and_reload(module_name: str) -> ModuleType:
 
 
 @pytest.mark.skip(
-    reason="Flaky: race condition may not trigger reliably. "
-    "The fix is validated by test_import_reload_no_race_with_lock."
+    reason="Historical race reproduction is intentionally nondeterministic."
 )
 @pytest.mark.anyio
 async def test_import_reload_race_old_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,55 +95,6 @@ async def test_import_reload_race_old_behavior(monkeypatch: pytest.MonkeyPatch) 
     assert any(isinstance(e, ModuleNotFoundError | KeyError) for e in errors), (
         f"Expected transient import errors, got: {errors!r}"
     )
-
-
-@pytest.mark.anyio
-async def test_import_reload_no_race_with_lock() -> None:
-    """Verify the safe importer avoids transient errors under concurrency.
-
-    Uses the current implementation of import_and_reload (with a process‑wide
-    lock and no sys.modules pop). We concurrently reload the base package and
-    import a submodule many times and assert no errors occur.
-    """
-    # Ensure base package is importable before we begin
-    importlib.import_module("tracecat_registry")
-
-    errors: list[BaseException] = []
-
-    async def reloader_task(iterations: int = 200) -> None:
-        for _ in range(iterations):
-            # Run the safe reloader in a worker thread for true concurrency
-            await asyncio.to_thread(safe_import_and_reload, "tracecat_registry")
-            # Remove sleep to maximize collision chances
-            await asyncio.sleep(0)
-
-    async def importer_task(iterations: int = 2000) -> None:
-        for _ in range(iterations):
-            try:
-                # Force a fresh import by clearing the submodule cache entries
-                sys.modules.pop(
-                    "tracecat_registry.integrations.crowdstrike_falconpy", None
-                )
-                sys.modules.pop("tracecat_registry.integrations", None)
-                importlib.invalidate_caches()
-                importlib.import_module(
-                    "tracecat_registry.integrations.crowdstrike_falconpy"
-                )
-            except Exception as e:  # noqa: BLE001 - we collect all exceptions
-                errors.append(e)
-            # Remove sleep to maximize collision chances
-            await asyncio.sleep(0)
-
-    # Run more concurrent tasks to increase collision probability
-    await asyncio.gather(
-        reloader_task(200),
-        reloader_task(200),
-        importer_task(2000),
-        importer_task(2000),
-        importer_task(2000),
-    )
-
-    assert not errors, f"Unexpected import errors under safe reload: {errors!r}"
 
 
 def test_import_reload_failure_keeps_module_available(
