@@ -135,6 +135,7 @@ from tracecat.observability.otel import (
     instrument_fastapi_app,
     shutdown_platform_tracing,
 )
+from tracecat.observability.sentry import initialize_sentry_from_environment
 from tracecat.organization.management import (
     ensure_default_organization,
     get_default_organization_id,
@@ -672,6 +673,7 @@ def create_app(**kwargs) -> FastAPI:
     return app
 
 
+initialize_sentry_from_environment(enable_fastapi_integration=True)
 app = create_app()
 
 
