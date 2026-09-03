@@ -3,23 +3,28 @@
 from __future__ import annotations
 
 from email.message import EmailMessage
-from typing import ClassVar
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+from fastapi import BackgroundTasks
 
 from tracecat import config
 from tracecat.email import client
 from tracecat.email.client import (
-    InvitationEmail,
+    Mailer,
     OutboundEmail,
     SMTPTransport,
     build_accept_url,
+    invitation_email,
     is_email_configured,
-    send_emails,
-    send_invitation_emails,
 )
 from tracecat.email.templates import render_invitation_email
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    """Local copy so this module runs standalone with --noconftest."""
+    return "asyncio"
 
 
 def _set_smtp_config(
@@ -28,44 +33,34 @@ def _set_smtp_config(
     host: str | None = None,
     user: str | None = None,
     password: str | None = None,
-    email_from: str | None = None,
+    domain: str | None = None,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__SMTP_HOST", host)
+    monkeypatch.setattr(config, "TRACECAT__SMTP_PORT", 587)
     monkeypatch.setattr(config, "TRACECAT__SMTP_USER", user)
     monkeypatch.setattr(config, "TRACECAT__SMTP_PASSWORD", password)
-    monkeypatch.setattr(config, "TRACECAT__EMAIL_FROM", email_from)
+    monkeypatch.setattr(config, "TRACECAT__EMAIL_DOMAIN", domain)
 
 
 @pytest.mark.parametrize(
-    ("host", "user", "password", "email_from", "expected"),
+    ("host", "user", "password", "domain", "expected"),
     [
         (None, None, None, None, False),
         ("smtp.example.com", None, None, None, False),
-        ("smtp.example.com", "relay", "secret", "invalid", False),
-        ("smtp.example.com", "relay", "secret", "sender@example.com", True),
-        (
-            "smtp.example.com",
-            "relay",
-            "secret",
-            "Tracecat <sender@example.com>",
-            True,
-        ),
+        ("smtp.example.com", "relay", "secret", None, False),
+        ("smtp.example.com", "relay", "secret", "example.com", True),
     ],
 )
-def test_email_configuration_requires_complete_valid_settings(
+def test_email_configuration_requires_every_setting(
     monkeypatch: pytest.MonkeyPatch,
     host: str | None,
     user: str | None,
     password: str | None,
-    email_from: str | None,
+    domain: str | None,
     expected: bool,
 ) -> None:
     _set_smtp_config(
-        monkeypatch,
-        host=host,
-        user=user,
-        password=password,
-        email_from=email_from,
+        monkeypatch, host=host, user=user, password=password, domain=domain
     )
 
     assert is_email_configured() is expected
@@ -75,7 +70,6 @@ def test_invitation_template_escapes_html_and_subject_controls() -> None:
     subject, html, text = render_invitation_email(
         accept_url='https://app.example.com/invitations/accept?token=a&b="x',
         context_name="Acme\r\nBcc: attacker@example.com<script>",
-        kind="organization",
     )
 
     assert "\r" not in subject
@@ -96,179 +90,70 @@ def test_build_accept_url_handles_trailing_slash(
     )
 
 
-class _FakeSMTP:
-    instances: ClassVar[list[_FakeSMTP]] = []
-    fail_login: ClassVar[bool] = False
-
-    def __init__(
-        self,
-        *,
-        hostname: str,
-        port: int,
-        use_tls: bool,
-        start_tls: bool,
-    ) -> None:
-        self.kwargs = {
-            "hostname": hostname,
-            "port": port,
-            "use_tls": use_tls,
-            "start_tls": start_tls,
-        }
-        self.connected = False
-        self.logged_in: tuple[str, str] | None = None
-        self.close_called = False
-        self.quit_called = False
-        self.attempted_recipients: list[tuple[str, ...]] = []
-        self.sent_messages: list[EmailMessage] = []
-        _FakeSMTP.instances.append(self)
-
-    async def connect(self) -> None:
-        self.connected = True
-
-    async def login(self, username: str, password: str) -> None:
-        if self.fail_login:
-            raise RuntimeError("authentication failed")
-        self.logged_in = (username, password)
-
-    def close(self) -> None:
-        self.close_called = True
-
-    async def quit(self) -> None:
-        self.quit_called = True
-
-    async def send_message(
-        self,
-        message: EmailMessage,
-        *,
-        sender: str,
-        recipients: list[str],
-    ) -> None:
-        del sender
-        attempted = tuple(recipients)
-        self.attempted_recipients.append(attempted)
-        if "fail@example.com" in attempted:
-            raise RuntimeError("rejected")
-        self.sent_messages.append(message)
-
-
-@pytest.fixture(autouse=True)
-def _fake_smtp(  # pyright: ignore[reportUnusedFunction]
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _FakeSMTP.instances.clear()
-    _FakeSMTP.fail_login = False
-    monkeypatch.setattr(client.aiosmtplib, "SMTP", _FakeSMTP)
-
-
-def _outbound(to: str) -> OutboundEmail:
+def _outbound(to: str = "invitee@example.com") -> OutboundEmail:
     return OutboundEmail(
         to=(to,),
         subject="Invitation",
         html="<p>Join</p>",
         text="Join",
-        from_addr="Tracecat <sender@example.com>",
+        from_addr="Tracecat <no-reply@example.com>",
         headers={"In-Reply-To": "<message@example.com>"},
     )
 
 
+@pytest.mark.parametrize(
+    ("port", "use_tls", "start_tls"),
+    [(587, False, True), (465, True, False)],
+)
 @pytest.mark.anyio
-async def test_smtp_transport_reuses_connection_and_continues_after_failure(
-    monkeypatch: pytest.MonkeyPatch,
+async def test_smtp_transport_send_builds_mime_and_selects_tls(
+    monkeypatch: pytest.MonkeyPatch, port: int, use_tls: bool, start_tls: bool
 ) -> None:
-    log_error = Mock()
-    monkeypatch.setattr(client.logger, "error", log_error)
+    send = AsyncMock()
+    monkeypatch.setattr(client.aiosmtplib, "send", send)
     transport = SMTPTransport(
-        host="smtp.example.com",
-        port=587,
-        username="relay",
-        password="secret",
+        host="smtp.example.com", port=port, username="relay", password="secret"
     )
 
-    async with transport:
-        await send_emails(
-            [
-                _outbound("first@example.com"),
-                _outbound("fail@example.com"),
-                _outbound("last@example.com"),
-            ],
-            transport,
-        )
+    await transport.send(_outbound())
 
-    assert len(_FakeSMTP.instances) == 1
-    smtp = _FakeSMTP.instances[0]
-    assert smtp.kwargs == {
+    send.assert_awaited_once()
+    await_args = send.await_args
+    assert await_args is not None
+    mime = await_args.args[0]
+    assert isinstance(mime, EmailMessage)
+    assert await_args.kwargs == {
         "hostname": "smtp.example.com",
-        "port": 587,
-        "use_tls": False,
-        "start_tls": True,
+        "port": port,
+        "username": "relay",
+        "password": "secret",
+        "use_tls": use_tls,
+        "start_tls": start_tls,
     }
-    assert smtp.connected is True
-    assert smtp.logged_in == ("relay", "secret")
-    assert smtp.attempted_recipients == [
-        ("first@example.com",),
-        ("fail@example.com",),
-        ("last@example.com",),
-    ]
-    assert smtp.quit_called is True
-    assert "fail@example.com" not in repr(log_error.call_args_list)
+    assert mime["From"] == "Tracecat <no-reply@example.com>"
+    assert mime["To"] == "invitee@example.com"
+    assert mime["Subject"] == "Invitation"
+    assert mime["In-Reply-To"] == "<message@example.com>"
 
 
-@pytest.mark.anyio
-async def test_invitation_flow_renders_and_sends_over_smtp(
+def test_invitation_email_uses_platform_sender(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _set_smtp_config(
-        monkeypatch,
-        host="smtp.resend.com",
-        user="resend",
-        password="secret",
-        email_from="Tracecat <sender@example.com>",
-    )
-    monkeypatch.setattr(config, "TRACECAT__SMTP_PORT", 587)
+    monkeypatch.setattr(config, "TRACECAT__EMAIL_DOMAIN", "mail.example.com")
     monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", "https://app.example.com")
 
-    await send_invitation_emails(
-        [
-            InvitationEmail(
-                to="invitee@example.com",
-                accept_url=build_accept_url("token-123"),
-                context_name="Acme",
-                kind="organization",
-            )
-        ]
+    message = invitation_email(
+        to="invitee@example.com", organization_name="Acme", token="token-123"
     )
 
-    smtp = _FakeSMTP.instances[0]
-    assert len(smtp.sent_messages) == 1
-    message = smtp.sent_messages[0]
-    assert message["From"] == "Tracecat <sender@example.com>"
-    assert message["To"] == "invitee@example.com"
-    assert message["Subject"] == "Join Acme on Tracecat"
-    assert "token-123" in str(message)
+    assert message.to == ("invitee@example.com",)
+    assert message.subject == "Join Acme on Tracecat"
+    assert message.from_addr == "Tracecat <no-reply@mail.example.com>"
+    assert "token-123" in message.text
 
 
 @pytest.mark.anyio
-async def test_invitation_flow_is_noop_when_email_is_unconfigured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _set_smtp_config(monkeypatch)
-
-    await send_invitation_emails(
-        [
-            InvitationEmail(
-                to="invitee@example.com",
-                accept_url="https://app.example.com/invitations/accept?token=token",
-                context_name="Acme",
-                kind="organization",
-            )
-        ]
-    )
-
-    assert _FakeSMTP.instances == []
-
-
-@pytest.mark.anyio
-async def test_invitation_flow_closes_failed_smtp_connection(
+async def test_mailer_queues_send_as_background_task(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _set_smtp_config(
@@ -276,19 +161,51 @@ async def test_invitation_flow_closes_failed_smtp_connection(
         host="smtp.example.com",
         user="relay",
         password="secret",
-        email_from="sender@example.com",
+        domain="example.com",
     )
-    _FakeSMTP.fail_login = True
+    send = AsyncMock()
+    monkeypatch.setattr(SMTPTransport, "send", send)
+    tasks = BackgroundTasks()
 
-    await send_invitation_emails(
-        [
-            InvitationEmail(
-                to="invitee@example.com",
-                accept_url="https://app.example.com/invitations/accept?token=token",
-                context_name="Acme",
-                kind="organization",
-            )
-        ]
+    Mailer(tasks).deliver(_outbound())
+
+    assert len(tasks.tasks) == 1
+    await tasks()
+    send.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_mailer_task_logs_instead_of_raising(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_smtp_config(
+        monkeypatch,
+        host="smtp.example.com",
+        user="relay",
+        password="secret",
+        domain="example.com",
     )
+    monkeypatch.setattr(
+        SMTPTransport, "send", AsyncMock(side_effect=RuntimeError("relay down"))
+    )
+    log_error = Mock()
+    monkeypatch.setattr(client.logger, "error", log_error)
+    tasks = BackgroundTasks()
 
-    assert _FakeSMTP.instances[0].close_called is True
+    Mailer(tasks).deliver(_outbound())
+    await tasks()
+
+    log_error.assert_called_once()
+    assert log_error.call_args.kwargs["error_type"] == "RuntimeError"
+    assert "invitee@example.com" not in repr(log_error.call_args)
+
+
+def test_mailer_is_a_noop_when_email_is_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_smtp_config(monkeypatch)
+    tasks = BackgroundTasks()
+
+    Mailer(tasks).deliver(_outbound())
+
+    assert tasks.tasks == []

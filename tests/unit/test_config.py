@@ -57,7 +57,7 @@ SMTP_COMPOSE_ENV = (
     "TRACECAT__SMTP_PORT: ${TRACECAT__SMTP_PORT:-587}",
     "TRACECAT__SMTP_USER: ${TRACECAT__SMTP_USER:-}",
     "TRACECAT__SMTP_PASSWORD: ${TRACECAT__SMTP_PASSWORD:-}",
-    "TRACECAT__EMAIL_FROM: ${TRACECAT__EMAIL_FROM:-}",
+    "TRACECAT__EMAIL_DOMAIN: ${TRACECAT__EMAIL_DOMAIN:-}",
 )
 
 
@@ -241,7 +241,13 @@ def test_smtp_env_is_wired_to_api_deployments() -> None:
             assert env_line in api_match.group("body"), f"{path.name}: {env_line}"
 
     fargate = REPO_ROOT / "deployments/fargate"
-    for name in ("smtp_host", "smtp_port", "smtp_user", "smtp_password", "email_from"):
+    for name in (
+        "smtp_host",
+        "smtp_port",
+        "smtp_user",
+        "smtp_password",
+        "email_domain",
+    ):
         assert (
             name in (fargate / "modules/ecs/locals.tf").read_text()
             or name in (fargate / "modules/ecs/secrets.tf").read_text()
@@ -253,7 +259,7 @@ def test_smtp_env_is_wired_to_api_deployments() -> None:
             "smtp_host",
             "smtp_port",
             "smtp_user",
-            "email_from",
+            "email_domain",
         ):
             assert name in source, f"{tf}: {name}"
 

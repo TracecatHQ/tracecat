@@ -138,7 +138,7 @@ module "ecs" {
   smtp_host         = var.smtp_host
   smtp_port         = var.smtp_port
   smtp_user         = var.smtp_user
-  email_from        = var.email_from
+  email_domain      = var.email_domain
 
   # Temporal UI authentication
   temporal_auth_provider_url      = var.temporal_auth_provider_url

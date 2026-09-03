@@ -110,6 +110,8 @@ def _test_client(
             app.dependency_overrides[original_dependency] = override_role_dependency
 
     mock_session = AsyncMock(name="mock_async_session")
+    # Scalar lookups resolve to "not found" unless a test sets a value.
+    mock_session.scalar.return_value = None
 
     async def override_get_async_session() -> AsyncMock:
         """Return a mock DB session so HTTP tests do not hit Postgres."""

@@ -3,18 +3,14 @@
 from __future__ import annotations
 
 from html import escape
-from typing import Literal
 
 from tracecat import config
-
-InvitationKind = Literal["organization", "workspace"]
 
 
 def render_invitation_email(
     *,
     accept_url: str,
     context_name: str,
-    kind: InvitationKind,
 ) -> tuple[str, str, str]:
     """Render an invitation subject plus HTML and plain-text bodies."""
     safe_name = escape(context_name)
@@ -22,20 +18,10 @@ def render_invitation_email(
     logo_url = escape(f"{config.TRACECAT__PUBLIC_APP_URL}/icon.png", quote=True)
     header_safe_name = "".join(char for char in context_name if char.isprintable())
 
-    label = "Workspace" if kind == "workspace" else "Organization"
-    if kind == "workspace":
-        subject = f"Join the {header_safe_name} workspace on Tracecat"
-        intro = (
-            "You've been invited to join the "
-            f"<strong>{safe_name}</strong> workspace on Tracecat."
-        )
-        intro_text = (
-            f"You've been invited to join the {context_name} workspace on Tracecat."
-        )
-    else:
-        subject = f"Join {header_safe_name} on Tracecat"
-        intro = f"You've been invited to join <strong>{safe_name}</strong> on Tracecat."
-        intro_text = f"You've been invited to join {context_name} on Tracecat."
+    label = "Organization"
+    subject = f"Join {header_safe_name} on Tracecat"
+    intro = f"You've been invited to join <strong>{safe_name}</strong> on Tracecat."
+    intro_text = f"You've been invited to join {context_name} on Tracecat."
 
     hint = "If you don't have an account yet, you'll be prompted to create one."
     html = f"""\
