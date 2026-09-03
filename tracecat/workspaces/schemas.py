@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from pydantic import EmailStr, Field, computed_field, field_validator
 
@@ -125,12 +125,25 @@ class WorkspaceReadMinimal(Schema):
     name: str
 
 
+class WorkspaceMemberSource(Schema):
+    """Where a member's workspace access comes from.
+
+    ``kind`` is ``"direct"`` for a direct role assignment, or ``"group"`` when
+    access is derived only from group membership, in which case ``group_names``
+    lists the granting groups.
+    """
+
+    kind: Literal["direct", "group"]
+    group_names: list[str] = Field(default_factory=list)
+
+
 class WorkspaceMember(Schema):
     user_id: UserID
     first_name: str | None
     last_name: str | None
     email: EmailStr
     role_name: str
+    source: WorkspaceMemberSource
 
 
 class WorkspaceRead(Schema):

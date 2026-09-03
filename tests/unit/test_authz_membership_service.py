@@ -12,6 +12,9 @@ from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.authz.service import MembershipService
 from tracecat.db.models import (
+    Group,
+    GroupMember,
+    GroupRoleAssignment,
     Membership,
     Organization,
     RoleScope,
@@ -21,7 +24,10 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import (
+    GroupDerivedMembershipError,
+    TracecatAuthorizationError,
+)
 from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
@@ -426,3 +432,141 @@ async def test_create_membership_allows_admin_inviter(
         )
     ).scalar_one_or_none()
     assert membership is not None
+
+
+@pytest.fixture
+async def granting_group(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> Group:
+    """A group that grants member_user access to the workspace."""
+    group = Group(
+        id=uuid.uuid4(),
+        name=f"engineering-{uuid.uuid4().hex[:8]}",
+        organization_id=organization.id,
+    )
+    session.add(group)
+    await session.flush()
+    session.add(GroupMember(group_id=group.id, user_id=member_user.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=organization.id,
+            group_id=group.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    await session.commit()
+    await session.refresh(group)
+    return group
+
+
+async def test_delete_membership_rejects_group_derived_member(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    workspace: Workspace,
+    member_user: User,
+    granting_group: Group,
+) -> None:
+    """A member whose access is only group-derived cannot be removed directly."""
+    with pytest.raises(GroupDerivedMembershipError) as excinfo:
+        await membership_service.delete_membership(
+            workspace_id=workspace.id,
+            user_id=member_user.id,
+        )
+
+    assert excinfo.value.group_names == [granting_group.name]
+    assert excinfo.value.detail == {
+        "code": "group_derived_membership",
+        "group_names": [granting_group.name],
+    }
+
+    # The preflight must not have mutated anything: the member is still there.
+    membership = await session.scalar(
+        select(Membership).where(
+            Membership.workspace_id == workspace.id,
+            Membership.user_id == member_user.id,
+        )
+    )
+    assert membership is not None
+
+
+async def test_delete_membership_removes_direct_assignment_despite_group(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+    granting_group: Group,
+) -> None:
+    """A direct assignment is deleted even when a group also grants access."""
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+            assigned_by=actor_user.id,
+        )
+    )
+    await session.commit()
+
+    await membership_service.delete_membership(
+        workspace_id=workspace.id,
+        user_id=member_user.id,
+    )
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.workspace_id == workspace.id,
+            UserRoleAssignment.user_id == member_user.id,
+        )
+    )
+    assert assignment is None
+
+
+async def test_list_workspace_members_reports_direct_source(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """A directly assigned member reports source kind 'direct'."""
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+            assigned_by=actor_user.id,
+        )
+    )
+    await session.commit()
+
+    members = await membership_service.list_workspace_members(workspace.id)
+
+    member = next(m for m in members if m.user_id == member_user.id)
+    assert member.source.kind == "direct"
+    assert member.source.group_names == []
+
+
+async def test_list_workspace_members_reports_group_source(
+    membership_service: MembershipService,
+    workspace: Workspace,
+    member_user: User,
+    granting_group: Group,
+) -> None:
+    """A group-derived member reports the granting group names."""
+    members = await membership_service.list_workspace_members(workspace.id)
+
+    member = next(m for m in members if m.user_id == member_user.id)
+    assert member.source.kind == "group"
+    assert member.source.group_names == [granting_group.name]

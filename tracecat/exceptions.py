@@ -36,6 +36,22 @@ class TracecatConflictError(TracecatException):
     """Tracecat user-facing resource conflict error"""
 
 
+class GroupDerivedMembershipError(TracecatConflictError):
+    """Raised when removing a member whose access comes only from group membership.
+
+    Deleting the direct assignment would leave the member in place, so the caller
+    must change group membership instead.
+    """
+
+    def __init__(self, *args, group_names: list[str], **kwargs):
+        super().__init__(*args, **kwargs)
+        self.group_names = group_names
+        self.detail = {
+            "code": "group_derived_membership",
+            "group_names": group_names,
+        }
+
+
 class TracecatDSLError(TracecatValidationError):
     """Tracecat user-facing DSL error"""
 

@@ -14,6 +14,7 @@ from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
+    Group,
     GroupMember,
     GroupRoleAssignment,
     Membership,
@@ -25,6 +26,7 @@ from tracecat.db.models import (
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
+    GroupDerivedMembershipError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -34,6 +36,7 @@ from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
+    WorkspaceMemberSource,
 )
 
 
@@ -212,6 +215,7 @@ class MembershipService(BaseService):
                 func.coalesce(DBRole.name, literal("Workspace Editor")).label(
                     "role_name"
                 ),
+                UserRoleAssignment.id.is_not(None).label("is_direct"),
             )
             .select_from(Membership)
             .join(User, Membership.user_id == User.id)  # pyright: ignore[reportArgumentType]
@@ -228,6 +232,22 @@ class MembershipService(BaseService):
             .where(Membership.workspace_id == workspace_id)
         )
         rows = (await self.session.execute(statement)).all()
+
+        # One extra query for group provenance rather than an N+1 per member.
+        group_statement = (
+            select(GroupMember.user_id, Group.name)
+            .join(Group, Group.id == GroupMember.group_id)
+            .join(GroupRoleAssignment, GroupRoleAssignment.group_id == Group.id)
+            .where(GroupRoleAssignment.workspace_id == workspace_id)
+            .distinct()
+            .order_by(GroupMember.user_id, Group.name)
+        )
+        groups_by_user: dict[UUID, list[str]] = {}
+        for member_user_id, group_name in (
+            await self.session.execute(group_statement)
+        ).all():
+            groups_by_user.setdefault(member_user_id, []).append(group_name)
+
         return [
             WorkspaceMember(
                 user_id=user.id,
@@ -235,8 +255,13 @@ class MembershipService(BaseService):
                 last_name=user.last_name,
                 email=user.email,
                 role_name=role_name,
+                source=WorkspaceMemberSource(kind="direct")
+                if is_direct
+                else WorkspaceMemberSource(
+                    kind="group", group_names=groups_by_user.get(user.id, [])
+                ),
             )
-            for user, role_name in rows
+            for user, role_name, is_direct in rows
         ]
 
     async def get_membership(
@@ -344,7 +369,27 @@ class MembershipService(BaseService):
         reflected in subsequent requests automatically.
         """
         # Membership is derived, so deleting the workspace-scoped assignments
-        # delists the user. Group-derived access needs a group change instead.
+        # delists the user. Group-derived access survives the delete, so refuse
+        # rather than return success without removing the member.
+        has_direct = (
+            await self.session.execute(
+                select(literal(1)).where(
+                    UserRoleAssignment.workspace_id == workspace_id,
+                    UserRoleAssignment.user_id == user_id,
+                )
+            )
+        ).first() is not None
+        if not has_direct:
+            group_names = await self.list_membership_group_names(
+                workspace_id, user_id=user_id
+            )
+            if group_names:
+                raise GroupDerivedMembershipError(
+                    "This member's workspace access comes from group membership. "
+                    "Remove them from the granting group instead.",
+                    group_names=group_names,
+                )
+
         await self.session.execute(
             delete(UserRoleAssignment).where(
                 UserRoleAssignment.workspace_id == workspace_id,
@@ -352,3 +397,20 @@ class MembershipService(BaseService):
             )
         )
         await self.session.commit()
+
+    async def list_membership_group_names(
+        self, workspace_id: WorkspaceID, user_id: UserID
+    ) -> list[str]:
+        """Names of the groups granting a user access to a workspace."""
+        statement = (
+            select(Group.name)
+            .join(GroupRoleAssignment, GroupRoleAssignment.group_id == Group.id)
+            .join(GroupMember, GroupMember.group_id == Group.id)
+            .where(
+                GroupMember.user_id == user_id,
+                GroupRoleAssignment.workspace_id == workspace_id,
+            )
+            .distinct()
+            .order_by(Group.name)
+        )
+        return list((await self.session.execute(statement)).scalars().all())

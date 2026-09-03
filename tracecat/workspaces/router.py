@@ -15,6 +15,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
+    GroupDerivedMembershipError,
     TracecatAuthorizationError,
     TracecatManagementError,
     TracecatNotFoundError,
@@ -309,7 +310,13 @@ async def delete_workspace_membership(
 ) -> None:
     """Delete a workspace membership."""
     service = MembershipService(session, role=role)
-    await service.delete_membership(workspace_id, user_id=user_id)
+    try:
+        await service.delete_membership(workspace_id, user_id=user_id)
+    except GroupDerivedMembershipError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=e.detail,
+        ) from e
 
 
 # === Invitations === #

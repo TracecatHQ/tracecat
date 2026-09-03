@@ -10125,7 +10125,22 @@ export type WorkspaceMember = {
   last_name: string | null
   email: string
   role_name: string
+  source: WorkspaceMemberSource
 }
+
+/**
+ * Where a member's workspace access comes from.
+ *
+ * ``kind`` is ``"direct"`` for a direct role assignment, or ``"group"`` when
+ * access is derived only from group membership, in which case ``group_names``
+ * lists the granting groups.
+ */
+export type WorkspaceMemberSource = {
+  kind: "direct" | "group"
+  group_names?: Array<string>
+}
+
+export type kind3 = "direct" | "group"
 
 export type WorkspaceMembershipCreate = {
   user_id: string

@@ -43,6 +43,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import {
   useWorkspaceMembers,
@@ -50,6 +55,21 @@ import {
 } from "@/hooks/use-workspace"
 import { useRbacRoles, useRbacUserAssignments } from "@/lib/hooks"
 import { useQueryClient } from "@/lib/query"
+
+/**
+ * Describes where a member's workspace access comes from, for display.
+ * Group-derived members cannot be removed here; their group must change.
+ */
+function describeMemberSource(source: WorkspaceMember["source"]): string {
+  if (source.kind === "direct") {
+    return "Direct"
+  }
+  const groupNames = source.group_names ?? []
+  if (groupNames.length === 0) {
+    return "Group"
+  }
+  return groupNames.join(", ")
+}
 
 export function WorkspaceMembersTable({
   workspace,
@@ -227,9 +247,28 @@ export function WorkspaceMembersTable({
             },
 
             {
+              accessorKey: "source",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Source"
+                />
+              ),
+              cell: ({ row }) => (
+                <div className="text-xs">
+                  {describeMemberSource(row.original.source)}
+                </div>
+              ),
+              enableSorting: false,
+              enableHiding: false,
+            },
+
+            {
               id: "actions",
               enableHiding: false,
               cell: ({ row }) => {
+                const isGroupDerived = row.original.source.kind === "group"
                 return (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -260,19 +299,39 @@ export function WorkspaceMembersTable({
                         </DialogTrigger>
                       )}
 
-                      {canRemoveMembers && (
-                        <AlertDialogTrigger asChild>
-                          <DropdownMenuItem
-                            className="text-rose-500 focus:text-rose-600"
-                            onClick={() => {
-                              setSelectedUser(row.original)
-                              console.debug("Selected user", row.original)
-                            }}
-                          >
-                            Remove from workspace
-                          </DropdownMenuItem>
-                        </AlertDialogTrigger>
-                      )}
+                      {canRemoveMembers &&
+                        (isGroupDerived ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              {/* A span keeps the tooltip reachable: a disabled
+                                  menu item emits no pointer events itself. */}
+                              <span className="block">
+                                <DropdownMenuItem
+                                  disabled
+                                  onSelect={(event) => event.preventDefault()}
+                                >
+                                  Remove from workspace
+                                </DropdownMenuItem>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Access comes from{" "}
+                              {describeMemberSource(row.original.source)}.
+                              Remove this user from the group instead.
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem
+                              className="text-rose-500 focus:text-rose-600"
+                              onClick={() => {
+                                setSelectedUser(row.original)
+                              }}
+                            >
+                              Remove from workspace
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                        ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )
