@@ -40,7 +40,7 @@ class _ResultEnvelope(BaseModel):
         never escalate to INFRASTRUCTURE_FAILURE and an unknown value must
         degrade to WORKLOAD_FAILURE instead of failing envelope validation.
         """
-        if not value:
+        if value is None:
             return None
         if not isinstance(value, str):
             return SandboxErrorCode.WORKLOAD_FAILURE

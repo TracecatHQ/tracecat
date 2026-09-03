@@ -152,11 +152,17 @@ def _enforce_nproc_limit() -> None:
         if limit <= 0:
             raise ValueError(f"non-positive cap: {limit}")
         _soft, current_hard = resource.getrlimit(resource.RLIMIT_NPROC)
-        if current_hard != resource.RLIM_INFINITY and 0 < current_hard <= limit:
-            # The host already enforces a hard cap at or below the requested
-            # limit; lowering it would only relax enforcement.
-            pass
-        else:
+        finite = current_hard != resource.RLIM_INFINITY
+        # Already capped when the inherited hard cap is at or below the
+        # requested limit (including 0 = no child processes), or when a
+        # stricter finite soft limit is in force: raising either would only
+        # relax enforcement.
+        already_capped = (
+            0 <= current_hard <= limit
+            if finite
+            else 0 < _soft <= limit
+        )
+        if not already_capped:
             resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
     except (ValueError, OSError, OverflowError) as exc:
         # Values are host-injected; a malformed value or an unenforceable
@@ -286,11 +292,17 @@ def _enforce_nproc_limit() -> None:
         if limit <= 0:
             raise ValueError(f"non-positive cap: {limit}")
         _soft, current_hard = resource.getrlimit(resource.RLIMIT_NPROC)
-        if current_hard != resource.RLIM_INFINITY and 0 < current_hard <= limit:
-            # The host already enforces a hard cap at or below the requested
-            # limit; lowering it would only relax enforcement.
-            pass
-        else:
+        finite = current_hard != resource.RLIM_INFINITY
+        # Already capped when the inherited hard cap is at or below the
+        # requested limit (including 0 = no child processes), or when a
+        # stricter finite soft limit is in force: raising either would only
+        # relax enforcement.
+        already_capped = (
+            0 <= current_hard <= limit
+            if finite
+            else 0 < _soft <= limit
+        )
+        if not already_capped:
             resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
     except (ValueError, OSError, OverflowError) as exc:
         # Values are host-injected; a malformed value or an unenforceable
