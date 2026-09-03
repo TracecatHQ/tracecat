@@ -13,6 +13,7 @@ class OAuthServerMetadata(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    issuer: str | None = None
     resource: str | None = None
     authorization_servers: list[str] = Field(default_factory=list)
     authorization_endpoint: str | None = None
@@ -23,6 +24,7 @@ class OAuthServerMetadata(BaseModel):
 
     @field_validator(
         "resource",
+        "issuer",
         "authorization_endpoint",
         "token_endpoint",
         "registration_endpoint",

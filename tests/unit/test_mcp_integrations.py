@@ -4900,6 +4900,7 @@ class TestMCPProviderOAuth:
             "https://mcp.example.com/.well-known/oauth-protected-resource": None,
             "https://mcp.example.com/.well-known/oauth-protected-resource/mcp": None,
             "https://mcp.example.com/.well-known/oauth-authorization-server": {
+                "issuer": "https://mcp.example.com",
                 "authorization_endpoint": "https://mcp.example.com/oauth/authorize",
                 "token_endpoint": "https://mcp.example.com/oauth/token",
                 "registration_endpoint": "https://mcp.example.com/oauth/register",
@@ -4934,13 +4935,16 @@ class TestMCPProviderOAuth:
         docs = {
             "https://mcp.example.com/.well-known/oauth-protected-resource/mcp": {
                 "resource": "https://mcp.example.com/mcp",
+                "authorization_servers": ["https://mcp.example.com"],
+            },
+            "https://mcp.example.com/.well-known/oauth-protected-resource": None,
+            "https://mcp.example.com/.well-known/oauth-authorization-server": {
+                "issuer": "https://mcp.example.com",
                 "authorization_endpoint": "https://mcp.example.com/oauth/authorize",
                 "token_endpoint": "https://mcp.example.com/oauth/token",
                 "registration_endpoint": "https://mcp.example.com/oauth/register",
                 "token_endpoint_auth_methods_supported": ["none"],
             },
-            "https://mcp.example.com/.well-known/oauth-protected-resource": None,
-            "https://mcp.example.com/.well-known/oauth-authorization-server": None,
         }
 
         async def fake_fetch(url: str) -> OAuthServerMetadata | None:
@@ -4962,12 +4966,14 @@ class TestMCPProviderOAuth:
     ) -> None:
         """Generic MCP DCR follows authorization_servers from the resource."""
         docs = {
-            "https://tenant.example.com/.well-known/oauth-protected-resource": {
-                "authorization_servers": ["https://login.example-idp.com"]
+            "https://tenant.example.com/.well-known/oauth-protected-resource/mcp": {
+                "resource": "https://tenant.example.com/mcp",
+                "authorization_servers": ["https://login.example-idp.com"],
             },
-            "https://tenant.example.com/.well-known/oauth-protected-resource/mcp": None,
+            "https://tenant.example.com/.well-known/oauth-protected-resource": None,
             "https://tenant.example.com/.well-known/oauth-authorization-server": None,
             "https://login.example-idp.com/.well-known/oauth-authorization-server": {
+                "issuer": "https://login.example-idp.com",
                 "authorization_endpoint": (
                     "https://login.example-idp.com/oauth/authorize"
                 ),
@@ -5006,7 +5012,8 @@ class TestMCPProviderOAuth:
         """RFC 8414 inserts the well-known path before a path-scoped issuer."""
         docs = {
             "https://tenant.example.com/.well-known/oauth-protected-resource/mcp": {
-                "authorization_servers": ["https://login.example-idp.com/tenant"]
+                "resource": "https://tenant.example.com/mcp",
+                "authorization_servers": ["https://login.example-idp.com/tenant"],
             },
             "https://tenant.example.com/.well-known/oauth-protected-resource": None,
             "https://tenant.example.com/.well-known/oauth-authorization-server": None,
@@ -5014,6 +5021,7 @@ class TestMCPProviderOAuth:
                 "https://login.example-idp.com"
                 "/.well-known/oauth-authorization-server/tenant"
             ): {
+                "issuer": "https://login.example-idp.com/tenant",
                 "authorization_endpoint": (
                     "https://login.example-idp.com/tenant/oauth/authorize"
                 ),
@@ -5053,12 +5061,16 @@ class TestMCPProviderOAuth:
         """Generic MCP DCR preserves an explicit root slash in resource URIs."""
         docs = {
             "https://mcp.app.wiz.io/.well-known/oauth-protected-resource": {
+                "resource": "https://mcp.app.wiz.io/",
+                "authorization_servers": ["https://mcp.app.wiz.io"],
+            },
+            "https://mcp.app.wiz.io/.well-known/oauth-authorization-server": {
+                "issuer": "https://mcp.app.wiz.io",
                 "authorization_endpoint": ("https://mcp.app.wiz.io/oauth/authorize"),
                 "token_endpoint": "https://mcp.app.wiz.io/oauth/token",
                 "registration_endpoint": "https://mcp.app.wiz.io/oauth/register",
                 "token_endpoint_auth_methods_supported": ["none"],
             },
-            "https://mcp.app.wiz.io/.well-known/oauth-authorization-server": None,
         }
 
         async def fake_fetch(url: str) -> OAuthServerMetadata | None:
@@ -5082,6 +5094,7 @@ class TestMCPProviderOAuth:
             "https://mcp.example.com/.well-known/oauth-protected-resource": None,
             "https://mcp.example.com/.well-known/oauth-protected-resource/mcp": None,
             "https://mcp.example.com/.well-known/oauth-authorization-server": {
+                "issuer": "https://mcp.example.com",
                 "authorization_endpoint": "https://mcp.example.com/oauth/authorize",
                 "token_endpoint": "https://mcp.example.com/oauth/token",
                 "registration_endpoint": "https://mcp.example.com/oauth/register",
@@ -6179,11 +6192,13 @@ class TestMCPProviderOAuth:
         """OAuth metadata may advertise endpoints on separate HTTPS hosts."""
         docs = {
             "https://mcp.example.com/.well-known/oauth-protected-resource/v1/mcp": {
-                "authorization_servers": ["https://mcp.example.com/v1/mcp"]
+                "resource": "https://mcp.example.com/v1/mcp",
+                "authorization_servers": ["https://mcp.example.com/v1/mcp"],
             },
             "https://mcp.example.com/.well-known/oauth-protected-resource": None,
             "https://mcp.example.com/.well-known/oauth-authorization-server": None,
             "https://mcp.example.com/.well-known/oauth-authorization-server/v1/mcp": {
+                "issuer": "https://mcp.example.com/v1/mcp",
                 "authorization_endpoint": "https://identity.example.net/oauth/authorize",
                 "token_endpoint": "https://identity.example.net/oauth/token",
                 "registration_endpoint": "https://identity.example.net/oauth/register",
@@ -6207,6 +6222,59 @@ class TestMCPProviderOAuth:
         assert endpoints.registration_endpoint == (
             "https://identity.example.net/oauth/register"
         )
+
+    async def test_generic_mcp_discovery_rejects_mismatched_resource_identity(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Protected-resource metadata cannot impersonate another MCP resource."""
+        docs = {
+            "https://malicious-mcp.example/.well-known/oauth-protected-resource/mcp": {
+                "resource": "https://victim-mcp.example/mcp",
+                "authorization_servers": ["https://victim-idp.example"],
+            }
+        }
+
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
+
+        monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
+
+        with pytest.raises(ValueError, match="does not match the MCP resource"):
+            await integration_service._discover_mcp_oauth_endpoints(
+                server_uri="https://malicious-mcp.example/mcp",
+            )
+
+    async def test_generic_mcp_discovery_rejects_mismatched_issuer_identity(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Authorization-server metadata cannot substitute another issuer."""
+        docs = {
+            "https://malicious-mcp.example/.well-known/oauth-protected-resource/mcp": {
+                "resource": "https://malicious-mcp.example/mcp",
+                "authorization_servers": ["https://malicious-metadata.example"],
+            },
+            "https://malicious-metadata.example/.well-known/oauth-authorization-server": {
+                "issuer": "https://victim-idp.example",
+                "authorization_endpoint": "https://victim-idp.example/oauth/authorize",
+                "token_endpoint": "https://malicious-metadata.example/capture-code",
+                "registration_endpoint": "https://victim-idp.example/oauth/register",
+                "token_endpoint_auth_methods_supported": ["none"],
+            },
+        }
+
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
+
+        monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
+
+        with pytest.raises(ValueError, match="issuer does not match"):
+            await integration_service._discover_mcp_oauth_endpoints(
+                server_uri="https://malicious-mcp.example/mcp",
+            )
 
     async def test_connect_mcp_oauth_discovery_forwards_catalog_oauth_resource(
         self,
@@ -6268,6 +6336,7 @@ class TestMCPProviderOAuth:
             "https://tenant.example.com/.well-known/oauth-protected-resource": None,
             "https://tenant.example.com/.well-known/oauth-authorization-server": None,
             "https://login.example-idp.com/.well-known/oauth-authorization-server": {
+                "issuer": "https://login.example-idp.com",
                 "authorization_endpoint": (
                     "https://login.example-idp.com/oauth/authorize"
                 ),

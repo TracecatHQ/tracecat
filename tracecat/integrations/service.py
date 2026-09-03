@@ -755,15 +755,72 @@ class IntegrationService(BaseWorkspaceService):
         return urlunparse(("https", netloc, path, "", parsed.query, ""))
 
     @staticmethod
-    def _mcp_oauth_metadata_urls(server_uri: str) -> list[str]:
+    def _mcp_oauth_resource_metadata_urls(
+        server_uri: str,
+    ) -> list[tuple[str, str]]:
+        """Build RFC 9728 URLs paired with their expected resource identifiers."""
         parsed = urlparse(server_uri)
         base_url = IntegrationService._mcp_resource_base_url(server_uri)
-        urls: list[str] = []
+        urls: list[tuple[str, str]] = []
         if parsed.path and parsed.path != "/":
-            urls.append(f"{base_url}/.well-known/oauth-protected-resource{parsed.path}")
-        urls.append(f"{base_url}/.well-known/oauth-protected-resource")
-        urls.append(f"{base_url}/.well-known/oauth-authorization-server")
+            resource_uri = IntegrationService._mcp_resource_uri(server_uri)
+            parsed_resource = urlparse(resource_uri)
+            # Query parameters configure the MCP transport (for example,
+            # Datadog toolsets) but are not part of its OAuth resource identity.
+            expected_resource = urlunparse(
+                (
+                    parsed_resource.scheme,
+                    parsed_resource.netloc,
+                    parsed_resource.path,
+                    "",
+                    "",
+                    "",
+                )
+            )
+            urls.append(
+                (
+                    f"{base_url}/.well-known/oauth-protected-resource{parsed.path}",
+                    expected_resource,
+                )
+            )
+        root_resource = (
+            IntegrationService._mcp_resource_uri(server_uri)
+            if parsed.path == "/"
+            else base_url
+        )
+        urls.append((f"{base_url}/.well-known/oauth-protected-resource", root_resource))
         return urls
+
+    @staticmethod
+    def _validate_mcp_oauth_resource_metadata(
+        metadata: OAuthServerMetadata,
+        *,
+        expected_resource: str,
+    ) -> str:
+        """Validate the RFC 9728 resource identity for a metadata response."""
+        if metadata.resource is None:
+            raise ValueError("OAuth protected-resource metadata is missing resource")
+        resource = IntegrationService._mcp_resource_uri(metadata.resource)
+        if resource != expected_resource:
+            raise ValueError(
+                "OAuth protected-resource metadata does not match the MCP resource"
+            )
+        return resource
+
+    @staticmethod
+    def _validate_mcp_oauth_server_metadata(
+        metadata: OAuthServerMetadata,
+        *,
+        expected_issuer: str,
+    ) -> None:
+        """Validate the RFC 8414 issuer identity for a metadata response."""
+        if metadata.issuer is None:
+            raise ValueError("OAuth authorization-server metadata is missing issuer")
+        if metadata.issuer != expected_issuer:
+            raise ValueError(
+                "OAuth authorization-server metadata issuer does not match "
+                "the discovered issuer"
+            )
 
     @classmethod
     def _catalog_pinned_oauth_endpoints(
@@ -953,38 +1010,50 @@ class IntegrationService(BaseWorkspaceService):
         oauth_resource: str | None = None,
     ) -> MCPOAuthDiscoveryEndpoints:
         resource_uri = self._mcp_resource_uri(oauth_resource or server_uri)
-        resource_host = urlparse(resource_uri).hostname
-        if resource_host is None:
-            raise ValueError("MCP server URI is missing a hostname")
 
-        # Two-tier OAuth discovery (RFC 9728 + RFC 8414): first try the server's
-        # own .well-known metadata. If it advertises the endpoints directly we use
-        # them; otherwise it points at separate authorization servers whose
-        # .well-known metadata we fetch in the second pass below.
-        auth_server_metadata_urls: list[str] = []
-        direct_metadata: OAuthServerMetadata | None = None
-        for metadata_url in self._mcp_oauth_metadata_urls(server_uri):
+        # Two-tier OAuth discovery (RFC 9728 + RFC 8414): validate the protected
+        # resource identity, then validate the authorization server metadata
+        # against the issuer that selected it. Endpoint hosts may differ only
+        # after this chain of authority has been established.
+        authorization_server_issuers: list[str] = []
+        for metadata_url, expected_resource in self._mcp_oauth_resource_metadata_urls(
+            server_uri
+        ):
             metadata = await self._fetch_oauth_json(metadata_url)
             if not metadata:
                 continue
-            # Metadata may override the canonical resource identifier we send as
-            # the OAuth `resource` parameter; re-validate it before trusting it.
-            if metadata.resource and oauth_resource is None:
-                resource_uri = self._mcp_resource_uri(metadata.resource)
-            if metadata.is_complete:
+            discovered_resource = self._validate_mcp_oauth_resource_metadata(
+                metadata,
+                expected_resource=expected_resource,
+            )
+            if oauth_resource is None:
+                resource_uri = discovered_resource
+            authorization_server_issuers = metadata.authorization_servers
+            break
+
+        if not authorization_server_issuers:
+            authorization_server_issuers = [self._mcp_resource_base_url(server_uri)]
+
+        direct_metadata: OAuthServerMetadata | None = None
+        for raw_issuer in authorization_server_issuers:
+            issuer = raw_issuer.strip()
+            metadata_urls = oauth_authorization_server_metadata_urls(issuer)
+            if not metadata_urls:
+                raise ValueError("OAuth authorization-server issuer is invalid")
+            for metadata_url in metadata_urls:
+                metadata = await self._fetch_oauth_json(metadata_url)
+                if metadata is None:
+                    continue
+                self._validate_mcp_oauth_server_metadata(
+                    metadata,
+                    expected_issuer=issuer,
+                )
+                if not metadata.is_complete:
+                    continue
                 direct_metadata = metadata
                 break
-            for issuer in metadata.authorization_servers:
-                auth_server_metadata_urls.extend(
-                    oauth_authorization_server_metadata_urls(issuer)
-                )
-
-        if direct_metadata is None:
-            for metadata_url in auth_server_metadata_urls:
-                metadata = await self._fetch_oauth_json(metadata_url)
-                if metadata and metadata.is_complete:
-                    direct_metadata = metadata
-                    break
+            if direct_metadata is not None:
+                break
 
         if direct_metadata is None:
             raise ValueError(f"Could not discover OAuth endpoints from {server_uri}")
