@@ -181,22 +181,21 @@ class AgentPresetReadMinimal(Schema):
 
 def build_agent_preset_read_minimal(
     preset: AgentPreset,
+    *,
+    has_subagents: bool,
 ) -> AgentPresetReadMinimal:
     """Build a minimal preset response without exposing approval rule details."""
     read = AgentPresetReadMinimal.model_validate(preset)
-    agents_config = cast(
-        AgentSubagentsConfig | Mapping[str, object] | None, preset.agents
-    )
     tool_approvals = cast(Mapping[str, bool] | None, preset.tool_approvals)
     return read.model_copy(
         update={
             "capabilities": _agent_preset_capabilities(
-                agents_config=agents_config,
+                has_subagents=has_subagents,
                 tool_approvals=tool_approvals,
                 enable_internet_access=bool(preset.enable_internet_access),
             ),
             "current_version_subagent_eligibility": build_subagent_eligibility(
-                agents_config=agents_config,
+                has_subagents=has_subagents,
                 tool_approvals=tool_approvals,
             ),
         }
@@ -205,17 +204,16 @@ def build_agent_preset_read_minimal(
 
 def _agent_preset_capabilities(
     *,
-    agents_config: AgentSubagentsConfig | Mapping[str, object] | None,
+    has_subagents: bool,
     tool_approvals: Mapping[str, bool] | None,
     enable_internet_access: bool,
 ) -> list[AgentPresetCapability]:
     """Return lightweight capability flags for preset list UIs."""
 
     capabilities: list[AgentPresetCapability] = []
-    agents = AgentSubagentsConfig.model_validate(agents_config or {})
     if has_manual_tool_approvals(tool_approvals):
         capabilities.append("approvals")
-    if agents.subagents:
+    if has_subagents:
         capabilities.append("subagents")
     if enable_internet_access:
         capabilities.append("internet_access")
@@ -224,14 +222,13 @@ def _agent_preset_capabilities(
 
 def build_subagent_eligibility(
     *,
-    agents_config: AgentSubagentsConfig | Mapping[str, object] | None,
+    has_subagents: bool,
     tool_approvals: Mapping[str, bool] | None,
 ) -> AgentPresetSubagentEligibility:
     """Return whether this preset version can be attached as a subagent."""
 
     reasons: list[AgentPresetSubagentEligibilityReason] = []
-    agents = AgentSubagentsConfig.model_validate(agents_config or {})
-    if agents.subagents:
+    if has_subagents:
         reasons.append("subagents_attached")
     if has_manual_tool_approvals(tool_approvals):
         reasons.append("tool_approvals")

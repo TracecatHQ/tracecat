@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
 from tracecat.agent.session.service import (
     AGENT_SESSION_EXECUTION_SCOPES,
@@ -58,6 +59,33 @@ def _build_service() -> tuple[_TestAgentSessionService, SimpleNamespace, Role]:
     )
     service = _TestAgentSessionService(cast(Any, session), role)
     return service, session, role
+
+
+@pytest.mark.anyio
+async def test_pinned_version_binding_uses_normalized_version_edges(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _session, _role = _build_service()
+    version_id = uuid.uuid4()
+    binding = ResolvedAgentsConfig(subagents=[])
+    resolve_version = AsyncMock(return_value=SimpleNamespace(id=version_id))
+    read_binding = AsyncMock(return_value=binding)
+    monkeypatch.setattr(
+        AgentPresetService,
+        "resolve_agent_preset_version",
+        resolve_version,
+    )
+    monkeypatch.setattr(
+        AgentPresetService,
+        "get_version_subagent_binding",
+        read_binding,
+    )
+
+    result = await service._resolve_agents_binding_for_preset_version_id(version_id)
+
+    assert result == {"subagents": []}
+    resolve_version.assert_awaited_once_with(preset_version_id=version_id)
+    read_binding.assert_awaited_once_with(version_id)
 
 
 @contextlib.contextmanager

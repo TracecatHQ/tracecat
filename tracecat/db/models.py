@@ -3732,6 +3732,11 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
 
     __tablename__ = "agent_preset"
     __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "id",
+            name="uq_agent_preset_workspace_id_id",
+        ),
         Index(
             "uq_agent_preset_workspace_slug_active",
             "workspace_id",
@@ -3820,10 +3825,10 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     )
     agents: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
-        default=lambda: {"enabled": False},
+        default=lambda: {"subagents": []},
         server_default=text("'{\"enabled\": false}'::jsonb"),
         nullable=False,
-        doc="Subagent configuration for this preset",
+        doc="Compatibility shadow for normalized preset subagent edges",
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
@@ -3866,6 +3871,12 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         back_populates="preset",
         cascade="all, delete-orphan",
     )
+    subagent_bindings: Mapped[list[AgentPresetSubagent]] = relationship(
+        "AgentPresetSubagent",
+        back_populates="parent_preset",
+        cascade="all, delete-orphan",
+        foreign_keys="[AgentPresetSubagent.parent_preset_id]",
+    )
     current_version: Mapped[AgentPresetVersion | None] = relationship(
         "AgentPresetVersion",
         foreign_keys=[current_version_id],
@@ -3883,7 +3894,14 @@ class AgentPresetVersion(WorkspaceModel):
     """Immutable version snapshot for an agent preset."""
 
     __tablename__ = "agent_preset_version"
-    __table_args__ = (UniqueConstraint("workspace_id", "preset_id", "version"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "id",
+            name="uq_agent_preset_version_workspace_id_id",
+        ),
+        UniqueConstraint("workspace_id", "preset_id", "version"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -3955,10 +3973,10 @@ class AgentPresetVersion(WorkspaceModel):
     )
     agents: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
-        default=lambda: {"enabled": False},
+        default=lambda: {"subagents": []},
         server_default=text("'{\"enabled\": false}'::jsonb"),
         nullable=False,
-        doc="Subagent configuration for this preset version",
+        doc="Compatibility shadow for normalized version subagent edges",
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
@@ -3987,6 +4005,136 @@ class AgentPresetVersion(WorkspaceModel):
         "AgentPresetVersionSkill",
         back_populates="preset_version",
         cascade="all, delete-orphan",
+    )
+    subagent_bindings: Mapped[list[AgentPresetVersionSubagent]] = relationship(
+        "AgentPresetVersionSubagent",
+        back_populates="parent_preset_version",
+        cascade="all, delete-orphan",
+    )
+
+
+class AgentPresetSubagent(WorkspaceModel):
+    """Mutable edge from a preset head to a child preset head."""
+
+    __tablename__ = "agent_preset_subagent"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["workspace_id", "parent_preset_id"],
+            ["agent_preset.workspace_id", "agent_preset.id"],
+            name="fk_agent_preset_subagent_workspace_parent_agent_preset",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "child_preset_id"],
+            ["agent_preset.workspace_id", "agent_preset.id"],
+            name="fk_agent_preset_subagent_workspace_child_agent_preset",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            "parent_preset_id",
+            "alias",
+            name="uq_agent_preset_subagent_workspace_parent_alias",
+        ),
+        CheckConstraint(
+            "max_turns IS NULL OR max_turns >= 1",
+            name="ck_agent_preset_subagent_max_turns_positive",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    parent_preset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        index=True,
+    )
+    child_preset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        index=True,
+    )
+    alias: Mapped[str] = mapped_column(
+        String(80),
+        nullable=False,
+        doc="Stable effective runtime alias captured when the edge is authored",
+    )
+    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    max_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    parent_preset: Mapped[AgentPreset] = relationship(
+        back_populates="subagent_bindings",
+        foreign_keys=[parent_preset_id],
+    )
+    child_preset: Mapped[AgentPreset] = relationship(
+        foreign_keys=[child_preset_id],
+    )
+
+
+class AgentPresetVersionSubagent(WorkspaceModel):
+    """Immutable preset-version edge to a child preset head."""
+
+    __tablename__ = "agent_preset_version_subagent"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["workspace_id", "parent_preset_version_id"],
+            ["agent_preset_version.workspace_id", "agent_preset_version.id"],
+            name="fk_ap_version_subagent_workspace_parent_version",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "child_preset_id"],
+            ["agent_preset.workspace_id", "agent_preset.id"],
+            name="fk_agent_preset_version_subagent_workspace_child_agent_preset",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            "parent_preset_version_id",
+            "alias",
+            name="uq_agent_preset_version_subagent_workspace_parent_alias",
+        ),
+        CheckConstraint(
+            "max_turns IS NULL OR max_turns >= 1",
+            name="ck_agent_preset_version_subagent_max_turns_positive",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    parent_preset_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        index=True,
+    )
+    child_preset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        index=True,
+    )
+    alias: Mapped[str] = mapped_column(
+        String(80),
+        nullable=False,
+        doc="Stable effective runtime alias captured when the version is published",
+    )
+    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    max_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    parent_preset_version: Mapped[AgentPresetVersion] = relationship(
+        back_populates="subagent_bindings"
+    )
+    child_preset: Mapped[AgentPreset] = relationship(
+        foreign_keys=[child_preset_id],
     )
 
 

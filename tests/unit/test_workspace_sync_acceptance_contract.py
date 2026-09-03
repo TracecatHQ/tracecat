@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
 from tracecat import config
+from tracecat.agent.preset.subagent_bindings import SubagentBindingService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
@@ -722,8 +723,11 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
         )
     )
     assert parent_preset is not None
-    assert "enabled" not in parent_preset.agents
-    assert parent_preset.agents["subagents"][0]["preset"] == "qa-evidence-child"
+    parent_binding = await SubagentBindingService(
+        session=session,
+        role=svc_role,
+    ).get_head_binding(parent_preset.id)
+    assert parent_binding.subagents[0].preset == "qa-evidence-child"
     assert parent_preset.base_url == "https://models.example.test/v1"
     assert parent_preset.output_type == {"type": "json_schema", "name": "qa_triage"}
     assert parent_preset.namespaces == ["tools.qa_enrichment"]
@@ -1167,10 +1171,13 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
         )
     )
     assert parent_preset is not None
-    assert "enabled" not in parent_preset.agents
-    assert [
-        subagent["preset_id"] for subagent in parent_preset.agents["subagents"]
-    ] == [str(active_child.id)]
+    parent_binding = await SubagentBindingService(
+        session=session,
+        role=svc_role,
+    ).get_head_binding(parent_preset.id)
+    assert [subagent.preset_id for subagent in parent_binding.subagents] == [
+        active_child.id
+    ]
 
 
 @pytest.mark.anyio
@@ -3984,10 +3991,11 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
     assert parent is not None
     assert child is not None
     assert child.current_version_id is not None
-    assert "enabled" not in parent.agents
-    assert parent.agents["subagents"][0]["preset_version_id"] == str(
-        child.current_version_id
-    )
+    parent_binding = await SubagentBindingService(
+        session=session,
+        role=svc_role,
+    ).get_head_binding(parent.id)
+    assert parent_binding.subagents[0].preset_version_id == child.current_version_id
 
 
 @pytest.mark.anyio
@@ -4048,12 +4056,16 @@ async def test_agent_preset_sync_preserves_subagent_options(
     assert parent is not None
     assert child is not None
     assert child.current_version_id is not None
-    imported_subagent = parent.agents["subagents"][0]
-    assert imported_subagent["preset_version_id"] == str(child.current_version_id)
-    assert imported_subagent["preset_version"] == 1
-    assert imported_subagent["name"] == "evidence-child"
-    assert imported_subagent["description"] == "Collect evidence"
-    assert imported_subagent["max_turns"] == 3
+    parent_binding = await SubagentBindingService(
+        session=session,
+        role=svc_role,
+    ).get_head_binding(parent.id)
+    imported_subagent = parent_binding.subagents[0]
+    assert imported_subagent.preset_version_id == child.current_version_id
+    assert imported_subagent.preset_version == 1
+    assert imported_subagent.name == "evidence-child"
+    assert imported_subagent.description == "Collect evidence"
+    assert imported_subagent.max_turns == 3
 
     projection = await service.project_workspace(create_missing_mappings=False)
     parent_spec = yaml.safe_load(
