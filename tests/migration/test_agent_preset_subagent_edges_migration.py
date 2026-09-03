@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import uuid
@@ -156,46 +157,13 @@ def _insert_preset(
 def test_subagent_edge_schema_constraints_and_downgrade(
     migration_db_url: str,
 ) -> None:
-    _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
     engine = create_engine(migration_db_url, poolclass=NullPool)
     organization_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
     other_workspace_id = uuid.uuid4()
 
     try:
-        inspector = inspect(engine)
-        assert "agents" not in {
-            column["name"] for column in inspector.get_columns("agent_preset")
-        }
-        assert "agents" not in {
-            column["name"] for column in inspector.get_columns("agent_preset_version")
-        }
-        assert {
-            "agent_preset_subagent",
-            "agent_preset_version_subagent",
-        } <= set(inspector.get_table_names())
-
         with engine.begin() as conn:
-            rls_tables = dict(
-                conn.execute(
-                    text(
-                        """
-                        SELECT relname, relrowsecurity
-                        FROM pg_class
-                        WHERE relname IN (
-                            'agent_preset_subagent',
-                            'agent_preset_version_subagent'
-                        )
-                        """
-                    )
-                )
-                .tuples()
-                .all()
-            )
-            assert rls_tables == {
-                "agent_preset_subagent": True,
-                "agent_preset_version_subagent": True,
-            }
             conn.execute(
                 text(
                     """
@@ -238,64 +206,43 @@ def test_subagent_edge_schema_constraints_and_downgrade(
                 workspace_id=other_workspace_id,
                 name="Other Child",
             )
+            agents = {
+                "subagents": [
+                    {
+                        "preset": "child",
+                        "preset_id": str(child_id),
+                        "preset_version_id": str(child_version_id),
+                        "preset_version": 1,
+                        "name": "stable-child",
+                        "description": "Handle specialized tasks",
+                        "max_turns": 4,
+                    }
+                ]
+            }
             conn.execute(
                 text(
                     """
-                    INSERT INTO agent_preset_subagent (
-                        id,
-                        workspace_id,
-                        parent_preset_id,
-                        child_preset_id,
-                        alias,
-                        description,
-                        max_turns
-                    )
-                    VALUES (
-                        :id,
-                        :workspace_id,
-                        :parent_id,
-                        :child_id,
-                        'stable-child',
-                        'Handle specialized tasks',
-                        4
-                    )
+                    UPDATE agent_preset
+                    SET agents = CAST(:agents AS jsonb)
+                    WHERE id = :parent_id
                     """
                 ),
                 {
-                    "id": uuid.uuid4(),
-                    "workspace_id": workspace_id,
                     "parent_id": parent_id,
-                    "child_id": child_id,
+                    "agents": json.dumps(agents),
                 },
             )
             conn.execute(
                 text(
                     """
-                    INSERT INTO agent_preset_version_subagent (
-                        id,
-                        workspace_id,
-                        parent_preset_version_id,
-                        child_preset_id,
-                        alias,
-                        description,
-                        max_turns
-                    )
-                    VALUES (
-                        :id,
-                        :workspace_id,
-                        :parent_version_id,
-                        :child_id,
-                        'stable-child',
-                        'Handle specialized tasks',
-                        4
-                    )
+                    UPDATE agent_preset_version
+                    SET agents = CAST(:agents AS jsonb)
+                    WHERE id = :parent_version_id
                     """
                 ),
                 {
-                    "id": uuid.uuid4(),
-                    "workspace_id": workspace_id,
                     "parent_version_id": parent_version_id,
-                    "child_id": child_id,
+                    "agents": json.dumps(agents),
                 },
             )
             conn.execute(
@@ -308,18 +255,67 @@ def test_subagent_edge_schema_constraints_and_downgrade(
                 ),
                 {"child_id": child_id},
             )
-            assert (
+
+        _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+        inspector = inspect(engine)
+        assert "agents" in {
+            column["name"] for column in inspector.get_columns("agent_preset")
+        }
+        assert "agents" in {
+            column["name"] for column in inspector.get_columns("agent_preset_version")
+        }
+        assert {
+            "agent_preset_subagent",
+            "agent_preset_version_subagent",
+        } <= set(inspector.get_table_names())
+
+        with engine.connect() as conn:
+            rls_tables = dict(
                 conn.execute(
                     text(
                         """
-                    SELECT count(*)
-                    FROM agent_preset_subagent
-                    WHERE child_preset_id = :child_id
+                        SELECT relname, relrowsecurity
+                        FROM pg_class
+                        WHERE relname IN (
+                            'agent_preset_subagent',
+                            'agent_preset_version_subagent'
+                        )
+                        """
+                    )
+                )
+                .tuples()
+                .all()
+            )
+            assert rls_tables == {
+                "agent_preset_subagent": True,
+                "agent_preset_version_subagent": True,
+            }
+            head_edge = conn.execute(
+                text(
                     """
-                    ),
-                    {"child_id": child_id},
-                ).scalar_one()
-                == 1
+                    SELECT child_preset_id, alias, description, max_turns
+                    FROM agent_preset_subagent
+                    WHERE parent_preset_id = :parent_id
+                    """
+                ),
+                {"parent_id": parent_id},
+            ).one()
+            version_edge = conn.execute(
+                text(
+                    """
+                    SELECT child_preset_id, alias, description, max_turns
+                    FROM agent_preset_version_subagent
+                    WHERE parent_preset_version_id = :parent_version_id
+                    """
+                ),
+                {"parent_version_id": parent_version_id},
+            ).one()
+        for edge in (head_edge, version_edge):
+            assert edge == (
+                child_id,
+                "stable-child",
+                "Handle specialized tasks",
+                4,
             )
 
         with pytest.raises(IntegrityError):
@@ -368,7 +364,6 @@ def test_subagent_edge_schema_constraints_and_downgrade(
             column["name"]: column for column in inspector.get_columns("agent_preset")
         }
         assert "agents" in agent_columns
-        assert "subagents" in str(agent_columns["agents"]["default"])
         with engine.connect() as conn:
             head_agents = conn.execute(
                 text("SELECT agents FROM agent_preset WHERE id = :preset_id"),

@@ -3823,6 +3823,13 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         nullable=True,
         doc="MCP integrations to use",
     )
+    agents: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=lambda: {"subagents": []},
+        server_default=text("'{\"enabled\": false}'::jsonb"),
+        nullable=False,
+        doc="Compatibility shadow for normalized preset subagent edges",
+    )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
@@ -3963,6 +3970,13 @@ class AgentPresetVersion(WorkspaceModel):
         JSONB,
         nullable=True,
         doc="MCP integrations to use",
+    )
+    agents: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=lambda: {"subagents": []},
+        server_default=text("'{\"enabled\": false}'::jsonb"),
+        nullable=False,
+        doc="Compatibility shadow for normalized version subagent edges",
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"

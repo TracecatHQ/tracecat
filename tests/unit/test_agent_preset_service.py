@@ -50,8 +50,10 @@ from tracecat.db.models import (
     AgentModelAccess,
     AgentPreset,
     AgentPresetSkill,
+    AgentPresetSubagent,
     AgentPresetVersion,
     AgentPresetVersionSkill,
+    AgentPresetVersionSubagent,
     MCPIntegration,
     Organization,
     RegistryAction,
@@ -3360,6 +3362,108 @@ class TestAgentPresetService:
         resolved_ref = config.agents.subagents[0]
         assert isinstance(resolved_ref, ResolvedAttachedSubagentRef)
         assert resolved_ref.preset_id == child.id
+
+    async def test_subagent_edges_dual_write_json_during_expand_window(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """New writes keep compatibility JSON and normalized edges aligned."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Dual Write Child", "slug": "dual-write-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Dual Write Parent",
+                    "slug": "dual-write-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {"subagents": [{"preset": child.slug}]}
+                    ),
+                }
+            )
+        )
+        version = await agent_preset_service.get_current_version_for_preset(parent)
+
+        assert parent.agents["subagents"][0]["preset_id"] == str(child.id)
+        assert version.agents == parent.agents
+        assert (
+            await session.scalar(
+                select(sa.func.count())
+                .select_from(AgentPresetSubagent)
+                .where(AgentPresetSubagent.parent_preset_id == parent.id)
+            )
+            == 1
+        )
+        assert (
+            await session.scalar(
+                select(sa.func.count())
+                .select_from(AgentPresetVersionSubagent)
+                .where(
+                    AgentPresetVersionSubagent.parent_preset_version_id == version.id
+                )
+            )
+            == 1
+        )
+
+    async def test_publish_reconciles_head_edges_written_by_old_pod(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """A JSON-only old-pod update wins and is normalized on publication."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Old Pod Child", "slug": "old-pod-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Old Pod Parent",
+                    "slug": "old-pod-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {"subagents": [{"preset": child.slug}]}
+                    ),
+                }
+            )
+        )
+
+        parent.agents = {"subagents": []}
+        session.add(parent)
+        await session.flush()
+
+        updated = await agent_preset_service.update_preset(
+            parent,
+            AgentPresetUpdate(instructions="Published after JSON-only update"),
+        )
+        version = await agent_preset_service.get_current_version_for_preset(updated)
+
+        assert version.agents == {"subagents": []}
+        assert (
+            await session.scalar(
+                select(sa.func.count())
+                .select_from(AgentPresetSubagent)
+                .where(AgentPresetSubagent.parent_preset_id == parent.id)
+            )
+            == 0
+        )
+        assert (
+            await session.scalar(
+                select(sa.func.count())
+                .select_from(AgentPresetVersionSubagent)
+                .where(
+                    AgentPresetVersionSubagent.parent_preset_version_id == version.id
+                )
+            )
+            == 0
+        )
 
     async def test_delete_preset_soft_deletes_when_only_referenced_as_subagent_in_history(
         self,
