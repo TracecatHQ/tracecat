@@ -61,6 +61,7 @@ from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
 )
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
+from tracecat.agent.sandbox.config import AgentResourceLimits
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
     LLMRoute,
@@ -1828,6 +1829,106 @@ def _run_nsjail_duckdb_smoke_from_cli() -> None:
     asyncio.run(run())
 
 
+def _extract_bash_tool_result_text(request: object) -> str | None:
+    """Return the text of the Bash tool_result block in a request, if present."""
+    if not isinstance(request, dict):
+        return None
+    for message in request.get("messages") or []:
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "tool_result"
+                and isinstance(block.get("content"), str)
+            ):
+                text = block["content"]
+                if '"capped"' in text:
+                    return text
+    return None
+
+
+async def _run_nproc_cap_case(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify the jailed shim's RLIMIT_NPROC cap binds runtime children.
+
+    Runs one Bash tool call inside a real jail that forks past the injected
+    process cap. The trusted shim applies the cap before the Claude runtime
+    starts, so the Bash child must inherit it: the fork loop must stop early
+    and the soft limit must equal the agent sandbox default.
+    """
+    # The Docker fallback container has no container-level pids limit, so the
+    # only thing that can bound the fork loop is the shim's RLIMIT_NPROC.
+    expected = AgentResourceLimits().max_processes
+    probe_lines = [
+        "import os, resource, json",
+        "soft, _hard = resource.getrlimit(resource.RLIMIT_NPROC)",
+        "forked = 0",
+        "try:",
+        "    for _ in range(300):",
+        "        pid = os.fork()",
+        "        if pid == 0:",
+        "            os._exit(0)",
+        "        forked += 1",
+        "except OSError:",
+        "    pass",
+        f"capped = soft == {expected} and forked < 300",
+        # Zombie children still count against RLIMIT_NPROC until reaped, so
+        # the un-reaped fork loop is exactly what makes the cap bind.
+        'print(json.dumps({"soft": soft, "forked": forked, "capped": capped}))',
+    ]
+    bash_command = "python3 - <<'PYEOF'\n" + "\n".join(probe_lines) + "\nPYEOF"
+
+    await _run_full_claude_harness_runtime_case(
+        disable_nsjail_mode=False,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        scripted_bash_command=bash_command,
+    )
+
+    [proxy] = _FakeLLMSocketProxy.instances
+    message_requests = [
+        request
+        for request in proxy.requests
+        if request.get("path", "").partition("?")[0] == "/v1/messages"
+        and request.get("stream") is not True
+    ]
+    assert len(message_requests) == 2, message_requests
+    # Parse the Bash tool_result block rather than substring-matching: the
+    # request payload is itself JSON-encoded, so inner quotes are escaped.
+    bash_result = json.dumps(message_requests[1].get("messages", []))
+    probe_output = _extract_bash_tool_result_text(message_requests[1])
+    # The jail must report the injected cap as the applied soft limit, and the
+    # fork loop must have been cut off before the 300-attempt budget.
+    assert probe_output is not None, bash_result
+    probe = json.loads(probe_output)
+    assert probe["soft"] == expected, bash_result
+    assert probe["capped"] is True, bash_result
+
+
+def _run_nsjail_nproc_smoke_from_cli() -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-nproc-"))
+        try:
+            _set_disable_nsjail_mode(monkeypatch, False)
+            await _run_nproc_cap_case(
+                monkeypatch=monkeypatch,
+                tmp_path=tmp_path,
+            )
+        finally:
+            monkeypatch.undo()
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
 async def _run_executor_with_fake_broker(
     *,
     executor_input: AgentExecutorInput,
@@ -2671,6 +2772,31 @@ async def test_agent_nsjail_runtime_has_duckdb_cli(
 
 
 @pytest.mark.anyio
+async def test_agent_nsjail_shim_enforces_nproc_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The jailed runtime cannot fork past the injected nproc cap.
+
+    Jailed-only by construction: direct mode has no jail and no injected cap.
+    Regression-guards the trusted-entrypoint RLIMIT_NPROC enforcement that
+    nsjail cannot provide under clone_newuser.
+    """
+    if not _agent_nsjail_available():
+        _run_nsjail_harness_in_docker_or_skip(
+            cli_flag="--run-nsjail-nproc-smoke",
+            failure_label="Dockerized nsjail nproc smoke fallback failed.",
+        )
+        return
+
+    _set_disable_nsjail_mode(monkeypatch, False)
+    await _run_nproc_cap_case(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+
+@pytest.mark.anyio
 async def test_run_agent_activity_spawns_full_claude_harness_runtime_in_each_sandbox_mode(
     full_harness_disable_nsjail_mode: bool,
     monkeypatch: pytest.MonkeyPatch,
@@ -3104,11 +3230,13 @@ if __name__ == "__main__":
         _run_nsjail_mcp_compression_smoke_from_cli()
     elif sys.argv[1:] == ["--run-nsjail-duckdb-smoke"]:
         _run_nsjail_duckdb_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-nproc-smoke"]:
+        _run_nsjail_nproc_smoke_from_cli()
     else:
         raise SystemExit(
             "Usage: python -m tests.unit.test_agent_sandbox_litellm "
             "[--run-nsjail-harness-smoke|--run-nsjail-nstun-smoke|"
             "--run-nsjail-stdio-mcp-burst-smoke|"
             "--run-nsjail-skills-smoke|--run-nsjail-mcp-compression-smoke|"
-            "--run-nsjail-duckdb-smoke]"
+            "--run-nsjail-duckdb-smoke|--run-nsjail-nproc-smoke]"
         )
