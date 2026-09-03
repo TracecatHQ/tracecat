@@ -46,6 +46,8 @@ class RetryDisposition(StrEnum):
 class RuntimeErrorKind(StrEnum):
     """Stable machine-readable product failure identities."""
 
+    API_REQUEST_UNHANDLED = "api.request.unhandled"
+    API_BACKGROUND_TASK_FAILED = "api.background_task.failed"
     ACTION_EXECUTION_FAILED = "action.execution.failed"
     TENANT_QUOTA_EXHAUSTED = "tenant.quota.exhausted"
     TENANT_ENTITLEMENT_DENIED = "tenant.entitlement.denied"

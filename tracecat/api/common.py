@@ -25,6 +25,15 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.observability.sentry import (
+    ApiRequestFailureEventContext,
+    capture_platform_failure,
+)
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+)
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 # All Tracecat search attributes are Keyword-typed.
@@ -35,9 +44,28 @@ _SEARCH_ATTRIBUTE_TYPES: dict[str, IndexedValueType.ValueType] = {
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:
+    classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.API_REQUEST_UNHANDLED,
+        message="Unexpected API request failure",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=exc,
+    )
+    route = request.scope.get("route")
+    route_template = route.path if isinstance(route, APIRoute) else "unmatched"
+    capture_platform_failure(
+        exc,
+        classification,
+        ApiRequestFailureEventContext(
+            method=request.method,
+            route=route_template,
+        ),
+    )
     logger.exception(
         "Unexpected error",
         exc=exc,
+        owner=classification.owner.value,
+        kind=classification.kind.value,
+        retry_disposition=classification.retry_disposition.value,
         role=ctx_role.get(),
         params=request.query_params,
         path=request.url.path,

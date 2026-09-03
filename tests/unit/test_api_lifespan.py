@@ -3,6 +3,8 @@ import asyncio
 import pytest
 
 from tracecat.api.lifespan import LifespanTaskSupervisor
+from tracecat.observability.sentry import ServiceTaskFailureEventContext
+from tracecat.runtime.errors import RuntimeErrorClassification
 
 
 @pytest.mark.anyio
@@ -253,11 +255,31 @@ async def test_drain_surfaces_completed_task_errors_once(
 
     supervisor = LifespanTaskSupervisor(drain_timeout=5.0)
     logged_errors: list[tuple[str, dict[str, object]]] = []
+    captured_failures: list[
+        tuple[
+            BaseException,
+            RuntimeErrorClassification,
+            ServiceTaskFailureEventContext,
+        ]
+    ] = []
 
     def capture_error(message: str, **kwargs: object) -> None:
         logged_errors.append((message, kwargs))
 
     monkeypatch.setattr(lifespan_module.logger, "error", capture_error)
+
+    def capture_failure(
+        error: BaseException,
+        classification: RuntimeErrorClassification,
+        context: ServiceTaskFailureEventContext,
+    ) -> None:
+        captured_failures.append((error, classification, context))
+
+    monkeypatch.setattr(
+        lifespan_module,
+        "capture_platform_failure",
+        capture_failure,
+    )
 
     async def failing_task() -> None:
         raise ValueError("boom")
@@ -272,3 +294,9 @@ async def test_drain_surfaces_completed_task_errors_once(
     assert message == "Supervised lifespan task failed"
     assert context["task"] == "failing_task"
     assert isinstance(context["err"], ValueError)
+    assert len(captured_failures) == 1
+    captured_error, classification, failure_context = captured_failures[0]
+    assert captured_error is context["err"]
+    assert classification.kind.value == "api.background_task.failed"
+    assert classification.owner.value == "platform"
+    assert failure_context.task_name == "failing_task"

@@ -135,6 +135,7 @@ from tracecat.observability.otel import (
     instrument_fastapi_app,
     shutdown_platform_tracing,
 )
+from tracecat.observability.sentry import initialize_sentry_from_environment
 from tracecat.organization.management import (
     ensure_default_organization,
     get_default_organization_id,
@@ -184,6 +185,7 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    initialize_sentry_from_environment()
     # USER_AUTH_SECRET is required for all auth types — UserManager uses it
     # for password reset and email verification token signing. Validated here
     # (not in create_app) because the app module is imported at collection time

@@ -27,9 +27,32 @@ class WorkflowFailureEventContext:
     trigger_type: str
 
 
-class SentryTag(StrEnum):
-    """Stable, privacy-reviewed tag keys for workflow failure events."""
+@dataclass(frozen=True, slots=True)
+class ApiRequestFailureEventContext:
+    """Privacy-reviewed API request metadata attached to a platform event."""
 
+    method: str
+    route: str
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceTaskFailureEventContext:
+    """Privacy-reviewed service task metadata attached to a platform event."""
+
+    task_name: str
+
+
+type PlatformFailureEventContext = (
+    WorkflowFailureEventContext
+    | ApiRequestFailureEventContext
+    | ServiceTaskFailureEventContext
+)
+
+
+class SentryTag(StrEnum):
+    """Stable, privacy-reviewed tag keys for platform failure events."""
+
+    SERVICE_NAME = "tracecat.service.name"
     ERROR_OWNER = "tracecat.error.owner"
     ERROR_KIND = "tracecat.error.kind"
     ERROR_RETRY_DISPOSITION = "tracecat.error.retry_disposition"
@@ -37,54 +60,91 @@ class SentryTag(StrEnum):
     WORKFLOW_TYPE = "temporal.workflow.type"
     WORKFLOW_ATTEMPT = "temporal.workflow.attempt"
     TRIGGER_TYPE = "tracecat.trigger_type"
+    API_METHOD = "http.request.method"
+    API_ROUTE = "http.route"
+    SERVICE_TASK_NAME = "tracecat.service.task.name"
 
 
 _ALLOWED_TAGS = frozenset(SentryTag)
 _ALLOWED_CONTEXT_FIELDS = {
     "runtime": frozenset({"name", "version"}),
     "tracecat_workflow": frozenset({"run_id", "type", "attempt", "trigger_type"}),
+    "tracecat_api_request": frozenset({"method", "route"}),
+    "tracecat_service_task": frozenset({"name"}),
 }
 
 
 def capture_platform_failure(
     error: BaseException,
     classification: RuntimeErrorClassification,
-    context: WorkflowFailureEventContext,
+    context: PlatformFailureEventContext,
 ) -> None:
-    """Capture one classified platform event without workflow payload data."""
-    client = sentry_sdk.get_client()
-    if not client.is_active() or client.options.get("dsn") is None:
-        return
+    """Best-effort capture with allowlisted service context.
 
-    with sentry_sdk.isolation_scope() as scope:
-        scope.fingerprint = [
-            "tracecat-runtime-v1",
-            classification.kind.value,
-            "{{ default }}",
-        ]
-        scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
-        scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
-        scope.set_tag(
-            SentryTag.ERROR_RETRY_DISPOSITION.value,
-            classification.retry_disposition.value,
+    Telemetry must never replace the application failure being reported or
+    interrupt a response/callback path if the SDK itself fails.
+    """
+    try:
+        client = sentry_sdk.get_client()
+        if not client.is_active() or client.options.get("dsn") is None:
+            return
+
+        with sentry_sdk.isolation_scope() as scope:
+            scope.fingerprint = [
+                "tracecat-runtime-v1",
+                classification.kind.value,
+                "{{ default }}",
+            ]
+            scope.set_tag(
+                SentryTag.SERVICE_NAME.value,
+                config.TRACECAT__SERVICE_NAME,
+            )
+            scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
+            scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
+            scope.set_tag(
+                SentryTag.ERROR_RETRY_DISPOSITION.value,
+                classification.retry_disposition.value,
+            )
+            scope.set_tag(
+                SentryTag.ERROR_CAUSE_TYPE.value,
+                classification.cause_type or "unknown",
+            )
+            match context:
+                case WorkflowFailureEventContext():
+                    scope.set_tag(SentryTag.WORKFLOW_TYPE.value, context.workflow_type)
+                    scope.set_tag(
+                        SentryTag.WORKFLOW_ATTEMPT.value, str(context.attempt)
+                    )
+                    scope.set_tag(SentryTag.TRIGGER_TYPE.value, context.trigger_type)
+                    scope.set_context(
+                        "tracecat_workflow",
+                        {
+                            "run_id": context.run_id,
+                            "type": context.workflow_type,
+                            "attempt": context.attempt,
+                            "trigger_type": context.trigger_type,
+                        },
+                    )
+                case ApiRequestFailureEventContext():
+                    scope.set_tag(SentryTag.API_METHOD.value, context.method)
+                    scope.set_tag(SentryTag.API_ROUTE.value, context.route)
+                    scope.set_context(
+                        "tracecat_api_request",
+                        {"method": context.method, "route": context.route},
+                    )
+                case ServiceTaskFailureEventContext():
+                    scope.set_tag(SentryTag.SERVICE_TASK_NAME.value, context.task_name)
+                    scope.set_context(
+                        "tracecat_service_task",
+                        {"name": context.task_name},
+                    )
+            sentry_sdk.capture_exception(error)
+    except Exception as reporting_error:
+        logger.warning(
+            "Failed to capture platform failure in Sentry",
+            kind=classification.kind.value,
+            reporting_error_type=type(reporting_error).__name__,
         )
-        scope.set_tag(
-            SentryTag.ERROR_CAUSE_TYPE.value,
-            classification.cause_type or "unknown",
-        )
-        scope.set_tag(SentryTag.WORKFLOW_TYPE.value, context.workflow_type)
-        scope.set_tag(SentryTag.WORKFLOW_ATTEMPT.value, str(context.attempt))
-        scope.set_tag(SentryTag.TRIGGER_TYPE.value, context.trigger_type)
-        scope.set_context(
-            "tracecat_workflow",
-            {
-                "run_id": context.run_id,
-                "type": context.workflow_type,
-                "attempt": context.attempt,
-                "trigger_type": context.trigger_type,
-            },
-        )
-        sentry_sdk.capture_exception(error)
 
 
 def _sanitize_platform_event(event: Event, hint: Hint) -> Event | None:
@@ -111,8 +171,7 @@ def _sanitize_platform_event(event: Event, hint: Hint) -> Event | None:
         event.pop(field, None)
 
     safe_value = (
-        "Tracecat platform runtime failure "
-        f"({tags.get(SentryTag.ERROR_KIND, 'unclassified')})"
+        f"Tracecat platform failure ({tags.get(SentryTag.ERROR_KIND, 'unclassified')})"
     )
     exception = cast(MutableMapping[str, Any], event.get("exception") or {})
     values = exception.get("values")

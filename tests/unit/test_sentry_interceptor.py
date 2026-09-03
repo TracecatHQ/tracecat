@@ -34,8 +34,11 @@ from tracecat.dsl.interceptor import (
 from tracecat.logger import logger
 from tracecat.observability import sentry as sentry_module
 from tracecat.observability.sentry import (
+    ApiRequestFailureEventContext,
     SentryTag,
+    ServiceTaskFailureEventContext,
     _sanitize_platform_event,
+    capture_platform_failure,
     initialize_sentry,
     initialize_sentry_from_environment,
 )
@@ -85,7 +88,8 @@ async def _run_workflow() -> None:
 
 
 @pytest.fixture
-def sentry_events() -> Iterator[list[Event]]:
+def sentry_events(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[Event]]:
+    monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", "worker")
     transport = _InMemoryTransport()
     initialize_sentry(
         dsn="https://public@example.com/1",
@@ -271,6 +275,7 @@ async def test_unclassified_platform_failure_is_attributed_then_captured_once(
     ]
     assert "tags" in event
     assert event["tags"] == {
+        SentryTag.SERVICE_NAME.value: "worker",
         SentryTag.WORKFLOW_ATTEMPT.value: "1",
         SentryTag.WORKFLOW_TYPE.value: "DSLWorkflow",
         SentryTag.ERROR_CAUSE_TYPE.value: "RuntimeError",
@@ -289,6 +294,113 @@ async def test_unclassified_platform_failure_is_attributed_then_captured_once(
     assert set(event["contexts"]) <= {"runtime", "tracecat_workflow"}
     assert not {"breadcrumbs", "extra", "request", "user"} & event.keys()
     assert _SENSITIVE_VALUE not in json.dumps(event)
+
+
+def test_api_request_failure_emits_only_allowlisted_context(
+    sentry_events: list[Event],
+) -> None:
+    error = RuntimeError(_SENSITIVE_VALUE)
+    classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.API_REQUEST_UNHANDLED,
+        message="Unexpected API request failure",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+    capture_platform_failure(
+        error,
+        classification,
+        ApiRequestFailureEventContext(
+            method="POST",
+            route="/api/workspaces/{workspace_id}/workflows",
+        ),
+    )
+    sentry_sdk.flush()
+
+    assert len(sentry_events) == 1
+    event = sentry_events[0]
+    assert "tags" in event
+    assert event["tags"] == {
+        SentryTag.API_METHOD.value: "POST",
+        SentryTag.API_ROUTE.value: "/api/workspaces/{workspace_id}/workflows",
+        SentryTag.ERROR_CAUSE_TYPE.value: "RuntimeError",
+        SentryTag.ERROR_KIND.value: RuntimeErrorKind.API_REQUEST_UNHANDLED.value,
+        SentryTag.ERROR_OWNER.value: "platform",
+        SentryTag.ERROR_RETRY_DISPOSITION.value: "non_retryable",
+        SentryTag.SERVICE_NAME.value: "worker",
+    }
+    assert "contexts" in event
+    contexts = event["contexts"]
+    assert contexts["tracecat_api_request"] == {
+        "method": "POST",
+        "route": "/api/workspaces/{workspace_id}/workflows",
+    }
+    assert set(contexts) <= {"runtime", "tracecat_api_request"}
+    assert _SENSITIVE_VALUE not in json.dumps(event)
+
+
+def test_service_task_failure_emits_only_stable_task_name(
+    sentry_events: list[Event],
+) -> None:
+    error = RuntimeError(_SENSITIVE_VALUE)
+    classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.API_BACKGROUND_TASK_FAILED,
+        message="API background task failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+    capture_platform_failure(
+        error,
+        classification,
+        ServiceTaskFailureEventContext(task_name="platform_registry_sync"),
+    )
+    sentry_sdk.flush()
+
+    assert len(sentry_events) == 1
+    event = sentry_events[0]
+    assert "tags" in event
+    assert event["tags"][SentryTag.SERVICE_TASK_NAME.value] == (
+        "platform_registry_sync"
+    )
+    assert "contexts" in event
+    assert event["contexts"]["tracecat_service_task"] == {
+        "name": "platform_registry_sync"
+    }
+    assert _SENSITIVE_VALUE not in json.dumps(event)
+
+
+def test_sentry_reporting_failure_does_not_escape(
+    sentry_events: list[Event],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del sentry_events
+    error = RuntimeError(_SENSITIVE_VALUE)
+    classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.API_REQUEST_UNHANDLED,
+        message="Unexpected API request failure",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+    monkeypatch.setattr(
+        sentry_sdk,
+        "capture_exception",
+        Mock(side_effect=RuntimeError("synthetic reporting failure")),
+    )
+    warning = Mock()
+    monkeypatch.setattr(sentry_module.logger, "warning", warning)
+
+    capture_platform_failure(
+        error,
+        classification,
+        ApiRequestFailureEventContext(method="GET", route="/api/health"),
+    )
+
+    warning.assert_called_once_with(
+        "Failed to capture platform failure in Sentry",
+        kind=RuntimeErrorKind.API_REQUEST_UNHANDLED.value,
+        reporting_error_type="RuntimeError",
+    )
 
 
 @pytest.mark.anyio
