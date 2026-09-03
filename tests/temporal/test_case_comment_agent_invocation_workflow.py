@@ -375,8 +375,9 @@ async def test_parent_preserves_failure_across_cleanup(
             if origin == "cancelled":
                 await asyncio.wait_for(_CHILD_WAITING.wait(), timeout=5)
                 await handle.cancel()
-            with pytest.raises(WorkflowFailureError) as exc_info:
-                await handle.result()
+            with env.auto_time_skipping_disabled():
+                with pytest.raises(WorkflowFailureError) as exc_info:
+                    await asyncio.wait_for(handle.result(), timeout=5)
             history = await handle.fetch_history()
             event_names = [EventType.Name(event.event_type) for event in history.events]
 
