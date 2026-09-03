@@ -25,6 +25,7 @@ from tracecat.agent.otel_config import (
 from tracecat.agent.sandbox import otel_relay
 from tracecat.agent.sandbox.otel_relay import (
     MAX_BODY_SIZE,
+    OtelRoutingPlan,
     OtelSocketReceiver,
     PlatformTraceParent,
     canonicalize_tenant_trace_body,
@@ -167,11 +168,13 @@ async def started_receiver(
 ) -> AsyncIterator[OtelSocketReceiver]:
     receiver = OtelSocketReceiver(
         socket_path=short_socket_dir / "o.sock",
-        collector_env={
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example.com",
-            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://traces.example.com/v1/traces",
-        },
-        headers={"Authorization": SecretStr("Bearer secret")},
+        plan=OtelRoutingPlan.build(
+            collector_env={
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example.com",
+                "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://traces.example.com/v1/traces",
+            },
+            headers={"Authorization": SecretStr("Bearer secret")},
+        ),
         expected_workspace_id=receiver_identity.workspace_id,
         expected_organization_id=receiver_identity.organization_id,
         expected_session_id=receiver_identity.session_id,
@@ -251,8 +254,12 @@ async def _start_test_receiver(
 ) -> OtelSocketReceiver:
     receiver = OtelSocketReceiver(
         socket_path=socket_path,
-        collector_env={"OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example.com"},
-        headers={"Authorization": SecretStr("Bearer secret")},
+        plan=OtelRoutingPlan.build(
+            collector_env={
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example.com"
+            },
+            headers={"Authorization": SecretStr("Bearer secret")},
+        ),
         expected_workspace_id=identity.workspace_id,
         expected_organization_id=identity.organization_id,
         expected_session_id=identity.session_id,
@@ -478,15 +485,17 @@ async def test_trace_batch_fans_out_original_and_sanitized_copies(
     )
     receiver = OtelSocketReceiver(
         socket_path=short_socket_dir / "fanout.sock",
-        collector_env={"OTEL_EXPORTER_OTLP_ENDPOINT": "https://tenant.example.com"},
-        headers={"Authorization": SecretStr("Bearer tenant")},
+        plan=OtelRoutingPlan.build(
+            collector_env={"OTEL_EXPORTER_OTLP_ENDPOINT": "https://tenant.example.com"},
+            headers={"Authorization": SecretStr("Bearer tenant")},
+            platform_trace_parent=parent,
+            platform_collector_env={
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-gateway.internal:4318"
+            },
+        ),
         expected_workspace_id=receiver_identity.workspace_id,
         expected_organization_id=receiver_identity.organization_id,
         expected_session_id=receiver_identity.session_id,
-        platform_trace_parent=parent,
-        platform_collector_env={
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-gateway.internal:4318"
-        },
     )
     await receiver.start()
     try:
@@ -550,18 +559,20 @@ async def test_tenant_trace_opt_out_skips_tenant_delivery_but_keeps_platform(
     )
     receiver = OtelSocketReceiver(
         socket_path=short_socket_dir / "optout.sock",
-        collector_env={
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://tenant.example.com",
-            "OTEL_TRACES_EXPORTER": "none",
-        },
-        headers={"Authorization": SecretStr("Bearer tenant")},
+        plan=OtelRoutingPlan.build(
+            collector_env={
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "https://tenant.example.com",
+                "OTEL_TRACES_EXPORTER": "none",
+            },
+            headers={"Authorization": SecretStr("Bearer tenant")},
+            platform_trace_parent=parent,
+            platform_collector_env={
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-gateway.internal:4318"
+            },
+        ),
         expected_workspace_id=receiver_identity.workspace_id,
         expected_organization_id=receiver_identity.organization_id,
         expected_session_id=receiver_identity.session_id,
-        platform_trace_parent=parent,
-        platform_collector_env={
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-gateway.internal:4318"
-        },
     )
     await receiver.start()
     try:

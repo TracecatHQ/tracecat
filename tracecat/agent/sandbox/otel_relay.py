@@ -21,7 +21,7 @@ import time
 from collections import Counter
 from collections.abc import Iterator, Mapping
 from collections.abc import Set as AbstractSet
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final, Literal
 from uuid import UUID
@@ -342,6 +342,145 @@ def tenant_signal_enabled(collector_env: Mapping[str, str], path: SignalPath) ->
     absent key means the caller configured a bare endpoint, which is enabled.
     """
     return collector_env.get(_SIGNAL_EXPORTER_KEYS[path]) != "none"
+
+
+@dataclass(frozen=True, slots=True)
+class OtelTarget:
+    """One resolved destination a single signal is delivered to.
+
+    Attributes:
+        url: Full collector URL for this signal.
+        headers: Outbound headers, already unwrapped from their secrets. Hidden
+            from repr so exporter credentials are not logged through dataclass
+            rendering.
+    """
+
+    url: str
+    headers: Mapping[str, str] = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class OtelDestinations:
+    """Every destination one ingress body fans out to, resolved per signal."""
+
+    tenant: OtelTarget | None
+    platform: OtelTarget | None
+
+    @property
+    def is_empty(self) -> bool:
+        """Whether this signal has nowhere to go and must be rejected."""
+        return self.tenant is None and self.platform is None
+
+
+@dataclass(frozen=True, slots=True)
+class OtelRoute:
+    """The tenant's own collector, resolved to one endpoint per signal.
+
+    Attributes:
+        endpoints: Collector URL per signal path the tenant opted in to. A path
+            missing from this mapping has no tenant copy, which is how a
+            per-signal opt-out and an unconfigured signal are both expressed.
+        headers: Outbound exporter headers, already unwrapped from their
+            secrets. Hidden from repr so credentials are not logged through
+            dataclass rendering.
+    """
+
+    endpoints: Mapping[SignalPath, str]
+    headers: Mapping[str, str] = field(repr=False)
+
+    def url_for(self, path: SignalPath) -> str | None:
+        """Return this route's collector URL for one signal path, if any."""
+        return self.endpoints.get(path)
+
+
+@dataclass(frozen=True, slots=True)
+class OtelRoutingPlan:
+    """Fixed two-destination fan-out: tenant copy plus optional platform copy.
+
+    The executor turns org OTel settings and the host's trace context into this
+    plan before the sandbox starts; the receiver only asks it where a signal
+    goes.
+
+    Attributes:
+        tenant: The org's own collector, or None when it resolves no endpoint.
+        platform_endpoint: Tracecat's internal gateway traces URL, or None when
+            platform tracing is off for this turn. Traces-only and headerless.
+        trace_parent: Trusted host span. Both the source of the correlation
+            attributes stamped onto the tenant copy and the parent the platform
+            copy is joined to, so it outlives ``platform`` being None.
+    """
+
+    tenant: OtelRoute | None
+    platform_endpoint: str | None
+    trace_parent: PlatformTraceParent | None
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        collector_env: Mapping[str, str],
+        headers: Mapping[str, SecretStr],
+        platform_trace_parent: PlatformTraceParent | None = None,
+        platform_collector_env: Mapping[str, str] | None = None,
+    ) -> OtelRoutingPlan:
+        """Build the plan for one turn from resolved OTel configuration.
+
+        Args:
+            collector_env: Tenant collector endpoints and per-signal exporters.
+            headers: Decrypted tenant exporter headers.
+            platform_trace_parent: Host span the platform copy joins, if any.
+            platform_collector_env: Internal gateway endpoints, if any.
+
+        Returns:
+            Routing plan the receiver resolves each signal path against.
+        """
+        # Platform tracing forces the sandbox exporters on, so this is what has
+        # to honour a tenant's per-signal "none".
+        endpoints: dict[SignalPath, str] = {
+            path: url
+            for path in _SIGNAL_PATHS
+            if tenant_signal_enabled(collector_env, path)
+            and (url := resolve_collector_url(collector_env, path)) is not None
+        }
+        tenant = (
+            OtelRoute(
+                endpoints=endpoints,
+                headers={
+                    key: value.get_secret_value() for key, value in headers.items()
+                },
+            )
+            if endpoints
+            else None
+        )
+        # Without a trusted parent there is nothing to join platform spans to,
+        # so the platform destination does not exist for this turn.
+        platform_endpoint = (
+            resolve_collector_url(platform_collector_env, _TRACES_PATH)
+            if platform_trace_parent is not None and platform_collector_env
+            else None
+        )
+        return cls(
+            tenant=tenant,
+            platform_endpoint=platform_endpoint,
+            trace_parent=platform_trace_parent,
+        )
+
+    def resolve(self, path: SignalPath) -> OtelDestinations:
+        """Resolve every destination one signal path is delivered to.
+
+        Args:
+            path: Normalized OTLP signal path from the sandbox request.
+
+        Returns:
+            Tenant and platform targets, either of which may be None.
+        """
+        tenant: OtelTarget | None = None
+        if self.tenant is not None and (url := self.tenant.url_for(path)) is not None:
+            tenant = OtelTarget(url=url, headers=self.tenant.headers)
+        platform: OtelTarget | None = None
+        if self.platform_endpoint is not None and path == _TRACES_PATH:
+            platform = OtelTarget(url=self.platform_endpoint, headers={})
+        return OtelDestinations(tenant=tenant, platform=platform)
 
 
 def _upsert_resource_attributes(
@@ -738,30 +877,16 @@ class OtelSocketReceiver:
         self,
         *,
         socket_path: Path,
-        collector_env: Mapping[str, str],
-        headers: Mapping[str, SecretStr],
+        plan: OtelRoutingPlan,
         expected_workspace_id: WorkspaceID,
         expected_organization_id: OrganizationID,
         expected_session_id: UUID,
-        platform_trace_parent: PlatformTraceParent | None = None,
-        platform_collector_env: Mapping[str, str] | None = None,
     ) -> None:
         self.socket_path = socket_path
-        self._collector_env = dict(collector_env)
-        self._headers = {
-            key: value.get_secret_value() for key, value in headers.items()
-        }
+        self._plan = plan
         self._expected_workspace_id = expected_workspace_id
         self._expected_organization_id = expected_organization_id
         self._expected_session_id = expected_session_id
-        self._platform_trace_parent = platform_trace_parent
-        # Without a trusted parent there is nothing to join platform spans to,
-        # so the platform route stays unresolvable for every request.
-        self._platform_collector_env = (
-            dict(platform_collector_env or {})
-            if platform_trace_parent is not None
-            else {}
-        )
         self._server: asyncio.Server | None = None
         self._connection_tasks: set[asyncio.Task[None]] = set()
         self._pending_items = 0
@@ -917,17 +1042,8 @@ class OtelSocketReceiver:
             # Resolved at admission so the delivery item stays self-contained.
             # A tenant that opted out of this signal gets no copy, even though
             # platform tracing forces the sandbox exporter on.
-            tenant_url = (
-                resolve_collector_url(self._collector_env, normalized_path)
-                if tenant_signal_enabled(self._collector_env, normalized_path)
-                else None
-            )
-            platform_url = (
-                resolve_collector_url(self._platform_collector_env, normalized_path)
-                if normalized_path == _TRACES_PATH
-                else None
-            )
-            if not self._accepting or (tenant_url is None and platform_url is None):
+            destinations = self._plan.resolve(normalized_path)
+            if not self._accepting or destinations.is_empty:
                 await self._reject(writer, "collector")
                 return
 
@@ -944,8 +1060,7 @@ class OtelSocketReceiver:
                 path=normalized_path,
                 content_type=content_type,
                 body=body,
-                tenant_url=tenant_url,
-                platform_url=platform_url,
+                destinations=destinations,
             )
             if not deliveries:
                 # Projection dropped every span by policy. Acknowledge without
@@ -1025,10 +1140,9 @@ class OtelSocketReceiver:
         path: SignalPath,
         content_type: str,
         body: bytes,
-        tenant_url: str | None,
-        platform_url: str | None,
+        destinations: OtelDestinations,
     ) -> list[_OtelDelivery]:
-        """Resolve every destination one ingress body fans out to.
+        """Build one delivery per resolved destination of an ingress body.
 
         Trace payloads are rewritten off the event loop: the tenant copy is
         canonicalized and the platform copy is projected down to allowlisted
@@ -1042,29 +1156,31 @@ class OtelSocketReceiver:
                     _prepare_trace_bodies,
                     body,
                     content_type=content_type,
-                    parent=self._platform_trace_parent,
+                    parent=self._plan.trace_parent,
                 )
             tenant_body = prepared.tenant
             platform_body = prepared.platform
 
         deliveries: list[_OtelDelivery] = []
-        if tenant_url is not None:
+        if (tenant := destinations.tenant) is not None:
             deliveries.append(
                 self._delivery(
-                    collector_url=tenant_url,
+                    collector_url=tenant.url,
                     content_type=content_type,
                     body=tenant_body,
-                    headers=dict(self._headers),
+                    headers=dict(tenant.headers),
                     path=path,
                 )
             )
-        if platform_url is not None and platform_body is not None:
+        if (
+            platform := destinations.platform
+        ) is not None and platform_body is not None:
             deliveries.append(
                 self._delivery(
-                    collector_url=platform_url,
+                    collector_url=platform.url,
                     content_type=content_type,
                     body=platform_body,
-                    headers={},
+                    headers=dict(platform.headers),
                     path=path,
                 )
             )

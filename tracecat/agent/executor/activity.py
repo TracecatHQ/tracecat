@@ -90,6 +90,7 @@ from tracecat.agent.sandbox.llm_proxy import (
 )
 from tracecat.agent.sandbox.otel_relay import (
     OTEL_SOCKET_NAME,
+    OtelRoutingPlan,
     OtelSocketReceiver,
     PlatformTraceParent,
 )
@@ -628,11 +629,14 @@ class SandboxedAgentExecutor:
             # decryption stay trusted-side, never cross Temporal payload boundary).
             otel_socket_path: Path | None = None
             resolved_otel = await self._resolve_agent_otel_config()
-            platform_parent = self._platform_trace_parent()
-            platform_collector = (
-                platform_otel_collector_env() if platform_parent is not None else {}
+            otel_plan = OtelRoutingPlan.build(
+                collector_env=resolved_otel.collector_env,
+                headers=resolved_otel.headers,
+                platform_trace_parent=self._platform_trace_parent(),
+                platform_collector_env=platform_otel_collector_env(),
             )
-            telemetry_enabled = resolved_otel.enabled or bool(platform_collector)
+            platform_tracing = otel_plan.platform_endpoint is not None
+            telemetry_enabled = resolved_otel.enabled or platform_tracing
             if telemetry_enabled:
                 if self.input.agent_otel_auth_token is None:
                     logger.warning(
@@ -648,18 +652,15 @@ class SandboxedAgentExecutor:
                     init_payload.agent_otel_sandbox_env = self._build_sandbox_env(
                         resolved_otel,
                         otel_auth_token=self.input.agent_otel_auth_token,
-                        platform_tracing=bool(platform_collector),
+                        platform_tracing=platform_tracing,
                     )
                     otel_socket_path = socket_dir / OTEL_SOCKET_NAME
                     self._otel_receiver = OtelSocketReceiver(
                         socket_path=otel_socket_path,
-                        collector_env=resolved_otel.collector_env,
-                        headers=resolved_otel.headers,
+                        plan=otel_plan,
                         expected_workspace_id=self.input.workspace_id,
                         expected_organization_id=self.input.role.organization_id,
                         expected_session_id=self.input.session_id,
-                        platform_trace_parent=platform_parent,
-                        platform_collector_env=platform_collector,
                     )
 
             # Create loopback handler
