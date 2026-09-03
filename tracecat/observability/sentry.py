@@ -269,7 +269,7 @@ def initialize_sentry_from_environment(
     *,
     enable_fastapi_integration: bool = False,
 ) -> None:
-    """Initialize Sentry from process configuration when a DSN is present."""
+    """Best-effort initialize Sentry when a DSN is present."""
     if not (dsn := os.environ.get("SENTRY_DSN")):
         return
 
@@ -284,13 +284,20 @@ def initialize_sentry_from_environment(
         app_env=app_env,
         temporal_namespace=temporal_namespace,
     )
-    initialize_sentry(
-        dsn=dsn,
-        environment=environment,
-        release=f"tracecat@{APP_VERSION}",
-        service_name=config.TRACECAT__SERVICE_NAME,
-        enable_fastapi_integration=enable_fastapi_integration,
-    )
+    try:
+        initialize_sentry(
+            dsn=dsn,
+            environment=environment,
+            release=f"tracecat@{APP_VERSION}",
+            service_name=config.TRACECAT__SERVICE_NAME,
+            enable_fastapi_integration=enable_fastapi_integration,
+        )
+    except Exception as error:
+        logger.warning(
+            "Failed to initialize Sentry; continuing without telemetry",
+            reporting_error_type=type(error).__name__,
+        )
+        return
     logger.info(
         "Sentry initialized",
         environment=environment,

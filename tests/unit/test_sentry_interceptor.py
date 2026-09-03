@@ -193,6 +193,23 @@ def test_sentry_environment_bootstrap_initializes_shared_worker_configuration(
     )
 
 
+def test_sentry_environment_bootstrap_failure_does_not_escape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SENTRY_DSN", "https://public@example.com/1")
+    initializer = Mock(side_effect=RuntimeError("synthetic initialization failure"))
+    warning = Mock()
+    monkeypatch.setattr(sentry_module, "initialize_sentry", initializer)
+    monkeypatch.setattr(sentry_module.logger, "warning", warning)
+
+    initialize_sentry_from_environment()
+
+    warning.assert_called_once_with(
+        "Failed to initialize Sentry; continuing without telemetry",
+        reporting_error_type="RuntimeError",
+    )
+
+
 def test_sentry_contexts_are_filtered_by_context_and_field() -> None:
     event = cast(
         Event,
