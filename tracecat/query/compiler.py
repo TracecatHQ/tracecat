@@ -135,6 +135,12 @@ def compile_aggregation(
         *agg_expressions,
         maintain_column_froms=True,
     )
+    # SQLAlchemy has no public generative API for removing DISTINCT. Since
+    # ``with_only_columns`` returned a clone, clear its inherited state without
+    # mutating the caller's base statement. In particular, leaving DISTINCT ON
+    # here can make PostgreSQL reject our aggregate-first ORDER BY.
+    compiled._distinct = False
+    compiled._distinct_on = ()
     compiled = compiled.group_by(None).order_by(None).limit(None).offset(None)
     if group_expressions:
         compiled = compiled.group_by(*group_expressions)
