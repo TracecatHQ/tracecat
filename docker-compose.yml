@@ -193,6 +193,12 @@ services:
   executor:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
     restart: unless-stopped
+
+    # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
+    # via nested user namespaces (fresh per-userns fork counter), so the
+    # cgroup pids limit is the reliable bound. 4096 leaves headroom above
+    # the in-jail 64-process caps at executor default concurrency (16 x 64 = 1024).
+    pids_limit: 4096
     networks:
       - core
       - core-db
@@ -408,6 +414,12 @@ services:
   agent-executor:
       image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
       restart: unless-stopped
+
+      # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
+      # via nested user namespaces (fresh per-userns fork counter), so the
+      # cgroup pids limit is the reliable bound. 4096 leaves headroom above
+      # the in-jail 64-process caps at executor default concurrency (16 x 64 = 1024).
+      pids_limit: 4096
       networks:
         - core
         - core-db
