@@ -56,7 +56,7 @@ from tracecat.agent.common.config import (
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.output_format import build_sdk_output_format
-from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.protocol import RuntimeErrorCode, RuntimeInitPayload
 from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE
 from tracecat.agent.common.stream_types import (
     StreamEventType,
@@ -160,7 +160,7 @@ class RuntimeEventWriter(Protocol):
     ) -> None:
         """Send the final Claude result."""
 
-    async def send_error(self, error: str) -> None:
+    async def send_error(self, error: str, *, error_code: str | None = None) -> None:
         """Send a terminal runtime error."""
 
     async def send_done(self) -> None:
@@ -168,6 +168,39 @@ class RuntimeEventWriter(Protocol):
 
     async def send_log(self, level: str, message: str, **extra: object) -> None:
         """Send a structured runtime log event."""
+
+
+@dataclass(slots=True)
+class _RequestUsage:
+    """Token totals accumulated from counted assistant requests."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
+
+    def add(self, usage: dict[str, Any] | None) -> None:
+        """Sum the four token fields when present and integral."""
+        if usage is None:
+            return
+        for field in (
+            "input_tokens",
+            "output_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+        ):
+            value = usage.get(field)
+            if isinstance(value, int) and not isinstance(value, bool):
+                setattr(self, field, getattr(self, field) + value)
+
+    def as_dict(self) -> dict[str, int]:
+        """Render the totals in the shape ``send_result(usage=...)`` accepts."""
+        return {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cache_creation_input_tokens": self.cache_creation_input_tokens,
+            "cache_read_input_tokens": self.cache_read_input_tokens,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,6 +378,10 @@ class ClaudeAgentRuntime:
         self._max_tool_calls: int | None = None
         self._counted_tool_use_ids: set[str] = set()
         self._consumed_tool_calls = 0
+        # Root-level API requests observed this run, deduped by API message id.
+        self._request_count: int = 0
+        self._counted_message_ids: set[str] = set()
+        self._usage = _RequestUsage()
         self._run_limit_error: str | None = None
         self._result_sent = False
 
@@ -1110,6 +1147,24 @@ class ClaudeAgentRuntime:
         self._was_interrupted = True
         await self.client.interrupt()
 
+    def _record_assistant_request(self, message: AssistantMessage) -> None:
+        """Count root-level API requests and their usage, deduped by message id.
+
+        Parallel tool calls arrive as N single-block assistant messages that
+        share one API message id but represent a single request.
+        """
+        if message.parent_tool_use_id is not None:
+            return
+        message_id = message.message_id
+        if message_id is None:
+            self._request_count += 1
+        elif message_id not in self._counted_message_ids:
+            self._counted_message_ids.add(message_id)
+            self._request_count += 1
+        else:
+            return
+        self._usage.add(message.usage)
+
     async def _register_assistant_tool_approvals(
         self, message: AssistantMessage
     ) -> None:
@@ -1143,6 +1198,11 @@ class ClaudeAgentRuntime:
                 block.name,
             ):
                 continue
+            # Mirror the hook's dedupe so parallel gated siblings, whose hooks
+            # never fire after the interrupt, still count against the budget.
+            if block.id not in self._counted_tool_use_ids:
+                self._counted_tool_use_ids.add(block.id)
+                self._consumed_tool_calls += 1
             await self._emit_approval_request(
                 normalize_mcp_tool_name(block.name),
                 block.input,
@@ -1483,6 +1543,9 @@ class ClaudeAgentRuntime:
         self._max_tool_calls = payload.max_tool_calls
         self._counted_tool_use_ids.clear()
         self._consumed_tool_calls = 0
+        self._request_count = 0
+        self._counted_message_ids.clear()
+        self._usage = _RequestUsage()
         self._run_limit_error = None
         self._result_sent = False
 
@@ -1939,6 +2002,7 @@ class ClaudeAgentRuntime:
                             await self._emit_new_session_lines()
 
                             if isinstance(message, AssistantMessage):
+                                self._record_assistant_request(message)
                                 await self._register_assistant_tool_approvals(message)
                             elif isinstance(message, UserMessage):
                                 await self._emit_user_tool_results(message)
@@ -1952,11 +2016,16 @@ class ClaudeAgentRuntime:
                         # ResultMessage. Preserve tool consumption so a resume
                         # cannot reset a finite workflow-wide budget.
                         await self._event_writer.send_result(
-                            consumed_tool_calls=self._consumed_tool_calls
+                            num_turns=self._request_count,
+                            consumed_tool_calls=self._consumed_tool_calls,
+                            usage=self._usage.as_dict(),
                         )
                         self._result_sent = True
                     if self._run_limit_error is not None:
-                        await self._event_writer.send_error(self._run_limit_error)
+                        await self._event_writer.send_error(
+                            self._run_limit_error,
+                            error_code=RuntimeErrorCode.RUN_LIMIT_EXCEEDED,
+                        )
                 finally:
                     stderr_task.cancel()
                     try:
@@ -1971,21 +2040,28 @@ class ClaudeAgentRuntime:
             log_benchmark_phase("runtime_complete")
 
         except Exception as e:
-            error_message = self._run_limit_error or str(e)
             if self._run_limit_error is not None and not self._result_sent:
                 await self._event_writer.send_result(
-                    consumed_tool_calls=self._consumed_tool_calls
+                    num_turns=self._request_count,
+                    consumed_tool_calls=self._consumed_tool_calls,
+                    usage=self._usage.as_dict(),
                 )
                 self._result_sent = True
+            # Always log the real exception; the limit text only shapes the
+            # error envelope sent downstream.
             await self._event_writer.send_log(
                 "error",
                 "Runtime error",
                 error_type=type(e).__name__,
-                error_message=error_message,
+                error_message=str(e),
             )
-            await self._event_writer.send_error(error_message)
             if self._run_limit_error is not None:
+                await self._event_writer.send_error(
+                    self._run_limit_error,
+                    error_code=RuntimeErrorCode.RUN_LIMIT_EXCEEDED,
+                )
                 return
+            await self._event_writer.send_error(str(e))
             raise
         finally:
             if session_flush_task is not None:

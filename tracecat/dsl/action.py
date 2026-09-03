@@ -228,11 +228,15 @@ async def _finalize_slackbot_action(
     *,
     succeeded: bool,
     input: BuildAgentArgsActivityInput | FinalizeSlackbotActivityInput,
+    environment: str | None = None,
 ) -> None:
+    run_context = input.run_context
+    if environment is not None and run_context is not None:
+        run_context = run_context.model_copy(update={"environment": environment})
     secret_context = await _slackbot_secret_context(
         role=input.role,
         registry_lock=input.registry_lock,
-        run_context=input.run_context,
+        run_context=run_context,
     )
     token = registry_secrets.set_context(secret_context)
     try:
@@ -982,7 +986,10 @@ class DSLActivities:
                 # Slack was already acked; clear it even on cancellation.
                 try:
                     await _finalize_slackbot_action(
-                        prepared.context, succeeded=False, input=input
+                        prepared.context,
+                        succeeded=False,
+                        input=input,
+                        environment=evaled_args["environment"],
                     )
                 except Exception as exc:
                     logger.warning(

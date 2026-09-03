@@ -1483,7 +1483,10 @@ class DurableAgentWorkflow:
         # Run the executor activity
         while True:
             logger.info("Executing agent turn", turn=self._turn)
-            if enforce_run_limits and executor_input.max_requests == 0:
+            if enforce_run_limits and (
+                executor_input.max_requests is not None
+                and executor_input.max_requests <= 0
+            ):
                 # Caller-owned limit exhausted before the turn could start.
                 raise_application_error_from_classification(
                     user_agent_execution_failed(retryable=False)
@@ -1591,23 +1594,29 @@ class DurableAgentWorkflow:
                 )
 
             if result.approval_requested:
-                if self.max_requests is not None and result.result_num_turns is None:
-                    raise ApplicationError(
-                        "Agent runtime did not report request consumption before "
-                        "an approval pause",
-                        type=AGENT_RUNTIME_EXECUTION_ERROR,
-                        non_retryable=True,
-                    )
-                if (
-                    self.max_tool_calls is not None
-                    and result.consumed_tool_calls is None
-                ):
-                    raise ApplicationError(
-                        "Agent runtime did not report tool-call consumption before "
-                        "an approval pause",
-                        type=AGENT_RUNTIME_EXECUTION_ERROR,
-                        non_retryable=True,
-                    )
+                # Marker-free replays recorded results before the runtime
+                # reported these fields, so only assert under the patch.
+                if enforce_run_limits:
+                    if (
+                        self.max_requests is not None
+                        and result.result_num_turns is None
+                    ):
+                        raise ApplicationError(
+                            "Agent runtime did not report request consumption "
+                            "before an approval pause",
+                            type=AGENT_RUNTIME_EXECUTION_ERROR,
+                            non_retryable=True,
+                        )
+                    if (
+                        self.max_tool_calls is not None
+                        and result.consumed_tool_calls is None
+                    ):
+                        raise ApplicationError(
+                            "Agent runtime did not report tool-call consumption "
+                            "before an approval pause",
+                            type=AGENT_RUNTIME_EXECUTION_ERROR,
+                            non_retryable=True,
+                        )
                 logger.info("Agent waiting for approval", session_id=self.session_id)
                 if result.approval_items:
                     request_metadata = {

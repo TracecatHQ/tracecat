@@ -8,11 +8,18 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from temporalio.client import WorkflowFailureError
 
 from tracecat.agent import internal_router
 from tracecat.agent.internal_router import router
-from tracecat.agent.schemas import AgentOutput, RunUsage
+from tracecat.agent.schemas import (
+    AgentConfigSchema,
+    AgentOutput,
+    InternalRunAgentRequest,
+    RunAgentArgs,
+    RunUsage,
+)
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session
@@ -295,3 +302,41 @@ def test_run_maps_workflow_failure_to_500(
             "message": "durable run failed",
         }
     }
+
+
+@pytest.mark.parametrize("max_requests", [-1, 0])
+def test_internal_run_agent_request_rejects_non_positive_max_requests(
+    max_requests: int,
+) -> None:
+    with pytest.raises(ValidationError):
+        InternalRunAgentRequest(
+            user_prompt="Investigate the alert",
+            config=AgentConfigSchema(
+                model_name="test-model",
+                model_provider="test-provider",
+            ),
+            max_requests=max_requests,
+        )
+
+
+@pytest.mark.parametrize(
+    ("max_requests", "max_tool_calls"),
+    [(-1, -1), (0, 0)],
+)
+def test_run_agent_args_pins_persisted_shape_and_accepts_legacy_limits(
+    max_requests: int,
+    max_tool_calls: int,
+) -> None:
+    # Temporal replays deserialize from a dict; bounds must not run here.
+    args = RunAgentArgs.model_validate(
+        {
+            "user_prompt": "Investigate the alert",
+            "session_id": str(uuid.uuid4()),
+            "preset_slug": "triage",
+            "max_requests": max_requests,
+            "max_tool_calls": max_tool_calls,
+        }
+    )
+
+    assert args.max_requests == max_requests
+    assert args.max_tool_calls == max_tool_calls

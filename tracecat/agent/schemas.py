@@ -60,6 +60,7 @@ class RunAgentArgs(BaseModel):
     """Slug for the preset configuration (if using a preset)."""
     preset_version: int | None = None
     """Optional preset version number to pin for this execution."""
+    # Persisted in Temporal history; validate at ingress only.
     max_requests: int | None = None
     """Maximum number of requests for the agent."""
     max_tool_calls: int | None = None
@@ -247,8 +248,8 @@ class InternalRunAgentRequest(BaseModel):
     config: AgentConfigSchema | None = None
     preset_slug: str | None = None
     preset_version: int | None = None
-    max_requests: int = Field(default=120, le=120)
-    max_tool_calls: int | None = Field(default=None, le=40)
+    max_requests: int = Field(default=120, ge=1, le=120)
+    max_tool_calls: int | None = Field(default=None, ge=0, le=40)
 
     @model_validator(mode="after")
     def validate_config_or_preset(self) -> InternalRunAgentRequest:

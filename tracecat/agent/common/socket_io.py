@@ -183,9 +183,9 @@ class SocketStreamWriter:
             )
         )
 
-    async def send_error(self, error: str) -> None:
+    async def send_error(self, error: str, *, error_code: str | None = None) -> None:
         """Send error event to the orchestrator."""
-        await self._send(RuntimeEventEnvelope.from_error(error))
+        await self._send(RuntimeEventEnvelope.from_error(error, error_code=error_code))
 
     async def send_done(self) -> None:
         """Send done event to signal completion."""

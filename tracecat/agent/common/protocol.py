@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any, Literal, TypeGuard, get_args
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
@@ -160,6 +161,12 @@ def _is_runtime_event_type(value: object) -> TypeGuard[RuntimeEventType]:
     return isinstance(value, str) and value in _RUNTIME_EVENT_TYPES
 
 
+class RuntimeErrorCode(StrEnum):
+    """Machine-readable classification codes carried on error envelopes."""
+
+    RUN_LIMIT_EXCEEDED = "run_limit_exceeded"
+
+
 @dataclass(kw_only=True, slots=True)
 class RuntimeEventEnvelope:
     """Envelope for events sent from runtime to orchestrator.
@@ -188,6 +195,7 @@ class RuntimeEventEnvelope:
     sdk_session_id: str | None = None  # For type="session_update" or "session_line"
     sdk_session_data: str | None = None  # For type="session_update"
     error: str | None = None  # For type="error"
+    error_code: str | None = None  # For type="error" - machine-readable code
     # For type="result" - final usage data from Claude SDK ResultMessage
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
@@ -225,6 +233,7 @@ class RuntimeEventEnvelope:
             path="runtime_event",
         )
         error = optional_string(data, "error", path="runtime_event")
+        error_code = optional_string(data, "error_code", path="runtime_event")
         result_usage = optional_object(data, "result_usage", path="runtime_event")
         result_num_turns = optional_integer(
             data,
@@ -283,6 +292,7 @@ class RuntimeEventEnvelope:
             sdk_session_id=sdk_session_id,
             sdk_session_data=sdk_session_data,
             error=error,
+            error_code=error_code,
             result_usage=result_usage,
             result_num_turns=result_num_turns,
             consumed_tool_calls=consumed_tool_calls,
@@ -313,6 +323,8 @@ class RuntimeEventEnvelope:
             result["sdk_session_data"] = self.sdk_session_data
         if self.error is not None:
             result["error"] = self.error
+        if self.error_code is not None:
+            result["error_code"] = self.error_code
         if self.result_usage is not None:
             result["result_usage"] = self.result_usage
         if self.result_num_turns is not None:
@@ -403,9 +415,11 @@ class RuntimeEventEnvelope:
         )
 
     @classmethod
-    def from_error(cls, error: str) -> RuntimeEventEnvelope:
+    def from_error(
+        cls, error: str, *, error_code: str | None = None
+    ) -> RuntimeEventEnvelope:
         """Create an error envelope."""
-        return cls(type="error", error=error)
+        return cls(type="error", error=error, error_code=error_code)
 
     @classmethod
     def done(cls) -> RuntimeEventEnvelope:

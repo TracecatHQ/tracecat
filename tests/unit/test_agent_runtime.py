@@ -29,7 +29,7 @@ from claude_agent_sdk.types import (
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
-from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.protocol import RuntimeErrorCode, RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.common.types import (
@@ -917,7 +917,8 @@ class TestClaudeAgentRuntimeRun:
             mock_socket_writer.send_result.await_args.kwargs["consumed_tool_calls"] == 0
         )
         mock_socket_writer.send_error.assert_awaited_once_with(
-            "Agent exceeded max_requests limit (3)"
+            "Agent exceeded max_requests limit (3)",
+            error_code=RuntimeErrorCode.RUN_LIMIT_EXCEEDED,
         )
 
     @pytest.mark.anyio
@@ -973,7 +974,8 @@ class TestClaudeAgentRuntimeRun:
             mock_socket_writer.send_result.await_args.kwargs["consumed_tool_calls"] == 1
         )
         mock_socket_writer.send_error.assert_awaited_once_with(
-            "Agent max_tool_calls exceeded (0)"
+            "Agent max_tool_calls exceeded (0)",
+            error_code=RuntimeErrorCode.RUN_LIMIT_EXCEEDED,
         )
 
     @pytest.mark.anyio
@@ -2046,6 +2048,93 @@ class TestClaudeAgentRuntimeRun:
         }
 
     @pytest.mark.parametrize(
+        ("message_ids", "expected_requests"),
+        [
+            pytest.param(["msg-1"], 1, id="single"),
+            pytest.param(["msg-1", "msg-1"], 1, id="parallel-shared-id"),
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_approval_interrupt_result_reports_request_consumption(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        message_ids: list[str],
+        expected_requests: int,
+    ) -> None:
+        """An approval interrupt without a ResultMessage still reports usage."""
+
+        class ApprovalHookClient:
+            def __init__(self, options: Any) -> None:
+                self.options = options
+                self.connect = AsyncMock()
+                self.disconnect = AsyncMock()
+                self.query = AsyncMock()
+                self.interrupt = AsyncMock()
+
+            async def __aenter__(self) -> ApprovalHookClient:
+                return self
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                del exc_type, exc, tb
+
+            async def receive_response(self) -> Any:
+                for index, message_id in enumerate(message_ids):
+                    yield AssistantMessage(
+                        content=[
+                            ToolUseBlock(
+                                id=f"call-approval-{index}",
+                                name="mcp__tracecat-registry__core__http_request",
+                                input={"url": "https://example.com"},
+                            )
+                        ],
+                        model="claude-sonnet-4-5",
+                        parent_tool_use_id=None,
+                        message_id=message_id,
+                        usage={"input_tokens": 123, "output_tokens": 7},
+                    )
+                [matcher] = self.options.hooks["PreToolUse"]
+                [hook] = matcher.hooks
+                await hook(
+                    input_data=make_hook_input(
+                        tool_name="mcp__tracecat-registry__core__http_request",
+                        tool_input={"url": "https://example.com"},
+                        tool_use_id="call-approval-0",
+                    ),
+                    tool_use_id="call-approval-0",
+                    context=make_hook_context(),
+                )
+
+        approval_payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={"tool_approvals": {"core.http_request": True}}
+            ),
+        )
+
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            side_effect=lambda *_a, **kwargs: ApprovalHookClient(kwargs["options"]),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(approval_payload)
+
+        mock_socket_writer.send_result.assert_awaited_once()
+        result_kwargs = mock_socket_writer.send_result.await_args.kwargs
+        assert result_kwargs["num_turns"] == expected_requests
+        assert result_kwargs["consumed_tool_calls"] == len(message_ids)
+        assert result_kwargs["usage"] == {
+            "input_tokens": 123,
+            "output_tokens": 7,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        }
+
+    @pytest.mark.parametrize(
         "disable_nsjail",
         [
             pytest.param(True, id="direct"),
@@ -2925,6 +3014,36 @@ class TestClaudeAgentRuntimeParallelApprovals:
         # No duplicate approval events from the hook, and a single interrupt.
         assert len(_approval_events(mock_socket_writer)) == 2
         interrupt.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_gated_siblings_count_against_tool_call_budget(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Parallel gated calls consume budget even though their hooks never fire."""
+        runtime, _interrupt = self._make_runtime(mock_socket_writer)
+
+        await runtime._register_assistant_tool_approvals(
+            self._tool_use_message("call-a", "https://example.com")
+        )
+        await runtime._register_assistant_tool_approvals(
+            self._tool_use_message("call-b", "https://example.org")
+        )
+
+        assert runtime._consumed_tool_calls == 2
+        assert runtime._counted_tool_use_ids == {"call-a", "call-b"}
+
+        await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__tracecat-registry__core__http_request",
+                tool_input={"url": "https://example.com"},
+                tool_use_id="call-a",
+            ),
+            tool_use_id="call-a",
+            context=make_hook_context(),
+        )
+
+        assert runtime._consumed_tool_calls == 2
 
     @pytest.mark.anyio
     async def test_subagent_assistant_messages_are_skipped(

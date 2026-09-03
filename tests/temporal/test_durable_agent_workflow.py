@@ -26,9 +26,11 @@ from temporalio import workflow as temporal_workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     Client,
+    WorkflowFailureError,
     WorkflowHandle,
     WorkflowHistory,
 )
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from tracecat_ee.agent.activities import (
     AgentActivities,
@@ -63,6 +65,7 @@ from tracecat.agent import internal_router
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.error_policy import RuntimeErrorKind
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -714,6 +717,14 @@ async def test_agent_workflow_replays_history_without_run_limits_patch(
 ) -> None:
     """A history created before run-limit enforcement replays unchanged."""
     queue = f"test-agent-pre-run-limits-{mock_session_id}"
+    # Legacy zero limits are persisted values; without the marker they stay inert.
+    legacy_args = agent_workflow_args.model_copy(
+        update={
+            "agent_args": agent_workflow_args.agent_args.model_copy(
+                update={"max_requests": 0, "max_tool_calls": 0}
+            )
+        }
+    )
 
     def mock_executor(
         call_count: int, input: AgentExecutorInput
@@ -739,7 +750,7 @@ async def test_agent_workflow_replays_history_without_run_limits_patch(
         ):
             handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
-                agent_workflow_args,
+                legacy_args,
                 id=AgentWorkflowID(mock_session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
@@ -753,6 +764,171 @@ async def test_agent_workflow_replays_history_without_run_limits_patch(
         legacy_history,
     )
     await replay_durable_agent_workflow_history(temporal_client, legacy_history)
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_fails_before_executor_when_max_requests_exhausted(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    """A negative persisted limit fails fast under the patch, before any turn."""
+    del svc_role
+    queue = f"test-agent-exhausted-run-limits-{mock_session_id}"
+    executor_calls: list[AgentExecutorInput] = []
+
+    def mock_executor(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        del call_count
+        executor_calls.append(input)
+        return AgentExecutorResult(success=True, approval_requested=False)
+
+    exhausted_args = agent_workflow_args.model_copy(
+        update={
+            "agent_args": agent_workflow_args.agent_args.model_copy(
+                update={"max_requests": -1}
+            )
+        }
+    )
+
+    async with agent_worker_factory(
+        temporal_client,
+        task_queue=queue,
+        custom_activities=create_activities_with_mock_executor(mock_executor),
+    ):
+        handle = await temporal_client.start_workflow(
+            DurableAgentWorkflow.run,
+            exhausted_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await handle.result()
+
+    cause = exc_info.value.cause
+    assert isinstance(cause, ApplicationError)
+    assert cause.type == RuntimeErrorKind.AGENT_EXECUTION_FAILED.value
+    assert cause.non_retryable is True
+    assert executor_calls == []
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_approval_pause_without_run_limits_patch(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_config_with_approvals: AgentConfig,
+    mock_session_id: uuid.UUID,
+    test_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Marker-free replays pause on approval without consumption invariants."""
+    del test_user
+    queue = f"test-agent-pre-run-limits-approval-{mock_session_id}"
+    approval_request_recorded = asyncio.Event()
+    approval_done_emitted = asyncio.Event()
+
+    def legacy_executor(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        del input
+        if call_count == 0:
+            # No result_num_turns / consumed_tool_calls: the pre-patch shape.
+            return AgentExecutorResult(
+                success=True,
+                approval_requested=True,
+                approval_items=[
+                    ToolCallContent(
+                        id="call-legacy-approval",
+                        name="core__http_request",
+                        input={"url": "https://example.com", "method": "GET"},
+                    )
+                ],
+            )
+        return AgentExecutorResult(
+            success=True, output={"status": "completed-after-approval"}
+        )
+
+    @activity.defn(name="emit_session_error")
+    async def mock_emit_session_error(input: EmitSessionErrorInputs) -> None:
+        del input
+
+    @activity.defn(name="record_approval_requests")
+    async def mock_record_approval_requests(input: Any) -> None:
+        del input
+        approval_request_recorded.set()
+
+    @activity.defn(name="apply_approval_decisions")
+    async def mock_apply_approval_decisions(input: Any) -> None:
+        del input
+
+    activities = [
+        create_mock_create_session_activity(),
+        create_mock_load_session_activity(),
+        create_mock_load_session_messages_activity(),
+        create_mock_build_tool_definitions_activity(),
+        create_mock_run_agent_activity(legacy_executor),
+        create_mock_execute_action_activity(),
+        create_mock_reconcile_tool_results_activity(),
+        create_mock_finalize_turn_activity(),
+        create_mock_emit_session_done_activity(done_event=approval_done_emitted),
+        mock_record_approval_requests,
+        mock_apply_approval_decisions,
+        mock_emit_session_error,
+    ]
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Pause for approval on a marker-free history",
+            config=agent_config_with_approvals,
+            max_requests=5,
+            max_tool_calls=4,
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+
+    current_patched = temporal_workflow.patched
+
+    def legacy_patched(patch_id: str) -> bool:
+        if patch_id == AGENT_RUN_LIMITS_PATCH:
+            return False
+        return current_patched(patch_id)
+
+    with monkeypatch.context() as legacy_worker:
+        legacy_worker.setattr(temporal_workflow, "patched", legacy_patched)
+        async with agent_worker_factory(
+            temporal_client, task_queue=queue, custom_activities=activities
+        ):
+            handle = await temporal_client.start_workflow(
+                DurableAgentWorkflow.run,
+                workflow_args,
+                id=AgentWorkflowID(mock_session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+            await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+            await asyncio.wait_for(approval_done_emitted.wait(), timeout=10)
+            await handle.execute_update(
+                DurableAgentWorkflow.set_approvals,
+                WorkflowApprovalSubmission(
+                    approvals={"call-legacy-approval": True},
+                    approved_by=svc_role.user_id,
+                ),
+            )
+            result = await handle.result()
+
+    assert result.output == {"status": "completed-after-approval"}
 
 
 @pytest.mark.anyio
