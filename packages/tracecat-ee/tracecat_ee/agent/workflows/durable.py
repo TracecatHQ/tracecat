@@ -1363,11 +1363,8 @@ class DurableAgentWorkflow:
             harness_type=HarnessType(self.harness_type),
             curr_run_id=curr_run_id,
             initial_user_prompt=args.agent_args.user_prompt,
+            parent_session_id=args.parent_session_id,
         )
-        if args.parent_session_id is not None:
-            create_input = create_input.model_copy(
-                update={"parent_session_id": args.parent_session_id}
-            )
         create_result = await workflow.execute_activity(
             create_session_activity,
             create_input,
