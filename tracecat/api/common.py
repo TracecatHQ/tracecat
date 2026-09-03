@@ -196,7 +196,7 @@ def _query_exception_response(
 
 
 def query_timeout_exception_handler(request: Request, exc: Exception) -> Response:
-    """Return the stable 408 contract for timed-out shared queries."""
+    """Return the stable 422 contract for timed-out shared queries."""
     query_exc = (
         exc
         if isinstance(exc, TracecatQueryTimeoutError)
@@ -205,7 +205,7 @@ def query_timeout_exception_handler(request: Request, exc: Exception) -> Respons
     return _query_exception_response(
         request,
         query_exc,
-        status_code=status.HTTP_408_REQUEST_TIMEOUT,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
     )
 
 

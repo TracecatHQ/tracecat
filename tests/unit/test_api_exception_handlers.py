@@ -89,7 +89,7 @@ def _get(exc: Exception):
         pytest.param(
             TracecatValidationError("bad"), 500, id="other-tracecat-error-500"
         ),
-        pytest.param(TracecatQueryTimeoutError(), 408, id="query-timeout-408"),
+        pytest.param(TracecatQueryTimeoutError(), 422, id="query-timeout-422"),
         pytest.param(TracecatQueryOverflowError(), 400, id="query-overflow-400"),
     ],
 )
@@ -153,7 +153,7 @@ def test_scope_denied_keeps_its_structured_body() -> None:
     [
         pytest.param(
             TracecatQueryTimeoutError(),
-            408,
+            422,
             "query_timeout",
             id="timeout",
         ),
