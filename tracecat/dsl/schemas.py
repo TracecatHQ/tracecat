@@ -29,7 +29,6 @@ from tracecat.interactions.schemas import ActionInteraction, InteractionContext
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.storage.object import InlineObject, StoredObject
-from tracecat.workflow.executions.enums import TriggerType
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
@@ -461,8 +460,6 @@ class RunContext(BaseModel):
     wf_exec_id: WorkflowExecutionID
     wf_run_id: WorkflowRunID
     environment: str
-    trigger_type: TriggerType | None = None
-    """Trigger that started the workflow, when known to the caller."""
     logical_time: datetime
     """The logical start time for the workflow run."""
 

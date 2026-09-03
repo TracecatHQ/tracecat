@@ -122,7 +122,6 @@ class ExecutorActivities:
                 "tracecat.workspace.id": role.workspace_id,
                 "tracecat.workflow.id": input.run_context.wf_id,
                 "tracecat.workflow.execution.id": input.run_context.wf_exec_id,
-                "tracecat.trigger.type": input.run_context.trigger_type,
                 "tracecat.action.ref": task.ref,
                 "tracecat.action.name": action_name,
                 "temporal.activity.attempt": act_attempt,

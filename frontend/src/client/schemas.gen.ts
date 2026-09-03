@@ -23124,16 +23124,6 @@ export const $RunContext = {
       type: "string",
       title: "Environment",
     },
-    trigger_type: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/TriggerType",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
     logical_time: {
       type: "string",
       format: "date-time",

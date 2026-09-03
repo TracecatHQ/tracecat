@@ -7074,7 +7074,6 @@ export type RunContext = {
   wf_exec_id: string
   wf_run_id: string
   environment: string
-  trigger_type?: TriggerType | null
   logical_time: string
 }
 

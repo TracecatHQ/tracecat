@@ -641,7 +641,6 @@ class DSLWorkflow:
             wf_exec_id=wf_info.workflow_id,
             wf_run_id=uuid.UUID(wf_info.run_id, version=4),
             environment=self.runtime_config.environment,
-            trigger_type=get_trigger_type(wf_info),
             logical_time=self.time_anchor,
         )
         ctx_run.set(self.run_context)
