@@ -6,9 +6,11 @@ Create Date: 2026-09-02 13:35:40.252876
 
 """
 
+import logging
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy import Connection
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
@@ -26,6 +28,8 @@ revision: str = "2bf069003a77"
 down_revision: str | None = "44d7e75b6f4c"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+logger = logging.getLogger("alembic.runtime.migration")
 
 RECLASSIFIED_TABLES = ("user_role_assignment", "group_role_assignment")
 
@@ -89,6 +93,46 @@ WITH inserted AS (
 SELECT count(*) FROM inserted
 """
 
+# Workspace memberships still uncovered by any assignment path after backfill.
+# The backfill inner-joins `role`, so an org missing the system role silently
+# skips its members; dropping the table would lose their access permanently.
+UNCOVERED_WORKSPACE_MEMBERSHIPS = """
+SELECT count(*) AS uncovered,
+       coalesce(array_agg(DISTINCT w.organization_id), '{}') AS organization_ids
+FROM   membership m
+JOIN   workspace w ON w.id = m.workspace_id
+WHERE  NOT EXISTS (
+    SELECT 1 FROM user_role_assignment ura
+    WHERE  ura.user_id = m.user_id
+      AND  ura.workspace_id = m.workspace_id
+)
+AND NOT EXISTS (
+    SELECT 1
+    FROM   group_role_assignment gra
+    JOIN   group_member gm ON gm.group_id = gra.group_id
+    WHERE  gm.user_id = m.user_id
+      AND  gra.workspace_id = m.workspace_id
+)
+"""
+
+UNCOVERED_ORG_MEMBERSHIPS = """
+SELECT count(*) AS uncovered,
+       coalesce(array_agg(DISTINCT om.organization_id), '{}') AS organization_ids
+FROM   organization_membership om
+WHERE  NOT EXISTS (
+    SELECT 1 FROM user_role_assignment ura
+    WHERE  ura.user_id = om.user_id
+      AND  ura.organization_id = om.organization_id
+)
+AND NOT EXISTS (
+    SELECT 1
+    FROM   group_role_assignment gra
+    JOIN   group_member gm ON gm.group_id = gra.group_id
+    WHERE  gm.user_id = om.user_id
+      AND  gra.organization_id = om.organization_id
+)
+"""
+
 # Repopulate the dropped tables from the assignment graph on downgrade.
 REPOPULATE_ORG_MEMBERSHIP = """
 INSERT INTO organization_membership (user_id, organization_id)
@@ -117,21 +161,45 @@ ON CONFLICT DO NOTHING
 """
 
 
-def upgrade() -> None:
-    connection = op.get_bind()
-
-    # 1. Backfill assignments so no existing member loses access.
+def backfill_assignments(connection: Connection) -> tuple[int, int]:
+    """Backfill assignments for every legacy membership, returning the counts."""
     workspace_backfilled = connection.execute(
         sa.text(BACKFILL_WORKSPACE_ASSIGNMENTS)
     ).scalar_one()
     org_backfilled = connection.execute(sa.text(BACKFILL_ORG_ASSIGNMENTS)).scalar_one()
-    connection.execute(
-        sa.text(
-            "DO $$ BEGIN RAISE NOTICE "
-            "'membership backfill: % workspace, % org assignments', "
-            f"{workspace_backfilled}, {org_backfilled}; END $$"
-        )
+    logger.info(
+        "membership backfill: %s workspace, %s org assignments",
+        workspace_backfilled,
+        org_backfilled,
     )
+    return workspace_backfilled, org_backfilled
+
+
+def assert_no_membership_dropped(connection: Connection) -> None:
+    """Fail the migration if any legacy membership row lacks an assignment path."""
+    workspace_row = connection.execute(sa.text(UNCOVERED_WORKSPACE_MEMBERSHIPS)).one()
+    org_row = connection.execute(sa.text(UNCOVERED_ORG_MEMBERSHIPS)).one()
+    if workspace_row.uncovered or org_row.uncovered:
+        affected = sorted(
+            {str(org_id) for org_id in workspace_row.organization_ids}
+            | {str(org_id) for org_id in org_row.organization_ids}
+        )
+        raise RuntimeError(
+            "Refusing to drop membership tables: "
+            f"{workspace_row.uncovered} workspace membership(s) and "
+            f"{org_row.uncovered} organization membership(s) are not covered by "
+            "any role assignment. Affected organization_ids: "
+            f"{', '.join(affected)}. Seed the 'workspace-editor' and "
+            "'organization-member' system roles in these organizations, then retry."
+        )
+
+
+def upgrade() -> None:
+    connection = op.get_bind()
+
+    # 1. Backfill assignments so no existing member loses access, then verify.
+    backfill_assignments(connection)
+    assert_no_membership_dropped(connection)
 
     # 2. Assignments become plain org-scoped: the optional-workspace clause hid
     # other-workspace rows from the view's org-presence reads.
