@@ -120,6 +120,10 @@ locals {
         TRACECAT__AUTH_ALLOWED_DOMAINS             = var.auth_allowed_domains
         TRACECAT__AUTH_MIN_PASSWORD_LENGTH         = var.auth_min_password_length
         TRACECAT__AUTH_SUPERADMIN_EMAIL            = var.auth_superadmin_email
+        TRACECAT__SMTP_HOST                        = var.smtp_host
+        TRACECAT__SMTP_PORT                        = tostring(var.smtp_port)
+        TRACECAT__SMTP_USER                        = var.smtp_user
+        TRACECAT__EMAIL_FROM                       = var.email_from
         TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
         TRACECAT__SERVICE_NAME                     = "api"
         OIDC_ISSUER                                = var.oidc_issuer

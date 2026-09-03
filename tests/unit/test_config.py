@@ -52,6 +52,13 @@ PLATFORM_OTEL_COMPOSE_ENV = (
 PLATFORM_OTEL_HEADERS_COMPOSE_ENV = (
     "OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}"
 )
+SMTP_COMPOSE_ENV = (
+    "TRACECAT__SMTP_HOST: ${TRACECAT__SMTP_HOST:-}",
+    "TRACECAT__SMTP_PORT: ${TRACECAT__SMTP_PORT:-587}",
+    "TRACECAT__SMTP_USER: ${TRACECAT__SMTP_USER:-}",
+    "TRACECAT__SMTP_PASSWORD: ${TRACECAT__SMTP_PASSWORD:-}",
+    "TRACECAT__EMAIL_FROM: ${TRACECAT__EMAIL_FROM:-}",
+)
 
 
 def _config_bool_env_vars() -> set[str]:
@@ -220,6 +227,35 @@ def test_audit_trusted_proxy_env_is_wired_to_deployments() -> None:
     assert name in (fargate / "modules/ecs/locals.tf").read_text()
     for tf in ("variables.tf", "main.tf", "modules/ecs/variables.tf"):
         assert "audit_trusted_proxy_cidrs" in (fargate / tf).read_text(), tf
+
+
+def test_smtp_env_is_wired_to_api_deployments() -> None:
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        source = path.read_text().replace(" # Sensitive", "")
+        api_match = re.search(
+            r"(?ms)^  api:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+            source,
+        )
+        assert api_match is not None
+        for env_line in SMTP_COMPOSE_ENV:
+            assert env_line in api_match.group("body"), f"{path.name}: {env_line}"
+
+    fargate = REPO_ROOT / "deployments/fargate"
+    for name in ("smtp_host", "smtp_port", "smtp_user", "smtp_password", "email_from"):
+        assert (
+            name in (fargate / "modules/ecs/locals.tf").read_text()
+            or name in (fargate / "modules/ecs/secrets.tf").read_text()
+        )
+    for tf in ("variables.tf", "main.tf", "modules/ecs/variables.tf"):
+        source = (fargate / tf).read_text()
+        for name in (
+            "smtp_password_arn",
+            "smtp_host",
+            "smtp_port",
+            "smtp_user",
+            "email_from",
+        ):
+            assert name in source, f"{tf}: {name}"
 
 
 def test_sandbox_policy_env_vars_are_wired_to_compose_files() -> None:
