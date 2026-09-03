@@ -42,7 +42,7 @@ from tracecat.runtime.errors import RuntimeErrorClassification
 # passthrough upstream URL. The contract for stored ``base_url`` is the
 # OpenAI-compatible "/v1" form (so catalog discovery can hit
 # ``{base_url}/models`` → ``/v1/models``). In passthrough mode the SDK
-# clients (Claude Code SDK, pydantic-ai) emit fully-qualified paths like
+# clients such as the Claude Code SDK emit fully-qualified paths like
 # ``/v1/messages``, so we strip the version suffix from direct route ``base_url``
 # to avoid producing ``/v1/v1/messages``, which the upstream rejects with
 # a 404 "model not found".

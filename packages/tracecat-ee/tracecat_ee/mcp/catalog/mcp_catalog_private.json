@@ -2467,6 +2467,66 @@
         "oauth_token_endpoint": null,
         "credentials": []
       }
+    },
+    {
+      "slug": "glean-mcp",
+      "docs": "https://docs.glean.com/administration/platform/mcp/about",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://{GLEAN_BACKEND_DOMAIN}/mcp/{MCP_SERVER_NAME}",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [
+          {
+            "key": "GLEAN_BACKEND_DOMAIN",
+            "label": "Glean backend domain",
+            "description": "Backend host of your Glean tenant, e.g. acme-be.glean.com. Shown at app.glean.com/admin/about-glean under Server instance (QE); may differ if your organization uses a custom domain.",
+            "required": true,
+            "secret": false,
+            "placeholder": "acme-be.glean.com",
+            "target": "server_uri"
+          },
+          {
+            "key": "MCP_SERVER_NAME",
+            "label": "MCP server path",
+            "description": "Path of the Glean MCP server to connect to (Admin Console > Platform > Glean MCP server). The built-in server is `default`.",
+            "required": true,
+            "secret": false,
+            "default_value": "default",
+            "target": "server_uri"
+          },
+          {
+            "key": "client_id",
+            "label": "OAuth client ID",
+            "description": "Optional. Client ID of a static OAuth client created in Admin Console > Users & permissions > Third-party access (OAuth) with <your Tracecat URL>/integrations/callback as a redirect URI. Leave blank to use dynamic client registration, which Glean restricts to a greenlist of vetted hosts by default.",
+            "required": false,
+            "secret": false,
+            "target": "oauth_client"
+          },
+          {
+            "key": "client_secret",
+            "label": "OAuth client secret",
+            "description": "Optional. Client secret of the same static OAuth client.",
+            "required": false,
+            "secret": true,
+            "target": "oauth_client"
+          }
+        ],
+        "_research": {
+          "confidence": "high",
+          "docker_only": false,
+          "notes": "Glean ships a first-party, tenant-hosted remote MCP server (streamable HTTP) served at https://<backend-domain>/mcp/<server-path>. The backend domain is typically <company>-be.glean.com but can be a custom domain, so the whole host is user-supplied rather than templated on an instance name. The built-in server path is `default`; admins can create additional servers with their own paths. Auth is OAuth 2.1 authorization code with PKCE against the Glean OAuth Authorization Server on the same backend host (authorize /oauth/authorize, token /oauth/token, DCR /oauth/register, metadata /.well-known/oauth-authorization-server), so both endpoints are discovered from the tenant and left null here. DCR is on by default but greenlisted to Glean-vetted host applications, so most tenants will need an admin to create a static OAuth client with Tracecat's /integrations/callback redirect URI; the client ID/secret are therefore optional credentials.",
+          "sources": [
+            "https://docs.glean.com/administration/platform/mcp/about",
+            "https://docs.glean.com/administration/platform/mcp/create-mcp-servers",
+            "https://docs.glean.com/administration/platform/mcp/enable-mcp-servers",
+            "https://docs.glean.com/administration/oauth/authorization-server",
+            "https://docs.glean.com/administration/oauth/static-client-registration"
+          ]
+        }
+      }
     }
   ]
 }

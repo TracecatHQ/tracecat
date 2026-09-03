@@ -638,6 +638,31 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
         "client_secret": "oauth_client",
     }
 
+    glean_spec = private_by_slug["glean-mcp"].connection_spec
+    assert glean_spec is not None
+    assert glean_spec.kind == "http_oauth2"
+    assert glean_spec.requires_config is True
+    assert glean_spec.server_uri == (
+        "https://{GLEAN_BACKEND_DOMAIN}/mcp/{MCP_SERVER_NAME}"
+    )
+    # Tenant-hosted OAuth server: endpoints are discovered from the backend host.
+    assert glean_spec.oauth_authorization_endpoint is None
+    assert glean_spec.oauth_token_endpoint is None
+    glean_credentials = {
+        credential.key: credential for credential in glean_spec.credentials
+    }
+    assert {key: cred.target for key, cred in glean_credentials.items()} == {
+        "GLEAN_BACKEND_DOMAIN": "server_uri",
+        "MCP_SERVER_NAME": "server_uri",
+        "client_id": "oauth_client",
+        "client_secret": "oauth_client",
+    }
+    assert glean_credentials["MCP_SERVER_NAME"].default_value == "default"
+    # DCR is greenlisted by Glean, so a static client is optional, not required.
+    assert glean_credentials["client_id"].required is False
+    assert glean_credentials["client_secret"].required is False
+    assert glean_credentials["client_secret"].secret is True
+
     semgrep_spec = private_by_slug["semgrep-mcp"].connection_spec
     assert semgrep_spec is not None
     assert semgrep_spec.kind == "http_oauth2"

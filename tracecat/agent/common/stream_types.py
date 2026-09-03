@@ -82,7 +82,6 @@ def parse_vercel_frame_cursor(event_id: str | None) -> VercelFrameCursor | None:
 class HarnessType(StrEnum):
     """Supported agent harnesses."""
 
-    PYDANTIC_AI = "pydantic-ai"
     CLAUDE_CODE = "claude_code"
 
 
