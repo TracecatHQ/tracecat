@@ -30,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.cases.agent_invocations.types import (
         CaseCommentAgentInvocationErrorKind,
     )
+    from tracecat.concurrency import drain_future_through_cancellation
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
 
@@ -108,22 +109,10 @@ class CaseCommentAgentInvocationWorkflow:
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
         )
-        cleanup_error: BaseException | None = None
-        # Cancellation can be delivered again on later workflow activations.
-        # Do not let a fixed number of interrupted waits abandon this activity.
-        while not task.done():
-            try:
-                await asyncio.shield(task)
-            except BaseException as cleanup_exception:
-                if not is_cancelled_exception(cleanup_exception):
-                    cleanup_error = cleanup_exception
-                    break
-
-        if cleanup_error is None:
-            try:
-                task.result()
-            except BaseException as cleanup_exception:
-                cleanup_error = cleanup_exception
+        try:
+            cleanup_error = await drain_future_through_cancellation(task)
+        except BaseException as cleanup_exception:
+            cleanup_error = cleanup_exception
 
         if cleanup_error is not None:
             logger.error(

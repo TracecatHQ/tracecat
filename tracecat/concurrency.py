@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from concurrent.futures import Future, ProcessPoolExecutor
 from typing import Any, TypeVar, override
@@ -13,18 +12,23 @@ T = TypeVar("T")
 
 async def drain_future_through_cancellation[T](
     future: asyncio.Future[T],
-) -> None:
-    """Wait for a future to finish despite repeated caller cancellation."""
+) -> BaseException | None:
+    """Wait through caller cancellation and return any terminal future error."""
     while not future.done():
         try:
             await asyncio.shield(future)
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as error:
+            if future.cancelled():
+                return error
             continue
-        except Exception:
-            break
-    if not future.cancelled():
-        with contextlib.suppress(Exception):
-            future.result()
+        except Exception as error:
+            return error
+
+    try:
+        future.result()
+    except (asyncio.CancelledError, Exception) as error:
+        return error
+    return None
 
 
 async def rejoin_future_on_cancel[T](future: asyncio.Future[T]) -> T:
