@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import stat
 import tempfile
 import uuid
 from collections import deque
@@ -10,6 +11,9 @@ from pathlib import Path
 
 import httpx
 import pytest
+from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import (
+    ExportMetricsServiceRequest,
+)
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
 )
@@ -598,6 +602,49 @@ async def test_tenant_trace_opt_out_skips_tenant_delivery_but_keeps_platform(
 
 
 @pytest.mark.anyio
+async def test_signal_without_destination_returns_no_collector_and_refunds(
+    short_socket_dir: Path,
+    receiver_identity: _ReceiverIdentity,
+) -> None:
+    """A signal opted out of every route is rejected without consuming budget."""
+    metrics = ExportMetricsServiceRequest()
+    metrics.resource_metrics.add().scope_metrics.add().metrics.add(
+        name="synthetic.metric"
+    )
+    body = metrics.SerializeToString()
+    receiver = OtelSocketReceiver(
+        socket_path=short_socket_dir / "no-collector.sock",
+        plan=OtelRoutingPlan.build(
+            collector_env={
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example.com",
+                "OTEL_METRICS_EXPORTER": "none",
+            },
+            headers={},
+        ),
+        expected_workspace_id=receiver_identity.workspace_id,
+        expected_organization_id=receiver_identity.organization_id,
+        expected_session_id=receiver_identity.session_id,
+    )
+    await receiver.start()
+    try:
+        status, reason, _ = await _send_request(
+            receiver.socket_path,
+            method="POST",
+            path="/v1/metrics",
+            body=body,
+            authorization=f"Bearer {receiver_identity.token}",
+        )
+    finally:
+        await receiver.stop()
+
+    assert status == 503
+    assert reason == "No Collector"
+    assert receiver._rejected["collector"] == 1
+    assert not otel_relay._delivery_tasks
+    assert otel_relay._pending_bytes == 0
+
+
+@pytest.mark.anyio
 async def test_receiver_forwards_post_with_injected_headers(
     started_receiver: OtelSocketReceiver,
     mock_transport: _MockTransport,
@@ -1112,6 +1159,22 @@ async def test_stop_closes_ingress_but_not_admitted_items(
     await _wait_until(lambda: not otel_relay._delivery_tasks)
     assert len(mock_transport.requests) == 1
     assert otel_relay._pending_bytes == 0
+
+
+@pytest.mark.anyio
+async def test_receiver_socket_is_private_replaces_stale_file_and_unlinks_on_stop(
+    started_receiver: OtelSocketReceiver,
+) -> None:
+    """The relay owns a private socket and removes it cleanly on shutdown."""
+    socket_path = started_receiver.socket_path
+    assert stat.S_IMODE(socket_path.stat().st_mode) == 0o600
+
+    await started_receiver.stop()
+    assert not socket_path.exists()
+
+    socket_path.write_text("stale socket placeholder")
+    await started_receiver.start()
+    assert stat.S_ISSOCK(socket_path.stat().st_mode)
 
 
 def test_sweep_refunds_budget_for_tasks_stranded_on_closed_loops() -> None:

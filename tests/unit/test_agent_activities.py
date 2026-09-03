@@ -29,6 +29,7 @@ from opentelemetry.trace import (
     TraceFlags,
     TraceState,
 )
+from pydantic import HttpUrl
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent import activities as agent_activities
 from tracecat_ee.agent.activities import (
@@ -54,6 +55,7 @@ from tracecat.agent.error_policy import (
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
+    AgentOtelInputs,
     SandboxedAgentExecutor,
     _cancel_task_with_timeout,
     _hydrate_sdk_session_history,
@@ -64,8 +66,11 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
-from tracecat.agent.otel_config import ResolvedAgentOtelConfig
-from tracecat.agent.runtime.claude_code.broker import ConcurrentSessionTurnError
+from tracecat.agent.otel_config import AgentOtelConfig, ResolvedAgentOtelConfig
+from tracecat.agent.runtime.claude_code.broker import (
+    ClaudeTurnRequest,
+    ConcurrentSessionTurnError,
+)
 from tracecat.agent.runtime.session_paths import job_uv_state_dir
 from tracecat.agent.sandbox.llm_proxy import LLMProxyError, LLMSocketProxy
 from tracecat.agent.schemas import ToolFilters
@@ -1816,6 +1821,79 @@ class TestSandboxedAgentExecutorHelpers:
         return result
 
     @pytest.mark.anyio
+    async def test_otel_receiver_start_failure_disables_telemetry_and_runs_turn(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """An OTel bind failure clears relay state without failing the turn."""
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._job_dir = tmp_path
+        executor._llm_proxy = cast(
+            LLMSocketProxy,
+            SimpleNamespace(start=AsyncMock()),
+        )
+        executor._otel_receiver = cast(
+            Any,
+            SimpleNamespace(start=AsyncMock(side_effect=OSError("bind failed"))),
+        )
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor.input.session_id,
+                workspace_id=executor.input.workspace_id,
+            )
+        )
+        requests: list[ClaudeTurnRequest] = []
+
+        class FakeBroker:
+            @asynccontextmanager
+            async def session_turn_lease(self, _session_id: str):
+                yield
+
+            async def run_turn_in_session_lease(
+                self,
+                request: ClaudeTurnRequest,
+                turn_handler: LoopbackHandler,
+            ) -> None:
+                requests.append(request)
+                turn_handler._result = LoopbackResult(success=True)
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                raise AssertionError("cancel_turn should not be called")
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
+            lambda: False,
+        )
+        init_payload = executor._build_runtime_init_payload()
+        init_payload.agent_otel_sandbox_env = {"CLAUDE_CODE_ENABLE_TELEMETRY": "1"}
+        result = AgentExecutorResult(
+            success=False,
+            terminal_stream_error_emitted=False,
+        )
+
+        await executor._run_with_broker(
+            result=result,
+            handler=handler,
+            init_payload=init_payload,
+            socket_dir=tmp_path / "sockets",
+            llm_socket_path=tmp_path / "sockets" / "llm.sock",
+            artifact_working_set=None,
+            otel_socket_path=tmp_path / "sockets" / "otel.sock",
+        )
+
+        assert result.success is True
+        assert executor._otel_receiver is None
+        assert init_payload.agent_otel_sandbox_env is None
+        assert len(requests) == 1
+        assert requests[0].otel_socket_path is None
+
+    @pytest.mark.anyio
     async def test_fatal_proxy_classification_reaches_executor_result(
         self,
         executor_input: AgentExecutorInput,
@@ -2682,6 +2760,234 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         assert env["OTEL_LOG_USER_PROMPTS"] == "0"
         assert env["OTEL_LOG_TOOL_DETAILS"] == "0"
         assert env["OTEL_LOG_TOOL_CONTENT"] == "0"
+
+    @pytest.mark.anyio
+    async def test_run_builds_tenant_otel_receiver_from_org_settings(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Org settings become a tenant route and receiver-backed sandbox env."""
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+                agent_otel_auth_token="receiver-jwt",
+            )
+        )
+        job_dir = tmp_path / "job"
+        captured_payloads: list[RuntimeInitPayload] = []
+        captured_socket_paths: list[Path | None] = []
+
+        async def fake_run_with_broker(
+            *_args: object,
+            **kwargs: object,
+        ) -> None:
+            captured_payloads.append(cast(RuntimeInitPayload, kwargs["init_payload"]))
+            captured_socket_paths.append(cast(Path | None, kwargs["otel_socket_path"]))
+            cast(AgentExecutorResult, kwargs["result"]).success = True
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.load_org_agent_otel_inputs",
+            AsyncMock(
+                return_value=AgentOtelInputs(
+                    config=AgentOtelConfig(
+                        enabled=True,
+                        endpoint=HttpUrl("https://collector.example.com"),
+                        metrics_enabled=False,
+                        logs_enabled=False,
+                        traces_enabled=True,
+                    ),
+                    headers={"Authorization": "Bearer synthetic-tenant-token"},
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.platform_otel_collector_env",
+            lambda: {},
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_job_directory",
+            AsyncMock(return_value=job_dir),
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            AsyncMock(return_value=AsyncMock()),
+        )
+        monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(executor, "_run_with_broker", fake_run_with_broker)
+        monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+
+        result = await executor.run()
+
+        assert result.success is True
+        assert executor._otel_receiver is not None
+        assert executor._otel_receiver._plan.tenant is not None
+        assert executor._otel_receiver._plan.platform_endpoint is None
+        assert captured_socket_paths == [job_dir / "sockets" / "otel.sock"]
+        assert len(captured_payloads) == 1
+        sandbox_env = captured_payloads[0].agent_otel_sandbox_env
+        assert sandbox_env is not None
+        assert sandbox_env["OTEL_EXPORTER_OTLP_HEADERS"] == (
+            "Authorization=Bearer receiver-jwt"
+        )
+        assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in sandbox_env
+
+    @pytest.mark.parametrize(
+        ("guard", "warning_message"),
+        [
+            pytest.param(
+                "missing-token",
+                "Agent OTel enabled but auth token is missing; running without telemetry",
+                id="missing-token",
+            ),
+            pytest.param(
+                "missing-organization",
+                "Agent OTel enabled but organization context is missing; running without telemetry",
+                id="missing-organization",
+            ),
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_run_skips_otel_receiver_when_required_context_is_missing(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        guard: str,
+        warning_message: str,
+    ) -> None:
+        """Missing receiver auth or organization context disables telemetry."""
+        role = mock_role
+        token: str | None = "receiver-jwt"
+        if guard == "missing-token":
+            token = None
+        else:
+            role = role.model_copy(update={"organization_id": None})
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+                agent_otel_auth_token=token,
+            )
+        )
+        captured_payloads: list[RuntimeInitPayload] = []
+        captured_socket_paths: list[Path | None] = []
+        warning = MagicMock()
+
+        async def fake_run_with_broker(
+            *_args: object,
+            **kwargs: object,
+        ) -> None:
+            captured_payloads.append(cast(RuntimeInitPayload, kwargs["init_payload"]))
+            captured_socket_paths.append(cast(Path | None, kwargs["otel_socket_path"]))
+            cast(AgentExecutorResult, kwargs["result"]).success = True
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.load_org_agent_otel_inputs",
+            AsyncMock(
+                return_value=AgentOtelInputs(
+                    config=AgentOtelConfig(
+                        enabled=True,
+                        endpoint=HttpUrl("https://collector.example.com"),
+                        metrics_enabled=False,
+                        logs_enabled=False,
+                        traces_enabled=True,
+                    ),
+                    headers={"Authorization": "Bearer synthetic-tenant-token"},
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.platform_otel_collector_env",
+            lambda: {},
+        )
+        monkeypatch.setattr("tracecat.agent.executor.activity.logger.warning", warning)
+        monkeypatch.setattr(
+            executor,
+            "_create_job_directory",
+            AsyncMock(return_value=tmp_path / "job"),
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            AsyncMock(return_value=AsyncMock()),
+        )
+        monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(executor, "_run_with_broker", fake_run_with_broker)
+        monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+
+        result = await executor.run()
+
+        assert result.success is True
+        assert executor._otel_receiver is None
+        assert captured_socket_paths == [None]
+        assert len(captured_payloads) == 1
+        assert captured_payloads[0].agent_otel_sandbox_env is None
+        warning.assert_called_once_with(
+            warning_message,
+            session_id=executor.input.session_id,
+        )
+
+    @pytest.mark.anyio
+    async def test_resolve_agent_otel_config_fails_open(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Organization OTel lookup failures return a disabled configuration."""
+        warning = MagicMock()
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.load_org_agent_otel_inputs",
+            AsyncMock(side_effect=OSError("settings unavailable")),
+        )
+        monkeypatch.setattr("tracecat.agent.executor.activity.logger.warning", warning)
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+            )
+        )
+
+        resolved = await executor._resolve_agent_otel_config()
+
+        assert resolved == ResolvedAgentOtelConfig(enabled=False)
+        warning.assert_called_once_with(
+            "Failed to resolve Agent OTel config; running without telemetry",
+            error_type="OSError",
+        )
 
     def test_platform_trace_parent_carries_agent_correlation(
         self,
