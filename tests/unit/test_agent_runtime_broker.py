@@ -1,0 +1,602 @@
+from __future__ import annotations
+
+import asyncio
+import socket
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
+from unittest.mock import AsyncMock
+from uuid import uuid4
+
+import orjson
+import pytest
+from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk.types import (
+    AgentDefinition,
+    McpHttpServerConfig,
+    McpServerConfig,
+    McpStdioServerConfig,
+)
+
+from tracecat.agent.common.config import (
+    TRACECAT__AGENT_SANDBOX_TIMEOUT,
+    build_agent_runtime_uv_env,
+)
+from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.types import SandboxAgentConfig
+from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+from tracecat.agent.executor.loopback import LoopbackResult
+from tracecat.agent.runtime import session_paths as session_paths_module
+from tracecat.agent.runtime.claude_code import broker as broker_module
+from tracecat.agent.runtime.claude_code import transport as transport_module
+from tracecat.agent.runtime.claude_code.broker import (
+    ClaudeRuntimeBroker,
+    ClaudeTurnRequest,
+    ConcurrentSessionTurnError,
+)
+from tracecat.agent.runtime.claude_code.transport import (
+    SandboxedCLITransport,
+    open_mcp_bridge_binding,
+)
+from tracecat.agent.runtime.session_paths import AgentSandboxPathMapping
+from tracecat.agent.sandbox.config import AgentResourceLimits
+
+
+def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
+    agent_config = SandboxAgentConfig(
+        model_name="claude-3-5-sonnet-20241022",
+        model_provider="anthropic",
+    )
+    job_dir = tmp_path / "job"
+    socket_dir = job_dir / "sockets"
+    socket_dir.mkdir(parents=True)
+    return ClaudeTurnRequest(
+        init_payload=RuntimeInitPayload(
+            session_id=uuid4(),
+            mcp_auth_token="mcp-token",
+            config=agent_config,
+            user_prompt="hello",
+            llm_gateway_auth_token="llm-token",
+        ),
+        job_dir=job_dir,
+        socket_dir=socket_dir,
+        llm_socket_path=socket_dir / "llm.sock",
+        enable_internet_access=False,
+    )
+
+
+def _make_transport(
+    tmp_path: Path,
+    *,
+    use_jailed_paths: bool,
+) -> SandboxedCLITransport:
+    runtime_home_dir = Path("/home/agent") if use_jailed_paths else tmp_path / "home"
+    runtime_work_dir = Path("/work") if use_jailed_paths else tmp_path / "work"
+    path_mapping = AgentSandboxPathMapping(
+        host_home_dir=tmp_path / "home",
+        host_work_dir=tmp_path / "work",
+        runtime_home_dir=runtime_home_dir,
+        runtime_work_dir=runtime_work_dir,
+    )
+    return SandboxedCLITransport(
+        options=ClaudeAgentOptions(),
+        session_id="session-123",
+        socket_dir=tmp_path / "sockets",
+        llm_socket_path=tmp_path / "llm.sock",
+        job_dir=tmp_path,
+        path_mapping=path_mapping,
+        enable_internet_access=False,
+        use_jailed_paths=use_jailed_paths,
+    )
+
+
+def _trusted_mcp_config(port: int, token: str = "token") -> McpHttpServerConfig:
+    return {
+        "type": "http",
+        "url": f"http://127.0.0.1:{port}/mcp",
+        "headers": {"Authorization": f"Bearer {token}"},
+    }
+
+
+def _stdio_mcp_config(command: str) -> McpStdioServerConfig:
+    return {"type": "stdio", "command": command}
+
+
+class _FakeSandboxProcess:
+    stdin = object()
+    stdout = object()
+    stderr = None
+    returncode = None
+    pid = 12345
+
+
+@pytest.mark.anyio
+async def test_broker_rejects_second_turn_for_same_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    release = asyncio.Event()
+
+    class FakeRuntime:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        async def run(self, _payload: RuntimeInitPayload) -> None:
+            await release.wait()
+
+    monkeypatch.setattr(broker_module, "ClaudeAgentRuntime", FakeRuntime)
+
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+
+    request = _make_request(tmp_path)
+    handler = cast(
+        Any,
+        SimpleNamespace(
+            prepare=AsyncMock(),
+            process_envelope=AsyncMock(),
+        ),
+    )
+
+    first_task = asyncio.create_task(broker.run_turn(request, handler))
+    await asyncio.sleep(0)
+
+    with pytest.raises(ConcurrentSessionTurnError):
+        await broker.run_turn(request, handler)
+
+    release.set()
+    await first_task
+
+
+@pytest.mark.anyio
+async def test_broker_session_lease_blocks_second_turn(tmp_path: Path) -> None:
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+    request = _make_request(tmp_path)
+    handler = cast(
+        Any,
+        SimpleNamespace(
+            prepare=AsyncMock(),
+            process_envelope=AsyncMock(),
+        ),
+    )
+    session_key = str(request.init_payload.session_id)
+
+    async with broker.session_turn_lease(session_key):
+        with pytest.raises(ConcurrentSessionTurnError):
+            await broker.run_turn(request, handler)
+
+
+@pytest.mark.anyio
+async def test_broker_rechecks_closed_state_after_waiting_for_lock(
+    tmp_path: Path,
+) -> None:
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+    request = _make_request(tmp_path)
+    handler = cast(
+        Any,
+        SimpleNamespace(
+            prepare=AsyncMock(),
+            process_envelope=AsyncMock(),
+        ),
+    )
+
+    await broker._lock.acquire()
+    task = asyncio.create_task(broker.run_turn(request, handler))
+    await asyncio.sleep(0)
+    broker._closed = True
+    broker._lock.release()
+
+    with pytest.raises(RuntimeError, match="Claude runtime broker is not running"):
+        await task
+
+
+@pytest.mark.anyio
+async def test_broker_hydrates_work_dir_while_session_is_active(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    events: list[tuple[str, bool]] = []
+
+    class FakeRuntime:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        async def run(self, payload: RuntimeInitPayload) -> None:
+            events.append(("runtime", str(payload.session_id) in broker._active_turns))
+
+    async def hydrate_work_dir(_work_dir: Path) -> None:
+        events.append(("hydrate", session_key in broker._active_turns))
+
+    monkeypatch.setattr(broker_module, "ClaudeAgentRuntime", FakeRuntime)
+    monkeypatch.setattr(
+        session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
+
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+    request = _make_request(tmp_path)
+    request = ClaudeTurnRequest(
+        init_payload=request.init_payload,
+        job_dir=request.job_dir,
+        socket_dir=request.socket_dir,
+        llm_socket_path=request.llm_socket_path,
+        enable_internet_access=request.enable_internet_access,
+        hydrate_work_dir=hydrate_work_dir,
+    )
+    session_key = str(request.init_payload.session_id)
+    handler = cast(
+        Any,
+        SimpleNamespace(
+            prepare=AsyncMock(),
+            process_envelope=AsyncMock(),
+            build_result=lambda: LoopbackResult(success=True),
+        ),
+    )
+
+    await broker.run_turn(request, handler)
+
+    assert events == [
+        ("hydrate", True),
+        ("runtime", True),
+    ]
+
+
+def test_build_path_mapping_uses_runtime_mount_paths_when_nsjail_enabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", False)
+    monkeypatch.setattr(
+        session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
+
+    mapping = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
+
+    assert (
+        mapping.host_home_dir == tmp_path / "tracecat-agent-session-123" / "agent-home"
+    )
+    assert (
+        mapping.host_work_dir
+        == tmp_path / "tracecat-agent-session-123" / "agent-work-dir"
+    )
+    assert mapping.runtime_home_dir == Path("/home/agent")
+    assert mapping.runtime_work_dir == Path("/work")
+
+
+def test_build_path_mapping_uses_host_paths_in_direct_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", True)
+    monkeypatch.setattr(
+        session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
+
+    mapping = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
+
+    assert mapping.runtime_home_dir == mapping.host_home_dir
+    assert mapping.runtime_work_dir == mapping.host_work_dir
+
+
+def test_build_path_mapping_is_stable_per_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", True)
+    monkeypatch.setattr(
+        session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
+
+    first = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
+    second = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
+
+    assert first == second
+
+
+@pytest.mark.parametrize(
+    ("use_jailed_paths", "expected_state_dir"),
+    [
+        pytest.param(True, "/run/tracecat/uv-state", id="nsjail"),
+        pytest.param(False, "job/uv-state", id="direct"),
+    ],
+)
+def test_transport_pins_protected_uv_settings_for_runtime_paths(
+    tmp_path: Path,
+    use_jailed_paths: bool,
+    expected_state_dir: str,
+) -> None:
+    transport = _make_transport(tmp_path / "job", use_jailed_paths=use_jailed_paths)
+
+    options = transport._options_with_protected_runtime_settings(
+        ClaudeAgentOptions(settings='{"env":{"UV_LINK_MODE":"symlink"}}')
+    )
+
+    assert options.settings is not None
+    expected_path = Path(
+        expected_state_dir if use_jailed_paths else tmp_path / expected_state_dir
+    )
+    settings = orjson.loads(options.settings)
+    assert settings == {"env": build_agent_runtime_uv_env(expected_path)}
+    assert settings["env"]["UV_PYTHON_CACHE_DIR"] == str(expected_path / "python-cache")
+
+
+def test_transport_rewrites_bundled_claude_path_for_jail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.runtime.claude_code.transport.claude_agent_sdk.__file__",
+        "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/__init__.py",
+    )
+
+    command = [
+        "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
+        "--print",
+    ]
+
+    rewritten = SandboxedCLITransport._rewrite_command_for_jail(command)
+
+    assert rewritten == [
+        "/site-packages/claude_agent_sdk/_bundled/claude",
+        "--print",
+    ]
+
+
+def test_transport_keeps_bundled_claude_path_for_direct_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.runtime.claude_code.transport.claude_agent_sdk.__file__",
+        "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/__init__.py",
+    )
+
+    command = [
+        "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
+        "--print",
+    ]
+
+    prepared = SandboxedCLITransport._prepare_command_for_runtime(
+        command,
+        use_jailed_paths=False,
+    )
+
+    assert prepared == command
+
+
+def test_transport_rewrites_resolved_bundled_claude_path_for_jail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.runtime.claude_code.transport.claude_agent_sdk.__file__",
+        "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/__init__.py",
+    )
+
+    command = [
+        "/app/.venv/bin/../lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
+        "--print",
+    ]
+
+    rewritten = SandboxedCLITransport._rewrite_command_for_jail(command)
+
+    assert rewritten == [
+        "/site-packages/claude_agent_sdk/_bundled/claude",
+        "--print",
+    ]
+
+
+def test_mcp_bridge_binding_uses_fixed_port_for_jailed_runtime() -> None:
+    with open_mcp_bridge_binding(use_jailed_paths=True) as binding:
+        assert binding.port == transport_module.TRACECAT__AGENT_MCP_BRIDGE_PORT
+        assert binding.inherited_fds == ()
+        assert binding.listener_fd is None
+
+
+def test_mcp_bridge_binding_uses_inherited_listener_for_direct_runtime() -> None:
+    with open_mcp_bridge_binding(use_jailed_paths=False) as binding:
+        assert binding.port > 0
+        assert binding.listener_fd is not None
+        assert binding.inherited_fds == (binding.listener_fd,)
+
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            with pytest.raises(OSError):
+                probe.bind(("127.0.0.1", binding.port))
+        finally:
+            probe.close()
+
+
+def test_transport_rewrites_trusted_mcp_bridge_urls_for_selected_port(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    mcp_servers: dict[str, McpServerConfig] = {
+        "tracecat-registry": _trusted_mcp_config(4101, token="root"),
+        "stdio-server": _stdio_mcp_config("tool"),
+        "other-http-server": _trusted_mcp_config(4999, token="other"),
+    }
+    transport._options = ClaudeAgentOptions(
+        mcp_servers=mcp_servers,
+        agents={
+            "analyst": AgentDefinition(
+                description="Analyze scoped data",
+                prompt="Analyze",
+                mcpServers=[
+                    {
+                        "tracecat-registry-analyst": _trusted_mcp_config(
+                            4101, token="child"
+                        )
+                    },
+                    "stdio-server",
+                ],
+            )
+        },
+    )
+
+    rewritten = transport._options_with_runtime_bridge_port(54321)
+
+    mcp_servers = cast(dict[str, Any], rewritten.mcp_servers)
+    registry_server = cast(dict[str, Any], mcp_servers["tracecat-registry"])
+    assert registry_server["url"] == "http://127.0.0.1:54321/mcp"
+    assert mcp_servers["stdio-server"] == {
+        "type": "stdio",
+        "command": "tool",
+    }
+    other_http_server = cast(dict[str, Any], mcp_servers["other-http-server"])
+    assert other_http_server["url"] == "http://127.0.0.1:4999/mcp"
+    assert rewritten.agents is not None
+    agent = rewritten.agents["analyst"]
+    assert agent.mcpServers is not None
+    agent_mcp_entry = cast(dict[str, Any], agent.mcpServers[0])
+    child_server = cast(
+        dict[str, Any],
+        agent_mcp_entry["tracecat-registry-analyst"],
+    )
+    assert child_server["url"] == "http://127.0.0.1:54321/mcp"
+    assert agent.mcpServers[1] == "stdio-server"
+
+
+def test_transport_mcp_bridge_url_rewrite_keeps_original_options(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    original_options = ClaudeAgentOptions(
+        mcp_servers={"tracecat-registry": _trusted_mcp_config(4101, token="root")}
+    )
+    transport._options = original_options
+
+    rewritten = transport._options_with_runtime_bridge_port(54321)
+
+    original_mcp_servers = cast(dict[str, Any], original_options.mcp_servers)
+    rewritten_mcp_servers = cast(dict[str, Any], rewritten.mcp_servers)
+    assert original_mcp_servers["tracecat-registry"]["url"] == (
+        "http://127.0.0.1:4101/mcp"
+    )
+    assert rewritten_mcp_servers["tracecat-registry"]["url"] == (
+        "http://127.0.0.1:54321/mcp"
+    )
+
+
+@pytest.mark.anyio
+async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(
+        tmp_path,
+        use_jailed_paths=False,
+    )
+    options = ClaudeAgentOptions(
+        mcp_servers={"tracecat-registry": _trusted_mcp_config(4101, token="root")},
+        agents={
+            "analyst": AgentDefinition(
+                description="Analyze scoped data",
+                prompt="Analyze",
+                mcpServers=[
+                    {
+                        "tracecat-registry-analyst": _trusted_mcp_config(
+                            4101, token="child"
+                        )
+                    }
+                ],
+            )
+        },
+    )
+    transport._options = options
+    captured_spawn_kwargs: dict[str, object] = {}
+    captured_command_options: list[ClaudeAgentOptions] = []
+
+    async def fake_build_claude_command() -> list[str]:
+        captured_command_options.append(transport._options)
+        return ["claude", "--print"]
+
+    async def fake_spawn_jailed_runtime(
+        **kwargs: object,
+    ) -> transport_module.SpawnedRuntime:
+        captured_spawn_kwargs.update(kwargs)
+        return transport_module.SpawnedRuntime(
+            process=cast(Any, _FakeSandboxProcess()),
+            job_dir=None,
+        )
+
+    monkeypatch.setattr(transport, "_build_claude_command", fake_build_claude_command)
+    monkeypatch.setattr(transport, "_build_claude_env_overlay", lambda: {})
+    monkeypatch.setattr(
+        transport_module,
+        "spawn_jailed_runtime",
+        fake_spawn_jailed_runtime,
+    )
+
+    await transport.connect()
+
+    init_payload_path = cast(Path, captured_spawn_kwargs["init_payload_path"])
+    init_payload = orjson.loads(init_payload_path.read_bytes())
+    selected_port = init_payload["mcp_bridge_port"]
+    assert selected_port > 0
+    assert init_payload["mcp_bridge_fd"] is not None
+    assert captured_spawn_kwargs["inherited_fds"] == (init_payload["mcp_bridge_fd"],)
+    assert len(captured_command_options) == 1
+    command_settings = captured_command_options[0].settings
+    assert command_settings is not None
+    assert orjson.loads(command_settings) == {
+        "env": build_agent_runtime_uv_env(tmp_path / "uv-state")
+    }
+    # The transport relies on the sandbox default resource limits, which pin
+    # the static kill ceiling rather than the per-run timeout.
+    assert "config" not in captured_spawn_kwargs
+    expected_sandbox_limit = (
+        TRACECAT__AGENT_SANDBOX_TIMEOUT + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+    )
+    default_limits = AgentResourceLimits()
+    assert default_limits.cpu_seconds == expected_sandbox_limit
+    assert default_limits.timeout_seconds == expected_sandbox_limit
+
+    mcp_servers = cast(dict[str, Any], options.mcp_servers)
+    assert mcp_servers["tracecat-registry"]["url"] == (
+        f"http://127.0.0.1:{selected_port}/mcp"
+    )
+    assert options.agents is not None
+    agent = options.agents["analyst"]
+    assert agent.mcpServers is not None
+    agent_entry = cast(dict[str, Any], agent.mcpServers[0])
+    child_server = cast(dict[str, Any], agent_entry["tracecat-registry-analyst"])
+    assert child_server["url"] == f"http://127.0.0.1:{selected_port}/mcp"
+
+
+@pytest.mark.anyio
+async def test_transport_close_removes_runtime_owned_job_directory(
+    tmp_path: Path,
+) -> None:
+    """Transport close removes a job directory owned by the spawned runtime."""
+    job_dir = tmp_path / "runtime-owned-job"
+    uv_file = job_dir / "uv-state" / "cache" / "archive" / "artifact"
+    uv_file.parent.mkdir(parents=True)
+    uv_file.write_text("cached artifact")
+    transport = _make_transport(job_dir, use_jailed_paths=False)
+    transport._spawned_runtime = transport_module.SpawnedRuntime(
+        process=cast(Any, _FakeSandboxProcess()),
+        job_dir=job_dir,
+    )
+
+    await transport.close()
+
+    assert not job_dir.exists()
+    assert transport._spawned_runtime is None
+
+
+@pytest.mark.anyio
+async def test_transport_close_preserves_caller_owned_job_directory(
+    tmp_path: Path,
+) -> None:
+    """Transport close leaves activity-owned state when the spawn owns no job dir."""
+    job_dir = tmp_path / "caller-owned-job"
+    uv_file = job_dir / "uv-state" / "cache" / "archive" / "artifact"
+    uv_file.parent.mkdir(parents=True)
+    uv_file.write_text("cached artifact")
+    transport = _make_transport(job_dir, use_jailed_paths=False)
+    transport._spawned_runtime = transport_module.SpawnedRuntime(
+        process=cast(Any, _FakeSandboxProcess()),
+        job_dir=None,
+    )
+
+    await transport.close()
+
+    assert job_dir.is_dir()
+    assert uv_file.is_file()
+    assert transport._spawned_runtime is None

@@ -4,6 +4,7 @@ const nextConfig = {
   reactStrictMode: true, // Default to true; overridden in development
   output: "standalone", // Ensure standalone output for production
   experimental: {
+    optimizePackageImports: ["lucide-react"],
     serverActions: {
       allowedOrigins: ["login.microsoftonline.com"],
     },
@@ -13,6 +14,10 @@ const nextConfig = {
     return Date.now().toString()
   },
   headers: async () => {
+    // Content-Security-Policy is set at runtime in src/middleware.ts (see
+    // src/lib/csp.ts) so a deployment can extend it without a rebuild. The
+    // middleware matcher skips _next/static, _next/image, favicon.ico and
+    // image files, so those responses carry the headers below but no CSP.
     return [
       {
         // Apply these headers to all routes
@@ -37,30 +42,6 @@ const nextConfig = {
           {
             key: "Permissions-Policy",
             value: "document-domain=()",
-          },
-          {
-            key: "Content-Security-Policy",
-            value: process.env.POSTHOG_KEY
-              ? [
-                  "connect-src 'self' https://*.posthog.com",
-                  "default-src 'self'",
-                  "worker-src 'self' blob:",
-                  "frame-ancestors 'none'",
-                  "img-src 'self' data:",
-                  "object-src 'none'",
-                  "script-src 'self' 'unsafe-inline' https://*.posthog.com",
-                  "style-src 'self' 'unsafe-inline'",
-                ].join("; ")
-              : [
-                  "connect-src 'self'",
-                  "default-src 'self'",
-                  "worker-src 'self' blob:",
-                  "frame-ancestors 'none'",
-                  "img-src 'self' data:",
-                  "object-src 'none'",
-                  "script-src 'self' 'unsafe-inline'",
-                  "style-src 'self' 'unsafe-inline'",
-                ].join("; "),
           },
         ],
       },

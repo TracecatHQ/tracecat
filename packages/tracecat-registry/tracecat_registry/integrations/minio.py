@@ -1,4 +1,4 @@
-"""MinIO integrations: https://docs.min.io/community/minio-object-store/developers/python/API.html"""
+"""MinIO integrations: https://docs.min.io/enterprise/aistor-object-store/developers/"""
 
 import base64
 import io
@@ -47,7 +47,7 @@ def _get_client(
     default_title="Call MinIO method",
     description="Instantiate a MinIO client and call a MinIO method.",
     display_group="MinIO",
-    doc_url="https://docs.min.io/community/minio-object-store/developers/python/API.html",
+    doc_url="https://docs.min.io/enterprise/aistor-object-store/developers/",
     namespace="tools.minio",
     secrets=[minio_secret],
 )
@@ -68,7 +68,7 @@ def call_method(
     default_title="Get MinIO object",
     description="Download an object from MinIO and return its body as a string.",
     display_group="MinIO",
-    doc_url="https://docs.min.io/community/minio-object-store/developers/python/API.html#get_object",
+    doc_url="https://docs.min.io/enterprise/aistor-object-store/developers/#get_object",
     namespace="tools.minio",
     secrets=[minio_secret],
 )
@@ -93,7 +93,7 @@ def get_object(
     default_title="List MinIO objects",
     description="List objects in a MinIO bucket.",
     display_group="MinIO",
-    doc_url="https://docs.min.io/community/minio-object-store/developers/python/API.html#list_objects",
+    doc_url="https://docs.min.io/enterprise/aistor-object-store/developers/#list_objects",
     namespace="tools.minio",
     secrets=[minio_secret],
 )
@@ -116,7 +116,7 @@ def list_objects(
     default_title="Copy MinIO objects",
     description="Copy MinIO objects from one bucket to another.",
     display_group="MinIO",
-    doc_url="https://docs.min.io/community/minio-object-store/developers/python/API.html#copy_object",
+    doc_url="https://docs.min.io/enterprise/aistor-object-store/developers/#copy_object",
     namespace="tools.minio",
     secrets=[minio_secret],
 )
@@ -149,7 +149,7 @@ def copy_objects(
     default_title="Get MinIO objects",
     description="Download multiple MinIO objects and return their bodies as strings.",
     display_group="MinIO",
-    doc_url="https://docs.min.io/community/minio-object-store/developers/python/API.html#get_object",
+    doc_url="https://docs.min.io/enterprise/aistor-object-store/developers/#get_object",
     namespace="tools.minio",
     secrets=[minio_secret],
 )
@@ -179,7 +179,7 @@ def get_objects(
     default_title="Put MinIO object",
     description="Put an object to MinIO.",
     display_group="MinIO",
-    doc_url="https://docs.min.io/community/minio-object-store/developers/python/API.html#put_object",
+    doc_url="https://docs.min.io/enterprise/aistor-object-store/developers/#put_object",
     namespace="tools.minio",
     secrets=[minio_secret],
 )
@@ -217,7 +217,7 @@ def put_object(
     default_title="Delete MinIO object",
     description="Delete an object from MinIO.",
     display_group="MinIO",
-    doc_url="https://docs.min.io/community/minio-object-store/developers/python/API.html#remove_object",
+    doc_url="https://docs.min.io/enterprise/aistor-object-store/developers/#remove_object",
     namespace="tools.minio",
     secrets=[minio_secret],
 )
@@ -239,7 +239,7 @@ def delete_object(
     default_title="List MinIO buckets",
     description="List MinIO buckets",
     display_group="MinIO",
-    doc_url="https://docs.min.io/community/minio-object-store/developers/python/API.html#list_buckets",
+    doc_url="https://docs.min.io/enterprise/aistor-object-store/developers/#list_buckets",
     namespace="tools.minio",
     secrets=[minio_secret],
 )

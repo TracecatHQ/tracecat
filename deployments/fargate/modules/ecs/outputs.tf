@@ -3,6 +3,16 @@ output "tracecat_image_tag" {
   value       = local.tracecat_image_tag
 }
 
+output "tracecat_migrations_image" {
+  description = "The Tracecat migrations init container image repository"
+  value       = local.tracecat_migrations_image
+}
+
+output "tracecat_migrations_image_tag" {
+  description = "The Tracecat migrations init container image tag"
+  value       = local.tracecat_migrations_image_tag
+}
+
 output "ecs_cluster_name" {
   description = "ECS cluster name"
   value       = aws_ecs_cluster.tracecat_cluster.name
@@ -11,6 +21,11 @@ output "ecs_cluster_name" {
 output "ecs_cluster_arn" {
   description = "ECS cluster ARN"
   value       = aws_ecs_cluster.tracecat_cluster.arn
+}
+
+output "executor_assume_role_arn" {
+  description = "Dedicated ECS task role ARN used by executors for customer AssumeRole"
+  value       = aws_iam_role.executor_task.arn
 }
 
 output "public_app_url" {
@@ -92,6 +107,16 @@ output "s3_registry_bucket_arn" {
   description = "The ARN of the S3 bucket used for registry storage"
 }
 
+output "s3_skills_bucket_name" {
+  value       = aws_s3_bucket.skills.bucket
+  description = "The name of the S3 bucket used for skills storage"
+}
+
+output "s3_skills_bucket_arn" {
+  value       = aws_s3_bucket.skills.arn
+  description = "The ARN of the S3 bucket used for skills storage"
+}
+
 output "s3_workflow_bucket_name" {
   value       = aws_s3_bucket.workflow.bucket
   description = "The name of the S3 bucket used for workflow artifact storage"
@@ -100,6 +125,16 @@ output "s3_workflow_bucket_name" {
 output "s3_workflow_bucket_arn" {
   value       = aws_s3_bucket.workflow.arn
   description = "The ARN of the S3 bucket used for workflow artifact storage"
+}
+
+output "s3_agent_bucket_name" {
+  value       = aws_s3_bucket.agent.bucket
+  description = "The name of the S3 bucket used for agent filesystem storage"
+}
+
+output "s3_agent_bucket_arn" {
+  value       = aws_s3_bucket.agent.arn
+  description = "The ARN of the S3 bucket used for agent filesystem storage"
 }
 
 # Redis outputs

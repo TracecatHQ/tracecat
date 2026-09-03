@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Set assistant thread suggested prompts
+  description: Set suggested prompts for a Slack AI assistant thread.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/assistant.threads.setSuggestedPrompts/
+  namespace: tools.slack
+  name: set_assistant_thread_suggested_prompts
+  expects:
+    channel_id:
+      type: str
+      description: Channel ID containing the assistant thread.
+    thread_ts:
+      type: str
+      description: Message timestamp of the assistant thread.
+    prompts:
+      type: list[dict[str, str]]
+      description: Suggested prompts, each with title and message attributes.
+    title:
+      type: str | None
+      description: Optional title for the suggested prompts list.
+      default: null
+  steps:
+    - ref: set_assistant_thread_suggested_prompts
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: assistant.threads.setSuggestedPrompts
+        params:
+          channel_id: ${{ inputs.channel_id }}
+          thread_ts: ${{ inputs.thread_ts }}
+          prompts: ${{ inputs.prompts }}
+          title: ${{ inputs.title }}
+  returns: ${{ steps.set_assistant_thread_suggested_prompts.result }}

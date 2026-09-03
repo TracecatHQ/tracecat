@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Get message attachment image
+  description: Retrieve rendered images for a PDF attachment by MD5 hash.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/getmessageattachmentimage-1
+  namespace: tools.sublime
+  name: get_message_attachment_image
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Sublime message ID.
+    hash:
+      type: str
+      description: MD5 hash of the attachment.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/messages/${{ FN.url_encode(inputs.id) }}/attachment/${{ FN.url_encode(inputs.hash) }}/image
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

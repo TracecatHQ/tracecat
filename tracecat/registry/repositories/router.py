@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from typing import cast
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat import config
@@ -15,13 +15,16 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import RegistryRepository
 from tracecat.exceptions import (
+    EntitlementRequired,
     RegistryActionValidationError,
     RegistryError,
+    RegistryNotFound,
     TracecatCredentialsNotFoundError,
     TracecatValidationError,
 )
 from tracecat.git.utils import list_git_commits, parse_git_url
 from tracecat.logger import logger
+from tracecat.parse import safe_url
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.common import ensure_org_repositories
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN, REGISTRY_REPOS_PATH
@@ -45,6 +48,14 @@ from tracecat.ssh import ssh_context
 from tracecat.tiers.entitlements import Entitlement, check_entitlement
 
 router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
+
+_NO_REGISTRY_SSH_KEY_DETAIL = "No registry SSH key configured"
+
+
+async def _get_configured_custom_registry_origin(role: Role) -> str | None:
+    remote_url = cast(str | None, await get_setting("git_repo_url", role=role))
+    return safe_url(remote_url) if remote_url else None
+
 
 # Controls
 
@@ -96,117 +107,14 @@ async def sync_registry_repository(
             detail="Registry repository not found",
         ) from e
 
-    # Check entitlement for custom registry (non-default repositories)
-    if repo.origin != DEFAULT_REGISTRY_ORIGIN:
-        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
-
-    actions_service = RegistryActionsService(session, role)
-    last_synced_at = datetime.now(UTC)
-    target_commit_sha = sync_params.target_commit_sha if sync_params else None
-    force = sync_params.force if sync_params else False
-
-    # For git+ssh repos, we need SSH context for tarball building
-    is_git_ssh = repo.origin.startswith("git+ssh://")
-    git_repo_package_name: str | None = None
-    if is_git_ssh:
-        git_repo_package_name = await get_setting("git_repo_package_name", role=role)
-
-    # If force=True, delete the current version before syncing
-    if force and repo.current_version_id is not None:
-        versions_service = RegistryVersionsService(session, role)
-        current_version = await versions_service.get_version(repo.current_version_id)
-        if current_version:
-            logger.info(
-                "Force sync: deleting current version",
-                repository_id=str(repository_id),
-                version_id=str(current_version.id),
-                version=current_version.version,
-            )
-            await versions_service.delete_version(current_version, commit=False)
-            await session.flush()
-
-    version: str | None = None
-    commit_sha: str | None = None
-    actions_count: int | None = None
-
     try:
-        if is_git_ssh:
-            # Get SSH context for git operations
-            allowed_domains_setting = await get_setting(
-                "git_allowed_domains", role=role
-            )
-            allowed_domains = allowed_domains_setting or {"github.com"}
-            git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
-
-            async with ssh_context(
-                role=role, git_url=git_url, session=session
-            ) as ssh_env:
-                # Sync with SSH env for tarball building
-                (
-                    commit_sha,
-                    version,
-                ) = await actions_service.sync_actions_from_repository(
-                    repo,
-                    target_commit_sha=target_commit_sha,
-                    git_repo_package_name=git_repo_package_name,
-                    ssh_env=ssh_env,
-                )
-        else:
-            # Sync without SSH (built-in registry)
-            (
-                commit_sha,
-                version,
-            ) = await actions_service.sync_actions_from_repository(
-                repo,
-                target_commit_sha=target_commit_sha,
-                git_repo_package_name=git_repo_package_name,
-            )
-        logger.info(
-            "Synced repository",
-            origin=repo.origin,
-            commit_sha=commit_sha,
-            version=version,
-            target_commit_sha=target_commit_sha,
-            last_synced_at=last_synced_at,
-            force=force,
-        )
-
-        session.expire(repo)
-        # Update the registry repository table
-        await repos_service.update_repository(
-            repo,
-            RegistryRepositoryUpdate(
-                last_synced_at=last_synced_at, commit_sha=commit_sha
-            ),
-        )
-        logger.info("Updated repository", origin=repo.origin)
-
-        # Get action count from registry index (v2 sync populates index, not RegistryAction)
-        index_actions = await actions_service.list_actions_from_index_by_repository(
-            repo.id
-        )
-        actions_count = len(index_actions)
-
-        return RegistrySyncResponse(
-            success=True,
-            repository_id=repo.id,
-            origin=repo.origin,
-            version=version,
-            commit_sha=commit_sha,
-            actions_count=actions_count,
-            forced=force,
-        )
-
-    except RegistryError as e:
-        logger.warning("Cannot sync repository", exc=e)
+        return await repos_service.sync_repository(repo, sync_params)
+    except RegistryNotFound as e:
+        # Service-level defense-in-depth (cross-org repository) collapses
+        # into the same 404 response as a missing repository.
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
-    except TracecatCredentialsNotFoundError as e:
-        logger.warning("Credentials not found", exc=e)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registry repository not found",
         ) from e
     except RegistryActionValidationError as e:
         logger.warning("Validation errors while syncing repository", exc=e)
@@ -219,11 +127,24 @@ async def sync_registry_repository(
                 errors=e.detail,
             ).model_dump(),
         ) from e
+    except RegistryError as e:
+        logger.warning("Cannot sync repository", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except TracecatCredentialsNotFoundError as e:
+        logger.warning("Credentials not found", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except (EntitlementRequired, HTTPException):
+        raise
     except Exception as e:
         logger.error("Unexpected error while syncing repository", exc=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error while syncing repository {repo.origin!r}: {e}",
+            detail="Unexpected error while syncing repository",
         ) from e
 
 
@@ -278,6 +199,7 @@ async def list_registry_repositories(
     """
     # Ensure org-scoped repos exist before listing
     await ensure_org_repositories(session, role)
+    configured_origin = await _get_configured_custom_registry_origin(role)
 
     stmt = select(
         RegistryRepository.id,
@@ -286,6 +208,14 @@ async def list_registry_repositories(
         RegistryRepository.commit_sha,
         RegistryRepository.current_version_id,
     ).where(RegistryRepository.organization_id == role.organization_id)
+
+    if configured_origin:
+        stmt = stmt.order_by(
+            case((RegistryRepository.origin == configured_origin, 0), else_=1),
+            RegistryRepository.surrogate_id.asc(),
+        )
+    else:
+        stmt = stmt.order_by(RegistryRepository.surrogate_id.asc())
 
     result = await session.execute(stmt)
     rows = result.tuples().all()
@@ -398,7 +328,7 @@ async def list_repository_commits(
             if ssh_env is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="No SSH key found for git operations",
+                    detail=_NO_REGISTRY_SSH_KEY_DETAIL,
                 )
 
             # List commits from the repository
@@ -419,6 +349,8 @@ async def list_repository_commits(
 
             return commits
 
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.error("Invalid git URL", origin=repo.origin, error=str(e))
         raise HTTPException(
@@ -430,6 +362,12 @@ async def list_repository_commits(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to list commits: {str(e)}",
+        ) from e
+    except TracecatCredentialsNotFoundError as e:
+        logger.warning(_NO_REGISTRY_SSH_KEY_DETAIL, origin=repo.origin)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_NO_REGISTRY_SSH_KEY_DETAIL,
         ) from e
     except Exception as e:
         logger.error("Unexpected error listing commits", exc=e)
@@ -454,9 +392,17 @@ async def create_registry_repository(
     params: RegistryRepositoryCreate,
 ) -> RegistryRepositoryRead:
     """Create a new registry repository."""
+    if params.origin == DEFAULT_REGISTRY_ORIGIN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"The {DEFAULT_REGISTRY_ORIGIN!r} repository is platform-scoped. "
+                "Use the admin registry API instead."
+            ),
+        )
+
     # Check entitlement for custom registry (non-system repositories)
-    if params.origin != DEFAULT_REGISTRY_ORIGIN:
-        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
+    await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
 
     service = RegistryReposService(session, role=role)
     try:
@@ -512,10 +458,18 @@ async def update_registry_repository(
 
     # Check entitlement for custom registry repositories.
     # Also gate attempts to mutate a default repo into a custom origin.
-    if repository.origin != DEFAULT_REGISTRY_ORIGIN or (
-        params.origin is not None and params.origin != DEFAULT_REGISTRY_ORIGIN
+    if repository.origin == DEFAULT_REGISTRY_ORIGIN or (
+        params.origin is not None and params.origin == DEFAULT_REGISTRY_ORIGIN
     ):
-        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"The {DEFAULT_REGISTRY_ORIGIN!r} repository is platform-scoped. "
+                "Use the admin registry API instead."
+            ),
+        )
+
+    await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
 
     updated_repository = await repos_service.update_repository(repository, params)
     actions = await actions_service.list_actions_from_index_by_repository(repository_id)

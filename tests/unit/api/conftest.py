@@ -1,71 +1,104 @@
 """Minimal fixtures for HTTP-level API route testing."""
 
+import uuid
 from collections.abc import Generator
 from typing import get_args
 from unittest.mock import AsyncMock
 
 import pytest
+from _pytest.fixtures import FixtureRequest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tracecat.agent.router import (
-    OrganizationAdminUserRole,
-    OrganizationUserRole,
-)
-from tracecat.api.app import app
+from tracecat.api.app import app as api_app
 from tracecat.auth.credentials import AuthenticatedUserOnly, SuperuserRole
 from tracecat.auth.dependencies import (
     ExecutorWorkspaceRole,
+    OrgActorRole,
+    OrganizationServiceAccountRole,
+    OrgUserOnlyRole,
     OrgUserRole,
+    WorkspaceActorRole,
+    WorkspaceActorRouteRole,
+    WorkspaceServiceAccountRole,
     WorkspaceUserRole,
+    WorkspaceUserRouteRole,
 )
 from tracecat.auth.types import Role
-from tracecat.cases.router import WorkspaceUser
+from tracecat.authz.scopes import (
+    ADMIN_SCOPES,
+    ORG_ADMIN_SCOPES,
+    SERVICE_PRINCIPAL_SCOPES,
+)
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session
-from tracecat.secrets.router import (
-    WorkspaceUser as SecretsWorkspaceUser,
-)
-from tracecat.tables.router import (
-    WorkspaceEditorUser as TablesWorkspaceEditorUser,
-)
-from tracecat.tables.router import (
-    WorkspaceUser as TablesWorkspaceUser,
-)
+from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
+from tracecat.db.models import Workspace
+from tracecat.executor.action_gateway.app import create_app as create_action_gateway_app
+from tracecat.service_accounts.router import WorkspaceUserOnlyInPath
 from tracecat.workspaces.router import (
     WorkspaceUserInPath,
 )
 
+_FALLBACK_ROLE: Role | None = None
+_ACTION_GATEWAY_APP = create_action_gateway_app()
+
 
 def override_role_dependency() -> Role:
     """Override role dependencies to use ctx_role from test fixtures."""
-    role = ctx_role.get()
+    role = ctx_role.get() or _FALLBACK_ROLE
     if role is None:
         raise RuntimeError("No role set in ctx_role context")
+    ctx_role.set(role)
     return role
 
 
-@pytest.fixture
-def client() -> Generator[TestClient, None, None]:
-    """Create FastAPI test client.
+async def _inject_test_role_middleware(request, call_next):
+    role = ctx_role.get() or _FALLBACK_ROLE
+    if role is None:
+        return await call_next(request)
+
+    token = ctx_role.set(role)
+    try:
+        return await call_next(request)
+    finally:
+        ctx_role.reset(token)
+
+
+def _test_client(
+    app: FastAPI,
+    request: FixtureRequest,
+) -> Generator[TestClient, None, None]:
+    """Create a role-aware FastAPI test client for the requested app.
 
     Uses the existing app instance and relies on ctx_role context
     from test_role/test_admin_role fixtures for authentication.
     """
 
+    for role_fixture in ("test_admin_role", "test_role"):
+        if role_fixture in request.fixturenames:
+            request.getfixturevalue(role_fixture)
+            break
+
+    if not getattr(app.state, "_api_test_role_middleware_installed", False):
+        app.middleware("http")(_inject_test_role_middleware)
+        app.state._api_test_role_middleware_installed = True
+
     # List of Annotated role dependencies to override
     role_dependencies = [
         WorkspaceUserRole,
+        WorkspaceUserRouteRole,
+        WorkspaceActorRole,
+        WorkspaceActorRouteRole,
+        WorkspaceServiceAccountRole,
         ExecutorWorkspaceRole,
-        WorkspaceUser,
         SuperuserRole,
         AuthenticatedUserOnly,
-        OrganizationUserRole,
-        OrganizationAdminUserRole,
-        SecretsWorkspaceUser,
+        OrgActorRole,
+        OrganizationServiceAccountRole,
+        OrgUserOnlyRole,
         OrgUserRole,
-        TablesWorkspaceUser,
-        TablesWorkspaceEditorUser,
         WorkspaceUserInPath,
+        WorkspaceUserOnlyInPath,
     ]
 
     for annotated_type in role_dependencies:
@@ -83,8 +116,69 @@ def client() -> Generator[TestClient, None, None]:
         return mock_session
 
     app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_async_session_bypass_rls] = override_get_async_session
 
     client = TestClient(app, raise_server_exceptions=False)
     yield client
     # Clean up overrides
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client(request: FixtureRequest) -> Generator[TestClient, None, None]:
+    """Create a test client for the public API app."""
+    yield from _test_client(api_app, request)
+
+
+@pytest.fixture
+def action_gateway_client(
+    request: FixtureRequest,
+) -> Generator[TestClient, None, None]:
+    """Create a test client for executor-only Action Gateway routes."""
+    yield from _test_client(_ACTION_GATEWAY_APP, request)
+
+
+@pytest.fixture
+def test_admin_role(
+    test_workspace: Workspace, mock_org_id: uuid.UUID
+) -> Generator[Role, None, None]:
+    global _FALLBACK_ROLE
+    role = Role(
+        type="user",
+        user_id=uuid.uuid4(),
+        organization_id=mock_org_id,
+        workspace_id=test_workspace.id,
+        service_id="tracecat-api",
+        scopes=ADMIN_SCOPES | ORG_ADMIN_SCOPES,
+    )
+    token = ctx_role.set(role)
+    previous_role = _FALLBACK_ROLE
+    _FALLBACK_ROLE = role
+    try:
+        yield role
+    finally:
+        _FALLBACK_ROLE = previous_role
+        ctx_role.reset(token)
+
+
+@pytest.fixture
+def test_role(
+    test_workspace: Workspace, mock_org_id: uuid.UUID
+) -> Generator[Role, None, None]:
+    global _FALLBACK_ROLE
+    role = Role(
+        type="service",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        workspace_id=test_workspace.id,
+        service_id="tracecat-runner",
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-runner"],
+    )
+    token = ctx_role.set(role)
+    previous_role = _FALLBACK_ROLE
+    _FALLBACK_ROLE = role
+    try:
+        yield role
+    finally:
+        _FALLBACK_ROLE = previous_role
+        ctx_role.reset(token)

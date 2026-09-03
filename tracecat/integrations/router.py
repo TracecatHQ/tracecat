@@ -1,30 +1,37 @@
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, NoReturn, cast
+from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Body, HTTPException, Query, status
 from pydantic import SecretStr
-from sqlalchemy import select
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import (
+    WorkspaceActorRouteRole,
+    WorkspaceUserRouteRole,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import OAuthStateDB
+from tracecat.db.models import MCPIntegration, OAuthStateDB
+from tracecat.db.rls import set_rls_context_from_role
+from tracecat.integrations.catalog.service import PlatformMCPCatalogService
 from tracecat.integrations.dependencies import (
     ACProviderInfoDep,
     CCProviderInfoDep,
     ProviderInfoDep,
 )
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
+from tracecat.integrations.mcp_validation import MCPConnectionVerificationError
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
+    MCPAuthProvider,
     ServiceAccountOAuthProvider,
 )
 from tracecat.integrations.schemas import (
@@ -35,9 +42,22 @@ from tracecat.integrations.schemas import (
     IntegrationReadMinimal,
     IntegrationTestConnectionResponse,
     IntegrationUpdate,
+    MCPCatalogConnectRequest,
+    MCPCatalogConnectResponse,
+    MCPCatalogConnectStatus,
+    MCPHttpIntegrationCreate,
     MCPIntegrationCreate,
     MCPIntegrationRead,
+    MCPIntegrationSource,
+    MCPIntegrationTestConnectionRequest,
+    MCPIntegrationTestConnectionResponse,
     MCPIntegrationUpdate,
+    MCPToolPolicyUpdateRequest,
+    MCPToolSummary,
+    MCPVerificationStatusRead,
+    PlatformMCPCatalogListResponse,
+    PlatformMCPCatalogState,
+    PlatformMCPCatalogStatus,
     ProviderKey,
     ProviderRead,
     ProviderReadMinimal,
@@ -46,11 +66,20 @@ from tracecat.integrations.schemas import (
 from tracecat.integrations.service import (
     InsecureOAuthEndpointError,
     IntegrationService,
+    PlatformMCPCatalogConnectResult,
+    ProviderConfigurationRequiredError,
 )
+from tracecat.integrations.types import MCPServerType
 from tracecat.logger import logger
+from tracecat.pagination import CursorPaginationParams
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 
 integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
 """Routes for managing dynamic integration states."""
+
+oauth_router = APIRouter(prefix="/integrations", tags=["integrations"])
+"""Routes for integration OAuth callbacks that resolve workspace context from state."""
 
 providers_router = APIRouter(prefix="/providers", tags=["providers"])
 """Routes for managing static provider metadata."""
@@ -59,7 +88,142 @@ mcp_router = APIRouter(prefix="/mcp-integrations", tags=["mcp-integrations"])
 """Routes for managing MCP integrations."""
 
 
-@integrations_router.get("/callback")
+def _mcp_integration_read(
+    mcp_integration: MCPIntegration,
+    *,
+    state: PlatformMCPCatalogState,
+) -> MCPIntegrationRead:
+    return MCPIntegrationRead(
+        id=mcp_integration.id,
+        workspace_id=mcp_integration.workspace_id,
+        name=mcp_integration.name,
+        description=mcp_integration.description,
+        slug=mcp_integration.slug,
+        server_uri=mcp_integration.server_uri,
+        auth_type=mcp_integration.auth_type,
+        oauth_integration_id=mcp_integration.oauth_integration_id,
+        state=state,
+        created_at=mcp_integration.created_at,
+        updated_at=mcp_integration.updated_at,
+        server_type=cast(MCPServerType, mcp_integration.server_type),
+        stdio_command=mcp_integration.stdio_command,
+        stdio_args=mcp_integration.stdio_args,
+        has_stdio_env=bool(mcp_integration.encrypted_stdio_env),
+        timeout=mcp_integration.timeout,
+        tools=MCPToolSummary.validate_stored(
+            mcp_integration.tools, mcp_integration_id=mcp_integration.id
+        ),
+    )
+
+
+async def _gate_mcp_connect_verification(
+    svc: IntegrationService,
+    mcp_integration: MCPIntegration,
+    *,
+    delete_on_failure: bool = True,
+) -> None:
+    """Verify MCP connectivity as part of connect/save.
+
+    HTTP verification remains a hard gate. Stdio verification is started in the
+    background because the sandboxed probe can take too long for the connect
+    request; the row stays ``configured`` until the verifier persists tools.
+    """
+    if await svc.mcp_oauth_authorization_pending(mcp_integration=mcp_integration):
+        # No access token exists until the user completes the OAuth redirect;
+        # the OAuth callback runs its own verification after token exchange.
+        return
+    if mcp_integration.server_type == "stdio":
+        await svc.start_mcp_stdio_verification(mcp_integration=mcp_integration)
+        return
+
+    result = await svc.verify_mcp_integration(mcp_integration=mcp_integration)
+    if not result.success:
+        if delete_on_failure:
+            await svc._delete_mcp_integration_row(mcp_integration)
+        detail = f"{result.message}: {result.error}" if result.error else result.message
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=detail,
+        )
+
+
+def _mcp_connect_status(
+    *,
+    mcp_read: MCPIntegrationRead | None,
+    oauth_connect: IntegrationOAuthConnect | None,
+) -> MCPCatalogConnectStatus:
+    if oauth_connect:
+        return "oauth_redirect"
+    if mcp_read is not None and mcp_read.state == "connected":
+        return "connected"
+    return "configured"
+
+
+async def _mcp_catalog_connect_response(
+    svc: IntegrationService,
+    connect_result: PlatformMCPCatalogConnectResult,
+) -> MCPCatalogConnectResponse:
+    """Shape a catalog/discovery connect result into the API response.
+
+    A populated ``oauth_connect`` means the caller must follow an OAuth redirect;
+    otherwise the integration is connected outright.
+    """
+    oauth_connect = connect_result.oauth_connect
+    mcp_integration = connect_result.mcp_integration
+    mcp_read = None
+    if mcp_integration:
+        if not oauth_connect:
+            await _gate_mcp_connect_verification(
+                svc,
+                mcp_integration,
+                delete_on_failure=connect_result.created,
+            )
+        mcp_read = _mcp_integration_read(
+            mcp_integration,
+            state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
+        )
+    return MCPCatalogConnectResponse(
+        status=_mcp_connect_status(mcp_read=mcp_read, oauth_connect=oauth_connect),
+        mcp_integration=mcp_read,
+        auth_url=oauth_connect.auth_url if oauth_connect else None,
+        provider_id=oauth_connect.provider_id if oauth_connect else None,
+    )
+
+
+def _raise_mcp_connect_http_error(exc: Exception) -> NoReturn:
+    """Translate MCP connect/discovery exceptions into HTTP errors.
+
+    Bad input or insecure/unconfigured providers map to 400; an unreachable
+    upstream OAuth server maps to 502.
+    """
+    if isinstance(
+        exc,
+        ProviderConfigurationRequiredError | InsecureOAuthEndpointError | ValueError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    if isinstance(exc, httpx.HTTPError):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach MCP OAuth server",
+        ) from exc
+    raise exc
+
+
+def _oauth_callback_redirect_url(
+    *,
+    provider_impl: type[AuthorizationCodeOAuthProvider],
+    workspace_id: uuid.UUID,
+) -> str:
+    target_page = (
+        "mcp-servers" if issubclass(provider_impl, MCPAuthProvider) else "integrations"
+    )
+    return f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{workspace_id}/{target_page}"
+
+
+@oauth_router.get("/callback")
 async def oauth_callback(
     *,
     session: AsyncDBSession,
@@ -80,6 +244,7 @@ async def oauth_callback(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User ID is required",
         )
+    user_id = role.user_id
 
     # Look up state in database with FOR UPDATE lock
     # Use FOR UPDATE lock to prevent concurrent access to the same OAuth state
@@ -103,7 +268,7 @@ async def oauth_callback(
         )
 
     # Validate user matches and overwrite role with workspace context from state
-    if oauth_state_db.user_id != role.user_id:
+    if oauth_state_db.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid state parameter",
@@ -113,9 +278,75 @@ async def oauth_callback(
     # This is always authorization code
     role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
     ctx_role.set(role)
+    if config.TRACECAT__RLS_MODE == config.RLSMode.ENFORCE:
+        await set_rls_context_from_role(session, role)
 
     # Create service to resolve provider (including custom providers)
     svc = IntegrationService(session, role=role)
+
+    # Extract code_verifier before deleting state (needed for PKCE flows)
+    code_verifier = oauth_state_db.code_verifier
+
+    # Delete the state now that it's been used
+    await session.delete(oauth_state_db)
+    await session.commit()
+
+    if svc._is_custom_mcp_oauth_provider(oauth_state_db.provider_id):
+        try:
+            oauth_integration = await svc.complete_mcp_oauth_discovery_callback(
+                provider_id=oauth_state_db.provider_id,
+                code=code,
+                state=str(state),
+                code_verifier=code_verifier,
+            )
+        except InsecureOAuthEndpointError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not reach MCP OAuth server",
+            ) from exc
+
+        if role.workspace_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Workspace ID is required",
+            )
+
+        # Verify connectivity now that the token is stored. Failure must not
+        # block the redirect — it clears stored tools so the integration
+        # lands demoted, and the error is surfaced via the redirect URL.
+        verification_error: str | None = None
+        mcp_integration = await svc._mcp_integration_for_oauth_integration(
+            oauth_integration_id=oauth_integration.id
+        )
+        if mcp_integration is not None and mcp_integration.server_type == "http":
+            result = await svc.verify_mcp_integration(mcp_integration=mcp_integration)
+            if not result.success:
+                verification_error = result.error or result.message
+
+        redirect_url = (
+            f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/"
+            f"{role.workspace_id}/mcp-servers"
+        )
+        if verification_error:
+            redirect_url += "?" + urlencode(
+                {"mcp_verify_error": verification_error[:500]}
+            )
+        return IntegrationOAuthCallback(
+            status="connected",
+            provider_id=oauth_state_db.provider_id,
+            redirect_url=redirect_url,
+        )
+
     key = ProviderKey(
         id=oauth_state_db.provider_id, grant_type=OAuthGrantType.AUTHORIZATION_CODE
     )
@@ -130,13 +361,6 @@ async def oauth_callback(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="OAuth 2.0 Authorization code grant is not supported for this provider",
         )
-
-    # Extract code_verifier before deleting state (needed for PKCE flows)
-    code_verifier = oauth_state_db.code_verifier
-
-    # Delete the state now that it's been used
-    await session.delete(oauth_state_db)
-    await session.commit()
 
     # Exchange code for tokens
     integration = await svc.get_integration(provider_key=key)
@@ -236,9 +460,15 @@ async def oauth_callback(
             detail="Provider returned insecure OAuth endpoints",
         ) from exc
     logger.info("Returning OAuth callback", status="connected", provider=key.id)
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
 
-    redirect_url = (
-        f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{role.workspace_id}/integrations"
+    redirect_url = _oauth_callback_redirect_url(
+        provider_impl=provider_impl,
+        workspace_id=role.workspace_id,
     )
     return IntegrationOAuthCallback(
         status="connected",
@@ -251,7 +481,7 @@ async def oauth_callback(
 @integrations_router.get("")
 @require_scope("integration:read")
 async def list_integrations(
-    role: WorkspaceUserRole, session: AsyncDBSession
+    role: WorkspaceUserRouteRole, session: AsyncDBSession
 ) -> list[IntegrationReadMinimal]:
     """List all integrations for the current user."""
     if role.workspace_id is None:
@@ -278,7 +508,7 @@ async def list_integrations(
 @integrations_router.get("/{provider_id}")
 @require_scope("integration:read")
 async def get_integration(
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     provider_info: ProviderInfoDep,
 ) -> IntegrationRead:
@@ -327,6 +557,13 @@ async def get_integration(
                     provider_id=integration.provider_id,
                 )
 
+    # Defaults apply only when scopes were never configured; an explicitly
+    # empty stored set (e.g. narrowed by a DCR echo) is reported as empty.
+    if integration.requested_scopes is None:
+        requested_scopes = provider_info.impl.scopes.default
+    else:
+        requested_scopes = [s for s in integration.requested_scopes.split(" ") if s]
+
     return IntegrationRead(
         id=integration.id,
         user_id=integration.user_id,
@@ -334,9 +571,7 @@ async def get_integration(
         token_type=integration.token_type,
         expires_at=integration.expires_at,
         granted_scopes=integration.scope.split(" ") if integration.scope else None,
-        requested_scopes=integration.requested_scopes.split(" ")
-        if integration.requested_scopes
-        else provider_info.impl.scopes.default,
+        requested_scopes=requested_scopes,
         authorization_endpoint=authorization_endpoint,
         token_endpoint=token_endpoint,
         created_at=integration.created_at,
@@ -353,7 +588,7 @@ async def get_integration(
 @require_scope("integration:update")
 async def connect_provider(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     provider_info: ACProviderInfoDep,
 ) -> IntegrationOAuthConnect:
@@ -370,49 +605,17 @@ async def connect_provider(
         )
     svc = IntegrationService(session, role=role)
     provider_impl = provider_info.impl
-    integration = await svc.get_integration(provider_key=provider_info.key)
-    provider_config = (
-        svc.get_provider_config(
-            integration=integration,
-            provider_impl=provider_impl,
-            default_scopes=provider_impl.scopes.default,
-        )
-        if integration
-        else None
-    )
 
     try:
-        if provider_impl.metadata.requires_config:
-            if integration is None or provider_config is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Provider is not configured for this workspace",
-                )
-            provider = await provider_impl.instantiate(config=provider_config)
-        else:
-            provider = await provider_impl.instantiate(config=provider_config)
-            if (integration is None or provider_config is None) and provider.client_id:
-                await svc.store_provider_config(
-                    provider_key=provider_info.key,
-                    client_id=provider.client_id,
-                    client_secret=SecretStr(provider.client_secret)
-                    if provider.client_secret
-                    else None,
-                    authorization_endpoint=provider.authorization_endpoint,
-                    token_endpoint=provider.token_endpoint,
-                    requested_scopes=provider.requested_scopes,
-                )
-                # Refresh integration context with stored credentials for subsequent operations
-                integration = await svc.get_integration(provider_key=provider_info.key)
-                provider_config = (
-                    svc.get_provider_config(
-                        integration=integration,
-                        provider_impl=provider_impl,
-                        default_scopes=provider_impl.scopes.default,
-                    )
-                    if integration
-                    else None
-                )
+        return await svc.start_authorization_code_connect(
+            provider_key=provider_info.key,
+            provider_impl=provider_impl,
+        )
+    except ProviderConfigurationRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except InsecureOAuthEndpointError as exc:
         logger.warning(
             "Rejected insecure OAuth endpoint while preparing authorization",
@@ -449,44 +652,6 @@ async def connect_provider(
             detail="Provider configuration or credentials are not available",
         ) from exc
 
-    # Clean up expired state entries before creating a new one
-    stmt = select(OAuthStateDB).where(OAuthStateDB.expires_at < datetime.now(UTC))
-    result = await session.execute(stmt)
-    expired_states = result.scalars().all()
-    for expired_state in expired_states:
-        await session.delete(expired_state)
-    await session.commit()
-
-    # Create secure state in database (without code_verifier initially)
-    state_id = uuid.uuid4()
-    expires_at = datetime.now(UTC) + timedelta(minutes=10)
-    oauth_state = OAuthStateDB(
-        state=state_id,
-        workspace_id=role.workspace_id,
-        user_id=role.user_id,
-        provider_id=provider_info.key.id,
-        expires_at=expires_at,
-    )
-    session.add(oauth_state)
-    await session.commit()
-
-    # Generate authorization URL and get code_verifier if PKCE is used
-    state = str(state_id)
-    auth_url, code_verifier = await provider.get_authorization_url(state)
-
-    # Store code_verifier if present (for PKCE flows)
-    if code_verifier:
-        oauth_state.code_verifier = code_verifier
-        await session.commit()
-
-    logger.info(
-        "Generated authorization URL",
-        provider=provider.id,
-        has_code_verifier=code_verifier is not None,
-    )
-
-    return IntegrationOAuthConnect(auth_url=auth_url, provider_id=provider.id)
-
 
 @integrations_router.post(
     "/{provider_id}/disconnect", status_code=status.HTTP_204_NO_CONTENT
@@ -494,7 +659,7 @@ async def connect_provider(
 @require_scope("integration:update")
 async def disconnect_integration(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     provider_info: ProviderInfoDep,
 ) -> None:
@@ -519,7 +684,7 @@ async def disconnect_integration(
 @require_scope("integration:delete")
 async def delete_integration(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     provider_info: ProviderInfoDep,
 ) -> None:
@@ -550,7 +715,7 @@ async def delete_integration(
 @require_scope("integration:update")
 async def test_connection(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     provider_info: CCProviderInfoDep,
 ) -> IntegrationTestConnectionResponse:
@@ -628,7 +793,7 @@ async def test_connection(
 @require_scope("integration:update")
 async def update_integration(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: IntegrationUpdate,
     provider_info: ProviderInfoDep,
@@ -676,7 +841,7 @@ async def update_integration(
 @providers_router.post("", status_code=status.HTTP_201_CREATED)
 @require_scope("integration:create")
 async def create_custom_provider(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: CustomOAuthProviderCreate,
 ) -> ProviderReadMinimal:
@@ -695,6 +860,11 @@ async def create_custom_provider(
             workspace_id=role.workspace_id,
             error=str(exc),
         )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
@@ -722,7 +892,7 @@ async def create_custom_provider(
 @providers_router.get("")
 @require_scope("integration:read")
 async def list_providers(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
 ) -> list[ProviderReadMinimal]:
     svc = IntegrationService(session, role=role)
@@ -769,7 +939,7 @@ async def list_providers(
 @providers_router.get("/{provider_id}")
 @require_scope("integration:read")
 async def get_provider(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     provider_info: ProviderInfoDep,
 ) -> ProviderRead:
@@ -802,11 +972,11 @@ async def get_provider(
 
 
 @mcp_router.post("", status_code=status.HTTP_201_CREATED)
-@require_scope("integration:create")
+@require_scope("integration:create", "integration:read")
 async def create_mcp_integration(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
-    params: MCPIntegrationCreate,
+    params: Annotated[MCPIntegrationCreate, Body(...)],
 ) -> MCPIntegrationRead:
     """Create a new MCP integration."""
     if role.workspace_id is None:
@@ -824,27 +994,29 @@ async def create_mcp_integration(
             detail=str(exc),
         ) from exc
 
-    return MCPIntegrationRead(
-        id=mcp_integration.id,
-        workspace_id=mcp_integration.workspace_id,
-        name=mcp_integration.name,
-        description=mcp_integration.description,
-        slug=mcp_integration.slug,
-        server_uri=mcp_integration.server_uri,
-        auth_type=mcp_integration.auth_type,
-        oauth_integration_id=mcp_integration.oauth_integration_id,
-        created_at=mcp_integration.created_at,
-        updated_at=mcp_integration.updated_at,
+    await _gate_mcp_connect_verification(svc, mcp_integration)
+    return _mcp_integration_read(
+        mcp_integration,
+        state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
     )
 
 
 @mcp_router.get("")
 @require_scope("integration:read")
 async def list_mcp_integrations(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
+    source: Annotated[
+        MCPIntegrationSource | None,
+        Query(
+            description=(
+                "Restrict results to platform-managed or workspace-authored "
+                "MCP integrations. Defaults to all rows."
+            ),
+        ),
+    ] = None,
 ) -> list[MCPIntegrationRead]:
-    """List all MCP integrations for the workspace."""
+    """List MCP integrations for the workspace, optionally filtered by source."""
     if role.workspace_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -852,29 +1024,130 @@ async def list_mcp_integrations(
         )
 
     svc = IntegrationService(session, role=role)
-    integrations = await svc.list_mcp_integrations()
+    integrations = await svc.list_mcp_integrations_with_state(source=source)
 
     return [
-        MCPIntegrationRead(
-            id=integration.id,
-            workspace_id=integration.workspace_id,
-            name=integration.name,
-            description=integration.description,
-            slug=integration.slug,
-            server_uri=integration.server_uri,
-            auth_type=integration.auth_type,
-            oauth_integration_id=integration.oauth_integration_id,
-            created_at=integration.created_at,
-            updated_at=integration.updated_at,
+        _mcp_integration_read(
+            item.integration,
+            state=item.state,
         )
-        for integration in integrations
+        for item in integrations
     ]
+
+
+@mcp_router.get("/catalog")
+@require_scope("integration:read")
+async def list_platform_mcp_catalog(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    q: Annotated[
+        str | None, Query(description="Search name, slug, description")
+    ] = None,
+    category: Annotated[str | None, Query(description="Filter by category")] = None,
+    catalog_status: Annotated[
+        PlatformMCPCatalogStatus | None,
+        Query(alias="status", description="Filter by catalog status"),
+    ] = None,
+    cursor: Annotated[str | None, Query(description="Cursor for pagination")] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> PlatformMCPCatalogListResponse:
+    """List platform MCP catalog rows with workspace connection state."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Organization ID is required",
+        )
+
+    agent_addons_entitled = await is_org_entitled(
+        session, role.organization_id, Entitlement.AGENT_ADDONS
+    )
+    svc = PlatformMCPCatalogService(session)
+    items, next_cursor = await svc.list_catalog(
+        workspace_id=role.workspace_id,
+        agent_addons_entitled=agent_addons_entitled,
+        q=q,
+        category=category,
+        status=catalog_status,
+        cursor_params=CursorPaginationParams(cursor=cursor, limit=limit),
+    )
+    return PlatformMCPCatalogListResponse(items=items, next_cursor=next_cursor)
+
+
+@mcp_router.post("/catalog/{catalog_slug}/connect", status_code=status.HTTP_201_CREATED)
+@require_scope("integration:create", "integration:read")
+async def connect_platform_mcp_catalog(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    catalog_slug: str,
+    params: Annotated[MCPCatalogConnectRequest | None, Body()] = None,
+) -> MCPCatalogConnectResponse:
+    """Create or return a workspace MCP integration from catalog defaults."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    try:
+        connect_result = await svc.connect_platform_mcp_catalog(
+            catalog_slug=catalog_slug,
+            connection_option_id=params.connection_option_id if params else None,
+        )
+    except Exception as exc:
+        _raise_mcp_connect_http_error(exc)
+
+    return await _mcp_catalog_connect_response(svc, connect_result)
+
+
+@mcp_router.post("/connect", status_code=status.HTTP_201_CREATED)
+@require_scope("integration:create", "integration:read")
+async def connect_mcp_integration(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: Annotated[MCPIntegrationCreate, Body(...)],
+) -> MCPCatalogConnectResponse:
+    """Create an MCP integration or start generic MCP OAuth discovery."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    try:
+        if (
+            isinstance(params, MCPHttpIntegrationCreate)
+            and params.auth_type == "OAUTH2"
+            and params.oauth_integration_id is None
+        ):
+            connect_result = await svc.connect_mcp_oauth_discovery(params=params)
+            return await _mcp_catalog_connect_response(svc, connect_result)
+
+        mcp_integration = await svc.create_mcp_integration(params=params)
+    except Exception as exc:
+        _raise_mcp_connect_http_error(exc)
+
+    await _gate_mcp_connect_verification(svc, mcp_integration)
+    mcp_read = _mcp_integration_read(
+        mcp_integration,
+        state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
+    )
+    return MCPCatalogConnectResponse(
+        status=_mcp_connect_status(mcp_read=mcp_read, oauth_connect=None),
+        mcp_integration=mcp_read,
+    )
 
 
 @mcp_router.get("/{mcp_integration_id}")
 @require_scope("integration:read")
 async def get_mcp_integration(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     mcp_integration_id: uuid.UUID,
 ) -> MCPIntegrationRead:
@@ -893,24 +1166,41 @@ async def get_mcp_integration(
             detail="MCP integration not found",
         )
 
-    return MCPIntegrationRead(
-        id=integration.id,
-        workspace_id=integration.workspace_id,
-        name=integration.name,
-        description=integration.description,
-        slug=integration.slug,
-        server_uri=integration.server_uri,
-        auth_type=integration.auth_type,
-        oauth_integration_id=integration.oauth_integration_id,
-        created_at=integration.created_at,
-        updated_at=integration.updated_at,
+    return _mcp_integration_read(
+        integration,
+        state=await svc.mcp_integration_state(mcp_integration=integration),
     )
+
+
+@mcp_router.get("/{mcp_integration_id}/verification-status")
+@require_scope("integration:read")
+async def get_mcp_integration_verification_status(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+) -> MCPVerificationStatusRead:
+    """Get saved MCP integration verification status."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    integration = await svc.get_mcp_integration(mcp_integration_id=mcp_integration_id)
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )
+
+    return await svc.get_stdio_mcp_verification_status(mcp_integration=integration)
 
 
 @mcp_router.put("/{mcp_integration_id}")
 @require_scope("integration:update")
 async def update_mcp_integration(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     mcp_integration_id: uuid.UUID,
     params: MCPIntegrationUpdate,
@@ -924,38 +1214,149 @@ async def update_mcp_integration(
 
     svc = IntegrationService(session, role=role)
     try:
+        # HTTP verification runs against the merged config before persistence.
+        # Stdio config is persisted first, then verified by saved row ID.
         integration = await svc.update_mcp_integration(
-            mcp_integration_id=mcp_integration_id, params=params
+            mcp_integration_id=mcp_integration_id,
+            params=params,
+            verify_connection=True,
         )
         if integration is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="MCP integration not found",
             )
+    except MCPConnectionVerificationError as exc:
+        detail = f"{exc.message}: {exc.error}" if exc.error else exc.message
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=detail,
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
-    return MCPIntegrationRead(
-        id=integration.id,
-        workspace_id=integration.workspace_id,
-        name=integration.name,
-        description=integration.description,
-        slug=integration.slug,
-        server_uri=integration.server_uri,
-        auth_type=integration.auth_type,
-        oauth_integration_id=integration.oauth_integration_id,
-        created_at=integration.created_at,
-        updated_at=integration.updated_at,
+    return _mcp_integration_read(
+        integration,
+        state=await svc.mcp_integration_state(mcp_integration=integration),
     )
+
+
+@mcp_router.patch("/{mcp_integration_id}/tools")
+@require_scope("integration:update")
+async def update_mcp_integration_tool_policies(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+    params: Annotated[MCPToolPolicyUpdateRequest, Body(...)],
+) -> MCPIntegrationRead:
+    """Update MCP integration tool availability and approval policy."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    try:
+        integration = await svc.update_mcp_tool_policies(
+            mcp_integration_id=mcp_integration_id,
+            tools=params.tools,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )
+
+    return _mcp_integration_read(
+        integration,
+        state=await svc.mcp_integration_state(mcp_integration=integration),
+    )
+
+
+@mcp_router.post("/test")
+@require_scope("integration:update")
+async def test_mcp_connection_config(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: Annotated[MCPIntegrationTestConnectionRequest, Body(...)],
+) -> MCPIntegrationTestConnectionResponse:
+    """Test connectivity against an MCP configuration.
+
+    HTTP tests are ephemeral and never touch stored verification state. Stdio
+    tests require a saved integration ID and use saved-row verification.
+    """
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    return await svc.test_mcp_connection(params=params)
+
+
+@mcp_router.post("/{mcp_integration_id}/test")
+@require_scope("integration:update")
+async def test_mcp_integration_connection(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+) -> MCPIntegrationTestConnectionResponse:
+    """Test connectivity to an MCP server and refresh its tool listing."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    integration = await svc.get_mcp_integration(mcp_integration_id=mcp_integration_id)
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )
+    return await svc.verify_mcp_integration(mcp_integration=integration)
+
+
+@mcp_router.post(
+    "/{mcp_integration_id}/disconnect", status_code=status.HTTP_204_NO_CONTENT
+)
+@require_scope("integration:delete")
+async def disconnect_mcp_integration(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+) -> None:
+    """Disconnect an MCP integration by deleting the workspace MCP row."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    deleted = await svc.delete_mcp_integration(mcp_integration_id=mcp_integration_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )
 
 
 @mcp_router.delete("/{mcp_integration_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("integration:delete")
 async def delete_mcp_integration(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     mcp_integration_id: uuid.UUID,
 ) -> None:

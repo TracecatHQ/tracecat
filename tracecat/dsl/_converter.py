@@ -7,11 +7,14 @@ from temporalio.api.common.v1 import Payload
 from temporalio.converter import (
     CompositePayloadConverter,
     DataConverter,
+    DefaultFailureConverter,
+    DefaultFailureConverterWithEncodedAttributes,
     DefaultPayloadConverter,
     JSONPlainPayloadConverter,
 )
 
-from tracecat.dsl.compression import get_compression_payload_codec
+from tracecat import config
+from tracecat.temporal.codec import get_payload_codec
 
 
 def _serializer(obj: Any) -> Any:
@@ -24,6 +27,15 @@ def _serializer(obj: Any) -> Any:
         # as after serialization they will are treated as set values.
         return obj.model_dump(exclude_unset=True)
     return to_jsonable_python(obj, fallback=str)
+
+
+def _format_type_hint(type_hint: type[Any] | None) -> str:
+    """Return a stable, non-data-bearing label for a payload type hint."""
+    if type_hint is None:
+        return "untyped payload"
+    if name := getattr(type_hint, "__name__", None):
+        return f"type {name}"
+    return f"type {type_hint}"
 
 
 class PydanticORJSONPayloadConverter(JSONPlainPayloadConverter):
@@ -40,15 +52,33 @@ class PydanticORJSONPayloadConverter(JSONPlainPayloadConverter):
         converter is expected to be the last in the chain, so it can fail if
         unable to convert.
         """
-        # We let JSON conversion errors be thrown to caller
-        return Payload(
-            metadata={"encoding": self.encoding.encode()},
-            data=orjson.dumps(
+        try:
+            data = orjson.dumps(
                 value,
                 default=_serializer,
                 option=orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS,
-            ),
+            )
+        except Exception:
+            raise RuntimeError(
+                f"Failed to encode payload value of type {type(value).__name__}"
+            ) from None
+        return Payload(
+            metadata={"encoding": self.encoding.encode()},
+            data=data,
         )
+
+    def from_payload(
+        self,
+        payload: Payload,
+        type_hint: type[Any] | None = None,
+    ) -> Any:
+        """Decode payloads without surfacing raw payload data in errors."""
+        try:
+            return super().from_payload(payload, type_hint)
+        except Exception:
+            raise RuntimeError(
+                f"Failed to decode payload for {_format_type_hint(type_hint)}"
+            ) from None
 
 
 class PydanticPayloadConverter(CompositePayloadConverter):
@@ -71,5 +101,10 @@ def get_data_converter(*, compression_enabled: bool = False) -> DataConverter:
     """Data converter using Pydantic JSON conversion with optional compression."""
     return DataConverter(
         payload_converter_class=PydanticPayloadConverter,
-        payload_codec=get_compression_payload_codec() if compression_enabled else None,
+        payload_codec=get_payload_codec(compression_enabled=compression_enabled),
+        failure_converter_class=(
+            DefaultFailureConverterWithEncodedAttributes
+            if config.TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED
+            else DefaultFailureConverter
+        ),
     )

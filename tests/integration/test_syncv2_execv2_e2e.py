@@ -15,8 +15,14 @@ Run with:
 
 from __future__ import annotations
 
+import asyncio
 import importlib
+import json
 import os
+import shutil
+import subprocess
+import sys
+import tempfile
 import uuid
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
@@ -80,8 +86,10 @@ from tracecat.storage import blob
 
 # MinIO test configuration - uses docker-compose services (port 9000)
 # Credentials are read from env to match docker-compose/.env in CI and local dev.
-MINIO_ENDPOINT = "localhost:9000"
+MINIO_ENDPOINT = f"localhost:{os.environ.get('MINIO_PORT') or '9000'}"
 TEST_BUCKET = "test-tracecat-registry"
+_SYNC_ARTIFACT_SANDBOX_CHILD_ENV = "TRACECAT__SYNC_ARTIFACT_SANDBOX_CHILD"
+_SYNC_ARTIFACT_SANDBOX_RESULT = "TRACE_CAT_SYNC_ARTIFACT_SANDBOX_RESULT:"
 
 
 def _minio_credentials() -> tuple[str, str]:
@@ -97,6 +105,173 @@ def _minio_credentials() -> tuple[str, str]:
         or "password"
     )
     return access_key, secret_key
+
+
+def _parse_s3_uri(uri: str) -> tuple[str, str]:
+    rest = uri.removeprefix("s3://")
+    bucket, _, key = rest.partition("/")
+    if not bucket or not key:
+        raise ValueError(f"Invalid S3 URI: {uri}")
+    return bucket, key
+
+
+def _artifact_keys_for_tarball_uri(tarball_uri: str) -> list[str]:
+    _, key = _parse_s3_uri(tarball_uri)
+    if not key.endswith("site-packages.tar.gz"):
+        raise ValueError(f"Unexpected registry artifact URI: {tarball_uri}")
+    return [
+        key,
+        key.removesuffix(".tar.gz") + ".squashfs",
+    ]
+
+
+def _run_sync_artifact_sandbox_smoke_in_docker_or_skip(
+    *,
+    bucket: str,
+) -> dict[str, object]:
+    if os.environ.get(_SYNC_ARTIFACT_SANDBOX_CHILD_ENV) == "1":
+        pytest.skip("already inside sync artifact sandbox Docker child")
+    if shutil.which("docker") is None:
+        pytest.skip("Docker CLI unavailable for sync artifact sandbox smoke")
+    if (
+        subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        ).returncode
+        != 0
+    ):
+        pytest.skip("Docker daemon unavailable for sync artifact sandbox smoke")
+
+    repo_root = Path(__file__).resolve().parents[2]
+    access_key, secret_key = _minio_credentials()
+    docker_db_uri = TEST_DB_CONFIG.test_url_sync.replace(
+        "localhost", "host.docker.internal"
+    )
+    docker_minio_endpoint = (
+        f"http://host.docker.internal:{os.environ.get('MINIO_PORT') or '9000'}"
+    )
+
+    compose_env = os.environ.copy()
+    compose_env.setdefault(
+        "TRACECAT__LOCAL_REPOSITORY_PATH",
+        str(repo_root / "packages"),
+    )
+    compose_env.setdefault("TRACECAT__LOCAL_REPOSITORY_ENABLED", "false")
+    compose_env.setdefault("PUBLIC_APP_PORT", "80")
+    compose_env.setdefault("BASE_DOMAIN", ":80")
+    compose_env.setdefault("ADDRESS", "0.0.0.0")
+    compose_env["LOG_LEVEL"] = "INFO"
+    compose_env["TRACECAT__APP_ENV"] = "development"
+    compose_env["TRACECAT__SERVICE_KEY"] = "test-service-key"
+    compose_env["TRACECAT__DB_URI"] = docker_db_uri
+    compose_env["TRACECAT__BLOB_STORAGE_ENDPOINT"] = docker_minio_endpoint
+    compose_env["TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY"] = bucket
+    compose_env["AWS_ACCESS_KEY_ID"] = access_key
+    compose_env["AWS_SECRET_ACCESS_KEY"] = secret_key
+    compose_env[_SYNC_ARTIFACT_SANDBOX_CHILD_ENV] = "1"
+    compose_env["TRACECAT__LOCAL_REPOSITORY_ENABLED"] = "false"
+    compose_env["TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED"] = "false"
+    compose_env["TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED"] = "true"
+    compose_env["TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES"] = "true"
+    compose_env["TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED"] = "true"
+    compose_env["TRACECAT__DISABLE_NSJAIL"] = "false"
+    compose_env["TRACECAT__EXECUTOR_SANDBOX_ENABLED"] = "true"
+    compose_env["TRACECAT__SANDBOX_NSJAIL_PATH"] = "/usr/local/bin/nsjail"
+    compose_env["TRACECAT__SANDBOX_ROOTFS_PATH"] = "/var/lib/tracecat/sandbox-rootfs"
+    compose_env["TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH"] = (
+        "/app/packages/tracecat-registry"
+    )
+    compose_env["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    override_path = Path(
+        tempfile.mkstemp(prefix="tracecat-sync-artifact-sandbox-", suffix=".yml")[1]
+    )
+    override_path.write_text(
+        "\n".join(
+            [
+                "services:",
+                "  executor:",
+                "    build:",
+                "      target: test",
+                "    privileged: true",
+                "    security_opt:",
+                "      - seccomp:unconfined",
+                "      - systempaths=unconfined",
+                "    extra_hosts:",
+                '      - "host.docker.internal:host-gateway"',
+                "    environment:",
+                f"      - {_SYNC_ARTIFACT_SANDBOX_CHILD_ENV}",
+                "      - TRACECAT__DB_URI",
+                "      - TRACECAT__BLOB_STORAGE_ENDPOINT",
+                "      - TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY",
+                "      - AWS_ACCESS_KEY_ID",
+                "      - AWS_SECRET_ACCESS_KEY",
+                "      - TRACECAT__APP_ENV",
+                "      - TRACECAT__SERVICE_KEY",
+                "      - TRACECAT__LOCAL_REPOSITORY_ENABLED",
+                "      - TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED",
+                "      - TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED",
+                "      - TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES",
+                "      - TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
+                "      - TRACECAT__DISABLE_NSJAIL",
+                "      - TRACECAT__EXECUTOR_SANDBOX_ENABLED",
+                "      - TRACECAT__SANDBOX_NSJAIL_PATH",
+                "      - TRACECAT__SANDBOX_ROOTFS_PATH",
+                "      - TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH",
+                "      - PYTHONDONTWRITEBYTECODE",
+                "",
+            ]
+        )
+    )
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(repo_root / "docker-compose.dev.yml"),
+                "-f",
+                str(override_path),
+                "run",
+                "--rm",
+                "--no-deps",
+                "--build",
+                "-T",
+                "--entrypoint",
+                "sh",
+                "executor",
+                "-lc",
+                "uv run python -m tests.integration.test_syncv2_execv2_e2e "
+                "--run-sync-artifact-sandbox-smoke",
+            ],
+            cwd=repo_root,
+            env=compose_env,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+    finally:
+        override_path.unlink(missing_ok=True)
+
+    if result.returncode != 0:
+        pytest.fail(
+            "Dockerized sync artifact sandbox smoke failed."
+            f"\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+        )
+
+    output = f"{result.stdout}\n{result.stderr}"
+    for line in output.splitlines():
+        if line.startswith(_SYNC_ARTIFACT_SANDBOX_RESULT):
+            return json.loads(line.removeprefix(_SYNC_ARTIFACT_SANDBOX_RESULT))
+
+    pytest.fail(
+        "Dockerized sync artifact sandbox smoke did not emit result sentinel."
+        f"\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+    )
 
 
 # =============================================================================
@@ -276,7 +451,8 @@ async def test_bucket(minio_client: Minio, mock_org_id: uuid.UUID):
         if not minio_client.bucket_exists(bucket_name):
             minio_client.make_bucket(bucket_name)
     except S3Error as e:
-        pytest.fail(f"Failed to ensure test MinIO bucket '{bucket_name}': {e}")
+        if e.code not in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
+            pytest.fail(f"Failed to ensure test MinIO bucket '{bucket_name}': {e}")
 
     yield bucket_name
 
@@ -503,7 +679,7 @@ async def shared_synced_registry(
     yield {
         "sync_result": sync_result,
         "version": sync_result.version.version,
-        "tarball_uri": sync_result.tarball_uri,
+        "tarball_uri": sync_result.artifact_uri,
     }
 
 
@@ -541,13 +717,13 @@ class TestSyncv2MinioIntegration:
 
         # Verify sync result
         assert result.version is not None
-        assert result.tarball_uri is not None
-        assert result.tarball_uri.startswith("s3://")
+        assert result.artifact_uri is not None
+        assert result.artifact_uri.startswith("s3://")
         assert result.num_actions > 0
 
-        # Extract bucket and key from tarball_uri
+        # Extract bucket and key from artifact URI
         # Format: s3://bucket/key
-        uri_parts = result.tarball_uri.replace("s3://", "").split("/", 1)
+        uri_parts = result.artifact_uri.replace("s3://", "").split("/", 1)
         bucket = uri_parts[0]
         key = uri_parts[1]
 
@@ -562,6 +738,45 @@ class TestSyncv2MinioIntegration:
             )
         except Exception as e:
             pytest.fail(f"Tarball not found in MinIO: {e}")
+
+    @pytest.mark.anyio
+    async def test_sync_uploads_all_artifact_formats_and_executor_sandbox_runs_udf(
+        self,
+        db,
+        minio_server,
+        minio_client: Minio,
+        test_bucket: str,
+    ) -> None:
+        """Verify sync artifacts are executable by the production action sandbox.
+
+        This runs the sync + execution flow inside the executor Docker image so
+        the test uses real `mksquashfs`, real MinIO downloads, and real nsjail.
+        """
+        payload = await asyncio.to_thread(
+            _run_sync_artifact_sandbox_smoke_in_docker_or_skip,
+            bucket=test_bucket,
+        )
+
+        tarball_uri = str(payload["tarball_uri"])
+        bucket, _ = _parse_s3_uri(tarball_uri)
+        assert bucket == test_bucket
+        assert payload["execution_result"] == {"input": "prod-sandbox"}
+
+        raw_object_keys = payload["object_keys"]
+        assert isinstance(raw_object_keys, list)
+        object_keys = [str(key) for key in raw_object_keys]
+        assert object_keys == _artifact_keys_for_tarball_uri(tarball_uri)
+
+        try:
+            for key in object_keys:
+                stat = minio_client.stat_object(test_bucket, key)
+                assert stat.size is not None and stat.size > 0
+        finally:
+            for key in object_keys:
+                try:
+                    minio_client.remove_object(test_bucket, key)
+                except Exception:
+                    pass
 
     @pytest.mark.anyio
     async def test_sync_creates_registry_version_with_manifest(
@@ -618,7 +833,7 @@ class TestSyncv2MinioIntegration:
 
         # Should return same version
         assert result1.version.id == result2.version.id
-        assert result1.tarball_uri == result2.tarball_uri
+        assert result1.artifact_uri == result2.artifact_uri
 
 
 # =============================================================================
@@ -648,19 +863,19 @@ class TestExecuteWithSyncedRegistry:
 
         # Create ActionRunner with test cache dir
         runner = ActionRunner(cache_dir=temp_cache_dir)
-        cache_key = runner.compute_tarball_cache_key(tarball_uri)
 
-        # Download and extract tarball
-        extracted_path = await runner.ensure_tarball_extracted(cache_key, tarball_uri)
+        # Download and materialize the registry artifact
+        async with runner.registry_artifacts.lease([tarball_uri]) as extracted_paths:
+            # Verify extraction
+            assert len(extracted_paths) == 1
+            extracted_path = extracted_paths[0]
+            assert extracted_path.exists()
+            assert extracted_path.is_dir()
 
-        # Verify extraction
-        assert extracted_path.exists()
-        assert extracted_path.is_dir()
-
-        # Should have Python packages extracted
-        # The tarball contains site-packages content
-        files = list(extracted_path.rglob("*"))
-        assert len(files) > 0
+            # Should have Python packages extracted
+            # The tarball contains site-packages content
+            files = list(extracted_path.rglob("*"))
+            assert len(files) > 0
 
     @pytest.mark.anyio
     async def test_execute_action_with_ephemeral_backend(
@@ -763,7 +978,7 @@ class TestExecuteWithSyncedRegistry:
             RegistryArtifactsContext(
                 origin=DEFAULT_REGISTRY_ORIGIN,
                 version=sync_result.version.version,
-                tarball_uri=sync_result.tarball_uri,
+                artifact_uri=sync_result.artifact_uri,
             )
         ]
 
@@ -909,17 +1124,20 @@ class TestFailureScenarios:
             executor_token="mock-token-for-testing",
         )
 
-        # Resolve and delete the exact tarball URI(s) the executor will use.
+        # Resolve and delete the exact artifact URI(s) the executor will use.
         # For tracecat_registry, this may resolve to platform-scoped artifacts.
         backend = EphemeralBackend()
-        tarball_uris = await backend._get_tarball_uris(input_data, test_role)
+        tarball_uris = await backend._get_artifact_uris(input_data, test_role)
         assert tarball_uris, (
             "Expected resolved tarball URIs for locked registry version"
         )
+        deleted_artifact_keys: set[tuple[str, str]] = set()
         for tarball_uri in tarball_uris:
-            uri_parts = tarball_uri.replace("s3://", "").split("/", 1)
-            bucket = uri_parts[0]
-            key = uri_parts[1]
+            bucket, _ = _parse_s3_uri(tarball_uri)
+            deleted_artifact_keys.update(
+                (bucket, key) for key in _artifact_keys_for_tarball_uri(tarball_uri)
+            )
+        for bucket, key in deleted_artifact_keys:
             minio_client.remove_object(bucket, key)
 
         # Create test runner
@@ -1328,7 +1546,7 @@ class TestMultitenantWorkloads:
             RegistryArtifactsContext(
                 origin=DEFAULT_REGISTRY_ORIGIN,
                 version=sync_result.version.version,
-                tarball_uri=sync_result.tarball_uri,
+                artifact_uri=sync_result.artifact_uri,
             )
         ]
 
@@ -1472,5 +1690,121 @@ class TestVersionIsolationArtifactResolution:
         artifact = artifacts[0]
         assert artifact.origin == DEFAULT_REGISTRY_ORIGIN
         assert artifact.version == V1
-        assert V1 in artifact.tarball_uri  # v1's tarball
-        assert V2 not in artifact.tarball_uri  # NOT v2's tarball
+        assert V1 in artifact.artifact_uri  # v1's artifact
+        assert V2 not in artifact.artifact_uri  # NOT v2's artifact
+
+
+async def _run_sync_artifact_sandbox_smoke_child() -> None:
+    """Run the full sync -> MinIO -> ephemeral sandbox path inside Docker."""
+    from tracecat.db.engine import (
+        get_async_session_bypass_rls_context_manager,
+        reset_async_engine,
+    )
+    from tracecat.storage import blob as blob_module
+
+    config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = False
+    config.TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED = True
+    config.TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES = True
+    config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = True
+    config.TRACECAT__EXECUTOR_SANDBOX_ENABLED = True
+    config.TRACECAT__DISABLE_NSJAIL = False
+    reset_async_engine()
+    importlib.reload(blob_module)
+
+    version = f"sync-artifact-sandbox-{uuid.uuid4().hex[:12]}"
+    async with get_async_session_bypass_rls_context_manager() as session:
+        repo_svc = PlatformRegistryReposService(session)
+        repo = await repo_svc.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
+        sync_svc = PlatformRegistrySyncService(session)
+        sync_result = await sync_svc.sync_repository_v2(
+            repo,
+            target_version=version,
+            bypass_temporal=True,
+        )
+        await session.commit()
+
+    tarball_uri = sync_result.artifact_uri
+    bucket, _ = _parse_s3_uri(tarball_uri)
+    object_keys = _artifact_keys_for_tarball_uri(tarball_uri)
+    missing_keys = [
+        key for key in object_keys if not await blob_module.file_exists(key, bucket)
+    ]
+    if missing_keys:
+        raise AssertionError(f"Missing registry artifact objects: {missing_keys}")
+
+    action = "core.transform.reshape"
+    args = {"value": {"input": "prod-sandbox"}}
+    wf_id = WorkflowUUID.new_uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-runner",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-runner"],
+    )
+    input_data = RunActionInput(
+        task=ActionStatement(
+            action=action,
+            args=args,
+            ref="sync_artifact_sandbox_smoke",
+        ),
+        exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        run_context=RunContext(
+            wf_id=wf_id,
+            wf_exec_id=f"{wf_id.short()}/exec_sync_artifact_sandbox",
+            wf_run_id=uuid.uuid4(),
+            environment="default",
+            logical_time=datetime.now(UTC),
+        ),
+        registry_lock=RegistryLock(
+            origins={DEFAULT_REGISTRY_ORIGIN: version},
+            actions={action: DEFAULT_REGISTRY_ORIGIN},
+        ),
+    )
+    resolved_context = ResolvedContext(
+        secrets={},
+        variables={},
+        action_impl=ActionImplementation(
+            type="udf",
+            action_name=action,
+            module="tracecat_registry.core.transform",
+            name="reshape",
+            origin=DEFAULT_REGISTRY_ORIGIN,
+        ),
+        evaluated_args=args,
+        workspace_id=str(role.workspace_id),
+        workflow_id=str(input_data.run_context.wf_id),
+        run_id=str(input_data.run_context.wf_run_id),
+        executor_token="mock-token-for-testing",
+    )
+
+    backend = EphemeralBackend()
+    result = await backend.execute(
+        input_data,
+        role,
+        resolved_context=resolved_context,
+        timeout=120.0,
+    )
+    if not isinstance(result, ExecutorResultSuccess):
+        raise AssertionError(f"Expected sandbox execution success, got: {result}")
+
+    payload = {
+        "version": version,
+        "tarball_uri": tarball_uri,
+        "object_keys": object_keys,
+        "execution_result": result.result,
+    }
+    print(f"{_SYNC_ARTIFACT_SANDBOX_RESULT}{json.dumps(payload, sort_keys=True)}")
+
+
+if __name__ == "__main__":
+    if os.environ.get(_SYNC_ARTIFACT_SANDBOX_CHILD_ENV) == "1" and sys.argv[1:] == [
+        "--run-sync-artifact-sandbox-smoke"
+    ]:
+        asyncio.run(_run_sync_artifact_sandbox_smoke_child())
+    else:
+        raise SystemExit(
+            "Usage: python -m tests.integration.test_syncv2_execv2_e2e "
+            "--run-sync-artifact-sandbox-smoke"
+        )

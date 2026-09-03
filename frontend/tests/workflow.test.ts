@@ -1,4 +1,7 @@
-import { pruneGraphObject } from "@/lib/workflow"
+import {
+  buildDuplicatedWorkflowDefinition,
+  pruneGraphObject,
+} from "@/lib/workflow"
 
 // Mock the canvas module to avoid circular dependencies
 jest.mock("@/components/builder/canvas/canvas", () => ({
@@ -67,5 +70,25 @@ describe("pruneGraphObject", () => {
         edges: [{ id: "edge1", source: "node1", target: "node2" }],
       })
     ).toThrow("Workflow cannot be saved without a trigger node")
+  })
+})
+
+describe("buildDuplicatedWorkflowDefinition", () => {
+  it("clears workflow_id and renames the duplicated workflow", () => {
+    const duplicated = buildDuplicatedWorkflowDefinition(
+      {
+        workflow_id: "wf_123",
+        definition: {
+          title: "Child",
+          description: "Original workflow",
+        },
+        layout: { nodes: [] },
+      },
+      "Child"
+    )
+
+    expect(duplicated.workflow_id).toBeNull()
+    expect(duplicated.definition.title).toBe("Copy of Child")
+    expect(duplicated.layout).toEqual({ nodes: [] })
   })
 })

@@ -1,65 +1,220 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "palm",
-  "name": "Tracecat | Documentation",
+  "theme": "aspen",
+  "name": "Tracecat Docs",
   "colors": {
-    "primary": "#6F9954",
-    "light": "#C1DEAF",
-    "dark": "#111011"
+    "primary": "#6E7ED8",
+    "light": "#8E9BE1",
+    "dark": "#465ACE"
   },
-  "favicon": "/favicon.png",
+  "favicon": "/img/logos/light.svg",
+  "icons": {
+    "library": "lucide"
+  },
   "navigation": {
     "tabs": [
       {
         "tab": "Documentation",
         "groups": [
           {
-            "group": "Get Started",
+            "group": "Overview",
+            "icon": "flag",
             "pages": [
-              "introduction",
-              "quickstart/install",
-              "quickstart/admin",
-              "quickstart/tutorial",
-              "quickstart/core-actions",
-              "quickstart/script-actions",
-              "quickstart/control-flow",
-              "quickstart/expressions",
-              "quickstart/secrets"
+              "overview/introduction",
+              "overview/getting-started"
             ]
           },
           {
-            "group": "Tutorials",
+            "group": "Building automations",
+            "icon": "workflow",
             "pages": [
-              "tutorials/workflow-triggers",
-              "tutorials/child-workflows",
-              "tutorials/data-transforms",
-              "tutorials/scatter-gather",
-              "tutorials/wait-retry-until",
-              "tutorials/custom-integrations",
-              "tutorials/alert-on-failure"
+              "automations/tracecat-mcp",
+              {
+                "group": "Core concepts",
+                "expanded": true,
+                "pages": [
+                  "automations/workflows",
+                  "automations/actions",
+                  "automations/tables",
+                  "automations/core-concepts/expressions",
+                  "automations/core-concepts/secrets",
+                  "automations/core-concepts/variables",
+                  "automations/core-concepts/workflow-metadata",
+                  "automations/core-concepts/functions",
+                  "automations/core-concepts/jsonpath",
+                  "automations/core-concepts/workflow-definition"
+                ]
+              },
+              {
+                "group": "Triggers",
+                "expanded": true,
+                "pages": [
+                  "automations/triggers/webhooks",
+                  "automations/triggers/schedules",
+                  "automations/triggers/workflows-as-apis",
+                  "automations/triggers/error-workflows",
+                  "automations/triggers/case-triggers",
+                  "automations/triggers/task-triggers",
+                  "automations/triggers/comment-triggers"
+                ]
+              },
+              {
+                "group": "Integrations",
+                "expanded": true,
+                "pages": [
+                  "automations/integrations/prebuilt-credentials",
+                  "automations/integrations/oauth-integrations",
+                  "automations/integrations/mcp-integrations"
+                ]
+              }
             ]
           },
           {
-            "group": "Self Host",
+            "group": "Resolve cases",
+            "icon": "ticket-check",
             "pages": [
-              "self-hosting/overview",
-              {
-                "group": "Deployments",
-                "pages": [
-                  "self-hosting/deployment-options/docker-compose",
-                  "self-hosting/deployment-options/aws-ecs"
-                ]
-              },
-              {
-                "group": "Authentication",
-                "pages": [
-                  "self-hosting/authentication/overview",
-                  "self-hosting/authentication/basic",
-                  "self-hosting/authentication/google-oauth",
-                  "self-hosting/authentication/saml-sso"
-                ]
-              },
-              "self-hosting/updating"
+              "automations/cases",
+              "automations/cases/agent-mentions",
+              "automations/cases/tasks"
+            ]
+          },
+          {
+            "group": "Building agents",
+            "icon": "sparkles",
+            "pages": [
+              "agents/workspace-chat",
+              "agents/ai-action",
+              "agents/ai-agent",
+              "agents/custom-llm-providers",
+              "agents/skills",
+              "agents/secrets-variables"
+            ]
+          },
+          {
+            "group": "Building custom integrations",
+            "icon": "blocks",
+            "pages": [
+              "custom-actions/custom-registry",
+              "custom-actions/python-udf",
+              "custom-actions/yaml-template",
+              "custom-actions/local-development"
+            ]
+          },
+          {
+            "group": "Self-hosting",
+            "icon": "server",
+            "pages": [
+              "self-hosting/docker-compose",
+              "self-hosting/aws-fargate",
+              "self-hosting/kubernetes",
+              "self-hosting/air-gapped",
+              "self-hosting/temporal-retention",
+              "self-hosting/architecture",
+              "self-hosting/tls",
+              "self-hosting/environment-variables",
+              "self-hosting/security"
+            ]
+          },
+          {
+            "group": "Manage platform",
+            "icon": "settings",
+            "pages": [
+              "manage-platform/users",
+              "manage-platform/rbac",
+              "manage-platform/custom-roles",
+              "manage-platform/service-accounts",
+              "manage-platform/git-sync"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "icon": "shield",
+            "pages": [
+              "authentication/basic",
+              "authentication/saml",
+              "authentication/oidc"
+            ]
+          },
+          {
+            "group": "Security",
+            "icon": "shield-check",
+            "pages": [
+              "security/architecture",
+              "audit-logs/platform",
+              "audit-logs/organization",
+              "audit-logs/agents",
+              "audit-logs/mcp-access"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Core Actions",
+        "groups": [
+          {
+            "group": "Request",
+            "icon": "globe",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/request-actions/http",
+              "automations/core-actions/request-actions/sql",
+              "automations/core-actions/request-actions/ssh",
+              "automations/core-actions/request-actions/grpc",
+              "automations/core-actions/request-actions/email"
+            ]
+          },
+          {
+            "group": "Transform",
+            "icon": "shuffle",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/transform-actions/reshape",
+              "automations/core-actions/transform-actions/python-script",
+              "automations/core-actions/transform-actions/data-transforms",
+              "automations/core-actions/transform-actions/require"
+            ]
+          },
+          {
+            "group": "Workflow",
+            "icon": "workflow",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/workflow-actions/run-subflow",
+              "automations/core-actions/workflow-actions/scatter-gather-loops",
+              "automations/core-actions/workflow-actions/while-loops"
+            ]
+          },
+          {
+            "group": "Agent",
+            "icon": "sparkles",
+            "expanded": true,
+            "pages": [
+              "agents/ai-agent",
+              "agents/ai-action"
+            ]
+          },
+          {
+            "group": "Case",
+            "icon": "ticket-check",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/case-actions/cases",
+              "automations/core-actions/case-actions/comments",
+              "automations/core-actions/case-actions/attachments",
+              "automations/core-actions/case-actions/tasks",
+              "automations/core-actions/case-actions/linked-rows"
+            ]
+          },
+          {
+            "group": "Table",
+            "icon": "table",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/memory-actions/tables",
+              "automations/core-actions/memory-actions/columns",
+              "automations/core-actions/memory-actions/lookups",
+              "automations/core-actions/memory-actions/rows",
+              "automations/core-actions/memory-actions/export"
             ]
           }
         ]
@@ -69,99 +224,344 @@
         "groups": [
           {
             "group": "Integrations",
+            "icon": "wrench",
             "pages": [
               "integrations/overview",
-              "integrations/action-templates",
-              "integrations/python-udfs",
-              "integrations/development",
-              "integrations/openapi-converter",
-              "integrations/oauth-integrations"
+              "tools/1password",
+              "tools/1password_sdk",
+              "tools/abuseipdb",
+              "tools/alertmedia",
+              "tools/amazon_s3",
+              "tools/ansible",
+              "tools/anyrun",
+              "tools/aws_boto3",
+              "tools/azure_log_analytics",
+              "tools/caldera",
+              "tools/censys",
+              "tools/cisa_kev",
+              "tools/cloudflare_sdk",
+              "tools/confluence",
+              "tools/crowdsec",
+              "tools/crowdstrike",
+              "tools/databricks",
+              "tools/databricks_sdk",
+              "tools/datadog",
+              "tools/dehashed",
+              "tools/domscan",
+              "tools/elastic_security",
+              "tools/elasticsearch",
+              "tools/emailrep",
+              "tools/exa",
+              "tools/falconpy",
+              "tools/first_epss",
+              "tools/fleetdm",
+              "tools/freshservice",
+              "tools/gitguardian",
+              "tools/github",
+              "tools/gitlab",
+              "tools/gmail",
+              "tools/google_alert_center",
+              "tools/google_api",
+              "tools/google_chronicle",
+              "tools/google_cloud_logging",
+              "tools/google_directory",
+              "tools/google_docs",
+              "tools/google_drive",
+              "tools/google_forms",
+              "tools/google_maps",
+              "tools/google_reports",
+              "tools/google_scc",
+              "tools/google_secops_detection",
+              "tools/google_secops_soar",
+              "tools/google_sheets",
+              "tools/google_slides",
+              "tools/gophish",
+              "tools/greynoise",
+              "tools/hackernews",
+              "tools/hackerone",
+              "tools/hibp",
+              "tools/hudsonrock",
+              "tools/hunter",
+              "tools/hybrid_analysis",
+              "tools/ipinfo",
+              "tools/iru",
+              "tools/jamf",
+              "tools/jira",
+              "tools/kubernetes_sdk",
+              "tools/ldap",
+              "tools/leakcheck",
+              "tools/linear",
+              "tools/microsoft_defender_endpoint",
+              "tools/microsoft_entra",
+              "tools/microsoft_graph_sdk",
+              "tools/microsoft_graph_security",
+              "tools/microsoft_outlook",
+              "tools/microsoft_sentinel",
+              "tools/microsoft_teams",
+              "tools/minio",
+              "tools/misp",
+              "tools/notion",
+              "tools/okta",
+              "tools/okta_oar",
+              "tools/okta_sdk",
+              "tools/openphish",
+              "tools/opensearch",
+              "tools/osv",
+              "tools/pagerduty",
+              "tools/panther",
+              "tools/phishlabs",
+              "tools/pipe0",
+              "tools/project_discovery",
+              "tools/pymongo",
+              "tools/recorded_future",
+              "tools/rippling",
+              "tools/rootly",
+              "tools/runreveal",
+              "tools/scanner",
+              "tools/sentinel_one",
+              "tools/sentry",
+              "tools/servicenow",
+              "tools/shodan",
+              "tools/slack",
+              "tools/slack_sdk",
+              "tools/snowflake",
+              "tools/socket",
+              "tools/splunk",
+              "tools/sublime",
+              "tools/tavily",
+              "tools/tenable_sc",
+              "tools/terraform",
+              "tools/threatfox",
+              "tools/threatstream",
+              "tools/urlhaus",
+              "tools/urlscan",
+              "tools/virustotal",
+              "tools/wazuh",
+              "tools/wiz",
+              "tools/x",
+              "tools/zendesk"
             ]
           }
         ]
       },
       {
         "tab": "Cheatsheets",
-        "pages": [
-          "cheatsheets/functions",
-          "cheatsheets/integrations",
-          "cheatsheets/yaml",
-          "cheatsheets/jsonpath"
+        "groups": [
+          {
+            "group": "Cheatsheets",
+            "icon": "book-open",
+            "pages": [
+              "cheatsheets/functions",
+              "cheatsheets/jsonpath",
+              "cheatsheets/common-mistakes",
+              "cheatsheets/transformations",
+              "cheatsheets/workflow-metadata"
+            ]
+          }
         ]
       },
       {
         "tab": "API Reference",
         "groups": [
           {
-            "group": "REST API",
+            "group": "Core concepts",
             "pages": [
-              "api-reference/overview"
+              "api-reference/authentication"
             ]
           },
           {
             "group": "Endpoints",
-            "openapi": "/openapi.yml"
+            "openapi": "https://platform.tracecat.com/api/openapi.json"
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Website",
-          "href": "https://tracecat.com",
-          "icon": "globe"
-        },
-        {
-          "anchor": "Get Live Help",
-          "href": "https://cal.com/team/tracecat/onboarding",
-          "icon": "headphones"
-        },
-        {
-          "anchor": "Join Discord",
-          "href": "https://discord.gg/n3GF4qxFU8",
-          "icon": "discord"
-        }
-      ]
-    }
+    ]
   },
   "redirects": [
     {
-      "source": "/self-hosting/introduction",
-      "destination": "/self-hosting/overview"
+      "source": "/automations/core-actions/http",
+      "destination": "/automations/core-actions/request-actions/http"
     },
     {
-      "source": "/self-hosting/authentication/introduction",
-      "destination": "/self-hosting/authentication/overview"
+      "source": "/automations/core-actions/sql",
+      "destination": "/automations/core-actions/request-actions/sql"
     },
     {
-      "source": "/tutorials/1-quickstart",
-      "destination": "/quickstart/tutorial"
+      "source": "/automations/core-actions/ssh",
+      "destination": "/automations/core-actions/request-actions/ssh"
+    },
+    {
+      "source": "/automations/core-actions/grpc",
+      "destination": "/automations/core-actions/request-actions/grpc"
+    },
+    {
+      "source": "/automations/core-actions/email",
+      "destination": "/automations/core-actions/request-actions/email"
+    },
+    {
+      "source": "/automations/core-actions/python-script",
+      "destination": "/automations/core-actions/transform-actions/python-script"
+    },
+    {
+      "source": "/automations/core-actions/data-transforms",
+      "destination": "/automations/core-actions/transform-actions/data-transforms"
+    },
+    {
+      "source": "/automations/core-actions/require",
+      "destination": "/automations/core-actions/transform-actions/require"
+    },
+    {
+      "source": "/automations/core-actions/reshape",
+      "destination": "/automations/core-actions/transform-actions/reshape"
+    },
+    {
+      "source": "/automations/core-actions/subflows",
+      "destination": "/automations/core-actions/workflow-actions/run-subflow"
+    },
+    {
+      "source": "/automations/core-actions/scatter-gather-loops",
+      "destination": "/automations/core-actions/workflow-actions/scatter-gather-loops"
+    },
+    {
+      "source": "/automations/core-actions/while-loops",
+      "destination": "/automations/core-actions/workflow-actions/while-loops"
+    },
+    {
+      "source": "/automations/core-actions/cases",
+      "destination": "/automations/core-actions/case-actions/cases"
+    },
+    {
+      "source": "/automations/core-actions/case-comments",
+      "destination": "/automations/core-actions/case-actions/comments"
+    },
+    {
+      "source": "/automations/core-actions/case-attachments",
+      "destination": "/automations/core-actions/case-actions/attachments"
+    },
+    {
+      "source": "/automations/core-actions/case-tasks",
+      "destination": "/automations/core-actions/case-actions/tasks"
+    },
+    {
+      "source": "/automations/core-actions/case-tables",
+      "destination": "/automations/core-actions/case-actions/linked-rows"
+    },
+    {
+      "source": "/automations/core-actions/case-metrics",
+      "destination": "/automations/core-actions/case-actions/cases"
+    },
+    {
+      "source": "/automations/core-actions/case-actions/metrics",
+      "destination": "/automations/core-actions/case-actions/cases"
+    },
+    {
+      "source": "/automations/core-actions/tables",
+      "destination": "/automations/core-actions/memory-actions/tables"
+    },
+    {
+      "source": "/automations/core-actions/filesystem",
+      "destination": "/automations/core-actions/memory-actions/tables"
+    },
+    {
+      "source": "/automations/core-actions/memory-actions/filesystem",
+      "destination": "/automations/core-actions/memory-actions/tables"
+    },
+    {
+      "source": "/automations/ai-builder",
+      "destination": "/automations/tracecat-mcp"
+    },
+    {
+      "source": "/automations/core-concepts/workflows",
+      "destination": "/automations/workflows"
+    },
+    {
+      "source": "/automations/workflow-definition",
+      "destination": "/automations/core-concepts/workflow-definition"
+    },
+    {
+      "source": "/automations/core-concepts/actions",
+      "destination": "/automations/actions"
+    },
+    {
+      "source": "/automations/expressions",
+      "destination": "/automations/core-concepts/expressions"
+    },
+    {
+      "source": "/automations/secrets",
+      "destination": "/automations/core-concepts/secrets"
+    },
+    {
+      "source": "/automations/variables",
+      "destination": "/automations/core-concepts/variables"
+    },
+    {
+      "source": "/automations/functions",
+      "destination": "/automations/core-concepts/functions"
+    },
+    {
+      "source": "/automations/jsonpath",
+      "destination": "/automations/core-concepts/jsonpath"
+    },
+    {
+      "source": "/automations/prebuilt-credentials",
+      "destination": "/automations/integrations/prebuilt-credentials"
+    },
+    {
+      "source": "/automations/oauth-integrations",
+      "destination": "/automations/integrations/oauth-integrations"
+    },
+    {
+      "source": "/automations/mcp-integrations",
+      "destination": "/automations/integrations/mcp-integrations"
+    },
+    {
+      "source": "/automations/triggers/cases",
+      "destination": "/automations/triggers/case-triggers"
+    },
+    {
+      "source": "/automations/triggers/tasks",
+      "destination": "/automations/triggers/task-triggers"
+    },
+    {
+      "source": "/automations/triggers/comments",
+      "destination": "/automations/triggers/comment-triggers"
     }
   ],
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "/img/logos/light.svg",
+    "dark": "/img/logos/dark.svg",
+    "href": "/overview/introduction"
   },
-  "appearance": {
-    "default": "light"
-  },
-  "background": {
-    "color": {
-      "light": "#FFFFFF",
-      "dark": "#111011"
-    }
+  "fonts": {
+    "family": "Instrument Sans"
   },
   "navbar": {
-    "links": [],
+    "links": [
+      {
+        "label": "Discord",
+        "href": "https://discord.com/invite/H4XZwsYzY4"
+      }
+    ],
     "primary": {
-      "type": "github",
-      "href": "https://github.com/TracecatHQ/tracecat"
+      "type": "button",
+      "label": "Talk to us",
+      "href": "https://tracecat.com/contact"
     }
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
   },
   "footer": {
     "socials": {
-      "discord": "https://discord.gg/n3GF4qxFU8",
       "github": "https://github.com/TracecatHQ/tracecat"
     }
   }

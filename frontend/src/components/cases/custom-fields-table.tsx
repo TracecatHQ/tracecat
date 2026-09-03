@@ -10,7 +10,6 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
-import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import type { SqlType } from "@/lib/data-type"
+import { getCaseFieldTypeConfig } from "@/lib/data-type"
 
 interface CustomFieldsTableProps {
   fields: CaseFieldReadMinimal[]
@@ -62,17 +61,19 @@ export function CustomFieldsTable({
           data={fields.filter((field) => !field.reserved)}
           columns={[
             {
-              accessorKey: "id",
+              accessorKey: "display_name",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Field ID"
+                  title="Field name"
                 />
               ),
               cell: ({ row }) => (
                 <div className="text-xs text-foreground/80">
-                  {row.getValue<CaseFieldReadMinimal["id"]>("id")}
+                  {row.getValue<CaseFieldReadMinimal["display_name"]>(
+                    "display_name"
+                  )}
                 </div>
               ),
               enableSorting: true,
@@ -87,14 +88,45 @@ export function CustomFieldsTable({
                   title="Data type"
                 />
               ),
-              cell: ({ row }) => (
-                <SqlTypeBadge
-                  type={
-                    row.getValue<CaseFieldReadMinimal["type"]>(
-                      "type"
-                    ) as SqlType
-                  }
+              cell: ({ row }) => {
+                const fieldType =
+                  row.getValue<CaseFieldReadMinimal["type"]>("type")
+                const fieldKind = row.original.kind
+                const config = getCaseFieldTypeConfig(fieldType, fieldKind)
+                if (config) {
+                  const Icon = config.icon
+                  return (
+                    <Badge
+                      variant="secondary"
+                      className="text-xs whitespace-nowrap"
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <Icon className="size-3 shrink-0" />
+                        <span className="text-xs font-medium whitespace-nowrap">
+                          {config.label}
+                        </span>
+                      </span>
+                    </Badge>
+                  )
+                }
+                return <div className="text-xs">{fieldType}</div>
+              },
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
+              accessorKey: "id",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Reference"
                 />
+              ),
+              cell: ({ row }) => (
+                <div className="font-mono text-xs text-muted-foreground">
+                  {row.getValue<CaseFieldReadMinimal["id"]>("id")}
+                </div>
               ),
               enableSorting: true,
               enableHiding: false,
@@ -151,11 +183,11 @@ export function CustomFieldsTable({
                   return <div className="text-xs">-</div>
                 }
 
-                // Handle TIMESTAMP/TIMESTAMPTZ with date formatting
+                // Handle TIMESTAMPTZ defaults with date formatting
                 const parsedDate =
                   typeof defaultValue === "string" &&
                   defaultValue &&
-                  (fieldType === "TIMESTAMP" || fieldType === "TIMESTAMPTZ")
+                  fieldType === "TIMESTAMPTZ"
                     ? new Date(defaultValue)
                     : null
                 const isValidDate =
@@ -193,7 +225,7 @@ export function CustomFieldsTable({
                             navigator.clipboard.writeText(row.original.id)
                           }
                         >
-                          Copy field ID
+                          Copy reference
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => {
@@ -226,9 +258,9 @@ export function CustomFieldsTable({
             <AlertDialogTitle>Delete Field</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete the field{" "}
-              <strong>{selectedField?.id}</strong>? This action cannot be undone
-              and will delete all existing values for this field across all
-              cases.
+              <strong>{selectedField?.display_name}</strong>? This action cannot
+              be undone and will delete all existing values for this field
+              across all cases.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -268,7 +300,7 @@ export function CustomFieldsTable({
 
 const defaultToolbarProps: DataTableToolbarProps<CaseFieldReadMinimal> = {
   filterProps: {
-    placeholder: "Filter fields by ID...",
-    column: "id",
+    placeholder: "Filter fields by name...",
+    column: "display_name",
   },
 }

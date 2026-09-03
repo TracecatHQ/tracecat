@@ -1,0 +1,56 @@
+type: action
+definition:
+  title: Aggregate search
+  description: >-
+    Aggregate search results. Calls POST /v3/global/search/aggregate directly.
+  display_group: Censys
+  doc_url: https://docs.censys.com/reference/v3-globaldata-search-aggregate
+  namespace: tools.censys
+  name: aggregate_search
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_TOKEN"]
+  expects:
+    query:
+      type: str
+      description: CenQL query string to search upon.
+    field:
+      type: str
+      description: Field to aggregate by.
+    number_of_buckets:
+      type: int
+      description: Number of buckets to split results into, from 1 to 2000.
+    count_by_level:
+      type: str | None
+      description: Specifies which document level's count is returned per term bucket, primarily for nested fields. This is the same functionality available in the Count By dropdown in the Report Builder UI.
+      default: null
+    filter_by_query:
+      type: bool | None
+      description: Controls whether aggregation results are limited to values that match the query. When true, only field values that satisfy the query constraints are included in aggregation counts.
+      default: null
+    organization_id:
+      type: str | None
+      description: The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Censys Platform API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.censys.base_url || "https://api.platform.censys.io" }}/v3/global/search/aggregate
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
+          Content-Type: application/json
+        params:
+          organization_id: ${{ inputs.organization_id }}
+        payload:
+          query: ${{ inputs.query }}
+          field: ${{ inputs.field }}
+          number_of_buckets: ${{ inputs.number_of_buckets }}
+          count_by_level: ${{ inputs.count_by_level }}
+          filter_by_query: ${{ inputs.filter_by_query }}
+  returns: ${{ steps.request.result }}

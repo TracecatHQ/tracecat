@@ -1,19 +1,29 @@
 from __future__ import annotations
 
+import uuid
+from collections.abc import Sequence
+
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from temporalio import activity
 
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import Schedule
-from tracecat.db.session_events import add_after_commit_callback
+from tracecat.db.models import Schedule, Workflow
+from tracecat.db.session_events import AfterCommitQueue
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
-from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage.object import InlineObject
+from tracecat.temporal.errors import raise_application_error_from_classification
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.schemas import (
     GetScheduleActivityInputs,
@@ -26,6 +36,59 @@ class WorkflowSchedulesService(BaseWorkspaceService):
     """Manages schedules for Workflows."""
 
     service_name = "workflow_schedules"
+
+    def _suppress_audit_when_deferred_commit(
+        self, params: ScheduleCreate, commit: bool = True
+    ) -> AuditEventDetails:
+        if commit is False:
+            return AuditEventDetails(emit=False)
+        return AuditEventDetails()
+
+    def _schedule_update_audit_details(
+        self, schedule_id: AnyScheduleID, params: ScheduleUpdate
+    ) -> AuditEventDetails:
+        return AuditEventDetails(
+            data={"changed_fields": sorted(params.model_fields_set)}
+        )
+
+    def _suppress_delete_audit_when_deferred_commit(
+        self, schedule_id: AnyScheduleID, commit: bool = True
+    ) -> AuditEventDetails:
+        if commit is False:
+            return AuditEventDetails(emit=False)
+        return AuditEventDetails()
+
+    async def _lock_workflow(self, workflow_id: AnyWorkflowID | uuid.UUID) -> None:
+        workflow_uuid = WorkflowUUID.new(workflow_id)
+        stmt = (
+            select(Workflow.id)
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id == workflow_uuid,
+            )
+            .with_for_update()
+        )
+        if await self.session.scalar(stmt) is None:
+            raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
+
+    async def _require_published_workflow(
+        self, workflow_id: AnyWorkflowID | uuid.UUID
+    ) -> None:
+        """Validate the external create precondition inside the audit boundary."""
+        workflow_uuid = WorkflowUUID.new(workflow_id)
+        stmt = select(Workflow).where(
+            Workflow.workspace_id == self.workspace_id,
+            Workflow.id == workflow_uuid,
+        )
+        workflow = await self.session.scalar(stmt)
+        if workflow is None:
+            raise TracecatNotFoundError(
+                "Workflow not found. Please check the workflow ID and try again."
+            )
+        if workflow.version is None:
+            raise TracecatNotFoundError(
+                "Workflow must be saved before creating a schedule."
+            )
 
     async def list_schedules(
         self, workflow_id: WorkflowID | None = None
@@ -51,6 +114,12 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         return list(schedules)
 
     @require_scope("schedule:create")
+    @audit_log(
+        resource_type="schedule",
+        action="create",
+        resource_id_attr="id",
+        attempt_metadata=_suppress_audit_when_deferred_commit,
+    )
     async def create_schedule(
         self, params: ScheduleCreate, commit: bool = True
     ) -> Schedule:
@@ -73,6 +142,29 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             If there is an error creating the schedule.
 
         """
+        if commit:
+            await self._require_published_workflow(params.workflow_id)
+        return await self._create_schedule_impl(params, commit=commit)
+
+    async def _create_schedule_impl(
+        self, params: ScheduleCreate, commit: bool = True
+    ) -> Schedule:
+        """Implement schedule creation for an authorized caller.
+
+        This internal method lets other methods on this service compose schedule
+        changes under their own authorization and audit lifecycle. External
+        callers must use :meth:`create_schedule`.
+
+        Args:
+            params: Configuration for the new schedule.
+            commit: Whether to commit immediately. When ``False``, the method
+                flushes the row and leaves the transaction and registered
+                Temporal callback to the caller.
+
+        Returns:
+            The newly created schedule.
+        """
+        await self._lock_workflow(params.workflow_id)
         schedule = Schedule(
             workspace_id=self.workspace_id,
             workflow_id=WorkflowUUID.new(params.workflow_id),
@@ -83,7 +175,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             end_at=params.end_at,
             timeout=params.timeout,
             cron=params.cron,
-            status="online",
+            status=params.status,
         )
         self.session.add(schedule)
         await self.session.flush()
@@ -110,6 +202,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     start_at=params.start_at,
                     end_at=params.end_at,
                     timeout=params.timeout,
+                    status=params.status,
                     role=role_copy,
                 )
                 logger.info(
@@ -129,7 +222,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     schedule_role=role_copy,
                 )
 
-        add_after_commit_callback(self.session, _create_schedule)
+        AfterCommitQueue.of(self.session).add(_create_schedule)
 
         # Ensure the SQLAlchemy instance is persistent before refresh.
         # Commit will implicitly flush; when commit=False we must flush explicitly
@@ -173,7 +266,31 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         except NoResultFound as e:
             raise TracecatNotFoundError(f"Schedule {schedule_uuid} not found") from e
 
+    async def _get_schedule_with_workflow_lock(
+        self, schedule_id: AnyScheduleID
+    ) -> Schedule:
+        schedule_uuid = ScheduleUUID.new(schedule_id)
+        result = await self.session.execute(
+            select(Schedule)
+            .join(Workflow, Workflow.id == Schedule.workflow_id)
+            .where(
+                Schedule.workspace_id == self.workspace_id,
+                Schedule.id == schedule_uuid,
+                Workflow.workspace_id == self.workspace_id,
+            )
+            .with_for_update(of=Workflow)
+        )
+        try:
+            return result.scalar_one()
+        except NoResultFound as e:
+            raise TracecatNotFoundError(f"Schedule {schedule_uuid} not found") from e
+
     @require_scope("schedule:update")
+    @audit_log(
+        resource_type="schedule",
+        action="update",
+        attempt_metadata=_schedule_update_audit_details,
+    )
     async def update_schedule(
         self, schedule_id: AnyScheduleID, params: ScheduleUpdate
     ) -> Schedule:
@@ -197,7 +314,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         TracecatNotFoundError
             If there is an error updating the schedule.
         """
-        schedule = await self.get_schedule(schedule_id)
+        schedule = await self._get_schedule_with_workflow_lock(schedule_id)
 
         # Update the schedule in DB first
         for key, value in params.model_dump(exclude_unset=True).items():
@@ -221,13 +338,18 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     schedule_id=schedule_id,
                 )
 
-        add_after_commit_callback(self.session, _update_schedule)
+        AfterCommitQueue.of(self.session).add(_update_schedule)
 
         await self.session.commit()
         await self.session.refresh(schedule)
         return schedule
 
     @require_scope("schedule:delete")
+    @audit_log(
+        resource_type="schedule",
+        action="delete",
+        attempt_metadata=_suppress_delete_audit_when_deferred_commit,
+    )
     async def delete_schedule(
         self, schedule_id: AnyScheduleID, commit: bool = True
     ) -> None:
@@ -245,16 +367,26 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             If an error occurs while deleting the schedule from Temporal.
 
         """
-        # Stage DB delete (if exists)
-        try:
-            schedule = await self.get_schedule(schedule_id)
-            await self.session.delete(schedule)
-            logger.info("Deleted schedule", schedule_id=schedule_id)
-        except NoResultFound:
-            logger.warning(
-                "Schedule not found in DB; will still attempt Temporal delete after commit",
-                schedule_id=schedule_id,
-            )
+        await self._delete_schedule_impl(schedule_id, commit=commit)
+
+    async def _delete_schedule_impl(
+        self, schedule_id: AnyScheduleID, commit: bool = True
+    ) -> None:
+        """Implement schedule deletion for an authorized caller.
+
+        This internal method lets other methods on this service compose schedule
+        changes under their own authorization and audit lifecycle. External
+        callers must use :meth:`delete_schedule`.
+
+        Args:
+            schedule_id: ID of the schedule to delete.
+            commit: Whether to commit immediately. When ``False``, the method
+                flushes the deletion and leaves the transaction and registered
+                Temporal callback to the caller.
+        """
+        schedule = await self._get_schedule_with_workflow_lock(schedule_id)
+        await self.session.delete(schedule)
+        logger.info("Deleted schedule", schedule_id=schedule_id)
 
         # After-commit callback to delete Temporal schedule
         async def _delete_schedule():
@@ -271,7 +403,35 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     schedule_id=schedule_id,
                 )
 
-        add_after_commit_callback(self.session, _delete_schedule)
+        AfterCommitQueue.of(self.session).add(_delete_schedule)
+
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+
+    @require_scope("workflow:update")
+    async def replace_schedules(
+        self,
+        workflow_id: WorkflowID,
+        schedules: Sequence[ScheduleCreate],
+        commit: bool = True,
+    ) -> None:
+        """Replace all schedules for a workflow as part of a workflow edit.
+
+        This is the internal surface used by the edit-workflow document path. It
+        is gated by ``workflow:update`` (the workflow-edit permission) rather
+        than the standalone ``schedule:create``/``schedule:delete`` scopes, so a
+        user who is allowed to edit workflows can change their schedules without
+        also holding the admin-only ``schedule:delete`` scope. The delete and
+        create work is committed as a single transaction with the rest of the
+        edit.
+        """
+        existing = await self.list_schedules(workflow_id=workflow_id)
+        for schedule in existing:
+            await self._delete_schedule_impl(schedule.id, commit=False)
+        for params in schedules:
+            await self._create_schedule_impl(params, commit=False)
 
         if commit:
             await self.session.commit()
@@ -297,14 +457,30 @@ class WorkflowSchedulesService(BaseWorkspaceService):
 
         Raises
         ------
-        TracecatNotFoundError
-            If the schedule is not found.
+        ApplicationError
+            If the schedule cannot be loaded, with a classified Temporal failure.
         """
-        async with WorkflowSchedulesService.with_session(role=input.role) as service:
-            try:
+        try:
+            async with WorkflowSchedulesService.with_session(
+                role=input.role
+            ) as service:
                 schedule = await service.get_schedule(input.schedule_id)
                 if schedule.inputs is None:
                     return None
                 return InlineObject(data=schedule.inputs)
-            except TracecatNotFoundError:
-                raise
+        except TracecatNotFoundError as e:
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
+                message="Tracecat could not load the scheduled workflow trigger",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                cause=e,
+            )
+            raise_application_error_from_classification(classification)
+        except Exception as e:
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
+                message="Tracecat could not load the scheduled workflow trigger",
+                retry_disposition=RetryDisposition.RETRYABLE,
+                cause=e,
+            )
+            raise_application_error_from_classification(classification)

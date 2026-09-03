@@ -39,3 +39,18 @@ class EntitlementsDict(TypedDict, total=False):
             " (custom roles, groups, and assignments)"
         ),
     ]
+    service_accounts: Annotated[
+        bool,
+        Field(description="Whether service accounts for API key access are enabled"),
+    ]
+    workspace_chat: Annotated[
+        bool,
+        Field(description="Whether Workspace Chat is enabled"),
+    ]
+    watchtower: Annotated[
+        bool,
+        Field(
+            description="Whether Watchtower agent monitoring is enabled"
+            " (agent sessions, tool-call telemetry, and controls)"
+        ),
+    ]

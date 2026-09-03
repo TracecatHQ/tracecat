@@ -14,6 +14,16 @@ from tracecat.tables.common import (
 )
 from tracecat.tables.enums import SqlType
 
+IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _validate_identifier_name(value: str, *, kind: str) -> str:
+    if not IDENTIFIER_PATTERN.match(value):
+        raise ValueError(
+            f"{kind} name must contain only letters, numbers, and underscores, and start with a letter or underscore"
+        )
+    return value
+
 
 class TableColumnRead(BaseModel):
     """Definition for a table column."""
@@ -50,12 +60,7 @@ class TableColumnCreate(BaseModel):
     @classmethod
     def validate_column_name(cls, value: str) -> str:
         """Validate column name to prevent SQL injection."""
-        # Only allow alphanumeric characters and underscores
-        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", value):
-            raise ValueError(
-                "Column name must contain only letters, numbers, and underscores, and start with a letter or underscore"
-            )
-        return value
+        return _validate_identifier_name(value, kind="Column")
 
     @model_validator(mode="after")
     def validate_enum_options(self) -> "TableColumnCreate":
@@ -107,9 +112,16 @@ class TableColumnUpdate(BaseModel):
     )
     is_index: bool | None = Field(
         default=None,
-        description="Whether the column is an index",
+        description="True creates a unique index, False drops it, None leaves unchanged.",
     )
     options: list[str] | None = Field(default=None)
+
+    @field_validator("name")
+    @classmethod
+    def validate_column_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validate_identifier_name(value, kind="Column")
 
     @model_validator(mode="after")
     def normalise_options(self) -> "TableColumnUpdate":
@@ -183,6 +195,8 @@ class TableReadMinimal(Schema):
 
     id: TableID
     name: str
+    created_at: datetime
+    updated_at: datetime
 
 
 class TableRead(Schema):
@@ -228,12 +242,7 @@ class TableCreate(BaseModel):
     @classmethod
     def validate_table_name(cls, value: str) -> str:
         """Validate table name to prevent SQL injection."""
-        # Only allow alphanumeric characters and underscores
-        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", value):
-            raise ValueError(
-                "Table name must contain only letters, numbers, and underscores, and start with a letter or underscore"
-            )
-        return value
+        return _validate_identifier_name(value, kind="Table")
 
 
 class TableUpdate(BaseModel):
@@ -248,13 +257,11 @@ class TableUpdate(BaseModel):
 
     @field_validator("name")
     @classmethod
-    def validate_table_name(cls, value: str) -> str:
+    def validate_table_name(cls, value: str | None) -> str | None:
         """Validate table name to prevent SQL injection."""
-        if value is not None and not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", value):
-            raise ValueError(
-                "Table name must contain only letters, numbers, and underscores, and start with a letter or underscore"
-            )
-        return value
+        if value is None:
+            return None
+        return _validate_identifier_name(value, kind="Table")
 
 
 class TableImportResponse(BaseModel):

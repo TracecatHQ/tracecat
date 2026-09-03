@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Get disk encryption summary
+  description: Get aggregate disk encryption (FileVault and BitLocker) status counts by OS.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-disk-encryption-status
+  namespace: tools.fleetdm
+  name: get_disk_encryption_summary
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    fleet_id:
+      type: int | None
+      description: Scope the summary to a fleet (team) ID.
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            fleet_id: ${{ inputs.fleet_id }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
+    - ref: disk_encryption
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/disk_encryption
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.disk_encryption.result.data }}

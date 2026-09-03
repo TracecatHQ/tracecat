@@ -186,6 +186,23 @@ def test_thinking_block_delta_empty():
     assert unified.thinking == ""
 
 
+def test_signature_delta_is_non_text_noop():
+    """Test signature_delta is ignored as replay metadata."""
+    native = make_stream_event(
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "signature_delta", "signature": "sig-123"},
+        }
+    )
+    unified = ClaudeSDKAdapter().to_unified_event(native)
+
+    assert unified.type == StreamEventType.MESSAGE_START
+    assert unified.part_id == 0
+    assert unified.text is None
+    assert unified.thinking is None
+
+
 def test_thinking_block_stop():
     """Test thinking content_block_stop event conversion."""
     adapter = ClaudeSDKAdapter()
@@ -370,6 +387,51 @@ def test_tool_use_block_stop_empty_args():
 
     assert unified.type == StreamEventType.TOOL_CALL_STOP
     assert unified.tool_input == {}
+
+
+@pytest.mark.parametrize("tool_name", ["Agent", "Task"])
+def test_agent_tool_stop_emits_effective_input(tool_name: str) -> None:
+    """Agent runtime controls are removed from the unified UI event."""
+    adapter = ClaudeSDKAdapter()
+    content_block: ToolUseContentBlock = {
+        "type": "tool_use",
+        "id": "toolu_agent",
+        "name": tool_name,
+        "input": {},
+    }
+    adapter.to_unified_event(
+        make_stream_event(
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": content_block,
+            }
+        )
+    )
+    adapter.to_unified_event(
+        make_stream_event(
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": (
+                        '{"subagent_type":"case-agent","prompt":"List cases",'
+                        '"model":"sonnet","isolation":"worktree"}'
+                    ),
+                },
+            }
+        )
+    )
+
+    unified = adapter.to_unified_event(
+        make_stream_event({"type": "content_block_stop", "index": 0})
+    )
+
+    assert unified.tool_input == {
+        "subagent_type": "case-agent",
+        "prompt": "List cases",
+    }
 
 
 def test_tool_use_block_stop_invalid_json():

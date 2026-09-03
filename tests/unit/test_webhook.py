@@ -11,6 +11,7 @@ from fastapi import HTTPException, Request
 from fastapi.datastructures import FormData
 from sqlalchemy.exc import NoResultFound
 
+from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Webhook, WorkflowDefinition
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -249,7 +250,7 @@ class TestValidateIncomingWebhook:
         token = ctx_role.set(None)
         try:
             with patch(
-                "tracecat.webhooks.dependencies.get_async_session_context_manager",
+                "tracecat.webhooks.dependencies.get_async_session_bypass_rls_context_manager",
                 return_value=mock_session_cm,
             ):
                 await validate_incoming_webhook(workflow_id, webhook_secret, request)
@@ -298,7 +299,7 @@ class TestValidateIncomingWebhook:
         token = ctx_role.set(None)
         try:
             with patch(
-                "tracecat.webhooks.dependencies.get_async_session_context_manager",
+                "tracecat.webhooks.dependencies.get_async_session_bypass_rls_context_manager",
                 return_value=mock_session_cm,
             ):
                 with pytest.raises(HTTPException) as exc_info:
@@ -427,7 +428,7 @@ class TestWebhookSecret:
         # Call the actual property implementation
         secret_getter = Webhook.secret.fget
         assert secret_getter is not None
-        with patch.dict("os.environ", {"TRACECAT__SIGNING_SECRET": signing_secret}):
+        with patch.object(config, "TRACECAT__SIGNING_SECRET", signing_secret):
             actual_secret = secret_getter(webhook)
 
         assert actual_secret == expected_secret, (
@@ -457,7 +458,7 @@ class TestWebhookSecret:
         # Call the actual property implementation
         secret_getter = Webhook.secret.fget
         assert secret_getter is not None
-        with patch.dict("os.environ", {"TRACECAT__SIGNING_SECRET": signing_secret}):
+        with patch.object(config, "TRACECAT__SIGNING_SECRET", signing_secret):
             actual_secret = secret_getter(webhook)
 
         assert actual_secret != wrong_secret, (
@@ -486,7 +487,7 @@ class TestWebhookSecret:
         webhook.id = webhook_id
         secret_getter = Webhook.secret.fget
         assert secret_getter is not None
-        with patch.dict("os.environ", {"TRACECAT__SIGNING_SECRET": signing_secret}):
+        with patch.object(config, "TRACECAT__SIGNING_SECRET", signing_secret):
             actual_secret = secret_getter(webhook)
 
         assert actual_secret == expected_secret, (

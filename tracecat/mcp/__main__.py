@@ -27,7 +27,10 @@ def _run_mcp_server() -> None:
     else:
         module = importlib.import_module(server_module_name)
     module.mcp.run(
-        transport="streamable-http", host=TRACECAT_MCP__HOST, port=TRACECAT_MCP__PORT
+        transport="streamable-http",
+        host=TRACECAT_MCP__HOST,
+        port=TRACECAT_MCP__PORT,
+        stateless_http=True,
     )
 
 
@@ -41,19 +44,22 @@ def main() -> None:
         except KeyboardInterrupt:
             logger.info("MCP server interrupted; shutting down")
             return
-        except Exception:
+        except Exception as e:
             should_retry = attempt < max_attempts
+            error = str(e)
             if not should_retry:
-                logger.exception(
+                logger.error(
                     "MCP server failed to start after maximum startup attempts",
                     attempts=max_attempts,
+                    error=error,
                 )
                 raise SystemExit(1) from None
-            logger.exception(
+            logger.warning(
                 "MCP server startup failed; retrying",
                 attempt=attempt,
                 max_attempts=max_attempts,
                 retry_delay_seconds=TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS,
+                error=error,
             )
             time.sleep(max(TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS, 0.0))
 

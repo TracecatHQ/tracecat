@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Stop stream
+  description: Stop and finalize a Slack streaming message.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/chat.stopStream/
+  namespace: tools.slack
+  name: stop_stream
+  expects:
+    channel:
+      type: str
+      description: ID of the channel containing the streaming message.
+    ts:
+      type: str
+      description: Timestamp of the streaming message.
+    markdown_text:
+      type: str | None
+      description: Final markdown-formatted text to append before stopping the stream.
+      default: null
+    chunks:
+      type: list[dict[str, Any]] | None
+      description: Final streaming chunks, such as markdown_text, task_update, plan_update, or blocks chunks.
+      default: null
+    blocks:
+      type: list[dict[str, Any]] | None
+      description: Blocks rendered at the bottom of the finalized message.
+      default: null
+    metadata:
+      type: dict[str, Any] | None
+      description: Slack message metadata with event_type and event_payload fields.
+      default: null
+  steps:
+    - ref: stop_stream
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: chat_stopStream
+        params:
+          channel: ${{ inputs.channel }}
+          ts: ${{ inputs.ts }}
+          markdown_text: ${{ inputs.markdown_text }}
+          chunks: ${{ inputs.chunks }}
+          blocks: ${{ inputs.blocks }}
+          metadata: ${{ inputs.metadata }}
+  returns: ${{ steps.stop_stream.result }}

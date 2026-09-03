@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Update project security settings
+  description: >-
+    Update project security settings. Calls PUT /projects/{project_id}/security_settings directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: update_project_security_settings
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    secret_push_protection_enabled:
+      type: bool
+      description: Enables secret push protection for the project.
+    base_url:
+      type: str
+      description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
+      default: https://gitlab.com/api/v4
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/security_settings
+        method: PUT
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Accept: application/json
+        payload:
+          secret_push_protection_enabled: ${{ inputs.secret_push_protection_enabled }}
+  returns: ${{ steps.request.result }}

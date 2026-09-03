@@ -8,6 +8,7 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks"
+import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function NoAccessibleSections() {
@@ -36,15 +37,20 @@ export default function WorkspacePage() {
   const canViewWorkflows = useScopeCheck("workflow:read")
   const canViewCases = useScopeCheck("case:read")
   const canViewAgents = useScopeCheck("agent:read")
+  const canExecuteAgents = useScopeCheck("agent:execute")
   const canViewTables = useScopeCheck("table:read")
   const canViewVariables = useScopeCheck("variable:read")
   const canViewSecrets = useScopeCheck("secret:read")
   const canViewIntegrations = useScopeCheck("integration:read")
+  const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewInbox = useScopeCheck("inbox:read")
+  const canReadWorkspace = useScopeCheck("workspace:read")
 
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const serviceAccountsEnabled = hasEntitlement("service_accounts")
+  const workspaceChatEnabled = hasEntitlement("workspace_chat")
 
   const isLoading =
     entitlementsLoading ||
@@ -52,12 +58,15 @@ export default function WorkspacePage() {
       canViewWorkflows,
       canViewCases,
       canViewAgents,
+      canExecuteAgents,
       canViewTables,
       canViewVariables,
       canViewSecrets,
       canViewIntegrations,
+      canViewServiceAccounts,
       canViewMembers,
       canViewInbox,
+      canReadWorkspace,
     ].some((value) => value === undefined)
 
   const landingPath = useMemo(() => {
@@ -65,6 +74,15 @@ export default function WorkspacePage() {
       return undefined
     }
     const basePath = `/workspaces/${workspaceId}`
+    const canUseWorkspaceChat =
+      canReadWorkspace === true &&
+      canViewAgents === true &&
+      canExecuteAgents === true &&
+      workspaceChatEnabled
+
+    if (canUseWorkspaceChat) {
+      return getWorkspaceLandingPath(workspaceId)
+    }
     if (canViewWorkflows === true) {
       return `${basePath}/workflows`
     }
@@ -86,6 +104,13 @@ export default function WorkspacePage() {
     if (canViewIntegrations === true) {
       return `${basePath}/integrations`
     }
+    if (
+      canReadWorkspace === true &&
+      canViewServiceAccounts === true &&
+      serviceAccountsEnabled
+    ) {
+      return `${basePath}/service-accounts`
+    }
     if (canViewMembers === true) {
       return `${basePath}/members`
     }
@@ -95,16 +120,21 @@ export default function WorkspacePage() {
     return null
   }, [
     agentAddonsEnabled,
+    canExecuteAgents,
+    workspaceChatEnabled,
     canViewAgents,
     canViewCases,
     canViewInbox,
     canViewIntegrations,
     canViewMembers,
     canViewSecrets,
+    canViewServiceAccounts,
+    canReadWorkspace,
     canViewTables,
     canViewVariables,
     canViewWorkflows,
     isLoading,
+    serviceAccountsEnabled,
     workspaceId,
   ])
 

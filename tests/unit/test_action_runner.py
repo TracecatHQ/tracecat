@@ -6,16 +6,16 @@ These tests cover tarball caching, cache key computation, and execution logic.
 from __future__ import annotations
 
 import asyncio
-import json
+import contextlib
+import shutil
 import tempfile
-import threading
 import uuid
-from contextlib import contextmanager
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import orjson
 import pytest
 
 from tracecat import config
@@ -23,70 +23,25 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
-from tracecat.executor.action_runner import ActionRunner, _parse_s3_uri
+from tracecat.executor import action_runner
+from tracecat.executor.action_runner import ActionRunner
+from tracecat.executor.registry_artifacts import compute_registry_artifact_cache_key
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
     ResolvedContext,
 )
+from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.sandbox import utils as sandbox_utils
+from tracecat.sandbox.exceptions import SandboxError, SandboxWorkloadError
+from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 
 
-@contextmanager
-def _mock_tracecat_api_server(expected_token: str):
-    """Start a lightweight HTTP server for SDK integration testing."""
-    state: dict[str, object] = {"requests": []}
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_POST(self) -> None:  # noqa: N802
-            content_length = int(self.headers.get("Content-Length", "0"))
-            raw_body = self.rfile.read(content_length)
-            payload = json.loads(raw_body.decode() or "{}")
-            authorization = self.headers.get("Authorization")
-
-            requests = state["requests"]
-            if isinstance(requests, list):
-                requests.append(
-                    {
-                        "path": self.path,
-                        "payload": payload,
-                        "authorization": authorization,
-                    }
-                )
-
-            if self.path != "/internal/tables/customers/search":
-                self.send_response(404)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(b'{"detail":"Not Found"}')
-                return
-
-            if authorization != f"Bearer {expected_token}":
-                self.send_response(401)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(b'{"detail":"Unauthorized"}')
-                return
-
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'[{"id":"row-1","name":"Alice"}]')
-
-        def log_message(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-            return
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    base_url = f"http://127.0.0.1:{server.server_address[1]}"
-    try:
-        yield base_url, state
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
-        server.server_close()
+def _empty_secret_projection() -> SecretEnvProjection:
+    """Return an empty secret projection for direct runner unit tests."""
+    return SecretEnvProjection(env={}, mask_values=set())
 
 
 @pytest.fixture
@@ -135,157 +90,86 @@ def temp_cache_dir():
         yield Path(tmpdir)
 
 
-class TestParseS3Uri:
-    """Tests for _parse_s3_uri function."""
-
-    def test_valid_uri(self):
-        """Test parsing a valid S3 URI."""
-        bucket, key = _parse_s3_uri("s3://my-bucket/path/to/file.tar.gz")
-        assert bucket == "my-bucket"
-        assert key == "path/to/file.tar.gz"
-
-    def test_uri_with_nested_path(self):
-        """Test parsing URI with deeply nested path."""
-        bucket, key = _parse_s3_uri("s3://bucket/a/b/c/d/e/file.tar.gz")
-        assert bucket == "bucket"
-        assert key == "a/b/c/d/e/file.tar.gz"
-
-    def test_invalid_uri_no_prefix(self):
-        """Test that non-S3 URIs raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid S3 URI"):
-            _parse_s3_uri("https://bucket/key")
-
-    def test_invalid_uri_no_key(self):
-        """Test that URIs without keys raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid S3 URI"):
-            _parse_s3_uri("s3://bucket")
-
-    def test_invalid_uri_empty_bucket(self):
-        """Test that URIs with empty bucket raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid S3 URI"):
-            _parse_s3_uri("s3:///key")
-
-
 class TestActionRunner:
     """Tests for ActionRunner class."""
 
-    def test_compute_tarball_cache_key_deterministic(self, temp_cache_dir):
-        """Test that cache key computation is deterministic."""
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-        uri = "s3://bucket/path/to/registry-v1.2.3.tar.gz"
+    @pytest.fixture(autouse=True)
+    def resolve_setpriv(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Resolve setpriv on non-Linux developer machines.
 
-        key1 = runner.compute_tarball_cache_key(uri)
-        key2 = runner.compute_tarball_cache_key(uri)
+        The direct runner command is Linux-only in production. These tests mock
+        the spawn, so only the lookup has to succeed for the command to build.
+        """
+        real_which = shutil.which
 
-        assert key1 == key2
-        assert len(key1) == 16  # SHA256[:16]
+        def which(cmd: str, *args, **kwargs) -> str | None:
+            resolved = real_which(cmd, *args, **kwargs)
+            if resolved is None and cmd == "setpriv":
+                return "/usr/bin/setpriv"
+            return resolved
 
-    def test_compute_tarball_cache_key_case_sensitive(self, temp_cache_dir):
-        """Test that cache key is case-sensitive (S3 keys are case-sensitive)."""
-        runner = ActionRunner(cache_dir=temp_cache_dir)
+        monkeypatch.setattr(action_runner.shutil, "which", which)
 
-        key1 = runner.compute_tarball_cache_key("s3://BUCKET/PATH/FILE.tar.gz")
-        key2 = runner.compute_tarball_cache_key("s3://bucket/path/file.tar.gz")
+    @pytest.fixture(autouse=True)
+    def mock_process_group_communication(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> AsyncMock:
+        """Keep subprocess unit tests focused on ActionRunner behavior."""
+        real_communication = action_runner.communicate_process_group
 
-        # S3 keys are case-sensitive, so different cases should produce different keys
-        assert key1 != key2
-
-    def test_compute_tarball_cache_key_different_uris(self, temp_cache_dir):
-        """Test that different URIs produce different cache keys."""
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-
-        key1 = runner.compute_tarball_cache_key("s3://bucket/v1.tar.gz")
-        key2 = runner.compute_tarball_cache_key("s3://bucket/v2.tar.gz")
-
-        assert key1 != key2
-
-    def test_compute_tarball_cache_key_empty(self, temp_cache_dir):
-        """Test that empty URI returns 'base'."""
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-
-        key = runner.compute_tarball_cache_key("")
-        assert key == "base"
-
-    def test_compute_tarball_cache_key_strips_whitespace(self, temp_cache_dir):
-        """Test that whitespace is stripped."""
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-
-        key1 = runner.compute_tarball_cache_key("s3://bucket/file.tar.gz")
-        key2 = runner.compute_tarball_cache_key("  s3://bucket/file.tar.gz  ")
-
-        assert key1 == key2
-
-    @pytest.mark.anyio
-    async def test_ensure_tarball_extracted_caches_result(self, temp_cache_dir):
-        """Test that tarball extraction is cached."""
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-        cache_key = "test-cache-key"
-
-        # Create the target directory to simulate cached result
-        target_dir = temp_cache_dir / f"tarball-{cache_key}"
-        target_dir.mkdir(parents=True)
-
-        # Should return immediately without downloading
-        result = await runner.ensure_tarball_extracted(
-            cache_key, "s3://bucket/test.tar.gz"
-        )
-
-        assert result == target_dir
-
-    @pytest.mark.anyio
-    async def test_ensure_tarball_extracted_concurrent_requests(self, temp_cache_dir):
-        """Test that concurrent requests for same tarball don't race."""
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-        cache_key = "concurrent-test"
-        download_count = 0
-
-        async def mock_download(_url, path):
-            nonlocal download_count
-            download_count += 1
-            await asyncio.sleep(0.1)  # Simulate download time
-            path.write_bytes(b"fake tarball content")
-
-        async def mock_extract(_tarball_path, target_dir):
-            # Create a dummy file to simulate extraction
-            (target_dir / "extracted.txt").write_text("extracted")
-
-        with (
-            patch.object(runner, "_download_file", mock_download),
-            patch.object(runner, "_extract_tarball", mock_extract),
-            patch.object(
-                runner,
-                "_tarball_uri_to_http_url",
-                new_callable=AsyncMock,
-                return_value="http://test",
-            ),
-        ):
-            # Start multiple concurrent requests
-            results = await asyncio.gather(
-                runner.ensure_tarball_extracted(cache_key, "s3://bucket/test.tar.gz"),
-                runner.ensure_tarball_extracted(cache_key, "s3://bucket/test.tar.gz"),
-                runner.ensure_tarball_extracted(cache_key, "s3://bucket/test.tar.gz"),
+        async def communicate(
+            process: asyncio.subprocess.Process | AsyncMock,
+            *,
+            input: bytes | None = None,  # noqa: A002
+            timeout: float | None = None,
+            terminate: Callable[[asyncio.subprocess.Process], Awaitable[None]]
+            | None = None,
+        ) -> tuple[bytes, bytes]:
+            if isinstance(process, asyncio.subprocess.Process):
+                return await real_communication(
+                    process,
+                    input=input,
+                    timeout=timeout,
+                    terminate=terminate,
+                )
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(input=input),
+                timeout=timeout,
             )
+            assert stdout is not None
+            assert stderr is not None
+            return stdout, stderr
 
-            # All should return the same path
-            assert all(r == results[0] for r in results)
-
-            # Should only download once due to locking
-            assert download_count == 1
+        communication = AsyncMock(side_effect=communicate)
+        monkeypatch.setattr(
+            action_runner,
+            "communicate_process_group",
+            communication,
+        )
+        return communication
 
     @pytest.mark.anyio
-    async def test_ensure_registry_environment_no_tarball(self, temp_cache_dir):
-        """Test that None is returned when no tarball URI provided."""
+    async def test_lease_without_artifacts_yields_no_registry_paths(
+        self, temp_cache_dir
+    ):
+        """An artifact-free action receives no extra registry import paths."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
 
-        result = await runner.ensure_registry_environment(None)
-        assert result is None
+        async with runner.registry_artifacts.lease(None) as registry_paths:
+            assert registry_paths == []
 
-        result = await runner.ensure_registry_environment("")
-        assert result is None
+        async with runner.registry_artifacts.lease([]) as registry_paths:
+            assert registry_paths == []
+
+        assert not (temp_cache_dir / "base").exists()
 
     @pytest.mark.anyio
     async def test_execute_action_timeout(
-        self, temp_cache_dir, mock_run_action_input, mock_role
+        self,
+        temp_cache_dir,
+        mock_run_action_input,
+        mock_role,
+        mock_process_group_communication: AsyncMock,
     ):
         """Test that action execution respects timeout."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
@@ -319,12 +203,66 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=0.1,
             )
 
             assert isinstance(result, ExecutorActionErrorInfo)
             assert result.type == "TimeoutError"
-            mock_proc.kill.assert_called_once()
+            mock_process_group_communication.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_cancelled_direct_action_kills_and_reaps_subprocess(
+        self, temp_cache_dir, mock_run_action_input, mock_role
+    ) -> None:
+        """Cancellation propagates only after the direct child is reaped."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        real_create_subprocess_exec = asyncio.create_subprocess_exec
+        process_started = asyncio.Event()
+        process: asyncio.subprocess.Process | None = None
+
+        async def capture_subprocess(*args, **kwargs):
+            nonlocal process
+            process = await real_create_subprocess_exec(*args, **kwargs)
+            process_started.set()
+            return process
+
+        with (
+            patch.object(
+                action_runner,
+                "_direct_subprocess_command",
+                return_value=["/bin/sleep", "30"],
+            ),
+            patch(
+                "tracecat.executor.action_runner.asyncio.create_subprocess_exec",
+                side_effect=capture_subprocess,
+            ),
+        ):
+            execution = asyncio.create_task(
+                runner._execute_direct(
+                    input=mock_run_action_input,
+                    role=mock_role,
+                    registry_paths=[base_dir],
+                    secret_projection=_empty_secret_projection(),
+                    timeout=60.0,
+                )
+            )
+            try:
+                await process_started.wait()
+                await asyncio.sleep(0)
+                execution.cancel()
+
+                with pytest.raises(asyncio.CancelledError):
+                    await execution
+
+                assert process is not None
+                assert process.returncode is not None
+            finally:
+                if process is not None and process.returncode is None:
+                    process.kill()
+                    await process.wait()
 
     @pytest.mark.anyio
     async def test_execute_action_subprocess_crash(
@@ -345,6 +283,7 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=10.0,
             )
 
@@ -375,6 +314,7 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=10.0,
             )
 
@@ -415,6 +355,7 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=10.0,
             )
 
@@ -424,9 +365,14 @@ class TestActionRunner:
 
     @pytest.mark.anyio
     async def test_execute_action_sets_sdk_context_env(
-        self, temp_cache_dir, mock_run_action_input, mock_role
+        self,
+        temp_cache_dir,
+        mock_run_action_input,
+        mock_role,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """Test direct subprocess execution sets SDK auth/context env vars."""
+        monkeypatch.setenv("SENTRY_DSN", "https://public@example.com/1")
         runner = ActionRunner(cache_dir=temp_cache_dir)
         base_dir = temp_cache_dir / "base"
         base_dir.mkdir()
@@ -470,6 +416,7 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=10.0,
                 resolved_context=resolved_context,
             )
@@ -487,15 +434,29 @@ class TestActionRunner:
             == mock_run_action_input.run_context.environment
         )
         assert captured_env["TRACECAT__EXECUTOR_TOKEN"] == "test-executor-token"
+        assert "SENTRY_DSN" not in captured_env
 
     @pytest.mark.anyio
-    async def test_execute_action_registry_sdk_call_succeeds(
-        self, temp_cache_dir, mock_run_action_input, mock_role, monkeypatch
+    async def test_execute_action_sets_action_gateway_env(
+        self,
+        temp_cache_dir,
+        mock_run_action_input,
+        mock_role,
+        monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test direct subprocess can execute a real registry SDK table call."""
+        """Direct execution injects the mandatory gateway socket into SDK env."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
         base_dir = temp_cache_dir / "base"
         base_dir.mkdir()
+
+        monkeypatch.setattr(
+            action_runner.config,
+            "TRACECAT__ACTION_GATEWAY_SOCKET",
+            "/var/run/tracecat/action-gateway.sock",
+        )
+
+        success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
+        captured_env: dict[str, str] = {}
 
         resolved_context = ResolvedContext(
             secrets={},
@@ -506,35 +467,274 @@ class TestActionRunner:
                 module="tracecat_registry.core.table",
                 name="search_rows",
             ),
-            evaluated_args={"table": "customers", "search_term": "alice", "limit": 1},
+            evaluated_args={"table": "customers"},
             workspace_id=str(mock_role.workspace_id),
             workflow_id=str(mock_run_action_input.run_context.wf_id),
             run_id=str(mock_run_action_input.run_context.wf_run_id),
             executor_token="test-executor-token",
         )
 
-        with _mock_tracecat_api_server("test-executor-token") as (api_url, state):
-            monkeypatch.setattr(config, "TRACECAT__API_URL", api_url)
+        async def create_subprocess_exec_side_effect(*args, **kwargs):  # noqa: ARG001
+            env = kwargs.get("env")
+            assert isinstance(env, dict)
+            captured_env.update(env)
+
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
+            return mock_proc
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=create_subprocess_exec_side_effect,
+        ):
             result = await runner._execute_direct(
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=10.0,
                 resolved_context=resolved_context,
             )
 
-        assert result == [{"id": "row-1", "name": "Alice"}]
-        requests = state["requests"]
-        assert isinstance(requests, list)
-        assert len(requests) == 1
-        request = requests[0]
-        assert request["path"] == "/internal/tables/customers/search"
-        assert request["authorization"] == "Bearer test-executor-token"
-        assert request["payload"] == {
-            "search_term": "alice",
-            "limit": 1,
-            "reverse": False,
-        }
+        assert result == {"data": "test"}
+        assert (
+            captured_env["TRACECAT__ACTION_GATEWAY_SOCKET"]
+            == "/var/run/tracecat/action-gateway.sock"
+        )
+
+    @pytest.mark.anyio
+    async def test_sandbox_preserves_attested_executor_token(
+        self,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        captured_env: dict[str, str] = {}
+        resolved_context = ResolvedContext(
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.table.search_rows",
+                module="tracecat_registry.core.table",
+                name="search_rows",
+            ),
+            evaluated_args={"table": "customers"},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="attested-executor-token",
+        )
+
+        async def execute_action(
+            _executor: action_runner.NsjailExecutor,
+            _job_dir: Path,
+            sandbox_config: action_runner.ActionSandboxConfig,
+        ) -> SandboxResult:
+            captured_env.update(sandbox_config.env_vars)
+            return SandboxResult(success=True, output={"data": "test"})
+
+        monkeypatch.setattr(
+            action_runner.NsjailExecutor,
+            "execute_action",
+            execute_action,
+        )
+
+        result = await runner._execute_sandboxed(
+            input=mock_run_action_input,
+            role=mock_role,
+            registry_paths=[base_dir],
+            secret_projection=_empty_secret_projection(),
+            resolved_context=resolved_context,
+        )
+
+        assert result == {"data": "test"}
+        assert (
+            captured_env["TRACECAT__EXECUTOR_TOKEN"] == resolved_context.executor_token
+        )
+
+    @pytest.mark.anyio
+    async def test_sandbox_infrastructure_result_raises_typed_error(
+        self,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A missing sandbox result remains distinct from user action output."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        resolved_context = ResolvedContext(
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.http_request",
+                module="tracecat_registry.core.http",
+                name="http_request",
+            ),
+            evaluated_args={},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="synthetic-executor-token",
+        )
+
+        async def execute_action(
+            _executor: action_runner.NsjailExecutor,
+            _job_dir: Path,
+            _sandbox_config: action_runner.ActionSandboxConfig,
+        ) -> SandboxResult:
+            return SandboxResult(
+                success=False,
+                error="synthetic nsjail diagnostic",
+                error_code=SandboxErrorCode.INFRASTRUCTURE_FAILURE,
+                exit_code=255,
+            )
+
+        monkeypatch.setattr(
+            action_runner.NsjailExecutor,
+            "execute_action",
+            execute_action,
+        )
+
+        with pytest.raises(SandboxError, match="infrastructure failed"):
+            await runner._execute_sandboxed(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
+                resolved_context=resolved_context,
+            )
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "error_code",
+        [
+            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            SandboxErrorCode.POLICY_VIOLATION,
+            SandboxErrorCode.WORKLOAD_FAILURE,
+        ],
+    )
+    async def test_sandbox_workload_result_raises_typed_user_error(
+        self,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+        error_code: SandboxErrorCode,
+    ) -> None:
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        resolved_context = ResolvedContext(
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.http_request",
+                module="tracecat_registry.core.http",
+                name="http_request",
+            ),
+            evaluated_args={},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="synthetic-executor-token",
+        )
+
+        async def execute_action(
+            _executor: action_runner.NsjailExecutor,
+            _job_dir: Path,
+            _sandbox_config: action_runner.ActionSandboxConfig,
+        ) -> SandboxResult:
+            return SandboxResult(
+                success=False,
+                error="synthetic workload diagnostic",
+                error_code=error_code,
+                exit_code=1,
+            )
+
+        monkeypatch.setattr(
+            action_runner.NsjailExecutor,
+            "execute_action",
+            execute_action,
+        )
+
+        with pytest.raises(SandboxWorkloadError) as exc_info:
+            await runner._execute_sandboxed(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
+                resolved_context=resolved_context,
+            )
+
+        assert exc_info.value.error_code is error_code
+
+    @pytest.mark.anyio
+    async def test_execute_action_disables_new_privileges_for_direct_subprocess(
+        self,
+        temp_cache_dir,
+        mock_run_action_input,
+        mock_role,
+        mock_process_group_communication: AsyncMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Test direct execution supervises the action and drops privileges."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+
+        import orjson
+
+        success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
+        captured_args: list[str] = []
+
+        async def create_subprocess_exec_side_effect(*args, **kwargs):  # noqa: ARG001
+            captured_args[:] = list(args)
+
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
+            return mock_proc
+
+        monkeypatch.setattr(
+            action_runner.shutil,
+            "which",
+            lambda name: "/usr/bin/setpriv" if name == "setpriv" else None,
+        )
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=create_subprocess_exec_side_effect,
+        ):
+            result = await runner._execute_direct(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
+                timeout=10.0,
+            )
+
+        assert result == {"data": "test"}
+        assert captured_args[:4] == [
+            "/usr/bin/setpriv",
+            "--no-new-privs",
+            "--inh-caps=-all",
+            "--ambient-caps=-all",
+        ]
+        assert captured_args[-5] == action_runner.sys.executable
+        assert captured_args[-4] == "-I"
+        assert captured_args[-3].endswith("process_supervisor.py")
+        assert captured_args[-2] == action_runner.sys.executable
+        assert captured_args[-1].endswith("minimal_runner.py")
+        communication_call = mock_process_group_communication.await_args
+        assert communication_call is not None
+        assert (
+            communication_call.kwargs["terminate"]
+            is action_runner.terminate_supervised_process
+        )
 
     @pytest.mark.anyio
     async def test_execute_action_invalid_json_response(
@@ -555,6 +755,7 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=10.0,
             )
 
@@ -562,21 +763,235 @@ class TestActionRunner:
             assert result.type == "ProtocolError"
 
     @pytest.mark.anyio
-    async def test_get_extraction_lock_same_key(self, temp_cache_dir):
-        """Test that same cache key returns same lock."""
+    async def test_execute_action_masks_stderr_on_subprocess_crash(
+        self, temp_cache_dir, mock_run_action_input, mock_role
+    ) -> None:
         runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
 
-        lock1 = await runner._get_extraction_lock("key1")
-        lock2 = await runner._get_extraction_lock("key1")
+        with patch("asyncio.create_subprocess_exec") as mock_subprocess:
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 17
+            mock_proc.communicate = AsyncMock(
+                return_value=(b"", b"token=temp_token secret=temp_secret")
+            )
+            mock_subprocess.return_value = mock_proc
 
-        assert lock1 is lock2
+            result = await runner._execute_direct(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                secret_projection=SecretEnvProjection(
+                    env={},
+                    mask_values={"temp_token", "temp_secret"},
+                ),
+                timeout=10.0,
+            )
+
+        assert isinstance(result, ExecutorActionErrorInfo)
+        assert result.type == "SubprocessError"
+        assert "temp_token" not in result.message
+        assert "temp_secret" not in result.message
+        assert "***" in result.message
 
     @pytest.mark.anyio
-    async def test_get_extraction_lock_different_keys(self, temp_cache_dir):
-        """Test that different cache keys return different locks."""
+    async def test_execute_action_holds_registry_lease_for_whole_subprocess(
+        self,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The artifact stays pinned until the action subprocess has exited."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
+        artifact_uri = "s3://bucket/execute.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        entry_dir = runner.registry_artifacts._paths_for(cache_key).tarball_target_dir
+        entry_dir.mkdir(parents=True)
 
-        lock1 = await runner._get_extraction_lock("key1")
-        lock2 = await runner._get_extraction_lock("key2")
+        monkeypatch.setattr(
+            action_runner.config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False
+        )
 
-        assert lock1 is not lock2
+        success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
+        refcounts: list[int] = []
+        registry_paths: list[str] = []
+
+        resolved_context = ResolvedContext(
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.table.search_rows",
+                module="tracecat_registry.core.table",
+                name="search_rows",
+            ),
+            evaluated_args={"table": "customers"},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="test-executor-token",
+            secret_projection=_empty_secret_projection(),
+        )
+
+        async def create_subprocess_exec_side_effect(*args, **kwargs):  # noqa: ARG001
+            refcounts.append(runner.registry_artifacts._refcount(cache_key))
+            env = kwargs.get("env")
+            assert isinstance(env, dict)
+            registry_paths.append(env["PYTHONPATH"])
+
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
+            return mock_proc
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=create_subprocess_exec_side_effect,
+        ):
+            result = await runner.execute_action(
+                input=mock_run_action_input,
+                role=mock_role,
+                resolved_context=resolved_context,
+                artifact_uris=[artifact_uri],
+                timeout=10.0,
+            )
+
+        assert result == {"data": "test"}
+        assert refcounts == [1]
+        assert registry_paths[0].startswith(str(entry_dir))
+        assert runner.registry_artifacts._refcount(cache_key) == 0
+
+    @pytest.mark.anyio
+    async def test_cancelled_action_reaps_child_before_releasing_mounted_artifact(
+        self,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Protect the subprocess-to-cache ownership boundary on cancellation.
+
+        Cancellation must kill and reap the action before dropping its registry
+        pin; only then may final release unmount the artifact. This prevents a
+        child from importing through a reclaimed mount while still retaining
+        the reusable SquashFS image for the next action.
+        """
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        cache = runner.registry_artifacts
+        artifact_uri = "s3://bucket/cancelled-action.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        paths = cache._paths_for(cache_key)
+        paths.entry_dir.mkdir(parents=True)
+        paths.squashfs_image_path.write_bytes(b"squashfs")
+        paths.squashfs_mount_dir.mkdir()
+        (paths.squashfs_mount_dir / "module.py").write_text("VALUE = 1")
+        mounted = {paths.squashfs_mount_dir}
+
+        monkeypatch.setattr(
+            action_runner.config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False
+        )
+
+        resolved_context = ResolvedContext(
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.table.search_rows",
+                module="tracecat_registry.core.table",
+                name="search_rows",
+            ),
+            evaluated_args={"table": "customers"},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="test-executor-token",
+            secret_projection=_empty_secret_projection(),
+        )
+
+        real_create_subprocess_exec = asyncio.create_subprocess_exec
+        real_terminate = sandbox_utils.terminate_supervised_process
+        process_started = asyncio.Event()
+        termination_started = asyncio.Event()
+        finish_termination = asyncio.Event()
+        process: asyncio.subprocess.Process | None = None
+        reaped_before_unmount: list[bool] = []
+
+        async def capture_subprocess(*args, **kwargs):
+            nonlocal process
+            process = await real_create_subprocess_exec(*args, **kwargs)
+            process_started.set()
+            return process
+
+        async def controlled_termination(
+            requested_process: asyncio.subprocess.Process,
+        ) -> None:
+            termination_started.set()
+            await finish_termination.wait()
+            await real_terminate(requested_process)
+
+        async def release_mount(mount_dir: Path) -> bool:
+            reaped_before_unmount.append(
+                process is not None and process.returncode is not None
+            )
+            mounted.discard(mount_dir)
+            return True
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in mounted,
+            ),
+            patch.object(
+                action_runner,
+                "_direct_subprocess_command",
+                return_value=["/bin/sleep", "30"],
+            ),
+            patch(
+                "tracecat.executor.action_runner.asyncio.create_subprocess_exec",
+                side_effect=capture_subprocess,
+            ),
+            patch.object(
+                action_runner,
+                "terminate_supervised_process",
+                side_effect=controlled_termination,
+            ),
+            patch.object(cache, "_unmount", side_effect=release_mount),
+        ):
+            execution = asyncio.create_task(
+                runner.execute_action(
+                    input=mock_run_action_input,
+                    role=mock_role,
+                    resolved_context=resolved_context,
+                    artifact_uris=[artifact_uri],
+                    timeout=60.0,
+                )
+            )
+            try:
+                await asyncio.wait_for(process_started.wait(), timeout=5)
+                assert cache._refcount(cache_key) == 1
+                execution.cancel()
+                await termination_started.wait()
+
+                execution.cancel()
+                await asyncio.sleep(0)
+                assert not execution.done()
+                assert cache._refcount(cache_key) == 1
+                assert paths.squashfs_mount_dir in mounted
+
+                finish_termination.set()
+                with pytest.raises(asyncio.CancelledError):
+                    await execution
+            finally:
+                finish_termination.set()
+                if not execution.done():
+                    execution.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await execution
+                if process is not None and process.returncode is None:
+                    process.kill()
+                    await process.wait()
+
+        assert process is not None
+        assert process.returncode is not None
+        assert reaped_before_unmount == [True]
+        assert cache._refcount(cache_key) == 0
+        assert paths.squashfs_mount_dir not in mounted
+        assert paths.squashfs_image_path.is_file()

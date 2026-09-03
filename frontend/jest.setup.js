@@ -15,6 +15,20 @@ global.TransformStream = TransformStream
 global.ReadableStream = ReadableStream
 global.WritableStream = WritableStream
 
+// jsdom does not implement scrollIntoView (used by cmdk selection)
+if (typeof Element !== "undefined") {
+  Element.prototype.scrollIntoView = jest.fn()
+}
+
+// jsdom does not implement ResizeObserver (used by useOverflowBadges and other
+// layout-measuring hooks). Provide a no-op stub so components that observe
+// element size can mount under jsdom.
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 // Mock next-runtime-env
 jest.mock("next-runtime-env", () => ({
   env: jest.fn((key) => process.env[key] || ""),
@@ -48,6 +62,18 @@ jest.mock("react-markdown", () => ({
 jest.mock("streamdown", () => ({
   Streamdown: ({ children }) => children,
 }))
+
+// Mock rehype-katex and rehype-sanitize (ESM-only) for Jest
+jest.mock("rehype-katex", () => {
+  const plugin = () => (tree) => tree
+  return plugin
+})
+jest.mock("rehype-sanitize", () => {
+  const plugin = () => (tree) => tree
+  plugin.default = plugin
+  plugin.defaultSchema = { attributes: {} }
+  return plugin
+})
 
 // Mock react-syntax-highlighter
 jest.mock("react-syntax-highlighter", () => ({

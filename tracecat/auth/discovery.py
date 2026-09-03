@@ -11,16 +11,16 @@ from pydantic import EmailStr
 from sqlalchemy import select
 
 from tracecat import config
-from tracecat.api.common import bootstrap_role, get_default_organization_id
+from tracecat.api.common import get_default_organization_id
 from tracecat.auth.enums import AuthType
 from tracecat.core.schemas import Schema
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.models import Organization, OrganizationDomain
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
 from tracecat.organization.domains import normalize_domain
 from tracecat.service import BaseService
-from tracecat.settings.service import get_setting
+from tracecat.settings.service import get_setting_from_bypass_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -139,19 +139,16 @@ class AuthDiscoveryService(BaseService):
     async def _org_saml_enabled(self, org_id: OrganizationID) -> bool:
         if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
             return False
-        value = await get_setting(
+        value = await get_setting_from_bypass_session(
             _SAML_SETTING_KEY,
-            role=bootstrap_role(org_id),
+            organization_id=org_id,
             session=self.session,
             default=True,
         )
         return bool(value)
 
     async def _org_oidc_enabled(self, _org_id: OrganizationID) -> bool:
-        return (
-            AuthType.OIDC in config.TRACECAT__AUTH_TYPES
-            or AuthType.GOOGLE_OAUTH in config.TRACECAT__AUTH_TYPES
-        )
+        return AuthType.OIDC in config.TRACECAT__AUTH_TYPES
 
     async def _org_basic_enabled(self, _org_id: OrganizationID) -> bool:
         return AuthType.BASIC in config.TRACECAT__AUTH_TYPES
@@ -173,10 +170,7 @@ class AuthDiscoveryService(BaseService):
 
     @staticmethod
     def _platform_fallback_method() -> AuthDiscoveryMethod:
-        if (
-            AuthType.OIDC in config.TRACECAT__AUTH_TYPES
-            or AuthType.GOOGLE_OAUTH in config.TRACECAT__AUTH_TYPES
-        ):
+        if AuthType.OIDC in config.TRACECAT__AUTH_TYPES:
             return AuthDiscoveryMethod.OIDC
         if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
             return AuthDiscoveryMethod.BASIC
@@ -206,7 +200,7 @@ class AuthDiscoveryService(BaseService):
 @router.post("/discover", response_model=AuthDiscoverResponse)
 async def discover_auth_method(
     params: AuthDiscoverRequest,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
 ) -> AuthDiscoverResponse:
     """Return the next-step auth method for a given email."""
     service = AuthDiscoveryService(session)

@@ -3,7 +3,7 @@ definition:
   title: List alert rules
   description: Get all alert rules in Microsoft Sentinel workspace.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/alert-rules/list
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/alert-rules/list?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: list_alert_rules
   secrets:

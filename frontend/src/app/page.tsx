@@ -11,6 +11,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import PrivacyPolicy from "@/components/privacy-policy"
 import { buttonVariants } from "@/components/ui/button"
 import { useAuth } from "@/hooks/use-auth"
+import { getPostAuthRedirectPath } from "@/lib/auth-redirect"
 import { cn } from "@/lib/utils"
 
 export default function HomePage() {
@@ -18,9 +19,10 @@ export default function HomePage() {
   const router = useRouter()
 
   useEffect(() => {
-    if (user && !userIsLoading) {
-      router.push("/workspaces")
+    if (!user || userIsLoading) {
+      return
     }
+    router.push(getPostAuthRedirectPath({}))
   }, [user, router, userIsLoading])
 
   if (userIsLoading || user) {

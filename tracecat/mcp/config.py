@@ -4,20 +4,11 @@ from __future__ import annotations
 
 import os
 
-TRACECAT_MCP__HOST: str = os.environ.get("TRACECAT_MCP__HOST", "127.0.0.1")
+TRACECAT_MCP__HOST: str = os.environ.get("TRACECAT_MCP__HOST", "0.0.0.0")
 """Host to bind the MCP HTTP server to."""
 
 TRACECAT_MCP__PORT: int = int(os.environ.get("TRACECAT_MCP__PORT", "8099"))
 """Port for the MCP HTTP server."""
-
-TRACECAT_MCP__BASE_URL: str = (
-    os.environ.get("TRACECAT_MCP__BASE_URL", "").strip().rstrip("/")
-    or f"http://localhost:{TRACECAT_MCP__PORT}"
-)
-"""Public URL where the MCP server is accessible.
-
-Defaults to http://localhost:<TRACECAT_MCP__PORT> for local development.
-"""
 
 TRACECAT_MCP__RATE_LIMIT_RPS: float = float(
     os.environ.get("TRACECAT_MCP__RATE_LIMIT_RPS", "2.0")
@@ -35,9 +26,14 @@ TRACECAT_MCP__TOOL_TIMEOUT_SECONDS: int = int(
 """Maximum execution time in seconds for a single tool call."""
 
 TRACECAT_MCP__MAX_INPUT_SIZE_BYTES: int = int(
-    os.environ.get("TRACECAT_MCP__MAX_INPUT_SIZE_BYTES", "524288")
+    os.environ.get("TRACECAT_MCP__MAX_INPUT_SIZE_BYTES") or 4 * 1024 * 1024
 )
-"""Maximum size in bytes for any single string argument to a tool call (default 512KB)."""
+"""Maximum size in bytes for any single string argument to a tool call (default 4MB)."""
+
+TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS: int = int(
+    os.environ.get("TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS") or "300"
+)
+"""Expiry time in seconds for MCP staged file transfer URLs (default 5 minutes)."""
 
 TRACECAT_MCP__STARTUP_MAX_ATTEMPTS: int = int(
     os.environ.get("TRACECAT_MCP__STARTUP_MAX_ATTEMPTS", "3")

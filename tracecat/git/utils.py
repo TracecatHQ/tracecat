@@ -35,12 +35,17 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
         ValueError: If the URL is not a valid repository URL or host not in allowed domains.
     """
     if match := GIT_SSH_URL_REGEX.match(url):
+        user = match.group("user")
         host = match.group("host")
         port = match.group("port")
         path = match.group("path")
         ref = match.group("ref")
 
-        if not isinstance(host, str) or not isinstance(path, str):
+        if (
+            not isinstance(user, str)
+            or not isinstance(host, str)
+            or not isinstance(path, str)
+        ):
             raise ValueError(f"Invalid Git URL: {url}")
 
         # Combine host and port if port is present
@@ -61,7 +66,7 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
                 f"Domain {full_host} not in allowed domains. Must be configured in `git_allowed_domains` organization setting."
             )
 
-        return GitUrl(host=full_host, org=org, repo=repo, ref=ref)
+        return GitUrl(host=full_host, org=org, repo=repo, user=user, ref=ref)
 
     raise ValueError(f"Unsupported URL format: {url}. Must be a valid Git SSH URL.")
 
@@ -256,6 +261,7 @@ async def prepare_git_url(
             host=parsed_url.host,
             org=parsed_url.org,
             repo=parsed_url.repo,
+            user=parsed_url.user,
             ref=sha,
         )
     except ValueError as e:

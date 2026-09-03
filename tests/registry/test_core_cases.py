@@ -11,7 +11,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import tracecat_registry.core.cases as cases_core
 import tracecat_registry.types as registry_types
 from tracecat_registry.core.cases import (
     add_case_tag,
@@ -23,10 +22,13 @@ from tracecat_registry.core.cases import (
     get_attachment,
     get_attachment_download_url,
     get_case,
+    get_comment_thread,
     list_attachments,
     list_cases,
+    list_comment_threads,
     list_comments,
     remove_case_tag,
+    reply_to_comment,
     search_cases,
     update_case,
     update_comment,
@@ -48,7 +50,7 @@ def mock_cases_client():
 def mock_get_context(mock_cases_client: AsyncMock):
     """Mock get_context to return a fake context with mock cases client."""
     fake_ctx = SimpleNamespace(cases=mock_cases_client)
-    with patch.object(cases_core, "get_context", return_value=fake_ctx):
+    with patch("tracecat_registry.ctx.get_context", return_value=fake_ctx):
         yield
 
 
@@ -86,6 +88,8 @@ def mock_comment_dict():
         "parent_id": None,
         "created_at": now.isoformat(),
         "updated_at": now.isoformat(),
+        "deleted_at": None,
+        "is_deleted": False,
         "user": None,
     }
 
@@ -179,6 +183,33 @@ class TestCoreCreate:
         )
         assert result == mock_case_dict
 
+    async def test_create_case_with_tags_create_if_missing(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """Test creating a case with tags and create_missing_tags."""
+        mock_cases_client.create_case_simple.return_value = mock_case_dict
+
+        result = await create_case(
+            summary="Test Case",
+            description="Test Description",
+            priority="medium",
+            severity="medium",
+            status="new",
+            tags=["new-tag"],
+            create_missing_tags=True,
+        )
+
+        mock_cases_client.create_case_simple.assert_called_once_with(
+            summary="Test Case",
+            description="Test Description",
+            priority="medium",
+            severity="medium",
+            status="new",
+            tags=["new-tag"],
+            create_missing_tags=True,
+        )
+        assert result == mock_case_dict
+
     async def test_create_case_with_payload(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
@@ -264,6 +295,27 @@ class TestCoreUpdate:
             severity="high",
             status="in_progress",
             fields={"field1": "new_value", "field3": "value3"},
+        )
+        assert result == updated_case
+
+    async def test_update_case_with_tags_create_if_missing(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """Test updating a case with tags and create_missing_tags."""
+        updated_case = {**mock_case_dict, "tags": [{"ref": "new-tag"}]}
+        mock_cases_client.update_case_simple.return_value = updated_case
+
+        case_id = mock_case_dict["id"]
+        result = await update_case(
+            case_id=case_id,
+            tags=["new-tag"],
+            create_missing_tags=True,
+        )
+
+        mock_cases_client.update_case_simple.assert_called_once_with(
+            case_id,
+            tags=["new-tag"],
+            create_missing_tags=True,
         )
         assert result == updated_case
 
@@ -420,6 +472,33 @@ class TestCoreCreateComment:
             case_id,
             content="Reply Comment",
             parent_id=parent_id,
+        )
+        assert result == reply_comment
+
+
+@pytest.mark.anyio
+class TestCoreReplyToComment:
+    """Test cases for the reply_to_comment UDF."""
+
+    async def test_reply_to_comment_success(
+        self, mock_cases_client: AsyncMock, mock_case_dict, mock_comment_dict
+    ):
+        """Reply helper should target the SDK convenience method."""
+        parent_comment_id = str(uuid.uuid4())
+        reply_comment = {**mock_comment_dict, "parent_id": parent_comment_id}
+        mock_cases_client.reply_to_comment.return_value = reply_comment
+
+        case_id = mock_case_dict["id"]
+        result = await reply_to_comment(
+            case_id=case_id,
+            parent_comment_id=parent_comment_id,
+            content="Reply comment",
+        )
+
+        mock_cases_client.reply_to_comment.assert_called_once_with(
+            case_id,
+            parent_comment_id=parent_comment_id,
+            content="Reply comment",
         )
         assert result == reply_comment
 
@@ -740,6 +819,45 @@ class TestCoreListComments:
 
         mock_cases_client.list_comments.assert_called_once_with(case_id)
         assert result == [mock_comment_dict]
+
+
+@pytest.mark.anyio
+class TestCoreListCommentThreads:
+    """Test cases for threaded comment reads."""
+
+    async def test_list_comment_threads_success(
+        self, mock_cases_client: AsyncMock, mock_case_dict, mock_comment_dict
+    ):
+        thread = {
+            "comment": mock_comment_dict,
+            "replies": [],
+            "reply_count": 0,
+            "last_activity_at": mock_comment_dict["updated_at"],
+        }
+        mock_cases_client.list_comment_threads.return_value = [thread]
+
+        case_id = mock_case_dict["id"]
+        result = await list_comment_threads(case_id=case_id)
+
+        mock_cases_client.list_comment_threads.assert_called_once_with(case_id)
+        assert result == [thread]
+
+    async def test_get_comment_thread_success(
+        self, mock_cases_client: AsyncMock, mock_comment_dict
+    ):
+        thread = {
+            "comment": mock_comment_dict,
+            "replies": [],
+            "reply_count": 0,
+            "last_activity_at": mock_comment_dict["updated_at"],
+        }
+        comment_id = mock_comment_dict["id"]
+        mock_cases_client.get_comment_thread.return_value = thread
+
+        result = await get_comment_thread(comment_id=comment_id)
+
+        mock_cases_client.get_comment_thread.assert_called_once_with(comment_id)
+        assert result == thread
 
 
 @pytest.mark.anyio

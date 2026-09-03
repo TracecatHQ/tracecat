@@ -33,6 +33,42 @@ export const CASE_EVENT_SUGGESTIONS: Suggestion[] = [
     group: "Case",
   },
   {
+    id: "comment_created",
+    label: "Comment created",
+    value: "comment_created",
+    group: "Comments",
+  },
+  {
+    id: "comment_updated",
+    label: "Comment updated",
+    value: "comment_updated",
+    group: "Comments",
+  },
+  {
+    id: "comment_deleted",
+    label: "Comment deleted",
+    value: "comment_deleted",
+    group: "Comments",
+  },
+  {
+    id: "comment_reply_created",
+    label: "Reply created",
+    value: "comment_reply_created",
+    group: "Comments",
+  },
+  {
+    id: "comment_reply_updated",
+    label: "Reply updated",
+    value: "comment_reply_updated",
+    group: "Comments",
+  },
+  {
+    id: "comment_reply_deleted",
+    label: "Reply deleted",
+    value: "comment_reply_deleted",
+    group: "Comments",
+  },
+  {
     id: "status_changed",
     label: "Status changed",
     value: "status_changed",

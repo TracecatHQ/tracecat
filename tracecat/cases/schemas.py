@@ -2,30 +2,36 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
-from pydantic import ConfigDict, Field, RootModel, field_validator
+from pydantic import ConfigDict, Field, RootModel, field_validator, model_validator
 
 from tracecat.auth.schemas import UserRead
+from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueInput,
     CaseDropdownValueRead,
 )
+from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.enums import (
+    CaseCommentAgentInvocationStatus,
     CaseEventType,
+    CaseFieldKind,
+    CaseFieldReadType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    MentionTargetType,
 )
 from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.core.schemas import Schema
 from tracecat.custom_fields.schemas import (
     CustomFieldCreate,
-    CustomFieldRead,
     CustomFieldUpdate,
 )
 from tracecat.identifiers.workflow import (
@@ -33,6 +39,8 @@ from tracecat.identifiers.workflow import (
     WorkflowIDShort,
     WorkflowUUID,
 )
+from tracecat.tables.common import parse_postgres_default
+from tracecat.tables.enums import SqlType
 
 
 class CaseReadMinimal(Schema):
@@ -48,6 +56,9 @@ class CaseReadMinimal(Schema):
     tags: list[CaseTagRead] = Field(default_factory=list)
     dropdown_values: list[CaseDropdownValueRead]
     rows: list[CaseTableRowRead] = Field(default_factory=list)
+    durations: list[CaseDurationRead] | None = None
+    field_values: dict[str, Any] | None = None
+    payload: dict[str, Any] | None = None
     num_tasks_completed: int = Field(default=0)
     num_tasks_total: int = Field(default=0)
 
@@ -57,6 +68,8 @@ class CaseStatusGroupCounts(Schema):
     in_progress: int = 0
     on_hold: int = 0
     resolved: int = 0
+    closed: int = 0
+    unknown: int = 0
     other: int = 0
 
 
@@ -111,45 +124,156 @@ class CaseUpdate(Schema):
     payload: dict[str, Any] | None = None
 
 
+class CaseBatchUpdate(Schema):
+    """Request body for updating multiple cases."""
+
+    case_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=1000)
+    update: CaseUpdate
+
+
+class CaseBatchDelete(Schema):
+    """Request body for deleting multiple cases."""
+
+    case_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=1000)
+
+
+class CaseBatchItemResult(Schema):
+    """Result of a batch operation for one case."""
+
+    case_id: uuid.UUID
+    success: bool
+    error: str | None = None
+
+
+class CaseBatchResponse(Schema):
+    """Per-case results and aggregate counts for a batch operation."""
+
+    results: list[CaseBatchItemResult]
+    succeeded: int
+    failed: int
+
+
 # Case Fields
 
 
-class CaseFieldReadMinimal(CustomFieldRead):
+def _normalize_case_field_read_type(raw_type: Any) -> CaseFieldReadType:
+    if isinstance(raw_type, CaseFieldReadType):
+        return raw_type
+    if isinstance(raw_type, SqlType):
+        return CaseFieldReadType(raw_type.value)
+
+    type_str: str
+    if isinstance(raw_type, str):
+        type_str = raw_type.upper()
+    else:
+        type_str = str(raw_type).upper()
+        if hasattr(raw_type, "timezone"):
+            type_str = (
+                "TIMESTAMP WITH TIME ZONE"
+                if getattr(raw_type, "timezone", False)
+                else "TIMESTAMP WITHOUT TIME ZONE"
+            )
+
+    if type_str == "BIGINT":
+        return CaseFieldReadType.INTEGER
+    if type_str == "TIMESTAMP WITH TIME ZONE":
+        return CaseFieldReadType.TIMESTAMPTZ
+    return CaseFieldReadType(type_str)
+
+
+class CaseFieldReadMinimal(Schema):
     """Minimal read model for a case field."""
+
+    id: str
+    display_name: str
+    type: CaseFieldReadType
+    description: str
+    nullable: bool
+    default: str | None
+    reserved: bool
+    options: list[str] | None = None
+    kind: CaseFieldKind | None = Field(default=None)
+    required_on_closure: bool = Field(default=False)
 
     @classmethod
     def from_sa(
         cls,
         column: sa.engine.interfaces.ReflectedColumn,
         *,
-        reserved_fields: set[str] | None = None,  # noqa: ARG003 - Ignored; case fields always use RESERVED_CASE_FIELDS
         field_schema: dict[str, Any] | None = None,
     ) -> CaseFieldReadMinimal:
         """Create a CaseFieldReadMinimal from a SQLAlchemy reflected column.
 
         Args:
             column: The reflected column metadata from SQLAlchemy.
-            reserved_fields: Ignored. Case fields always use RESERVED_CASE_FIELDS.
             field_schema: Optional schema metadata for the field.
 
         Returns:
             A CaseFieldReadMinimal instance populated from the column data.
         """
+        kind: CaseFieldKind | None = None
+        required_on_closure = False
+        options: list[str] | None = None
+        display_name = column["name"]
+        if field_schema and (meta := field_schema.get(column["name"])):
+            read_type = CaseFieldReadType(meta["type"])
+            display_name = meta.get("display_name") or column["name"]
+            options = meta.get("options")
+            if kind_str := meta.get("kind"):
+                kind = CaseFieldKind(kind_str)
+            if meta.get("required_on_closure"):
+                required_on_closure = True
+        else:
+            read_type = _normalize_case_field_read_type(column["type"])
         return cls.model_validate(
-            super().from_sa(
-                column,
-                reserved_fields=set(RESERVED_CASE_FIELDS),
-                field_schema=field_schema,
-            )
+            {
+                "id": column["name"],
+                "display_name": display_name,
+                "type": read_type,
+                "description": column.get("comment") or "",
+                "nullable": column["nullable"],
+                "default": parse_postgres_default(column.get("default")),
+                "reserved": column["name"] in RESERVED_CASE_FIELDS,
+                "options": options,
+                "kind": kind,
+                "required_on_closure": required_on_closure,
+            }
         )
 
 
 class CaseFieldCreate(CustomFieldCreate):
     """Create a new case field."""
 
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    kind: CaseFieldKind | None = Field(default=None)
+    required_on_closure: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def validate_kind_type_pair(self) -> CaseFieldCreate:
+        """Validate the semantic kind against the storage type."""
+        if self.kind is None:
+            return self
+
+        if self.kind is CaseFieldKind.LONG_TEXT and self.type is not SqlType.TEXT:
+            raise ValueError("Case field kind LONG_TEXT requires type TEXT")
+        if self.kind is CaseFieldKind.URL and self.type is not SqlType.JSONB:
+            raise ValueError("Case field kind URL requires type JSONB")
+        return self
+
 
 class CaseFieldUpdate(CustomFieldUpdate):
     """Update a case field."""
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    required_on_closure: bool | None = Field(default=None)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_kind_updates(cls, data: Any) -> Any:
+        """Reject create-only kind updates."""
+        if isinstance(data, dict) and "kind" in data:
+            raise ValueError("Case field kind can only be set when creating a field")
+        return data
 
 
 class CaseFieldRead(CaseFieldReadMinimal):
@@ -161,24 +285,108 @@ class CaseFieldRead(CaseFieldReadMinimal):
 # Case Comments
 
 
+class CaseCommentWorkflowStatus(StrEnum):
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class CaseCommentWorkflowRead(Schema):
+    workflow_id: uuid.UUID | None = None
+    title: str
+    alias: str | None = None
+    wf_exec_id: str | None = None
+    status: CaseCommentWorkflowStatus
+
+
+class CaseCommentAgentInvocationRead(Schema):
+    """Read model for an agent invocation triggered by a comment mention."""
+
+    id: uuid.UUID
+    preset_name: str
+    preset_slug: str
+    status: CaseCommentAgentInvocationStatus
+    session_id: uuid.UUID | None = None
+    error: CaseCommentAgentInvocationError | None = None
+
+
+class CaseCommentAgentAttributionRead(Schema):
+    """Read model for agent attribution on a generated comment reply."""
+
+    invocation_id: uuid.UUID
+    preset_name: str
+    preset_slug: str
+    session_id: uuid.UUID | None = None
+
+
+class CaseCommentMentionRead(Schema):
+    id: uuid.UUID
+    target_type: MentionTargetType
+    target_id: uuid.UUID
+    label: str
+    created_at: datetime
+    invocation: CaseCommentAgentInvocationRead | None = None
+
+
 class CaseCommentRead(Schema):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime
     content: str
     parent_id: uuid.UUID | None = None
+    workflow: CaseCommentWorkflowRead | None = None
+    agent: CaseCommentAgentAttributionRead | None = None
     user: UserRead | None = None
     last_edited_at: datetime | None = None
+    deleted_at: datetime | None = None
+    is_deleted: bool = Field(default=False)
+    mentions: list[CaseCommentMentionRead] = Field(default_factory=list)
+
+
+class CaseCommentThreadRead(Schema):
+    comment: CaseCommentRead
+    replies: list[CaseCommentRead] = Field(default_factory=list)
+    reply_count: int = Field(default=0)
+    last_activity_at: datetime
+
+
+CASE_COMMENT_MAX_LENGTH = 25_000
 
 
 class CaseCommentCreate(Schema):
-    content: str = Field(..., min_length=1, max_length=25_000)
+    content: str = Field(default=..., max_length=CASE_COMMENT_MAX_LENGTH)
     parent_id: uuid.UUID | None = Field(default=None)
+    workflow_id: AnyWorkflowID | None = Field(default=None)
+
+    @field_validator("content")
+    @classmethod
+    def strip_content(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def validate_content(self) -> CaseCommentCreate:
+        """Allow an empty body only when the comment runs a workflow."""
+        if not self.content and self.workflow_id is None:
+            raise ValueError("Comment content cannot be blank")
+        return self
 
 
 class CaseCommentUpdate(Schema):
-    content: str | None = Field(default=None, min_length=1, max_length=25_000)
+    content: str | None = Field(
+        default=None, min_length=1, max_length=CASE_COMMENT_MAX_LENGTH
+    )
     parent_id: uuid.UUID | None = Field(default=None)
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str | None) -> str | None:
+        """Reject blank edits; only creation with a workflow may leave a comment empty."""
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Comment content cannot be blank")
+        return stripped
 
 
 # Case Tasks
@@ -314,6 +522,47 @@ class PayloadChangedEvent(CaseEventBase):
     type: Literal[CaseEventType.PAYLOAD_CHANGED] = CaseEventType.PAYLOAD_CHANGED
 
 
+type CaseCommentDeleteMode = Literal["soft", "hard"]
+
+
+class CaseCommentEventBase(CaseEventBase):
+    comment_id: uuid.UUID
+    parent_id: uuid.UUID | None = None
+    thread_root_id: uuid.UUID
+
+
+class CommentCreatedEvent(CaseCommentEventBase):
+    type: Literal[CaseEventType.COMMENT_CREATED] = CaseEventType.COMMENT_CREATED
+
+
+class CommentUpdatedEvent(CaseCommentEventBase):
+    type: Literal[CaseEventType.COMMENT_UPDATED] = CaseEventType.COMMENT_UPDATED
+
+
+class CommentDeletedEvent(CaseCommentEventBase):
+    type: Literal[CaseEventType.COMMENT_DELETED] = CaseEventType.COMMENT_DELETED
+    delete_mode: CaseCommentDeleteMode
+
+
+class CommentReplyCreatedEvent(CaseCommentEventBase):
+    type: Literal[CaseEventType.COMMENT_REPLY_CREATED] = (
+        CaseEventType.COMMENT_REPLY_CREATED
+    )
+
+
+class CommentReplyUpdatedEvent(CaseCommentEventBase):
+    type: Literal[CaseEventType.COMMENT_REPLY_UPDATED] = (
+        CaseEventType.COMMENT_REPLY_UPDATED
+    )
+
+
+class CommentReplyDeletedEvent(CaseCommentEventBase):
+    type: Literal[CaseEventType.COMMENT_REPLY_DELETED] = (
+        CaseEventType.COMMENT_REPLY_DELETED
+    )
+    delete_mode: CaseCommentDeleteMode
+
+
 class TableRowLinkedEvent(CaseEventBase):
     type: Literal[CaseEventType.TABLE_ROW_LINKED] = CaseEventType.TABLE_ROW_LINKED
     table_id: uuid.UUID
@@ -371,6 +620,30 @@ class AssigneeChangedEventRead(CaseEventReadBase, AssigneeChangedEvent):
 
 class PayloadChangedEventRead(CaseEventReadBase, PayloadChangedEvent):
     """Event for when a case payload is changed."""
+
+
+class CommentCreatedEventRead(CaseEventReadBase, CommentCreatedEvent):
+    """Event for when a top-level comment is created."""
+
+
+class CommentUpdatedEventRead(CaseEventReadBase, CommentUpdatedEvent):
+    """Event for when a top-level comment is updated."""
+
+
+class CommentDeletedEventRead(CaseEventReadBase, CommentDeletedEvent):
+    """Event for when a top-level comment is deleted."""
+
+
+class CommentReplyCreatedEventRead(CaseEventReadBase, CommentReplyCreatedEvent):
+    """Event for when a reply is created."""
+
+
+class CommentReplyUpdatedEventRead(CaseEventReadBase, CommentReplyUpdatedEvent):
+    """Event for when a reply is updated."""
+
+
+class CommentReplyDeletedEventRead(CaseEventReadBase, CommentReplyDeletedEvent):
+    """Event for when a reply is deleted."""
 
 
 class AttachmentCreatedEvent(CaseEventBase):
@@ -539,6 +812,12 @@ type CaseEventVariant = Annotated[
     | TagAddedEvent
     | TagRemovedEvent
     | PayloadChangedEvent
+    | CommentCreatedEvent
+    | CommentUpdatedEvent
+    | CommentDeletedEvent
+    | CommentReplyCreatedEvent
+    | CommentReplyUpdatedEvent
+    | CommentReplyDeletedEvent
     | TaskCreatedEvent
     | TaskStatusChangedEvent
     | TaskDeletedEvent
@@ -572,6 +851,12 @@ class CaseEventRead(RootModel):
         | TagAddedEventRead
         | TagRemovedEventRead
         | PayloadChangedEventRead
+        | CommentCreatedEventRead
+        | CommentUpdatedEventRead
+        | CommentDeletedEventRead
+        | CommentReplyCreatedEventRead
+        | CommentReplyUpdatedEventRead
+        | CommentReplyDeletedEventRead
         | TaskCreatedEventRead
         | TaskStatusChangedEventRead
         | TaskPriorityChangedEventRead
@@ -629,7 +914,13 @@ class InternalCaseCommentData(Schema):
     updated_at: datetime
     content: str
     parent_id: uuid.UUID | None = None
+    workflow_id: uuid.UUID | None = None
+    workflow_title: str | None = None
+    workflow_alias: str | None = None
+    workflow_wf_exec_id: str | None = None
+    workflow_status: CaseCommentWorkflowStatus | None = None
     case_id: uuid.UUID
     workspace_id: uuid.UUID
     user_id: uuid.UUID | None = None
     last_edited_at: datetime | None = None
+    deleted_at: datetime | None = None

@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Set assistant thread title
+  description: Set the title for a Slack AI assistant thread.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/assistant.threads.setTitle/
+  namespace: tools.slack
+  name: set_assistant_thread_title
+  expects:
+    channel_id:
+      type: str
+      description: Channel ID containing the assistant thread.
+    thread_ts:
+      type: str
+      description: Message timestamp of the assistant thread.
+    title:
+      type: str
+      description: Title to use for the assistant thread.
+  steps:
+    - ref: set_assistant_thread_title
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: assistant.threads.setTitle
+        params:
+          channel_id: ${{ inputs.channel_id }}
+          thread_ts: ${{ inputs.thread_ts }}
+          title: ${{ inputs.title }}
+  returns: ${{ steps.set_assistant_thread_title.result }}

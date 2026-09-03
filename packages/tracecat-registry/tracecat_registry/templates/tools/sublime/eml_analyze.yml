@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Analyze EML with the free analyzer
+  description: Analyze a raw message with the free, unauthenticated Sublime EML Analyzer API.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/analysis-api-introduction
+  namespace: tools.sublime
+  name: eml_analyze
+  expects:
+    payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
+      type: dict[str, Any]
+      description: >-
+        API-native request body. Documented fields: raw_message (required), queries, rules, run_active_detection_rules, run_all_detection_rules, run_all_insights.
+    base_url:
+      type: str
+      description: Base URL of the Sublime EML Analyzer API.
+      default: https://analyzer.sublime.security
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/v0/messages/analyze
+        method: POST
+        headers:
+          User-Agent: Tracecat-Sublime-EML-Analyzer
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result.data }}

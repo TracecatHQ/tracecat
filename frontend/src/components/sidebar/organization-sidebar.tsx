@@ -1,15 +1,16 @@
 "use client"
 
 import {
-  BotIcon,
   ChevronLeftIcon,
-  ChevronRightIcon,
   GitBranchIcon,
   GlobeIcon,
+  HistoryIcon,
   KeyRoundIcon,
   LockIcon,
   LogInIcon,
   LogsIcon,
+  MousePointerClickIcon,
+  RadioTowerIcon,
   Settings2,
   UsersIcon,
 } from "lucide-react"
@@ -31,7 +32,6 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useWorkspaceManager } from "@/lib/hooks"
 
 export function OrganizationSidebar({
   ...props
@@ -40,23 +40,44 @@ export function OrganizationSidebar({
   const { hasEntitlement } = useEntitlements()
   const customRegistryEnabled = hasEntitlement("custom_registry")
   const gitSyncEnabled = hasEntitlement("git_sync")
-
-  // Fetch workspaces for the sidebar
-  const { workspaces } = useWorkspaceManager()
+  const serviceAccountsEnabled = hasEntitlement("service_accounts")
 
   // Scope checks for org sidebar items
   const canViewSettings = useScopeCheck("org:settings:read")
+  const canViewServiceAccounts = useScopeCheck("org:service_account:read")
   const canViewMembers = useScopeCheck("org:member:read")
 
-  const navSettings = [
+  const navCustomRegistry = [
     {
-      title: "Git repository",
-      url: "/organization/settings/git",
+      title: "Repository",
+      url: "/organization/settings/custom-registry",
       icon: GitBranchIcon,
-      isActive: pathname?.includes("/organization/settings/git"),
+      isActive: pathname === "/organization/settings/custom-registry",
       visible: canViewSettings === true,
       locked: !customRegistryEnabled,
     },
+    {
+      title: "Versions",
+      url: "/organization/settings/custom-registry/versions",
+      icon: HistoryIcon,
+      isActive: pathname?.startsWith(
+        "/organization/settings/custom-registry/versions"
+      ),
+      visible: canViewSettings === true,
+      locked: !customRegistryEnabled,
+    },
+  ]
+
+  interface OrgSettingsNavItem {
+    title: string
+    url: string
+    icon: React.ComponentType<{ className?: string }>
+    isActive: boolean | undefined
+    visible: boolean
+    locked: boolean
+  }
+
+  const navSettings: OrgSettingsNavItem[] = [
     {
       title: "SAML (SSO)",
       url: "/organization/settings/sso",
@@ -90,15 +111,7 @@ export function OrganizationSidebar({
       locked: false,
     },
     {
-      title: "Agent",
-      url: "/organization/settings/agent",
-      icon: BotIcon,
-      isActive: pathname?.includes("/organization/settings/agent"),
-      visible: canViewSettings === true,
-      locked: false,
-    },
-    {
-      title: "Workflow sync",
+      title: "Git sync",
       url: "/organization/vcs",
       icon: GitBranchIcon,
       isActive: pathname?.includes("/organization/vcs"),
@@ -114,17 +127,26 @@ export function OrganizationSidebar({
     // },
   ]
 
-  const navSecrets = [
+  const navAgent = [
     {
-      title: "SSH keys",
-      url: "/organization/ssh-keys",
-      icon: KeyRoundIcon,
-      isActive: pathname?.includes("/organization/ssh-keys"),
+      title: "Configuration",
+      url: "/organization/settings/agent",
+      icon: MousePointerClickIcon,
+      isActive: pathname === "/organization/settings/agent",
       visible: canViewSettings === true,
+      locked: false,
+    },
+    {
+      title: "Telemetry",
+      url: "/organization/settings/agent/telemetry",
+      icon: RadioTowerIcon,
+      isActive: pathname?.startsWith("/organization/settings/agent/telemetry"),
+      visible: canViewSettings === true,
+      locked: false,
     },
   ]
 
-  const navUsers = [
+  const navManage = [
     {
       title: "Members",
       url: "/organization/members",
@@ -139,20 +161,14 @@ export function OrganizationSidebar({
       isActive: pathname?.includes("/organization/sessions"),
       visible: canViewMembers === true,
     },
+    {
+      title: "Service accounts",
+      url: "/organization/settings/service-accounts",
+      icon: KeyRoundIcon,
+      isActive: pathname?.includes("/organization/settings/service-accounts"),
+      visible: canViewServiceAccounts === true && serviceAccountsEnabled,
+    },
   ]
-
-  // Helper function to get workspace initials
-  const getWorkspaceInitials = (name: string) => {
-    const words = name.trim().split(/\s+/)
-    if (words.length === 1) {
-      return words[0].substring(0, 2).toUpperCase()
-    }
-    return words
-      .slice(0, 2)
-      .map((word) => word[0])
-      .join("")
-      .toUpperCase()
-  }
 
   return (
     <Sidebar collapsible="offcanvas" variant="inset" {...props}>
@@ -169,7 +185,7 @@ export function OrganizationSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {navSettings.some((item) => item.visible === true) && (
+        {canViewSettings === true && (
           <SidebarGroup>
             <SidebarGroupLabel>Settings</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -197,12 +213,12 @@ export function OrganizationSidebar({
           </SidebarGroup>
         )}
 
-        {navSecrets.some((item) => item.visible === true) && (
+        {navAgent.some((item) => item.visible === true) && (
           <SidebarGroup>
-            <SidebarGroupLabel>Secrets</SidebarGroupLabel>
+            <SidebarGroupLabel>Agent</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {navSecrets
+                {navAgent
                   .filter((item) => item.visible === true)
                   .map((item) => (
                     <SidebarMenuItem key={item.title}>
@@ -219,12 +235,40 @@ export function OrganizationSidebar({
           </SidebarGroup>
         )}
 
-        {navUsers.some((item) => item.visible === true) && (
+        {navCustomRegistry.some((item) => item.visible === true) && (
           <SidebarGroup>
-            <SidebarGroupLabel>Users</SidebarGroupLabel>
+            <SidebarGroupLabel>Custom registry</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {navUsers
+                {navCustomRegistry
+                  .filter((item) => item.visible === true)
+                  .map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild isActive={item.isActive}>
+                        <Link href={item.url}>
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                      {item.locked ? (
+                        <SidebarMenuBadge>
+                          <LockIcon aria-hidden="true" className="size-3.5" />
+                          <span className="sr-only">Requires upgrade</span>
+                        </SidebarMenuBadge>
+                      ) : null}
+                    </SidebarMenuItem>
+                  ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {navManage.some((item) => item.visible === true) && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Manage</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {navManage
                   .filter((item) => item.visible === true)
                   .map((item) => (
                     <SidebarMenuItem key={item.title}>
@@ -236,36 +280,6 @@ export function OrganizationSidebar({
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
-
-        {canViewSettings === true && workspaces && workspaces.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Your workspaces</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {workspaces.map((workspace) => (
-                  <SidebarMenuItem key={workspace.id}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname?.includes(
-                        `/organization/settings/workspaces/${workspace.id}`
-                      )}
-                    >
-                      <Link
-                        href={`/organization/settings/workspaces/${workspace.id}`}
-                      >
-                        <div className="flex size-5 items-center justify-center rounded bg-muted text-[10px] font-medium">
-                          {getWorkspaceInitials(workspace.name)}
-                        </div>
-                        <span>{workspace.name}</span>
-                        <ChevronRightIcon className="ml-auto size-4 opacity-50" />
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

@@ -45,6 +45,8 @@ VIEWER_SCOPES: frozenset[str] = frozenset(
 
 EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
     {
+        "workflow:sync",
+        "workspace_sync:sync",
         "workflow:create",
         "workflow:update",
         "workflow:execute",
@@ -57,6 +59,8 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
         "table:update",
         "schedule:create",
         "schedule:update",
+        "agent:create",
+        "agent:update",
         "agent:execute",
         "secret:create",
         "secret:update",
@@ -77,8 +81,6 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
         "secret:delete",
         "tag:delete",
         "variable:delete",
-        "agent:create",
-        "agent:update",
         "agent:delete",
         "integration:delete",
         "workspace:update",
@@ -89,6 +91,11 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
         # Workspace RBAC (delegated admin)
         "workspace:rbac:read",
         "workspace:rbac:manage",
+        # Workspace service account management
+        "workspace:service_account:read",
+        "workspace:service_account:create",
+        "workspace:service_account:update",
+        "workspace:service_account:disable",
         # Full action execution
         "action:*:execute",
     }
@@ -122,6 +129,11 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "org:rbac:create",
         "org:rbac:update",
         "org:rbac:delete",
+        # Service account management
+        "org:service_account:read",
+        "org:service_account:create",
+        "org:service_account:update",
+        "org:service_account:disable",
         # Org settings management
         "org:settings:read",
         "org:settings:update",
@@ -145,9 +157,15 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         # Workspace RBAC (delegated admin)
         "workspace:rbac:read",
         "workspace:rbac:manage",
+        "workspace:service_account:read",
+        "workspace:service_account:create",
+        "workspace:service_account:update",
+        "workspace:service_account:disable",
         # Full resource control
         "inbox:read",
         "workflow:read",
+        "workflow:sync",
+        "workspace_sync:sync",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
@@ -213,6 +231,11 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "org:rbac:create",
         "org:rbac:update",
         "org:rbac:delete",
+        # Service account management
+        "org:service_account:read",
+        "org:service_account:create",
+        "org:service_account:update",
+        "org:service_account:disable",
         # Org settings management
         "org:settings:read",
         "org:settings:update",
@@ -236,9 +259,15 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         # Workspace RBAC (delegated admin)
         "workspace:rbac:read",
         "workspace:rbac:manage",
+        "workspace:service_account:read",
+        "workspace:service_account:create",
+        "workspace:service_account:update",
+        "workspace:service_account:disable",
         # Full resource control
         "inbox:read",
         "workflow:read",
+        "workflow:sync",
+        "workspace_sync:sync",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
@@ -293,6 +322,9 @@ ORG_MEMBER_SCOPES: frozenset[str] = frozenset(
         "org:read",
         "org:member:read",
         "org:registry:read",
+        "agent:read",
+        "agent:execute",
+        "org:secret:read",
     }
 )
 
@@ -319,6 +351,8 @@ WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
     {
         "inbox:read",
         "workflow:read",
+        "workflow:sync",
+        "workspace_sync:sync",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
@@ -361,6 +395,7 @@ WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
         "workspace:create",
         "workspace:delete",
         "workspace:member:read",
+        "deduplicate:create",
         "action:*:execute",
         "org:secret:read",
     }

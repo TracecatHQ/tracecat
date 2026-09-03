@@ -1,183 +1,146 @@
-# CLAUDE.md
+# Tracecat agent notes
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Use this file for repo-wide guidance. Prefer the more specific notes in nested
+`AGENTS.md` files when you are working inside those paths.
 
-## Project Overview
-Tracecat is a modern, open source automation platform built for security and IT engineers. No-code UI workflows, built-in lookup tables, case management, and Temporal orchestration.
+## Path-specific notes
 
-## Development Commands
+- `frontend/AGENTS.md`: Frontend, React, TypeScript, and UI conventions.
+- `tracecat/AGENTS.md`: Backend Python, service, typing, SQLAlchemy, and API
+  conventions.
+- `docs/AGENTS.md`: Documentation structure and writing rules.
 
-### Environment Setup
+## Repo map
+
+- `tracecat/`: API, services, workflow engine, executor, auth, and shared
+  backend code.
+- `frontend/`: Next.js app, React UI, generated client, and frontend tests.
+- `packages/tracecat-registry/`: Integrations, templates, and registry SDK.
+- `packages/tracecat-admin/`: Operator CLI.
+- `packages/tracecat-ee/`: Enterprise features and shims.
+- `alembic/`: Database migrations.
+- `deployments/`: Docker, Fargate, EKS, and Helm deployment targets.
+
+## Fargate Deployment Notes
+
+- ECS Service Connect clients should explicitly depend on the ECS services that
+  publish the Service Connect aliases they resolve. This avoids startup and
+  rollout races where a client task starts before the provider alias is
+  registered or stable. Follow the existing UI-to-API ordering pattern; for
+  example, an agent-executor service that calls the managed LiteLLM alias should
+  depend on the LiteLLM ECS service unless that would create a dependency cycle.
+- When a cycle appears, prefer breaking the unnecessary provider dependency
+  rather than leaving the Service Connect client unordered.
+
+## Setup and verification
+
+Use `uv` for Python commands and `pnpm` for frontend commands.
+
 ```bash
-# Create Python 3.12 virtual environment and install from lock file
-# This is a workspace project - run from anywhere inside the repo
-# (includes both tracecat and tracecat_registry packages)
 uv sync
-
-# Install frontend dependencies
 pnpm install --dir frontend
-
-# Install pre-commit hooks
 uv run pre-commit install
 ```
 
-### Updating Dependencies
+If you update dependencies, regenerate and reinstall the lockfile explicitly:
+
 ```bash
-# Update dependencies and regenerate lock file
-# Lock file updates are automatic if you delete uv.lock and run uv sync
 rm uv.lock && uv sync
-
-# Or manually compile a new lock file
+# or
 uv pip compile pyproject.toml -o uv.lock
-
-# Install updated dependencies
 uv sync
 ```
 
-### Development Stack
+## Development stack safety
 
-IMPORTANT: Before using `just cluster`, ALWAYS check for an existing docker compose stack first:
+Before using `just cluster`, check whether a `docker compose` stack named
+`tracecat` is already running:
+
 ```bash
 docker compose ls --filter name=tracecat
 ```
-If a stack called `tracecat` is already running, ask the user whether they want to:
-1. Use `docker compose` directly to interact with the existing stack
-2. Use `just cluster` instead to manage development stacks
 
-CRITICAL: Do not delete or remove docker volumes (`docker compose down -v`, `docker volume rm`, `just cluster rm`, etc.) unless the user explicitly requests AND confirms volume deletion. Volumes contain database state and other persistent data that cannot be recovered.
+- If a stack already exists, decide whether to keep using `docker compose`
+  against that stack or use `just cluster` for this worktree.
+- Never remove volumes with `docker compose down -v`, `docker volume rm`,
+  `just cluster rm`, or similar commands unless the user explicitly asks for it
+  and confirms data loss is acceptable.
+- Prefer `just cluster` for live Tracecat services, logs, restarts, and local
+  database-backed development.
+
+Common `just cluster` commands:
 
 ```bash
-# Use `just cluster` to manage the development stack
-# This handles database, Temporal, Redis, MinIO, API, and UI services
-# It also manages port allocation across multiple worktrees
-
-# Start the full stack (auto-selects available cluster number)
 just cluster up -d
-
-# Start with auto-registered test user (test@tracecat.com / password1234)
 just cluster up -d --seed
-
-# View all available commands
-just cluster
-
-# Common commands:
-just cluster ps              # Show running containers
-just cluster logs api        # View API service logs
-just cluster logs -f api     # Follow API logs
-just cluster restart api     # Restart a service (hot reload)
-just cluster down            # Stop the stack (keeps volumes)
-just cluster rm              # Stop and remove volumes
-just cluster attach api      # Shell into a container
-just cluster db              # Open TablePlus to PostgreSQL
-just cluster ports           # Show port mappings
-just cluster list            # List all running clusters
-
-# Port mappings (cluster 1 defaults):
-# - App UI: http://localhost:80
-# - API: http://localhost:80/api
-# - PostgreSQL: localhost:5432
-# - Temporal UI: http://localhost:8081
+just cluster ps
+just cluster logs api
+just cluster logs -f api
+just cluster restart api
+just cluster down
+just cluster rm
+just cluster attach api
+just cluster db
+just cluster ports
+just cluster list
 ```
 
-**When to use `just cluster`:**
-- Need a database connection → `just cluster up -d`
-- Need to run integration tests → `just cluster up -d`
-- Need Temporal for workflow testing → `just cluster up -d`
-- Need to check service logs → `just cluster logs <service>`
-- Need to restart after code changes → `just cluster restart <service>`
+Use `just cluster up -d` when you need PostgreSQL, Temporal, integration tests,
+or live service logs.
 
-### Testing
+## Testing
+
 ```bash
-# Run all tests
 just test
-# Or manually: pytest --cache-clear tests/registry tests/unit tests/playbooks -x
-
-# Run specific test suites
-uv run pytest tests/unit          # Fast, isolated unit tests
-uv run pytest tests/integration  # Integration tests (requires live services)
-uv run pytest tests/registry     # Registry/integration tests
-uv run pytest tests/unit/test_functions.py -x --last-failed  # Inline functions tests
-
-# Parallel execution with pytest-xdist
+uv run pytest tests/unit
+uv run pytest tests/integration
+uv run pytest tests/registry
+uv run pytest tests/unit/test_functions.py -x --last-failed
 uv run pytest tests/unit -n auto
-
-# Run tests matching a keyword
 uv run pytest -k "keyword"
-
-# Run with specific markers
 uv run pytest -m "not slow and not temporal"
-uv run pytest -m temporal  # Temporal/workflow tests only
-
-# Run benchmarks (requires Docker for nsjail on macOS)
+uv run pytest -m temporal
 just bench
-
-# Frontend tests
-cd frontend && pnpm test
-```
-
-### Temporal Management
-```bash
-# Stop all running Temporal workflow executions
+pnpm -C frontend test
 just temporal-stop-all
 ```
 
-### Linting and Formatting
+## Linting, typechecking, and pre-push verification
+
+Run autofixers before final verification when you change Python or frontend
+code:
+
 ```bash
-# Lint and format everything (run before committing)
-just fix             # Short alias
-just lint-fix        # Same as above
-
-# Individual components
-just lint-fix-app    # Python: ruff check --fix . && ruff format .
-just lint-fix-ui     # Frontend: pnpm check --write (Biome lint, format, and organize imports)
-
-# Check only (no auto-fix) - useful for CI or verifying changes
-uv run ruff check .              # Python lint check only
-uv run ruff format --check .     # Python format check only
-cd frontend && pnpm check        # Frontend check only
-
-# Frontend-specific Biome commands
-cd frontend && pnpm lint          # Biome lint
-cd frontend && pnpm format:write  # Biome format
-cd frontend && pnpm check         # Biome comprehensive check (lint + format + organize imports)
-```
-
-### Type Checking
-```bash
-# Run basedpyright type checking (required before merging)
-just typecheck
-
-# Or run directly with options
-uv run basedpyright --warnings --threads 4
-
-# Check specific files or directories
-uv run basedpyright tracecat/api/
-
-# Common type errors to avoid:
-# - Using `type: ignore` comments (find alternative solutions)
-# - Missing return type annotations on public functions
-# - Using `Any` when a more specific type is possible
-```
-
-### Pre-push Verification
-**IMPORTANT**: Always run these checks before pushing. Pre-commit hooks catch most issues, but you should verify locally if in doubt.
-```bash
-# Run all CI-equivalent checks (must all pass before pushing)
-uv run ruff check .                          # Python lint (strict, no auto-fix)
-uv run ruff format --check .                 # Python format check
-uv run basedpyright --warnings --threads 4   # Python type checking
-pnpm -C frontend check                      # Frontend lint + format (Biome)
-pnpm -C frontend run typecheck              # TypeScript type checking
-```
-
-**Required before reporting "done"**: Always run the auto-fixers first, then re-run the checks above.
-```bash
-# Auto-fixers (run whenever you touch Python/TS/TSX)
 uv run ruff check --fix .
 pnpm -C frontend exec biome check --write .
 ```
 
-**Recommended pre-push hook**: Prevent pushes unless auto-fix + checks pass.
+Core verification:
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run basedpyright --warnings --threads 4
+pnpm -C frontend check
+pnpm -C frontend run typecheck
+```
+
+Useful aliases and focused commands:
+
+```bash
+just fix
+just lint-fix
+just lint-fix-app
+just lint-fix-ui
+cd frontend && pnpm lint
+cd frontend && pnpm format:write
+cd frontend && pnpm check
+just typecheck
+uv run basedpyright tracecat/api/
+```
+
+Recommended pre-push hook:
+
 ```bash
 cat > .git/hooks/pre-push <<'EOF'
 #!/bin/sh
@@ -198,394 +161,384 @@ EOF
 chmod +x .git/hooks/pre-push
 ```
 
-**Pre-commit hooks**: Runs automatically on commit:
-- Ruff (lint + format)
-- Gitleaks (secret detection)
-- YAML/TOML validation
-- UV lock sync
-- Frontend client generation (when tracecat/packages change)
-- basedpyright (Python type checking)
-- Frontend Biome check (lint + format on frontend changes)
-- TypeScript type checking (on frontend changes)
+Pre-commit hooks cover Ruff, Gitleaks, YAML/TOML validation, UV lock sync,
+frontend client generation when relevant, Python type checks, frontend Biome
+checks, and frontend type checks.
 
-**CI Requirements**: Both linting (`just fix`) and type checking (`just typecheck`) must pass in CI before merging.
+## Code generation
 
-### API and Code Generation
 ```bash
-# Generate frontend API client
 just gen-client-ci
-
-# Generate API spec (requires CLI installed)
 just gen-api
-
-# Generate integrations and functions (requires CLI installed)
 just gen-integrations
 just gen-functions
 ```
 
-## Architecture Overview
+## Repo-wide rules
 
-### Core Components
-- **API Service** (`tracecat/api/`): FastAPI application with auth, workflows, cases
-- **Worker Service** (`tracecat/dsl/worker.py`): Temporal workflow worker
-- **Executor Service** (`tracecat/executor/`): Action execution engine with index-based registry resolution
-- **Agent System** (`tracecat/agent/`): LLM-powered agents with multi-runtime support (PydanticAI, Claude Code), MCP integration, tool execution
-- **Organization Service** (`tracecat/organization/`): Multi-tenancy and organization membership management
-- **tracecat-admin CLI** (`packages/tracecat-admin/`): CLI tool for platform operators (admin, auth, migrate, orgs, registry commands)
-- **Frontend** (`frontend/`): Next.js 15 with TypeScript, React Query, Tailwind CSS
-- **Registry** (`packages/tracecat-registry/`): Independent package for integrations and templates
+- Pin dependencies to exact versions in `pyproject.toml`. Do not switch to
+  range-based constraints.
+- Do not bypass commit signing with `--no-gpg-sign` or `--no-verify`. If
+  signing is broken, stop and ask the user to fix it.
+- Never copy customer-provided identifiers, customer names, URLs, tenant IDs,
+  subscription IDs, workspace names, resource group names, incident IDs, emails,
+  domains, tokens, or other potentially sensitive values into tests, docs,
+  fixtures, snapshots, examples, logs, committed code, commit messages, PR or
+  issue titles/bodies, PR comments, issue comments, review comments, or any
+  other published repository text. Use generic phrasing such as "affected
+  customer" or clearly synthetic placeholders instead, and search for the
+  original strings before committing, pushing, or publishing PR/issue text.
+  Exception: the workspace sync feature may publish the source workspace name
+  and initiating user's email in the generated sync PR body because that
+  attribution is product behavior for user-initiated sync PRs.
+- Do not assume PostgreSQL superuser access in migrations, queries, or scripts.
+- Never add methods to `tracecat/db/models.py`; keep database models minimal.
+- Never use untyped dictionaries unless there is a compelling reason. Model
+  structured data with a dataclass or Pydantic model as appropriate; if
+  dictionary semantics are required, prefer `TypedDict`. Any unavoidable
+  untyped-dictionary exception must include a clear nearby explanation of why
+  the typed alternatives are unsuitable.
+- Prefer `@dataclass(frozen=True, slots=True)` over `NamedTuple` for immutable
+  structured values. It is smaller and blocks positional/iteration access, so
+  fields stay named. Measured on this repo's CPython 3.12.8 (shallow instance
+  size): `NamedTuple` 56 bytes, `@dataclass(frozen=True, slots=True)` 48 bytes,
+  plain dataclass 344 bytes including `__dict__`. Use `NamedTuple` only when
+  tuple unpacking or tuple compatibility is actually required.
+- Never branch on exception or error-message strings to choose behavior, status
+  codes, or retry policy. Use explicit exception types, machine-readable error
+  codes in exception details, or structured error objects instead.
+- Boolean environment variables in `tracecat/config.py` must use `env_bool(...)`.
+  Do not add inline `.lower() == "true"`, `.lower() in (...)`, or
+  `bool(os.environ.get(...))` parsing. If a boolean env var is exposed through
+  Docker Compose, use `${VAR:-default}` instead of `${VAR}`, `VAR=`, or a
+  hardcoded literal so `.env` overrides still work. In `.env.example`, use an
+  explicit `true` or `false`, never a blank value. Update
+  `tests/unit/test_config.py` when adding deployment env files.
+- Keep `.env.example` focused on settings that ordinary open-source and
+  self-hosted users are reasonably expected to configure. Do not list advanced
+  tuning knobs or operator-only overrides when safe defaults work for nearly
+  all users; keep those settings overrideable through explicit deployment
+  configuration instead. A variable being supported by config or Compose is
+  not, by itself, a reason to advertise it in `.env.example`.
+- Use `pnpm` instead of `npm`, prefer `rg` over slower text-search tools, and
+  prefer `fd` over `find` when `fd` is available.
+- Ask clarifying questions when the task lacks enough context to make a safe
+  change.
 
-### Key Technologies
-- **Backend**: FastAPI, SQLAlchemy, Pydantic, Temporal, Ray, PostgreSQL, Alembic, PydanticAI, LiteLLM, FastMCP
-- **Frontend**: Next.js 15, TypeScript, React Query, Tailwind CSS, Radix UI
-- **Infrastructure**: Docker, PostgreSQL, MinIO, Temporal Server
-- **Package Management**: `uv` for Python, `pnpm` for JavaScript
+## CI and workflow security
 
-### Database and Migrations
-- **Database Models**: `tracecat/db/models.py` - SQLAlchemy database tables. Never add methods here, keep imports minimal
-- **Migrations**: `alembic/` directory with comprehensive schema evolution
-- **Database Engine**: `tracecat/db/engine.py` for connection management
+- Never add `pull_request_target` to GitHub Actions in this repo.
+- Use `push`, `pull_request`, and protected branch or tag triggers instead of
+  `pull_request_target`.
+- Treat `workflow_dispatch` as a privileged path, not a convenience default.
+- Guard privileged manual workflows with `TRUSTED_CI_ACTORS_JSON`.
+- If another workflow triggers guarded `workflow_dispatch`, account for
+  `github-actions[bot]` explicitly instead of weakening the allowlist.
+- Keep workflow permissions read-only by default and grant write scopes only at
+  the job level when a step demonstrably needs them.
+- Do not add `pull-requests: write`, `packages: write`, or `id-token: write`
+  unless a specific job step requires them.
+- Use protected environments for secret-backed jobs when possible.
+- Keep `CROSS_REPO_AUTOMATION_APP_PRIVATE_KEY` in the `release` environment and
+  `CUSTOM_REPO_SSH_PRIVATE_KEY` in the `internal-registry-ci` environment.
+- External fork PRs must not reach secret-backed or private-infrastructure jobs.
+- Release automation should validate trusted inputs before mutating tags,
+  releases, downstream repos, or registries.
+- Use `concurrency` on publishing and downstream-dispatch workflows to avoid
+  duplicate runs racing each other.
+- If you change workflow logic, review triggers, permissions, environment use,
+  and trusted-input validation before considering the change done.
 
-### Type System Architecture
-The codebase follows a three-tier type system to separate concerns and reduce circular imports:
+## Key files
 
-1. **`models.py`**: Database models (SQLAlchemy tables)
-   - Location: `tracecat/db/models.py`
-   - Purpose: Database table definitions
-   - Rules: Never add methods, keep imports minimal
+- `pyproject.toml`: Python dependencies and tool config.
+- `frontend/package.json`: Frontend dependencies and scripts.
+- `docker-compose.dev.yml`: Local development stack.
+- `alembic.ini`: Alembic config.
+- `scripts/cluster`: Cluster orchestration entrypoint.
 
-2. **`schemas.py`**: API request/response schemas (Pydantic models)
-   - Location: Throughout codebase (e.g., `tracecat/agent/schemas.py`, `tracecat/workflow/management/schemas.py`)
-   - Purpose: API contracts, DTOs, request/response models
-   - Naming: Previously called `models.py`, renamed for clarity
+## Infra and migrations
 
-3. **`types.py`**: Domain types, protocols, and type aliases
-   - Location: Throughout codebase (e.g., `tracecat/agent/types.py`, `tracecat/workflow/management/types.py`)
-   - Purpose: Service-level types, protocols, dataclasses, type aliases
-   - Use: Domain logic types that don't fit in schemas or models
+- Infrastructure changes must be reviewed across all relevant deployment
+  targets: `docker-compose*.yml` and `deployments/fargate/`. Kubernetes
+  infrastructure lives in the separate `TracecatHQ/k8s` repository and must be
+  reviewed there when relevant.
+- Check the matching `values.yaml`, `variables.tf`, and `main.tf` files before
+  closing out infra work.
+- For Alembic work, bring up the database first, check the cluster port with
+  `just cluster ports`, and prefer `uv run alembic revision --autogenerate`
+  before manually editing a new migration.
 
-### Enterprise Edition
-- **Package**: `packages/tracecat-ee/` contains paid enterprise features
-- **Installation**: Install with `uv sync` or `pip install tracecat[ee]`
-- **Shims**: `tracecat/ee/` contains shims for backward compatibility
-- **Features**: RBAC, multi-tenancy, SSO integration, advanced auth, interactions
+## Pull requests
 
-### Agent System
-- **Location**: `tracecat/agent/`
-- **Purpose**: LLM-powered agents for workflow automation
-- **Key directories**: `runtime/` (PydanticAI, Claude Code), `mcp/` (Model Context Protocol), `executor/`, `preset/`
+### Enforcement cutoff
 
-## Development Guidelines
+Commit conventions are enforced from 2026-09-01. From that date the
+`Commit conventions / PR title` check runs on every pull request, including one
+opened earlier, on any of open, retitle, push, reopen or ready-for-review. The
+autolabeler applies its labels on the same events.
 
-### Dependency Management and Security
-- **Always pin exact versions** in `pyproject.toml` (e.g., `package==1.2.3` not `package>=1.2.3`) to prevent supply chain attacks
-- When resolving merge conflicts in dependencies, ensure exact version pins are preserved
-- Security fixes should update the pinned version to the specific patched version, not use range constraints
+There is no grandfather clause and no skip label. None is needed: every open
+pull request was retitled to comply before the cutoff, so the check starts
+green across the board.
 
-### Python Standards
-- Use Python 3.12+ type hints with builtin types (`list`, `dict`, `set`)
-- Follow Google Python style guide
-- Import statements at top of file only
-- Use `uv run` for executing Python/pytest commands
-- Use `uv pip install` for package installation
-- Test directories: `tests/unit/` (fast, isolated unit tests), `tests/integration/` (live services, no mocks), `tests/temporal/` (Temporal workflows), `tests/registry/` (registry/integrations), `tests/llm/` (LLM calls), `tests/regression/` (regression tests), `tests/stress/` and `tests/load/` (performance)
-- `tests/unit/` should be fast and isolated — mocks are acceptable here
-- `tests/integration/` should test against real services with no mocks, as close to production as possible
-- Always use `@pytest.mark.anyio` in async python tests over `@pytest.mark.asyncio`
-- Always avoid use of `type: ignore` when writing python code
-- You must *NEVER* put import statements in function bodies.
-- If you are facing issues with circular imports you should try use `if TYPE_CHECKING: ...` instead.
-- Use PEP 695 generic syntax for new generics: `class Name[T: Bound]` over `TypeVar`
-- Use `StrEnum` for string-based enumerations (JSON/YAML serialization)
-- Use `frozen=True` dataclasses for immutable value objects
-- Use `TypedDict` with `NotRequired` for configuration types
-- Use `@runtime_checkable` protocols for structural typing
-- Prefer `TypedDict` over raw `dict` types for structured dictionaries; use `dataclass` when the structure warrants it
-- Avoid adding re-exports to `__init__.py` files; import directly from submodules (e.g., `from tracecat.agent.schemas import RunAgentArgs` not `from tracecat.agent import RunAgentArgs`). This keeps imports explicit, avoids circular import issues, and improves import performance. Exception: re-exports make sense for versioned external packages where you need to hide internal structure—rare for internal code.
-- Always use the explicit `default=` keyword in `pydantic.Field()` (e.g., `Field(default=None)`, `Field(default="value")`) instead of a positional argument (e.g., `Field(None)`). Static type checkers like basedpyright do not recognize positional defaults and will report the field as required.
-- In `tracecat/config.py`, use `int(os.environ.get("VAR") or default)` instead of `int(os.environ.get("VAR", default))`. The latter fails with `int("")` when the env var is set to an empty string, which commonly happens in deployed environments.
+Titles merged before that date were never checked and do not follow this
+vocabulary. 425 of 2548 merged pull requests carry no label at all, and one
+concept is spelled three ways: `integrations` 201, `registry` 103,
+`integration` 76. That history is the reason `[scope_aliases]`,
+`[legacy_types]` and `[legacy_scopes]` exist — the autolabeler reads every old
+spelling so already-merged work still categorizes, while the checker accepts
+only the canonical one.
 
-### SQLAlchemy Query Guidelines
-- **Push logic to the database**: Avoid fetching rows and post-processing in Python when the same operation can be expressed in SQL via SQLAlchemy. PostgreSQL is capable of filtering, aggregating, sorting, JSONB manipulation, and window functions — use them.
-- **JSONB operations**: Use PostgreSQL JSONB operators and functions (`->`, `->>`, `jsonb_extract_path`, `jsonb_build_object`, `jsonb_agg`, `func.jsonb_set`, `cast(..., JSONB)`, etc.) in SQLAlchemy queries instead of loading full rows and manipulating dicts in Python.
-- **Reduce round-trips when beneficial**: Consolidate multiple database calls into a single query (e.g., using joins, subqueries, CTEs, or `RETURNING` clauses) *only when it meaningfully reduces latency, simplifies the code, or avoids consistency issues*. Do not force everything into one query if it sacrifices readability or correctness — multiple clear queries are preferable to one convoluted one.
-- **Prefer `select()` projections**: Select only the columns you need rather than loading entire ORM models when only a few fields are required, especially for list/search endpoints.
-- **Use `RETURNING`**: For insert/update/delete operations that need the resulting row, use the `RETURNING` clause instead of issuing a separate SELECT.
+Two consequences for agents:
 
-### Type Organization Guidelines
-When adding new types, follow this pattern:
-- **Database tables**: Add to `tracecat/db/models.py` (SQLAlchemy classes)
-- **API schemas**: Add to module-specific `schemas.py` files (Pydantic models for request/response)
-- **Domain types**: Add to module-specific `types.py` files (protocols, dataclasses, type aliases)
-- **Avoiding circular imports and improving import performance**: Use `if TYPE_CHECKING:` for type-only imports, move shared types to `types.py`
-- **Import order**: `models` → `types` → `schemas` → `service` → `router` (to minimize circular dependencies)
+- Do not copy a pre-cutoff commit subject as an example of house style. Most of
+  `git log` predates these rules.
+- A rejected title is never a reason to widen the vocabulary to match history.
+  See "Never invent vocabulary" below.
 
-Example structure for a module like `tracecat/agent/`:
-```
-tracecat/agent/
-├── schemas.py       # API request/response models (RunAgentArgs, AgentStreamChunk)
-├── types.py         # Domain types (AgentConfig, StreamingAgentDeps protocol)
-├── service.py       # Business logic
-└── router.py        # FastAPI routes
-```
+`git log` before the cutoff is immutable and stays non-compliant. Only the
+rendered release notes are normalized, by the `replacers:` block in
+`.github/release-drafter.yml`.
 
-### Service Architecture
-Services inherit from `BaseService` (`tracecat/service.py`) which provides:
-- Automatic logger binding with service name
-- Context-aware role fallback via `ctx_role.get()`
-- `with_session()` context manager for lifecycle management
+### Titles
 
-Context variables (`tracecat/contexts.py`) for request-scoped state:
-- `ctx_role`: Current user/service role
-- `ctx_run`: Workflow run context
-- `ctx_logger`: Request-scoped logger
-- `ctx_interaction`: Interaction context for workflows
+- The PR title is the changelog line. Release Drafter renders it verbatim into
+  the release notes, prefix included, so write it as a user-facing change
+  description. The repo squash-merges, so the title also becomes the commit
+  subject, plus ` (#NNNN)`.
+- The format is `<type>(<scope>)!: <description>`. One line describes the
+  pipeline: type picks a type label, scope picks an area label, and the first
+  matching category in `.github/release-drafter.yml` picks the release-notes
+  section.
+- Validate before opening the PR:
+  `just check-pr-title "feat(cases): add case duplication"`. It reports every
+  violation at once, each with a stable code such as `unknown-scope`.
+- Allowed types:
 
-Router access control using predefined roles from `tracecat/auth/dependencies.py`:
-```python
-from tracecat.auth.dependencies import WorkspaceUserRole, OrgAdminUser
+  <!-- BEGIN commit-conventions:types -->
 
-@router.get("/endpoint")
-async def handler(role: WorkspaceUserRole):  # User with workspace access
-    ...
+  | Type | Use it for |
+  | --- | --- |
+  | `build` | Packaging, wheels, images, and release tooling |
+  | `chore` | Housekeeping with no user-visible effect |
+  | `ci` | GitHub Actions and CI configuration |
+  | `deprecation` | Announcing a deprecation |
+  | `docs` | Documentation only |
+  | `feat` | New user-visible behaviour |
+  | `fix` | A bug fix |
+  | `infra` | Deployment targets, Terraform, Helm, Compose |
+  | `perf` | Measurable performance work |
+  | `refactor` | Restructuring that preserves behaviour |
+  | `release` | Version bumps, excluded from the release notes |
+  | `revert` | Undoing a previous change |
+  | `security` | Security fixes and hardening |
+  | `test` | Tests only |
 
-@router.get("/admin")
-async def admin_handler(role: OrgAdminUser):  # Org admin required
-    ...
-```
+  <!-- END commit-conventions:types -->
 
-Available predefined roles:
-- `WorkspaceUserRole`: User with workspace access
-- `ExecutorWorkspaceRole`: Executor service with workspace
-- `ServiceRole`: Internal service role
-- `OrgAdminUser`: Organization admin user
+- Keep the first line under 72 characters. Over-length warns, it does not fail.
+- Mark breaking changes with `!` before the colon, e.g. `feat(api)!: ...`. The
+  `!` routes the PR to the Breaking changes section. There is no `breaking:`
+  type.
+- Malformed titles like `feat(cases) ENG-1597: ...` (no colon after the scope)
+  get no automatic label and render without a heading in the draft release.
+- GitHub's revert button generates `Revert "fix(agents): ..."`, and the checker
+  rejects it for the same reason: no type, so no section. Retitle to
+  `revert(<scope>): <description>`, keeping the scope of the change being
+  reverted. The `revert-wrapper` error reads the quoted title and spells the
+  replacement out.
 
-### Pagination
-- **MUST use cursor-based pagination** for all list/search endpoints that can return multiple records. Do not introduce offset/page-number pagination for new APIs.
-- Use `CursorPaginationParams` (or the module's equivalent cursor schema) as the input contract and return a typed paginated response with `items` and `next_cursor`.
-- Keep routes idiomatic: collection endpoints stay on the base resource path (for example, `/items`, `/cases`, `/workflows`). Do not add `/paginated` suffix routes.
-- Avoid duplicate APIs for the same behavior (for example, `list_*` + `list_*_paginated`). Keep one canonical list/search implementation per resource.
-- Service methods should expose a single paginated list/search entrypoint. If both `list_*` and `search_*` exist with identical behavior, make one call the other instead of duplicating query logic.
-- Enforce `limit` bounds consistently at both route and schema level (`Query(ge=..., le=...)` plus Pydantic field constraints), using shared config constants from `tracecat/config.py`.
-- Cursor contracts must be stable: sort order and cursor encoding/decoding must produce deterministic pagination without missing or duplicate rows.
+### Scopes
 
-### Frontend Standards
-- Use kebab-case for file names
-- Use camelCase for functions/variables, UPPERCASE_SNAKE_CASE for constants
-- Prefer `function foo()` over `const foo = () =>`
-- Use named exports over default exports
-- Use "Title case example" over "Title Case Example" for UI text
-- Always use proper TypeScript type hints and avoid using `any` - use `unknown` if necessary
-- Avoid nested ternary statements - use `if/else` or `switch/case` instead
-- Place React hooks in `frontend/src/hooks/` directory (e.g., `use-inbox.ts`, `use-auth.ts`)
-- For keyboard shortcut UI, render each key with the `Kbd` component and prefer `parseShortcutKeys` from `frontend/src/lib/tiptap-utils.ts` to ensure consistent macOS symbols (`⌘`, `⇧`) and non-mac labels (`Ctrl`, `Shift`).
+- Add a scope for anything touching a product area. Leave it off only when the
+  change is genuinely repo-wide.
 
-### UI Component Best Practices
-- **Flat, Linear-inspired design**: Follow a minimal, flat design aesthetic inspired by Linear. Key principles:
-  - **No shadows**: Keep designs flat and avoid using shadows unless explicitly asked for.
-  - **No nested containers**: Avoid putting cards/containers inside other containers. This creates unnecessary visual clutter.
-  - **Neutral colors only**: Use grayscale/neutral palette unless explicitly asked for color. Avoid colored buttons - prefer neutral variants unless explicitly asked for a color.
-- **Avoid background colors on child elements within bordered containers**: When using shadcn components like SidebarInset that have rounded borders, don't add background colors (e.g., `bg-card`, `bg-background`) to immediate child elements. These backgrounds can paint over the parent's rounded border corners, making them appear cut off or missing. Instead, let the parent container handle the background styling.
-- **Standard settings/admin page layout**: All settings and admin pages must use this layout pattern for consistency:
-  ```tsx
-  <div className="size-full overflow-auto">
-    <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
-      <div className="flex w-full">
-        <div className="items-start space-y-3 text-left">
-          <h2 className="text-2xl font-semibold tracking-tight">Title</h2>
-          <p className="text-base text-muted-foreground">Subtitle</p>
-        </div>
-        {/* Optional: action buttons on the right */}
-        {/* <div className="ml-auto flex items-center space-x-2">...</div> */}
-      </div>
-      {/* Page content */}
-    </div>
-  </div>
-  ```
-  Key rules: outer `size-full overflow-auto` wrapper, inner container with `max-w-[1000px]`, `space-y-12` section spacing, `h2` for page title, `text-base` on subtitle, `space-y-3` title-subtitle gap. For pages with a back link, place it above the `flex w-full` header div.
+  <!-- BEGIN commit-conventions:scopes -->
 
-### Code Quality
-- **Ruff**: Line length 88, comprehensive linting rules
-- **Pre-commit**: Automated hooks for Ruff, Gitleaks, YAML/TOML validation
-- All tests must pass before commits
+  | Scope | Use it for |
+  | --- | --- |
+  | `actions` | The built-in core.* actions a user calls in a workflow |
+  | `agents` | Agent runtime, chat, presets, tools, and artifacts |
+  | `api` | Backend API, auth, and organization or workspace administration |
+  | `audit` | Security audit logs: who did what in a workspace |
+  | `build` | Packaging and the operator CLI |
+  | `cases` | Case management |
+  | `deps` | Dependency bumps |
+  | `docs` | Documentation and playbooks |
+  | `engine` | The Temporal workers, executors, and scheduler that run workflows |
+  | `enterprise` | Enterprise edition and tiers; pair it with the area it changes |
+  | `functions` | The FN.* inline expression functions |
+  | `infra` | Databases, deployments, and cloud infrastructure |
+  | `integrations` | Third-party vendor connectors and registry templates |
+  | `logging` | Application logging and telemetry: how Tracecat runs |
+  | `mcp` | Tracecat's own MCP server |
+  | `rbac` | Roles and permissions |
+  | `skills` | Agent skills |
+  | `tables` | Workspace tables |
+  | `ui` | The Next.js app and React UI |
 
-## Key Files and Patterns
+  <!-- END commit-conventions:scopes -->
 
-### Configuration Files
-- `pyproject.toml`: Main Python project config with dependencies
-- `frontend/package.json`: Frontend dependencies and scripts
-- `docker-compose.dev.yml`: Development environment
-- `alembic.ini`: Database migration configuration
-- `tracecat/service.py`: Base service class with context-aware defaults
-- `tracecat/contexts.py`: Context variables for request-scoped state
-- `scripts/cluster`: Multi-cluster orchestration script
+- `actions` is the built-in `core.*` actions a user calls in a workflow;
+  `functions` is the `FN.*` inline expression functions; `engine` is the
+  Temporal workers and executors that run them. The first two are catalogs of
+  what the platform offers, and each has its own release-notes section; the
+  third is the machinery.
+- `cases` and `tables` are core platform features with their own scopes and
+  their own sections. Neither folds into `api` or `engine`.
+- `enterprise` says who may use a change, not what the change is, so it never
+  decides the section. Pair it with the area: `feat(enterprise+cases)` lands in
+  Case management, and a bare `feat(enterprise)` falls to Features. It used to
+  sit in the API category, which filed every paid feature under API rather than
+  the area it changed.
+- `engine` is what runs; `infra` is what it runs on. If the change could ship
+  by redeploying the same image, it is `infra`.
+- `audit` is the security audit log: what a workspace records about who did
+  what, for someone reviewing it later. `logging` is application telemetry, what
+  an operator reads to debug Tracecat itself. Audit work renders under Security,
+  telemetry under Observability.
+- Vendor names are not scopes. Write `feat(integrations): add Jira issue
+  search` and name the vendor in the description. The autolabeler still
+  absorbs vendor scopes into `integrations` so merged PRs categorize, but the
+  checker rejects them.
+- At most two scopes, joined with `+`, e.g. `feat(cases+actions): add a case
+  linking action`. A change lands in the highest-ranked section its labels
+  match -- Release Drafter would list it in every one, and a workflow step
+  reduces that to the first -- so
+  that example appears under Case management, not Core actions. Needing three
+  scopes usually means the PR should be split.
+- Scopes that name two different things are rejected outright: `app`, `dev`,
+  `config`, `service`, `tracecat`, `ai`, `workflows`. `app` is the reason the
+  list exists; it historically meant the backend, not the frontend.
+- `workflows` is the one that is ambiguous by construction rather than by
+  history: it reads as GitHub Actions to one person and as the workflow engine
+  to another. GitHub Actions work is a bare `ci:` with no scope, and
+  workflow-engine work is `engine`.
+- Everything else the checker rejects is an old spelling with a canonical
+  replacement it will name for you, e.g. `registry` to `integrations`, `agent`
+  to `agents`, `ee` to `enterprise`, `udfs` and `core` to `actions`.
 
-### Testing Patterns
-- **Test directories**:
-  - `tests/unit/` — Fast, isolated unit tests (mocks OK)
-  - `tests/integration/` — Live service tests, no mocks (requires `just cluster up -d`)
-  - `tests/temporal/` — Temporal workflow tests
-  - `tests/registry/` — Registry and integration tests
-  - `tests/llm/` — LLM call tests
-  - `tests/regression/` — Regression tests
-  - `tests/stress/`, `tests/load/` — Performance tests
-  - `tests/backends/` — Backend-specific tests
-- `tests/conftest.py`: Comprehensive pytest fixtures for database, workspaces, temporal
-- Test markers: `@pytest.mark.integration`, `@pytest.mark.unit`, `@pytest.mark.slow`, `@pytest.mark.temporal`, `@pytest.mark.llm`
-- Database isolation: Each test gets its own transaction
-- **Parallel testing**: pytest-xdist support with worker-specific:
-  - Temporal task queues: `tracecat-task-queue-{worker_id}`
-  - Redis databases: Worker offset % 16
-  - Port configuration via environment variables
+### Deprecations
 
-### Action Templates and Registry
-- **Templates**: `packages/tracecat-registry/tracecat_registry/templates/` - YAML-based integration templates
-- **Integrations**: `packages/tracecat-registry/tracecat_registry/integrations/` - Python client integrations
-- **Reference file**: `tracecat/expressions/expectations.py` – Source of primitive type mappings (e.g., `str`, `int`, `Any`) used when defining `expects:` sections in templates.
-- **Naming**: `tools.{integration_name}` namespace, titles < 5 words
+Removing something takes three PRs, usually across three releases:
 
-### Template Best Practices
-- **URL Encoding**: Use `${{ FN.url_encode(inputs.param) }}` when interpolating user inputs into URL paths (especially for IDs that might be emails)
-- **Type Syntax**: Use `str | None` instead of `str | null` for optional types
-- **GET Requests**: Don't include `Content-Type` header on GET requests
-- **Optional Parameters**: Use `core.script.run_python` to conditionally build params dict, excluding null values
-- **Response Format**: Return `${{ steps.step_name.result.data }}` directly, avoid custom response formatting
-- **Error Handling**: Let the platform handle HTTP errors, don't add custom error checking unless necessary
+1. Announce: `deprecation(<scope>): <thing> in favour of <replacement>`. The
+   description must name a replacement or say `with no replacement`; the
+   checker fails otherwise.
+2. Warn in the code in the same PR, via `deprecated="Use ... instead"` on the
+   registry action.
+3. Remove: `feat(<scope>)!: remove <thing>`, which lands under Breaking
+   changes.
 
-### Workflow and Execution
-- **DSL**: `tracecat/dsl/` - Domain Specific Language for workflows
-- **Executor**: `tracecat/executor/` - Action execution engine with Ray distributed computing
-- **Temporal**: Workflow orchestration with `tracecat/dsl/worker.py`
+### Dependencies
 
-## Important Rules
-- Never add methods in `tracecat/db/models.py`. Keep imports minimal.
-- Always use `pnpm` over `npm` and `rg` instead of `grep`
-- Always ask clarifying questions when lacking full context
-- When handling frontend types, don't import variables prefixed with '$' unless you are importing the schema object
-- **NEVER** use `--no-gpg-sign` or `--no-verify` to bypass commit signing. If GPG/SSH signing fails (e.g., 1Password agent not running), stop and ask the user to fix their signing setup rather than creating an unverified commit.
+- Routine Dependabot patches and Low, Moderate, or High severity advisories
+  are `build(deps):` and land under Dependencies.
+- Reserve `security(deps):` for Critical unauthenticated remote-code-execution
+  advisories. Security stays a drop-everything section only if it is rare.
 
-- For infrastructure changes, always verify and update all relevant deployment targets together: `docker-compose*.yml`, Terraform Fargate (`deployments/fargate/`), Terraform EKS (`deployments/eks/` and `deployments/eks/modules/eks/`), and Helm (`deployments/helm/`).
-- As part of that infra review, explicitly check `values.yaml`, `variables.tf`, and `main.tf` in the relevant deployment directories before marking the change complete.
+### Labels
 
-## Pull Request Description Hygiene
-- Never use `gh pr create --body "..."` when the body includes Markdown or backticks.
-- Always write the PR body to a file using a single-quoted heredoc (`<<'EOF'`) and pass it with `gh pr create --body-file <file>`.
-- After creating or editing a PR body, always verify with `gh pr view <pr-number> --json body --jq .body` and confirm inline code, endpoint paths, and backticks are preserved exactly.
-- If formatting is wrong, immediately fix it with `gh pr edit <pr-number> --body-file <file>` and re-verify.
-- Always keep auto-generated PR content from cubic; do not remove or replace it unless the user explicitly asks.
+- The autolabeler assigns type and area labels from the title once the PR is
+  opened, so do not hand-label in the normal case. Hand-label only fork PRs
+  (the autolabeler cannot write to them) and to add nuance the title cannot
+  express.
+- Before hand-labeling, list existing repo labels with `gh label list` and
+  pick from that set. See "Never invent vocabulary" below.
+- The autolabeler only ever adds. Retitle a pull request and the labels its
+  old title earned stay put, so `fix(workflows): ...` retitled to `ci: ...`
+  keeps `engine` alongside the new `cicd` and lands in two sections. Remove the
+  stale ones yourself:
+  `gh api --method DELETE repos/TracecatHQ/tracecat/issues/<pr>/labels/<label>`.
+  This is deliberate rather than a gap: the backfill and the autolabeler both
+  add only, so a label applied by hand for nuance the title cannot express is
+  never silently removed.
+- `gh pr edit` subcommands fail on this repo because of the Projects-classic
+  deprecation. Apply labels with
+  `gh api repos/TracecatHQ/tracecat/issues/<pr-number>/labels -f "labels[]=<label>"`.
 
-## Code Typing Guidelines
-- When writing typescript code, always do your best to use proper type hints and avoid using `any`. If you really have to you can use `unknown`.
+### Never invent vocabulary
 
-## Frontend Type Generation
-- If you need to add frontend types, you should first try to generate them from the backend using `just gen-client-ci`
+- The vocabulary is closed. Use only the types, scopes and labels that already
+  exist in `.github/commit-conventions.toml` and `gh label list`. This applies
+  equally to labels, conventional-commit types, and scopes.
+- Do not add entries to `[types]`, `[scopes]`, `[scope_aliases]` or
+  `[legacy_scopes]`, and do not run `gh label create`, even when a change seems
+  not to fit. It usually does fit: a vendor name belongs in `integrations` with
+  the vendor named in the description, and a change that needs a third scope is
+  a PR that should be split.
+- A failing check is the system working, not a reason to widen the vocabulary.
+  `feat(jira): ...` is meant to fail; the fix is
+  `feat(integrations): add Jira issue search`, not a new `jira` scope.
+- If you believe a label, type or scope is genuinely missing, stop and say so.
+  Name what you think is missing and why, then leave it to a human. New
+  vocabulary needs discussion and review from the engineering and GTM teams
+  before anyone adds it through the GitHub UI, because scopes and labels decide
+  release-note section headings, which are user-facing. An agent that invents a
+  scope mid-task ships a heading nobody agreed to.
+- `audit` was added exactly that way on 2026-09-01. An agent hit the
+  `unknown-scope` rejection telling it to write `api` on a real pull request,
+  stopped rather than retitling, and named the gap; a human approved the scope.
+  Nine merged pull requests had been filed under `api` because of that alias.
+  The escalation is the path, and the vocabulary is still closed.
 
-## Database Migrations
-- Ensure the database is running first: `just cluster up -d`
-- When running an alembic migration, first check the PostgreSQL port with `just cluster ports`, then set the DB URI:
-  ```bash
-  export TRACECAT__DB_URI=postgresql+psycopg://postgres:postgres@localhost:<port>/postgres
-  ```
-  Default port is 5432 for cluster 1, but may be 5532, 5632, etc. for other clusters.
-- **Creating new migrations**: Always let Alembic autogenerate the migration first to get correct naming conventions and structure:
-  ```bash
-  uv run alembic revision --autogenerate -m "description of migration"
-  ```
-  Then review and edit the generated migration file as needed. This ensures consistent revision IDs and proper down_revision chains.
+### Changing the conventions
 
-## Services and Logging Guidelines
-- When working with live services, use `just cluster` commands to manage the stack:
-  - `just cluster logs <service>` - View service logs
-  - `just cluster logs -f <service>` - Follow logs in real-time
-  - `just cluster ps` - Check container status
-  - `just cluster restart <service>` - Restart a service
-  - `just cluster attach <service>` - Shell into a running container
-- Do NOT use raw `docker` or `docker compose` commands directly - the cluster script handles environment variables and port allocation
+- This section is for humans making an approved change. Agents should read the
+  rule above first.
+- `.github/commit-conventions.toml` is the source of truth. Edit it, then
+  regenerate and re-verify: `just check-pr-title`, and
+  `uv run pytest tests/unit/test_commit_conventions.py`, which fails if the
+  autolabeler regexes, the category labels, or the tables above drift from it.
+- Any counts quoted in these docs are a snapshot. Re-derive them with
+  `just audit-conventions prefixes`; that command, not the prose, is the
+  source of truth for how the repo actually writes titles.
 
-## Tracecat Template Best Practices
+### Descriptions
 
-### Template Structure
-- Templates are YAML files located in `packages/tracecat-registry/tracecat_registry/templates/`
-- Use namespace pattern `tools.{integration_name}` (e.g., `tools.zendesk`, `tools.okta`)
-- Action titles should be < 5 words and use "Title case example" format
+- Never use `gh pr create --body "..."` when the body includes Markdown or
+  backticks.
+- Write the PR body to a file with a single-quoted heredoc (`<<'EOF'`) and pass
+  it with `gh pr create --body-file <file>`.
+- After creating or editing a PR body, verify it with
+  `gh pr view <pr-number> --json body --jq .body`.
+- If formatting is wrong, fix it with `gh pr edit <pr-number> --body-file` and
+  re-verify.
+- Keep auto-generated PR content from cubic unless the user explicitly asks to
+  remove it.
+- Include a LOC breakdown in every PR body: categorize the diff's added and
+  removed lines by kind of change, e.g.:
+  - Logic: application/backend/frontend source code.
+  - Tests: `tests/`, `frontend/**/*.test.*`, fixtures.
+  - Infra/config: `docker-compose*.yml`, `deployments/`, `.github/`, `Dockerfile*`,
+    env files, `justfile`, tool configs.
+  - Docs: `docs/`, `*.md`.
+  - Generated: lockfiles (`uv.lock`, `pnpm-lock.yaml`), generated API clients,
+    migrations produced by autogenerate.
+  Compute counts from `git diff --numstat <base>...HEAD` and render as a small
+  Markdown table with one row per category and `+` / `-` columns. Omit empty
+  categories; use judgment for files that straddle categories.
 
-### Expression Syntax
-- Use `${{ }}` for template expressions
-- Boolean operators: Use `||` for OR, `&&` for AND (not Python's `or`/`and`)
-- String casting: `str()` is valid in Tracecat templates
-- All FN. functions must exist in `tracecat/expressions/functions.py`
+## Services and logging
 
-### Available Functions (FN.)
-IMPORTANT: Always check `@tracecat/expressions/functions.py` for the complete and up-to-date list of available functions. Look at the `_FUNCTION_MAPPING` dictionary (around line 905) to see all available functions and their aliases.
+- Prefer `just cluster logs <service>` and `just cluster logs -f <service>` for
+  service logs.
+- Use `just cluster ps` to inspect running services and `just cluster restart`
+  to bounce a service after code changes.
+- Use `just cluster attach <service>` when you need a shell inside a container.
+- Avoid raw `docker` and `docker compose` for normal Tracecat stack management
+  unless you are intentionally working with an existing non-`just cluster`
+  stack.
 
-When writing templates, ensure that any FN. function you use exists in the `_FUNCTION_MAPPING` dictionary. The function names in templates must match the dictionary keys exactly.
+## Registry and templates
 
-### HTTP Requests
-- Use `core.http_request` action
-- Parameter name for JSON body is `payload` (not `json` or `json_body`)
-- Example:
-  ```yaml
-  - ref: call_api
-    action: core.http_request
-    args:
-      url: https://api.example.com/endpoint
-      method: POST
-      headers:
-        Authorization: Bearer ${{ SECRETS.api.TOKEN }}
-      payload:  # Correct parameter name
-        key: value
-  ```
-
-### Complex Logic
-- For simple conditions: Use template expressions with `||` and `&&`
-  ```yaml
-  value: ${{ inputs.login || inputs.email }}
-  ```
-- For complex logic: Use `core.script.run_python`
-  ```yaml
-  - ref: complex_logic
-    action: core.script.run_python
-    args:
-      inputs:
-        data: ${{ inputs.data }}
-      script: |
-        def main(data):
-            # Complex processing here
-            return processed_data
-  ```
-
-### Best Practices
-1. **Avoid Python syntax in expressions**: Use `||` not `or`, `&&` not `and`
-2. **Use Python scripts for complexity**: Dictionary merging, complex conditionals, data transformations
-3. **Validate function names**: Ensure all FN. functions exist in expressions/functions.py
-4. **Consistent namespaces**: Always use `tools.` prefix for integrations
-5. **Proper parameter names**: Use `payload` for JSON data in HTTP requests
-6. **Handle empty responses**: Some APIs return empty responses on success
-7. **Error handling**: Consider using Python scripts to handle edge cases
-
-### Common Patterns
-- **Authentication headers**:
-  ```yaml
-  Authorization: Basic ${{ FN.to_base64(SECRETS.creds.USERNAME + ":" + SECRETS.creds.PASSWORD) }}
-  Authorization: Bearer ${{ SECRETS.api.TOKEN }}
-  ```
-- **Conditional values**:
-  ```yaml
-  value: ${{ inputs.override || defaults.standard_value }}
-  ```
-- **Complex data merging**:
-  ```yaml
-  - ref: merge_data
-    action: core.script.run_python
-    args:
-      inputs:
-        base: ${{ inputs.base_data }}
-        updates: ${{ inputs.updates }}
-      script: |
-        def main(base, updates):
-            return {**base, **updates}
-  ```
-
-- when using typescript you must *never* use `any` to type a variable
-- When adding any pages that require redirection/callbacks to the UI we need to create a NextJS route handler for that path
-- When you write a commit message, you *MUST* use conventional commits standards. You must also *NEVER* use the `claude` scope for the commit message, as it is not informative.
+- Registry templates live in
+  `packages/tracecat-registry/tracecat_registry/templates/`.
+- Use the `tools.{integration_name}` namespace for integrations.
+- Scope PRs for vendor connector work as `(integrations)`, not `(registry)`;
+  see the Scopes rules under Pull requests.
+- Keep template expressions platform-native. For anything complex, prefer
+  `core.script.run_python` over dense inline expressions.
+- When adding SDK helpers, verify the exact request path and add or update a
+  regression test that covers it.

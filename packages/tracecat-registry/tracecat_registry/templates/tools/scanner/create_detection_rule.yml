@@ -1,0 +1,106 @@
+type: action
+definition:
+  title: Create Scanner detection rule
+  description: Create a detection rule in Scanner.
+  display_group: Scanner
+  doc_url: https://docs.scanner.dev/scanner/using-scanner-complete-feature-reference/developer-tools/api/detection-rules
+  namespace: tools.scanner
+  name: create_detection_rule
+  secrets:
+    - name: scanner
+      keys: ["SCANNER_API_KEY"]
+  expects:
+    tenant_id:
+      type: str
+      description: Unique identifier for the Scanner tenant.
+    name:
+      type: str
+      description: Name of the detection rule.
+    description:
+      type: str
+      description: Description of the detection rule.
+    time_range_s:
+      type: int
+      description: Lookback period in seconds. Scanner requires minute granularity.
+    run_frequency_s:
+      type: int
+      description: Run frequency in seconds. Scanner requires minute granularity and a value no greater than `time_range_s`.
+    enabled_state_override:
+      type: str
+      description: Scanner enabled state, such as Active, Staging, or Paused.
+    severity:
+      type: str
+      description: Detection severity accepted by Scanner, such as Information, Low, Medium, High, Critical, Fatal, or Other.
+    query_text:
+      type: str
+      description: Scanner query text for the detection rule.
+    event_sink_ids:
+      type: list[str]
+      description: Event sink IDs that receive alerts from this detection rule.
+    tags:
+      type: list[str] | None
+      description: Tags to associate with the detection rule.
+      default: null
+    sync_key:
+      type: str | None
+      description: Sync key used by automatic detection rule syncers.
+      default: null
+    base_url:
+      type: str | None
+      description: Scanner team API URL. Falls back to `VARS.scanner.base_url`.
+      default: null
+  steps:
+    - ref: build_detection_rule
+      action: core.script.run_python
+      args:
+        inputs:
+          tenant_id: ${{ inputs.tenant_id }}
+          name: ${{ inputs.name }}
+          description: ${{ inputs.description }}
+          time_range_s: ${{ inputs.time_range_s }}
+          run_frequency_s: ${{ inputs.run_frequency_s }}
+          enabled_state_override: ${{ inputs.enabled_state_override }}
+          severity: ${{ inputs.severity }}
+          query_text: ${{ inputs.query_text }}
+          event_sink_ids: ${{ inputs.event_sink_ids }}
+          tags: ${{ inputs.tags }}
+          sync_key: ${{ inputs.sync_key }}
+        script: |
+          def main(
+              tenant_id,
+              name,
+              description,
+              time_range_s,
+              run_frequency_s,
+              enabled_state_override,
+              severity,
+              query_text,
+              event_sink_ids,
+              tags,
+              sync_key,
+          ):
+              payload = {
+                  "tenant_id": tenant_id,
+                  "name": name,
+                  "description": description,
+                  "time_range_s": time_range_s,
+                  "run_frequency_s": run_frequency_s,
+                  "enabled_state_override": enabled_state_override,
+                  "severity": severity,
+                  "query_text": query_text,
+                  "event_sink_ids": event_sink_ids,
+                  "tags": tags,
+                  "sync_key": sync_key,
+              }
+              return {key: value for key, value in payload.items() if value is not None}
+    - ref: create_detection_rule
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.scanner.base_url }}/v1/detection_rule
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.scanner.SCANNER_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ steps.build_detection_rule.result }}
+  returns: ${{ steps.create_detection_rule.result.data }}

@@ -1,0 +1,634 @@
+from __future__ import annotations
+
+import inspect
+import uuid
+from collections import Counter
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from fastapi import Request
+
+from tracecat.agent.executor.loopback import LoopbackHandler
+from tracecat.api.app import info, lifespan
+from tracecat.auth.credentials import _role_dependency
+from tracecat.auth.discovery import AuthDiscoveryService
+from tracecat.auth.enums import AuthType
+from tracecat.auth.org_context import resolve_auth_organization_id
+from tracecat.auth.saml import login as saml_login
+from tracecat.auth.saml import sso_acs
+from tracecat.auth.types import Role
+from tracecat.auth.users import UserManager
+from tracecat.cases.triggers.consumer import CaseTriggerConsumer
+from tracecat.contexts import ctx_role
+from tracecat.db import rls as rls_module
+from tracecat.db.engine import get_async_session
+from tracecat.db.rls import set_rls_context, set_rls_context_from_role
+from tracecat.dsl.worker import get_activities as get_worker_activities
+from tracecat.executor.registry_resolver import _load_manifest_entry
+from tracecat.executor.service import get_registry_artifacts_for_lock
+from tracecat.integrations.router import oauth_callback
+from tracecat.integrations.service import IntegrationService
+from tracecat.organization.router import (
+    accept_invitation,
+    get_invitation_by_token,
+    list_my_pending_invitations,
+)
+from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
+from tracecat.service import BaseOrgService
+from tracecat.settings.service import get_setting
+from tracecat.webhooks.dependencies import validate_incoming_webhook
+from tracecat.workspaces.activities import get_workspace_organization_id_activity
+
+RLS_MIGRATION_PATH = Path("alembic/versions/c76f9b01fad7_add_rls_policies.py")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def workflow_bucket() -> Iterator[None]:
+    """Disable MinIO-dependent workflow bucket setup for pure unit repro tests."""
+    yield
+
+
+@pytest.mark.anyio
+async def test_authenticate_user_membership_check_is_not_done_under_deny_default() -> (
+    None
+):
+    """User auth should not run under deny-default request session context."""
+    workspace_id = uuid.uuid4()
+    org_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+    session = AsyncMock()
+    session.sync_session = MagicMock()
+    session.sync_session.info = {
+        rls_module._RLS_CONTEXT_INFO_KEY: rls_module._RLSContext(  # pyright: ignore[reportPrivateUsage]
+            org_id=None,
+            workspace_id=None,
+            user_id=None,
+            bypass=False,
+        )
+    }
+    user = MagicMock()
+    user.id = user_id
+    user.is_superuser = False
+
+    role = Role(
+        type="user",
+        workspace_id=workspace_id,
+        organization_id=org_id,
+        user_id=user_id,
+        service_id="tracecat-api",
+    )
+    validated_role = role.model_copy(update={"scopes": frozenset({"tests:read"})})
+
+    async def _assert_authenticate_user_context(**kwargs) -> Role:  # noqa: ANN003
+        auth_session = kwargs["session"]
+        context = auth_session.sync_session.info.get(
+            rls_module._RLS_CONTEXT_INFO_KEY  # pyright: ignore[reportPrivateUsage]
+        )
+        assert isinstance(
+            context,
+            rls_module._RLSContext,  # pyright: ignore[reportPrivateUsage]
+        )
+        # Auth should not run under deny-default (no tenant + bypass off).
+        assert (
+            context.bypass
+            or context.workspace_id is not None
+            or context.org_id is not None
+        )
+        return role
+
+    with (
+        patch(
+            "tracecat.auth.credentials._authenticate_user",
+            new=AsyncMock(side_effect=_assert_authenticate_user_context),
+        ),
+        patch(
+            "tracecat.auth.credentials._validate_role",
+            new=AsyncMock(return_value=validated_role),
+        ),
+    ):
+        resolved_role = await _role_dependency(
+            request=request,
+            session=session,
+            workspace_id=workspace_id,
+            user=user,
+            api_key=None,
+            allow_user=True,
+            allow_service=False,
+            allow_executor=False,
+            require_workspace="yes",
+        )
+
+    assert resolved_role.organization_id == org_id
+    assert resolved_role.workspace_id == workspace_id
+    assert resolved_role.user_id == user_id
+
+
+@pytest.mark.anyio
+async def test_set_rls_context_from_role_applies_gucs_even_when_feature_flag_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Role-based context setup must still write GUCs when policies are installed."""
+    session = AsyncMock()
+    session.sync_session = MagicMock()
+    session.sync_session.info = {}
+
+    monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
+
+    role = Role(
+        type="service",
+        organization_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-service",
+        scopes=frozenset({"*"}),
+    )
+
+    await set_rls_context_from_role(session, role)
+
+    session.execute.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_set_rls_context_applies_gucs_even_when_feature_flag_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RLS context must still be written when DB policies are installed."""
+    session = AsyncMock()
+    session.sync_session = MagicMock()
+    session.sync_session.info = {}
+
+    monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
+
+    await set_rls_context(
+        session,
+        org_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        bypass=True,
+    )
+
+    session.execute.assert_called_once()
+
+
+def test_rls_after_begin_reapplies_cached_context_when_feature_flag_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transaction begin should still reapply cached context when policies exist."""
+    session = MagicMock()
+    connection = MagicMock()
+
+    session.info = {
+        rls_module._RLS_CONTEXT_INFO_KEY: rls_module._RLSContext(  # pyright: ignore[reportPrivateUsage]
+            org_id=str(uuid.uuid4()),
+            workspace_id=str(uuid.uuid4()),
+            user_id=str(uuid.uuid4()),
+            bypass=False,
+        )
+    }
+
+    monkeypatch.setattr("tracecat.db.rls.is_rls_enabled", lambda: False)
+
+    rls_module._reapply_rls_context_after_begin(  # pyright: ignore[reportPrivateUsage]
+        session=session,
+        transaction=MagicMock(),
+        connection=connection,
+    )
+
+    connection.execute.assert_called_once()
+
+
+def test_rls_migration_uses_enable_without_force() -> None:
+    migration_sql = RLS_MIGRATION_PATH.read_text()
+    assert "ENABLE ROW LEVEL SECURITY" in migration_sql
+    assert "FORCE ROW LEVEL SECURITY" not in migration_sql
+
+
+def test_rls_migration_uses_special_oauth_state_policy() -> None:
+    migration_sql = RLS_MIGRATION_PATH.read_text()
+    assert 'ALTER TABLE "oauth_state" ENABLE ROW LEVEL SECURITY;' in migration_sql
+    assert (
+        "user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid"
+        in migration_sql
+    )
+
+
+def test_validate_incoming_webhook_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(validate_incoming_webhook)
+    assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_case_trigger_consumer_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(CaseTriggerConsumer._process_message)
+    assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def _source_has_auth_safe_rls_bootstrap(source: str) -> bool:
+    return any(
+        marker in source
+        for marker in (
+            "AsyncDBSessionBypass",
+            "get_async_session_bypass_rls_context_manager",
+            "set_rls_context(",
+        )
+    )
+
+
+def test_accept_invitation_bootstraps_rls_for_no_org_context() -> None:
+    source = inspect.getsource(accept_invitation)
+    assert _source_has_auth_safe_rls_bootstrap(source), (
+        "accept_invitation must use a bypass session or explicitly prime RLS context "
+        "before invitation reads/writes"
+    )
+
+
+def test_list_my_pending_invitations_uses_bypass_session_dependency() -> None:
+    source = inspect.getsource(list_my_pending_invitations)
+    assert "session: AsyncDBSessionBypass" in source
+
+
+def test_get_invitation_by_token_uses_bypass_session_dependency() -> None:
+    source = inspect.getsource(get_invitation_by_token)
+    assert "session: AsyncDBSessionBypass" in source
+
+
+def _patch_user_manager_pool_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[object, object, AsyncMock, AsyncMock, list[object], set[object]]:
+    main_bind = object()
+    auth_bind = object()
+    binds: list[object] = []
+    open_binds: set[object] = set()
+
+    main_session = AsyncMock()
+    auth_session = AsyncMock()
+
+    def _session_factory(bind: object, **_kwargs: object) -> AsyncMock:
+        binds.append(bind)
+        if bind is main_bind:
+            session = main_session
+        else:
+            assert bind is auth_bind
+            session = auth_session
+
+        async def _enter() -> AsyncMock:
+            open_binds.add(bind)
+            return session
+
+        async def _exit(*_args: object) -> None:
+            open_binds.remove(bind)
+
+        session_cm = AsyncMock()
+        session_cm.__aenter__.side_effect = _enter
+        session_cm.__aexit__.side_effect = _exit
+        return session_cm
+
+    monkeypatch.setattr("tracecat.db.engine.AsyncSession", _session_factory)
+    monkeypatch.setattr(
+        "tracecat.db.engine.get_async_engine",
+        lambda: main_bind,
+    )
+    monkeypatch.setattr(
+        "tracecat.db.engine.get_async_auth_engine",
+        lambda: auth_bind,
+    )
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context", AsyncMock())
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context_from_role", AsyncMock())
+
+    return (
+        main_bind,
+        auth_bind,
+        main_session,
+        auth_session,
+        binds,
+        open_binds,
+    )
+
+
+@pytest.mark.anyio
+async def test_user_manager_list_user_org_ids_uses_auth_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """User membership lookups must execute only on the auth bulkhead bind."""
+    (
+        _main_bind,
+        auth_bind,
+        main_session,
+        auth_session,
+        binds,
+        _open_binds,
+    ) = _patch_user_manager_pool_sessions(monkeypatch)
+    organization_id = uuid.uuid4()
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = [organization_id]
+    auth_session.execute.return_value = result
+    manager = UserManager.__new__(UserManager)
+
+    organization_ids = await manager._list_user_org_ids(uuid.uuid4())
+
+    assert organization_ids == {organization_id}
+    assert binds == [auth_bind]
+    main_session.execute.assert_not_awaited()
+    auth_session.execute.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_user_manager_validate_email_first_user_lookup_uses_auth_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """First-user validation must execute its lookup only on the auth bulkhead bind."""
+    (
+        _main_bind,
+        auth_bind,
+        main_session,
+        auth_session,
+        binds,
+        _open_binds,
+    ) = _patch_user_manager_pool_sessions(monkeypatch)
+    result = MagicMock()
+    result.scalar_one.return_value = False
+    auth_session.execute.return_value = result
+    email = "admin@example.com"
+    monkeypatch.setattr(
+        "tracecat.auth.users.config.TRACECAT__AUTH_SUPERADMIN_EMAIL",
+        email,
+    )
+    manager = UserManager.__new__(UserManager)
+    manager.logger = MagicMock()
+
+    await manager.validate_email(email)
+
+    assert binds == [auth_bind]
+    main_session.execute.assert_not_awaited()
+    auth_session.execute.assert_awaited_once()
+    statement = auth_session.execute.await_args.args[0]
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    # EXISTS short-circuits at the first row, keeping the lookup bounded
+    # without materializing user rows.
+    assert compiled.startswith("SELECT EXISTS")
+    result.scalars.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_user_manager_list_user_org_ids_allows_held_main_pool_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A held main-pool session must permit a successful auth-pool membership lookup."""
+    (
+        main_bind,
+        auth_bind,
+        main_session,
+        auth_session,
+        binds,
+        open_binds,
+    ) = _patch_user_manager_pool_sessions(monkeypatch)
+    organization_id = uuid.uuid4()
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = [organization_id]
+    main_was_held_during_lookup = False
+
+    async def _execute_on_auth(_statement: object) -> MagicMock:
+        nonlocal main_was_held_during_lookup
+        main_was_held_during_lookup = main_bind in open_binds
+        return result
+
+    auth_session.execute.side_effect = _execute_on_auth
+    manager = UserManager.__new__(UserManager)
+    main_session_generator = get_async_session()
+    held_session = await anext(main_session_generator)
+
+    try:
+        assert held_session is main_session
+        assert main_bind in open_binds
+        organization_ids = await manager._list_user_org_ids(uuid.uuid4())
+    finally:
+        await main_session_generator.aclose()
+
+    assert organization_ids == {organization_id}
+    assert main_was_held_during_lookup
+    assert binds == [main_bind, auth_bind]
+    auth_session.execute.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_user_manager_saml_policy_uses_auth_pool_with_held_main_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SAML policy reads must stay on auth while the login session holds main."""
+    (
+        main_bind,
+        auth_bind,
+        main_session,
+        auth_session,
+        binds,
+        open_binds,
+    ) = _patch_user_manager_pool_sessions(monkeypatch)
+    enabled_result = MagicMock()
+    enabled_result.scalar_one_or_none.return_value = SimpleNamespace(
+        value=b"true",
+        is_encrypted=False,
+    )
+    enforced_result = MagicMock()
+    enforced_result.scalar_one_or_none.return_value = SimpleNamespace(
+        value=b"true",
+        is_encrypted=False,
+    )
+    setting_results = iter((enabled_result, enforced_result))
+    main_held_during_lookups: list[bool] = []
+
+    async def _execute_on_auth(_statement: object) -> MagicMock:
+        main_held_during_lookups.append(main_bind in open_binds)
+        return next(setting_results)
+
+    auth_session.execute.side_effect = _execute_on_auth
+    monkeypatch.setattr(
+        "tracecat.auth.users.config.TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.SAML},
+    )
+    manager = UserManager.__new__(UserManager)
+    main_session_generator = get_async_session()
+    held_session = await anext(main_session_generator)
+
+    try:
+        assert held_session is main_session
+        assert main_bind in open_binds
+        saml_enforced = await manager._is_org_saml_enforced(uuid.uuid4())
+    finally:
+        await main_session_generator.aclose()
+
+    assert saml_enforced is True
+    assert main_held_during_lookups == [True, True]
+    assert binds == [main_bind, auth_bind]
+    main_session.execute.assert_not_awaited()
+    assert auth_session.execute.await_count == 2
+
+
+def test_resolve_auth_organization_id_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(resolve_auth_organization_id)
+    assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_api_lifespan_rbac_seeding_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(lifespan)
+    assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_registry_sync_startup_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(sync_platform_registry_on_startup)
+    assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_loopback_persist_session_line_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(LoopbackHandler._persist_session_line)
+    assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_schedule_workspace_org_lookup_activity_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(get_workspace_organization_id_activity)
+    assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_worker_activity_names_are_unique() -> None:
+    activity_names = [
+        getattr(activity, "__temporal_activity_definition").name
+        for activity in get_worker_activities()
+    ]
+    duplicate_names = {
+        name: count for name, count in Counter(activity_names).items() if count > 1
+    }
+
+    assert not duplicate_names, f"Duplicate worker activity names: {duplicate_names}"
+
+
+def test_info_endpoint_uses_bypass_session_dependency() -> None:
+    source = inspect.getsource(info)
+    assert "session: AsyncDBSessionBypass" in source
+
+
+def test_saml_login_uses_bypass_session_dependency() -> None:
+    source = inspect.getsource(saml_login)
+    assert "db_session: AsyncDBSessionBypass" in source
+
+
+def test_role_dependency_keeps_bypass_context_outside_enforce() -> None:
+    source = inspect.getsource(_role_dependency)
+    assert "config.TRACECAT__RLS_MODE == config.RLSMode.ENFORCE" in source
+    assert "bypass=True" in source
+
+
+def test_oauth_callback_rebinds_rls_context_after_workspace_role_update() -> None:
+    source = inspect.getsource(oauth_callback)
+    assert "ctx_role.set(role)" in source
+    assert "await set_rls_context_from_role(session, role)" in source
+
+
+def test_connect_provider_uses_bypass_session_for_global_oauth_state_cleanup() -> None:
+    source = inspect.getsource(IntegrationService.start_authorization_code_connect)
+    assert "get_async_session_bypass_rls_context_manager" in source
+    assert "delete(OAuthStateDB)" in source
+
+
+def test_saml_acs_primes_rls_context_before_org_scoped_queries() -> None:
+    source = inspect.getsource(sso_acs)
+    assert "await set_rls_context(" in source
+    assert "organization_id = parse_relay_state_org_id" in source
+    assert "get_org_saml_metadata_url(db_session, organization_id)" in source
+
+
+@pytest.mark.anyio
+async def test_info_endpoint_handles_missing_saml_setting_without_keyerror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeSettingsService:
+        def __init__(self, session, role) -> None:  # noqa: ANN001, ANN204
+            self.session = session
+            self.role = role
+
+        async def list_org_settings(self, *, keys: set[str]) -> list[object]:
+            return []
+
+        def get_value(self, setting: object) -> object:
+            return setting
+
+    session = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.api.app.get_default_organization_id",
+        AsyncMock(return_value=uuid.uuid4()),
+    )
+    monkeypatch.setattr("tracecat.api.app.SettingsService", FakeSettingsService)
+    monkeypatch.setattr("tracecat.api.app.get_setting_override", lambda key: None)
+
+    response = await info(session)
+
+    assert isinstance(response.saml_enabled, bool)
+
+
+@pytest.mark.anyio
+async def test_base_org_service_with_session_sets_role_before_session_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """with_session(role=...) should open the DB session with that role context."""
+
+    class DummyOrgService(BaseOrgService):
+        service_name = "dummy_org"
+
+    role = Role(
+        type="service",
+        service_id="tracecat-service",
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"*"}),
+    )
+    session = AsyncMock()
+    observed: list[Role | None] = []
+
+    @asynccontextmanager
+    async def _fake_session_cm() -> AsyncIterator[AsyncMock]:
+        observed.append(ctx_role.get())
+        yield session
+
+    monkeypatch.setattr(
+        "tracecat.service.get_async_session_context_manager", _fake_session_cm
+    )
+
+    async with DummyOrgService.with_session(role=role):
+        pass
+
+    assert observed == [role]
+
+
+def test_get_setting_primes_rls_context_when_session_is_provided() -> None:
+    source = inspect.getsource(get_setting)
+    assert "set_rls_context_from_role" in source
+
+
+def test_user_manager_saml_check_does_not_reuse_unscoped_request_session() -> None:
+    source = inspect.getsource(UserManager._is_org_saml_enforced)
+    assert "session=self._user_db.session" not in source
+    assert "get_async_session_auth_context_manager" in source
+
+
+def test_user_manager_oauth_saml_domain_check_uses_auth_session_manager() -> None:
+    source = inspect.getsource(UserManager._get_org_id_for_email_domain)
+    assert "get_async_session_auth_context_manager" in source
+
+
+def test_auth_discovery_saml_check_reuses_authorized_bypass_session() -> None:
+    source = inspect.getsource(AuthDiscoveryService._org_saml_enabled)
+    assert "get_setting_from_bypass_session" in source
+    assert "session=self.session" in source
+
+
+def test_registry_artifact_lookup_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(get_registry_artifacts_for_lock)
+    assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_registry_manifest_lookup_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(_load_manifest_entry)
+    assert "get_async_session_bypass_rls_context_manager" in source

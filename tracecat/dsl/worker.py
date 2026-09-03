@@ -1,9 +1,9 @@
 import asyncio
 import dataclasses
 import os
-import signal
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.worker import Worker
@@ -12,25 +12,40 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
-from tracecat import __version__ as APP_VERSION
+_MIN_CONCURRENT_ACTIVITIES = 1
+_MIN_CONCURRENT_WORKFLOW_TASKS = 2
 
 with workflow.unsafe.imports_passed_through():
-    import sentry_sdk
-    from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
+    import uvloop
 
     from tracecat import config
+    from tracecat.agent.preset.activities import (
+        resolve_agent_preset_version_ref_activity,
+    )
+    from tracecat.cases.agent_sessions.workflow import (
+        CaseAgentSessionBackfillWorkflow,
+        case_agent_session_backfill_activity,
+    )
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.init_activities import (
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
-    from tracecat.dsl.interceptor import SentryInterceptor
-    from tracecat.dsl.plugins import TracecatPydanticAIPlugin
+    from tracecat.dsl.interceptor import (
+        RuntimeErrorAttributionInterceptor,
+    )
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
+    from tracecat.observability.otel import (
+        initialize_platform_tracing,
+        shutdown_platform_tracing,
+    )
+    from tracecat.observability.sentry import initialize_sentry_from_environment
+    from tracecat.storage.blob import close_storage_client_cache
     from tracecat.storage.collection import CollectionActivities
+    from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
     from tracecat.tiers.activities import TierActivities
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
@@ -80,13 +95,12 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
     )
 
 
-interrupt_event = asyncio.Event()
-
-
 def get_activities() -> list[Callable]:
     activities: list[Callable] = [
+        case_agent_session_backfill_activity,
         *DSLActivities.load(),
         *CollectionActivities.get_activities(),
+        resolve_agent_preset_version_ref_activity,
         get_workflow_definition_activity,
         resolve_registry_lock_activity,
         get_workspace_organization_id_activity,
@@ -100,34 +114,21 @@ def get_activities() -> list[Callable]:
     return activities
 
 
-async def main() -> None:
+async def main(shutdown_event: asyncio.Event | None = None) -> None:
+    if shutdown_event is None:
+        shutdown_event = asyncio.Event()
+
     # Enable workflow replay log filtering for this process
     from tracecat.logger import _logger
 
     _logger._is_worker_process = True
 
-    client = await get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
+    initialize_platform_tracing("tracecat-worker")
 
-    interceptors = []
-    if sentry_dsn := os.environ.get("SENTRY_DSN"):
-        logger.info("Initializing Sentry interceptor")
-        app_env = config.TRACECAT__APP_ENV
-        temporal_namespace = config.TEMPORAL__CLUSTER_NAMESPACE
-        sentry_environment: str = (
-            config.SENTRY_ENVIRONMENT_OVERRIDE or f"{app_env}-{temporal_namespace}"
-        )
-        sentry_sdk.init(
-            dsn=sentry_dsn,
-            environment=sentry_environment,
-            release=f"tracecat@{APP_VERSION}",
-        )
-        logger.info(
-            "Sentry initialized",
-            environment=sentry_environment,
-            app_env=app_env,
-            temporal_namespace=temporal_namespace,
-        )
-        interceptors.append(SentryInterceptor())
+    client = await get_temporal_client()
+
+    initialize_sentry_from_environment()
+    interceptors = [RuntimeErrorAttributionInterceptor()]
 
     # Run a worker for the activities and workflow
     activities = get_activities()
@@ -138,52 +139,58 @@ async def main() -> None:
         ],
     )
     threadpool_max_workers = int(
-        os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS", 100)
+        os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS") or 100
     )
+    max_concurrent_activities = int(
+        os.environ.get("TEMPORAL__MAX_CONCURRENT_ACTIVITIES") or 100
+    )
+    max_concurrent_workflow_tasks = int(
+        os.environ.get("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS") or 100
+    )
+    if max_concurrent_activities < _MIN_CONCURRENT_ACTIVITIES:
+        raise ValueError("TEMPORAL__MAX_CONCURRENT_ACTIVITIES must be at least 1.")
+    if max_concurrent_workflow_tasks < _MIN_CONCURRENT_WORKFLOW_TASKS:
+        raise ValueError(
+            "TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS must be at least 2 when workflow caching is enabled."
+        )
 
-    with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-        workflows: list[type] = [DSLWorkflow, DurableAgentWorkflow]
+    try:
+        with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
+            workflows: list[type] = [
+                CaseAgentSessionBackfillWorkflow,
+                DSLWorkflow,
+            ]
 
-        async with Worker(
-            client,
-            task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
-            activities=activities,
-            workflows=workflows,
-            workflow_runner=new_sandbox_runner(),
-            interceptors=interceptors,
-            disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-            activity_executor=executor,
-        ):
-            logger.info(
-                "Worker started, ctrl+c to exit",
+            async with Worker(
+                client,
+                task_queue=os.environ.get(
+                    "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"
+                ),
+                activities=activities,
+                workflows=workflows,
+                workflow_runner=new_sandbox_runner(),
+                interceptors=interceptors,
                 disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-                threadpool_max_workers=threadpool_max_workers,
-            )
-            # Wait until interrupted
-            await interrupt_event.wait()
-            logger.info("Shutting down")
-
-
-def _signal_handler(sig: int, _frame: object) -> None:
-    """Handle shutdown signals gracefully.
-
-    This mirrors the executor Temporal worker so the DSL worker can shut down
-    cleanly on SIGINT/SIGTERM (e.g. `docker stop`, Kubernetes termination).
-    """
-    logger.info("Received shutdown signal", signal=sig)
-    interrupt_event.set()
+                activity_executor=executor,
+                max_concurrent_activities=max_concurrent_activities,
+                max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                graceful_shutdown_timeout=timedelta(seconds=30),
+            ):
+                logger.info(
+                    "Worker started, ctrl+c to exit",
+                    disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                    threadpool_max_workers=threadpool_max_workers,
+                    max_concurrent_activities=max_concurrent_activities,
+                    max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                )
+                await shutdown_event.wait()
+                logger.info("Worker shutdown requested")
+            logger.info("Temporal Worker context exited")
+    finally:
+        await close_storage_client_cache()
+        shutdown_platform_tracing()
 
 
 if __name__ == "__main__":
-    # Install signal handlers before starting the event loop.
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
-
-    loop = asyncio.new_event_loop()
-    loop.set_task_factory(asyncio.eager_task_factory)
-    try:
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        interrupt_event.set()
-    finally:
-        loop.run_until_complete(loop.shutdown_asyncgens())
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    run_worker_entrypoint(main)

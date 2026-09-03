@@ -18,7 +18,10 @@ export function AvailabilityBadge({
 
 export function ComingSoonBadge({ className }: { className?: string }) {
   return (
-    <Badge variant="outline" className={cn("bg-white py-3 text-xs", className)}>
+    <Badge
+      variant="outline"
+      className={cn("bg-background py-3 text-xs", className)}
+    >
       Coming Soon
     </Badge>
   )

@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import base64
 import uuid
-from typing import get_args
+from typing import Any, cast, get_args
 
+import httpx
 import pytest
-import respx
 import sqlalchemy as sa
 from httpx import ASGITransport
 from pydantic import TypeAdapter
@@ -36,11 +36,14 @@ from tracecat_registry.core.cases import (
     get_attachment,
     get_attachment_download_url,
     get_case,
+    get_comment_thread,
     list_attachments,
     list_case_events,
     list_cases,
+    list_comment_threads,
     list_comments,
     remove_case_tag,
+    reply_to_comment,
     search_cases,
     update_case,
     update_comment,
@@ -56,11 +59,11 @@ from tracecat_registry.sdk.exceptions import (
 )
 
 from tracecat import config
-from tracecat.api.app import app
 from tracecat.auth.dependencies import (
     ExecutorWorkspaceRole,
     OrgUserRole,
     ServiceRole,
+    WorkspaceActorRouteRole,
     WorkspaceUserRole,
 )
 from tracecat.auth.executor_tokens import mint_executor_token
@@ -72,16 +75,18 @@ from tracecat.cases.durations.schemas import (
 )
 from tracecat.cases.durations.service import CaseDurationDefinitionService
 from tracecat.cases.enums import CaseEventType
-from tracecat.cases.router import WorkspaceUser
 from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import get_async_session
 from tracecat.db.models import User, Workspace
+from tracecat.executor.action_gateway.app import create_app as create_action_gateway_app
 
 # Advisory lock ID for serializing case_fields schema creation in tests.
 # This prevents deadlocks when concurrent tests create workspace-scoped tables
 # with FK constraints to the same parent table.
 _CASE_FIELDS_SCHEMA_LOCK_ID = 0x7472616365636174  # "tracecat" in hex
+_ACTION_GATEWAY_SOCKET = "/tmp/tracecat-test-action-gateway.sock"
+app = create_action_gateway_app()
 
 
 def _case_items(
@@ -110,6 +115,7 @@ async def cases_test_role(svc_workspace: Workspace) -> Role:
 async def cases_ctx(
     cases_test_role: Role,
     session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """Set up the ctx_role and registry context for case UDF tests.
 
@@ -118,8 +124,10 @@ async def cases_ctx(
     because CREATE TABLE with FK constraints acquires ShareRowExclusiveLock on
     the referenced table, and concurrent schema creations can deadlock.
 
-    Uses SDK path with respx mock to route HTTP calls to the FastAPI app.
+    Routes SDK calls through the Action Gateway ASGI app.
     """
+    monkeypatch.setattr(config, "TRACECAT__DB_ENCRYPTION_KEY", "enabled")
+
     # Acquire advisory lock to serialize schema creation across concurrent tests
     await session.execute(
         sa.text(f"SELECT pg_advisory_xact_lock({_CASE_FIELDS_SCHEMA_LOCK_ID})")
@@ -146,17 +154,16 @@ async def cases_ctx(
         run_id="test-run-id",
         wf_exec_id=wf_exec_id,
         environment="default",
-        api_url=config.TRACECAT__API_URL,
         token=executor_token,
     )
     set_context(registry_ctx)
+    monkeypatch.setenv("TRACECAT__ACTION_GATEWAY_SOCKET", _ACTION_GATEWAY_SOCKET)
 
-    # Set up respx mock to route SDK HTTP calls to the FastAPI app
-    respx_mock = respx.mock(assert_all_mocked=False, assert_all_called=False)
-    respx_mock.start()
-    respx_mock.route(url__startswith=config.TRACECAT__API_URL).mock(
-        side_effect=ASGITransport(app).handle_async_request
-    )
+    def create_gateway_transport(*, uds: str) -> ASGITransport:
+        assert uds == _ACTION_GATEWAY_SOCKET
+        return ASGITransport(app=app)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_gateway_transport)
 
     # Override role dependencies to use our test role
     def override_role():
@@ -165,7 +172,7 @@ async def cases_ctx(
     role_dependencies = [
         ExecutorWorkspaceRole,
         WorkspaceUserRole,
-        WorkspaceUser,
+        WorkspaceActorRouteRole,
         ServiceRole,
         OrgUserRole,
     ]
@@ -187,7 +194,6 @@ async def cases_ctx(
     finally:
         ctx_role.reset(token)
         clear_context()
-        respx_mock.stop()
         app.dependency_overrides.clear()
 
 
@@ -316,6 +322,27 @@ class TestCreateCase:
 
         assert result["summary"] == "Case with Tags"
         assert "id" in result
+
+    async def test_create_case_with_tags_create_if_missing(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Create a case with tags using create_missing_tags to auto-create tags."""
+        tag_name = f"auto-create-tag-{uuid.uuid4().hex[:8]}"
+
+        result = await create_case(
+            summary="Case with Auto Tags",
+            description="Test case with auto-created tags.",
+            tags=[tag_name],
+            create_missing_tags=True,
+        )
+
+        assert result["summary"] == "Case with Auto Tags"
+        assert "id" in result
+
+        # Verify the tag was created and attached
+        full_case = await get_case(case_id=str(result["id"]))
+        tag_refs = [t["ref"] for t in full_case["tags"]]
+        assert tag_name in tag_refs
 
 
 # =============================================================================
@@ -487,6 +514,30 @@ class TestUpdateCase:
         )
 
         assert "id" in result
+
+    async def test_update_case_tags_create_if_missing(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Update case tags using create_missing_tags to auto-create tags."""
+        created = await create_case(
+            summary="Test Case for Auto Tags",
+            description="Test description",
+        )
+
+        tag_name = f"auto-update-tag-{uuid.uuid4().hex[:8]}"
+
+        result = await update_case(
+            case_id=str(created["id"]),
+            tags=[tag_name],
+            create_missing_tags=True,
+        )
+
+        assert "id" in result
+
+        # Verify the tag was created and attached
+        full_case = await get_case(case_id=str(result["id"]))
+        tag_refs = [t["ref"] for t in full_case["tags"]]
+        assert tag_name in tag_refs
 
 
 # =============================================================================
@@ -731,6 +782,28 @@ class TestCreateComment:
         assert reply["content"] == "Reply to parent"
         assert str(reply["parent_id"]) == str(parent["id"])
 
+    async def test_reply_to_comment_helper(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Convenience reply helper should create a reply comment."""
+        case = await create_case(
+            summary="Case with Reply Helper",
+            description="Test case",
+        )
+        parent = await create_comment(
+            case_id=str(case["id"]),
+            content="Parent comment",
+        )
+
+        reply = await reply_to_comment(
+            case_id=str(case["id"]),
+            parent_comment_id=str(parent["id"]),
+            content="Reply helper content",
+        )
+
+        assert reply["content"] == "Reply helper content"
+        assert str(reply["parent_id"]) == str(parent["id"])
+
 
 # =============================================================================
 # update_comment characterization tests
@@ -773,6 +846,15 @@ class TestUpdateComment:
                 content="Updated content",
             )
 
+    def test_update_comment_does_not_accept_parent_id(self):
+        """The UDF surface only supports content updates."""
+        with pytest.raises(TypeError):
+            cast(Any, update_comment)(
+                comment_id=str(uuid.uuid4()),
+                content="Updated content",
+                parent_id=str(uuid.uuid4()),
+            )
+
 
 # =============================================================================
 # list_comments characterization tests
@@ -813,6 +895,62 @@ class TestListComments:
 
         with pytest.raises(SDKNotFoundError):
             await list_comments(case_id=fake_id)
+
+
+@pytest.mark.anyio
+class TestListCommentThreads:
+    """Characterization tests for threaded comment reads."""
+
+    async def test_list_comment_threads_returns_grouped_threads(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        case = await create_case(
+            summary="Case with comment threads",
+            description="Test case",
+        )
+        top_level = await create_comment(case_id=str(case["id"]), content="Top level")
+        await create_comment(
+            case_id=str(case["id"]),
+            content="Reply one",
+            parent_id=str(top_level["id"]),
+        )
+        await create_comment(case_id=str(case["id"]), content="Second thread")
+
+        result = await list_comment_threads(case_id=str(case["id"]))
+
+        TypeAdapter(list[types.CaseCommentThreadRead]).validate_python(result)
+
+        assert len(result) == 2
+        first_thread = result[0]
+        assert first_thread["comment"]["content"] == "Top level"
+        assert first_thread["reply_count"] == 1
+        assert len(first_thread["replies"]) == 1
+        assert first_thread["replies"][0]["content"] == "Reply one"
+
+    async def test_get_comment_thread_by_reply_id(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        case = await create_case(
+            summary="Case with reply lookup",
+            description="Test case",
+        )
+        parent = await create_comment(
+            case_id=str(case["id"]),
+            content="Parent comment",
+        )
+        reply = await create_comment(
+            case_id=str(case["id"]),
+            content="Reply comment",
+            parent_id=str(parent["id"]),
+        )
+
+        result = await get_comment_thread(comment_id=str(reply["id"]))
+
+        TypeAdapter(types.CaseCommentThreadRead).validate_python(result)
+
+        assert str(result["comment"]["id"]) == str(parent["id"])
+        assert len(result["replies"]) == 1
+        assert str(result["replies"][0]["id"]) == str(reply["id"])
 
 
 # =============================================================================

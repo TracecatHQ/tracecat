@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Create rule
+  description: Creates a new Rule.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.rules/create
+  namespace: tools.google_chronicle
+  name: create_rule
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The parent resource where this rule will be created. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    text:
+      type: str
+      description: The YARA-L content of the rule.
+    scope:
+      type: str | None
+      description: >-
+        Resource name of the DataAccessScope bound to this rule. If reference lists are
+        used in the rule, validations will be performed against this scope to ensure
+        that the reference lists are compatible with both the user's and the rule's
+        scopes. Format:
+        projects/{project}/locations/{location}/instances/{instance}/dataAccessScopes/{scope}
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules
+        method: POST
+        payload:
+          text: ${{ inputs.text }}
+          scope: ${{ inputs.scope }}
+  returns: ${{ steps.call_api.result }}

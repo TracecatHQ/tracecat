@@ -9,6 +9,7 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from tracecat_ee.admin.tiers import router as tiers_router
 
+from tracecat import config as tracecat_config
 from tracecat.auth.types import Role
 from tracecat.tiers.schemas import OrganizationTierRead, TierRead
 
@@ -81,7 +82,7 @@ async def test_list_org_tiers_success(
 async def test_create_tier_blocked_without_multi_tenant(
     client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(tiers_router.config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(tracecat_config, "TRACECAT__EE_MULTI_TENANT", False)
 
     response = client.post(
         "/admin/tiers",
@@ -96,7 +97,7 @@ async def test_update_org_tier_blocked_without_multi_tenant(
     client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     org_id = uuid.uuid4()
-    monkeypatch.setattr(tiers_router.config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(tracecat_config, "TRACECAT__EE_MULTI_TENANT", False)
 
     response = client.patch(
         f"/admin/tiers/organizations/{org_id}",

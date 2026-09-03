@@ -2,10 +2,10 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="img/banner-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="img/banner-light.svg">
-    <img src="img/banner-light.svg" alt="The open source AI platform for enterprise agents and automation.">
+    <img src="img/banner-light.svg" alt="The AI-native security automation platform.">
   </picture>
   <p align="center">
-    Automate enterprise work with secure AI agents.
+    The agentic security automation platform.
   </p>
 
   <br>
@@ -15,32 +15,34 @@
 
 ![Commits](https://img.shields.io/github/commit-activity/m/TracecatHQ/tracecat?style=for-the-badge&logo=github&color=6E7ED8)
 ![License](https://img.shields.io/badge/License-AGPL%203.0-6E7ED8?style=for-the-badge&logo=agpl)
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/Hr4UWYEcTT)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/H4XZwsYzY4)
 
 </div>
 
 ## Introduction
 
-[Tracecat](https://tracecat.com) is the open source AI platform for enterprise agents and automation.
-It includes everything technical teams need to automate mission-critical work: agents, workflows, case management, and over 100+ integrations.
+[Tracecat](https://tracecat.com) is the open source security automation platform for teams and AI agents.
 
-Purpose-built for agents and (human) builders:
-- **Visual builder**: build custom agents and workflows with a simple, intuitive UI
-- **Tracecat MCP**: build and run agents and workflows from your own harness (e.g. Claude code, Codex)
-- **Code-native**: sync custom Python scripts from your Git repo into Tracecat
-- **Self-host anywhere**: Docker, Kubernetes, AWS Fargate.
+- **Prompt-to-automations**: build end-to-end automations with agents, workflows, cases, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
+- **Code-native**: sync custom Python scripts from your Git repo into Tracecat.
+- **All-in-one**: agents, workflows, lookup tables, and case management. Everything security teams need to automate work in one place.
+- **Deployment options**: sign up for Tracecat managed Cloud, or self-host with Docker, AWS Fargate, or Kubernetes Helm.
 
 Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
 
 ## Features
 
+> [!IMPORTANT]
+> Tracecat is in active development. Review the release [changelog](https://github.com/TracecatHQ/tracecat/releases) before updating.
+
 ### Key Capabilities
 
-- **Agents**: build custom agents with prompts, tools, chat, and any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
+- **Agents**: build custom agents with prompts, tools, and chat
 - **Workflows**: low-code builder with complex control flow (if-conditions, loops) and durable execution (Temporal)
 - **Case management**: track, automate, and resolve work items with agents and workflows
 - **Integrations**: over 100+ pre-built connectors to enterprise tools via HTTP, SMTP, gRPC, OAuth, and more
-- **MCP server**: work with Tracecat through your own agent harness
+- **Tracecat MCP**: turns prompts into automations through Claude Code, Codex, Copilot, etc.
+- **MCP client**: connect custom agents any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
 - **Custom registry**: turn custom Python scripts into agent tools and workflow steps
 
 ### Other OSS Highlights
@@ -53,45 +55,11 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 
 ### Enterprise Edition
 
+- **Pre-built MCP servers**: over 100+ Tracecat hosted MCP servers for security operations
 - **Fine-grained access control**: RBAC, ABAC, OAuth2.0 scopes for humans and agents
 - **Human-in-the-loop**: review and approve sensitive tools calls from a unified inbox, Slack, or email
-- **Workflow version control**: sync to GitHub, GitLab, Bitbucket, etc.
+- **Workspace version control**: sync workflows, agents, and table schemas to GitHub, GitLab, Bitbucket, etc.
 - **Metrics and monitoring**: for workflows, agents, and cases
-
-## Getting Started
-
-> [!IMPORTANT]
-> Tracecat is in active development. Review the release [changelog](https://github.com/TracecatHQ/tracecat/releases) before updating.
-
-### Self-hosting
-
-### Run Tracecat locally
-
-Deploy a local Tracecat stack using Docker Compose. View full instructions [here](https://docs.tracecat.com/self-hosting/deployment-options/docker-compose).
-
-```bash
-# Setup environment variables and secrets
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.15/env.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.15/.env.example
-chmod +x env.sh && ./env.sh
-
-# Download Caddyfile
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.15/Caddyfile
-
-# Download Docker Compose file
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.15/docker-compose.yml
-
-# Start Tracecat
-docker compose up -d
-```
-
-### Cloud deployments
-
-For production deployments, check out one of the following IaaC (Infrastructure as Code) options:
-
-- Kubernetes (Helm chart) under [`deployments/helm`](https://github.com/TracecatHQ/tracecat/tree/main/deployments/helm)
-- AWS ECS Fargate (Terraform) under [`deployments/fargate`](https://github.com/TracecatHQ/tracecat/tree/main/deployments/fargate)
-- AWS EKS (Terraform) under [`deployments/eks`](https://github.com/TracecatHQ/tracecat/tree/main/deployments/eks)
 
 ## Tech Stack
 
@@ -104,11 +72,13 @@ For production deployments, check out one of the following IaaC (Infrastructure 
 
 ## Open Source vs Enterprise
 
+> [!NOTE]
+> Tracecat Enterprise is available as managed Cloud with US or EU hosting, or as a self-hosted deployment with dedicated support.
+> [Book a demo today](https://cal.com/team/tracecat).
+
 This repo is available under the [AGPL-3.0 license](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE) with the following exceptions:
 
-- `packages/tracecat-ee` directory is under Tracecat's paid EE (Enterprise Edition) license.
-- `deployments/helm` and `deployments/eks` directory is under the source available [PolyForm Shield License](https://polyformproject.org/licenses/shield/1.0.0/). This allows you to use the Tracecat Helm chart and EKS deployment templates for internal use only.
-- Any code that gates `ee` features across the repo
+- The `packages/tracecat-ee` directory and code that gates `ee` features across the repo are under Tracecat's paid EE (Enterprise Edition) license. Production use requires a valid Tracecat Enterprise License.
 
 Code that fall under the above exceptions must not be redistributed, sold, or otherwise commercialized without permission.
 

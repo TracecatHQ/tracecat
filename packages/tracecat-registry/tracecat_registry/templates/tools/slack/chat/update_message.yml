@@ -3,7 +3,7 @@ definition:
   title: Update message
   description: Update a message in a Slack channel.
   display_group: Slack
-  doc_url: https://api.slack.com/methods/chat.update
+  doc_url: https://docs.slack.dev/reference/methods/chat.update/
   namespace: tools.slack
   name: update_message
   expects:

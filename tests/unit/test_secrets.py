@@ -3,6 +3,7 @@ import os
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 
+from tracecat.secrets import common as secrets_common
 from tracecat.secrets.common import apply_masks, apply_masks_object
 from tracecat.secrets.encryption import (
     decrypt_bytes,
@@ -227,6 +228,34 @@ class TestObjectMasking:
         }
         assert apply_masks_object(input_data, []) == input_data
 
+    def test_apply_masks_object_compiles_pattern_once(self, mocker):
+        masks = ["secret", "password"]
+        compile_pattern = mocker.spy(secrets_common, "_compile_mask_pattern")
+
+        result = apply_masks_object(
+            {
+                "key1": "This is a secret message",
+                "key2": ["password", "Another secret"],
+            },
+            masks,
+        )
+
+        assert result == {
+            "key1": "This is a *** message",
+            "key2": ["***", "Another ***"],
+        }
+        compile_pattern.assert_called_once_with(masks)
+
+    def test_apply_masks_object_with_mask_generator(self):
+        masks = (mask for mask in ["secret", "password"])
+
+        result = apply_masks_object(
+            ["secret", {"nested": "password"}],
+            masks,
+        )
+
+        assert result == ["***", {"nested": "***"}]
+
 
 class TestSecurityFeatures:
     """Test suite for security-related masking features and vulnerability prevention."""
@@ -361,8 +390,8 @@ class TestSecurityFeatures:
         masks = [f"secret_{i}" for i in range(100)]
 
         input_text = "This contains secret_50 and secret_99 but not secret_200"
-        # Multiple overlapping patterns will mask: secret_5 + "0", secret_9 + "9", secret_20 + "00"
-        expected = "This contains ***0 and ***9 but not ***00"
+        # Longest-first: secret_50 and secret_99 match fully; secret_20 matches in secret_200
+        expected = "This contains *** and *** but not ***0"
         assert apply_masks(input_text, masks) == expected
 
     def test_unicode_secrets_handling(self):
@@ -389,13 +418,12 @@ class TestSecurityFeatures:
         assert apply_masks(input_text, masks) == expected
 
     def test_overlapping_secrets(self):
-        """Test behavior with overlapping secret patterns."""
+        """Test that longer secrets are masked first to prevent partial leaks."""
         masks = ["secret", "secretkey", "key"]
 
         input_text = "The secretkey contains secret and key"
-        # With regex OR pattern, all matching parts get masked
-        # "secretkey" gets masked as "secret" + "key" = "***" + "***"
-        expected = "The ****** contains *** and ***"
+        # Longest-first: "secretkey" matches as one token, not "secret"+"key"
+        expected = "The *** contains *** and ***"
         assert apply_masks(input_text, masks) == expected
 
     def test_secrets_at_boundaries(self):

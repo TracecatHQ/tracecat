@@ -3,7 +3,7 @@
 # Tracecat multi-cluster management script
 #
 # Usage:
-#   ./cluster [cluster_num] [-p profile] <command> [args...]
+#   ./cluster [cluster_num] [-p profile] [tenant mode] <command> [args...]
 #
 # Profiles:
 #   dev     docker-compose.dev.yml (default)
@@ -12,6 +12,7 @@
 #
 # Examples:
 #   ./cluster up -d                # Start next available cluster (auto-selects number)
+#   ./cluster up -d --single-tenant # Start cluster with multi-tenancy disabled
 #   ./cluster down                 # Stop cluster (auto-selects if only one running)
 #   ./cluster restart api          # Restart the api service
 #   ./cluster 2 up -d              # Start cluster 2 explicitly
@@ -19,24 +20,36 @@
 #   ./cluster ps                   # Show containers (auto-selects cluster)
 #   ./cluster logs api             # Show logs (auto-selects cluster)
 #   ./cluster attach api           # Attach shell to api service
+#   ./cluster loadtest --matrix packages/tracecat-benchmark/tracecat_benchmark/examples/matrix.example.csv
 #   ./cluster list                 # List all running clusters
 #   ./cluster 1 ports              # Show port mappings for cluster 1
 #
 # Port allocation (offset = (cluster_num - 1) * 100):
 #   Cluster numbers are GLOBAL across all worktrees to avoid port conflicts.
-#   Cluster 1: 80, 3000, 5432, 6379, 7233, 8000, 8081, 9000, 9001, 8099
-#   Cluster 2: 180, 3100, 5532, 6479, 7333, 8100, 8181, 9100, 9101, 8199
-#   Cluster 3: 280, 3200, 5632, 6579, 7433, 8200, 8281, 9200, 9201, 8299
+#   Cluster 1: 80, 3000, 5432, 6379, 7233, 8000, 8081, 9000, 9001, 9464, 9465
+#   Cluster 2: 180, 3100, 5532, 6479, 7333, 8100, 8181, 9100, 9101, 9564, 9565
+#   Cluster 3: 280, 3200, 5632, 6579, 7433, 8200, 8281, 9200, 9201, 9664, 9665
 #   ...
+#
+#   With portless enabled, the Caddy/public app port starts at 10080 instead
+#   of 80 because portless itself owns ports 80 and 443.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env"
+LOADTEST_COMPOSE_FILE="${REPO_ROOT}/packages/tracecat-benchmark/docker-compose.loadtest.yml"
 
 # Default profile
 PROFILE="dev"
+CLUSTER_EE_MULTI_TENANT=""
+CLUSTER_USE_SANDBOX_COMPOSE=true
+# Extra compose files layered on top of the profile (and sandbox) files.
+# These never change the project name, ports, or volume names, so the
+# numbered-cluster isolation is preserved.
+CLUSTER_COMPOSE_OVERRIDES=()
+LOADTEST_OVERRIDE=false
 
 # Get worktree identifier for namespacing clusters
 # Returns "main" for the main worktree, or a sanitized branch/directory name for worktrees
@@ -64,13 +77,205 @@ get_worktree_id() {
 
 WORKTREE_ID=$(get_worktree_id)
 
+# === Portless integration (optional) ===
+# If portless (https://github.com/vercel-labs/portless) is installed and its
+# proxy is reachable, register a stable .localhost alias for the cluster's
+# UI/API port. You then reach the cluster at e.g.
+#   $(portless get "${WORKTREE_ID}.tracecat" --no-worktree)
+# instead of remembering the rotating localhost:80/180/280/... port.
+#
+# Set TRACECAT__USE_PORTLESS=0 or PORTLESS=0 to disable even when installed.
+
+portless_enabled() {
+    [[ "${TRACECAT__USE_PORTLESS:-1}" != "0" ]] \
+        && [[ "${PORTLESS:-1}" != "0" ]] \
+        && [[ "${PORTLESS:-}" != "skip" ]] \
+        && command -v portless >/dev/null 2>&1
+}
+
+portless_install_tip() {
+    if [[ "${TRACECAT__USE_PORTLESS:-1}" == "0" ]] || [[ "${PORTLESS:-}" == "0" ]] || [[ "${PORTLESS:-}" == "skip" ]]; then
+        return
+    fi
+
+    if command -v portless >/dev/null 2>&1; then
+        return
+    fi
+
+    cat <<EOF
+
+Tip:
+  Install portless for stable per-worktree cluster URLs:
+    pnpm add -g portless
+  Project: https://github.com/vercel-labs/portless
+EOF
+}
+
+# Alias name for a cluster. Cluster 1 gets the bare worktree name; higher
+# numbered clusters get a c{N} prefix so they can coexist.
+portless_alias_name() {
+    local cluster_num=$1
+    local worktree_id=${2:-$WORKTREE_ID}
+
+    if [[ "$cluster_num" == "1" ]]; then
+        echo "${worktree_id}.tracecat"
+    else
+        echo "c${cluster_num}.${worktree_id}.tracecat"
+    fi
+}
+
+portless_url() {
+    local cluster_num=$1
+    local worktree_id=${2:-$WORKTREE_ID}
+    local name
+    name=$(portless_alias_name "$cluster_num" "$worktree_id")
+
+    # Ask portless for the URL so custom proxy ports, TLS mode, LAN mode, and
+    # custom TLD settings are reflected exactly.
+    if command -v portless >/dev/null 2>&1; then
+        local url
+        if url=$(portless get "$name" --no-worktree 2>/dev/null); then
+            echo "$url"
+            return
+        fi
+    fi
+
+    local scheme="https"
+    local tld="${PORTLESS_TLD:-localhost}"
+    local proxy_port="${PORTLESS_PORT:-}"
+    [[ "${PORTLESS_HTTPS:-1}" == "0" ]] && scheme="http"
+    url="${scheme}://${name}.${tld}"
+    if [[ -n "$proxy_port" && "$proxy_port" != "80" && "$proxy_port" != "443" ]]; then
+        url="${url}:${proxy_port}"
+    fi
+    echo "$url"
+}
+
+portless_url_for_name() {
+    local name=$1
+
+    # Ask portless for the URL so custom proxy ports, TLS mode, LAN mode, and
+    # custom TLD settings are reflected exactly.
+    if command -v portless >/dev/null 2>&1; then
+        local url
+        if url=$(portless get "$name" --no-worktree 2>/dev/null); then
+            echo "$url"
+            return
+        fi
+    fi
+
+    local scheme="https"
+    local tld="${PORTLESS_TLD:-localhost}"
+    local proxy_port="${PORTLESS_PORT:-}"
+    [[ "${PORTLESS_HTTPS:-1}" == "0" ]] && scheme="http"
+    url="${scheme}://${name}.${tld}"
+    if [[ -n "$proxy_port" && "$proxy_port" != "80" && "$proxy_port" != "443" ]]; then
+        url="${url}:${proxy_port}"
+    fi
+    echo "$url"
+}
+
+portless_start_proxy() {
+    if ! portless proxy start; then
+        echo "[portless] Could not start proxy. Set TRACECAT__USE_PORTLESS=0 to disable portless integration." >&2
+        return 1
+    fi
+}
+
+# Register the alias and ensure the proxy is running. Returns 0 on success;
+# caller decides whether to surface the URL override.
+portless_register() {
+    local cluster_num=$1
+    local port=$2
+    local name
+    name=$(portless_alias_name "$cluster_num")
+
+    if ! portless_start_proxy; then
+        return 1
+    fi
+
+    if ! portless alias "$name" "$port" --force >/dev/null 2>&1; then
+        echo "[portless] Could not register alias '${name}'." >&2
+        echo "[portless] Retry, or set TRACECAT__USE_PORTLESS=0 to disable portless integration." >&2
+        return 1
+    fi
+    echo "[portless] $(portless_url "$cluster_num") -> localhost:${port}"
+}
+
+portless_register_alias() {
+    local name=$1
+    local port=$2
+
+    if ! portless_start_proxy; then
+        return 1
+    fi
+
+    if ! portless alias "$name" "$port" --force >/dev/null 2>&1; then
+        echo "[portless] Could not register alias '${name}'." >&2
+        echo "[portless] Retry, or set TRACECAT__USE_PORTLESS=0 to disable portless integration." >&2
+        return 1
+    fi
+    echo "[portless] $(portless_url_for_name "$name") -> localhost:${port}"
+}
+
+portless_unregister() {
+    local cluster_num=$1
+    local name
+    name=$(portless_alias_name "$cluster_num")
+    portless alias --remove "$name" >/dev/null 2>&1 || true
+}
+
+portless_docs_alias_name() {
+    echo "docs.${WORKTREE_ID}.tracecat"
+}
+
+source_env_file() {
+    if [[ -f "$ENV_FILE" ]]; then
+        set -a
+        # shellcheck disable=SC1090
+        source "$ENV_FILE"
+        set +a
+    fi
+}
+
+# Apply the data-only load-test environment generated by the matrix
+# orchestrator. This deliberately runs after .env so a matrix row is the
+# authoritative experiment configuration. Only the narrow load-test prefix is
+# accepted; values are treated as data and never evaluated as shell code.
+source_loadtest_env_file() {
+    local path="${TRACECAT_LOADTEST_ENV_FILE:-}"
+    [[ -z "$path" ]] && return
+
+    if [[ ! -f "$path" ]]; then
+        echo "Error: load-test environment file not found: '$path'" >&2
+        exit 1
+    fi
+
+    local line line_number=0 name value
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line_number=$((line_number + 1))
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        if [[ "$line" != *=* ]]; then
+            echo "Error: invalid load-test environment assignment at ${path}:${line_number}" >&2
+            exit 1
+        fi
+        name="${line%%=*}"
+        value="${line#*=}"
+        if [[ ! "$name" =~ ^TRACECAT__LOADTEST_[A-Z0-9_]+$ ]]; then
+            echo "Error: unsupported load-test environment name '$name' at ${path}:${line_number}" >&2
+            exit 1
+        fi
+        export "$name=$value"
+    done < "$path"
+}
+
 # Get list of running cluster numbers for this worktree (used for auto-selection)
 get_running_clusters() {
     local prefix="tracecat-${WORKTREE_ID}-"
 
     docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null | while read -r project; do
         if [[ "$project" == ${prefix}* ]]; then
-            local num="${project#$prefix}"
+            local num="${project#"$prefix"}"
             if [[ "$num" =~ ^[0-9]+$ ]]; then
                 echo "$num"
             fi
@@ -78,15 +283,73 @@ get_running_clusters() {
     done | sort -n
 }
 
-# Get ALL running cluster numbers across all worktrees (used for port allocation)
+# Get every cluster number retained by this worktree, whether its containers
+# are running, stopped, or removed while named volumes remain. Ordinary `up`
+# falls back to this state when nothing is running; only `up --new` allocates
+# around it.
+get_worktree_cluster_nums() {
+    local prefix="tracecat-${WORKTREE_ID}-"
+    local projects project
+    projects=$(
+        {
+            docker compose ls --all --format json 2>/dev/null \
+                | jq -r '.[].Name' 2>/dev/null
+            docker container ls --all \
+                --filter label=com.docker.compose.project \
+                --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null
+            docker volume ls \
+                --filter label=com.docker.compose.project \
+                --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null
+        } | sort -u
+    )
+
+    for project in $projects; do
+        if [[ "$project" == ${prefix}* ]]; then
+            local num="${project#"$prefix"}"
+            if [[ "$num" =~ ^[0-9]+$ ]] && [[ "$num" -ge 1 ]] && [[ "$num" -le 99 ]]; then
+                echo "$num"
+            fi
+        fi
+    done | sort -n | uniq
+}
+
+# Prefer live projects for implicit reuse. Retained stopped state is relevant
+# only when this worktree has no running cluster.
+get_reusable_worktree_cluster_nums() {
+    local running
+    running=$(get_running_clusters)
+    if [[ -n "$running" ]]; then
+        echo "$running"
+        return
+    fi
+    get_worktree_cluster_nums
+}
+
+# Get every occupied cluster number across all worktrees. A stopped Compose
+# project or retained named volume still owns its numbered data set and must
+# not be selected by `--new`.
 get_all_cluster_nums() {
-    local projects
-    projects=$(docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null)
+    local projects project
+    projects=$(
+        {
+            docker compose ls --all --format json 2>/dev/null \
+                | jq -r '.[].Name' 2>/dev/null
+            docker container ls --all \
+                --filter label=com.docker.compose.project \
+                --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null
+            docker volume ls \
+                --filter label=com.docker.compose.project \
+                --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null
+        } | sort -u
+    )
 
     for project in $projects; do
         # Match any tracecat cluster: tracecat-{worktree}-{num}
         if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
-            echo "${BASH_REMATCH[2]}"
+            local cluster_num="${BASH_REMATCH[2]}"
+            if [[ "$cluster_num" -ge 1 && "$cluster_num" -le 99 ]]; then
+                echo "$cluster_num"
+            fi
         fi
     done | sort -n | uniq
 }
@@ -114,7 +377,40 @@ get_next_cluster_num() {
     echo "$expected"
 }
 
-# Auto-select cluster: returns the only running cluster, or errors if multiple/none
+# Present an interactive numbered selector when multiple clusters match.
+# Reads cluster numbers from stdin (one per line), shows a menu,
+# and prints the chosen cluster number to stdout.
+select_cluster_interactive() {
+    local nums=()
+    while IFS= read -r n; do
+        [[ -n "$n" ]] && nums+=("$n")
+    done
+
+    for n in "${nums[@]}"; do
+        calculate_ports "$n"
+        echo "  [${n}]  http://localhost:${PUBLIC_APP_PORT}" >&2
+    done
+
+    echo "" >&2
+    echo -n "Cluster number: " >&2
+    local choice
+    # Read a single keypress immediately (no Enter required)
+    read -r -n 1 choice </dev/tty
+    echo "" >&2
+
+    # Validate the input is one of the running cluster numbers
+    for n in "${nums[@]}"; do
+        if [[ "$choice" == "$n" ]]; then
+            echo "$n"
+            return
+        fi
+    done
+
+    echo "Invalid cluster number '${choice}'" >&2
+    exit 1
+}
+
+# Auto-select cluster: returns the only running cluster, or prompts if multiple
 auto_select_cluster() {
     local command=$1
     local running
@@ -137,18 +433,14 @@ auto_select_cluster() {
     elif [[ "$count" -eq 1 ]]; then
         echo "$running"
     else
-        echo "Error: Multiple clusters running for worktree '${WORKTREE_ID}':" >&2
-        echo "$running" | while read -r num; do
-            calculate_ports "$num"
-            echo "  ${num}: http://localhost:${PUBLIC_APP_PORT}" >&2
-        done
-        echo "Please specify a cluster number" >&2
-        exit 1
+        echo "Multiple clusters running — select one:" >&2
+        echo "$running" | select_cluster_interactive
     fi
 }
 
 # Base ports (cluster 1 defaults)
 BASE_PUBLIC_APP_PORT=80
+BASE_PORTLESS_PUBLIC_APP_PORT=10080
 BASE_UI_PORT=3000
 BASE_PG_PORT=5432
 BASE_REDIS_PORT=6379
@@ -157,8 +449,13 @@ BASE_API_PORT=8000
 BASE_TEMPORAL_UI_PORT=8081
 BASE_MINIO_PORT=9000
 BASE_MINIO_CONSOLE_PORT=9001
-BASE_MCP_PORT=8099
-
+BASE_TEMPORAL_WORKER_METRICS_PORT=9464
+BASE_TEMPORAL_EXECUTOR_METRICS_PORT=9465
+BASE_API_DB_POOL_METRICS_PORT=9440
+BASE_WORKER_DB_POOL_METRICS_PORT=9441
+BASE_EXECUTOR_DB_POOL_METRICS_PORT=9442
+BASE_PGDOG_METRICS_PORT=9492
+MAX_LOADTEST_EXECUTOR_REPLICAS=10
 # Map profile to compose file
 get_compose_file() {
     local profile=$1
@@ -179,13 +476,39 @@ get_compose_file() {
     esac
 }
 
+# Register an extra compose override file. Relative paths resolve against the
+# current directory first, then the repo root. The path is absolutized so later
+# `cd` calls inside this script cannot invalidate it.
+add_compose_override() {
+    local path=$1
+
+    if [[ ! -f "$path" && -f "${REPO_ROOT}/${path}" ]]; then
+        path="${REPO_ROOT}/${path}"
+    fi
+
+    if [[ ! -f "$path" ]]; then
+        echo "Error: compose override file not found: '$1'" >&2
+        exit 1
+    fi
+
+    local dir base resolved_path
+    dir=$(cd "$(dirname "$path")" && pwd -P)
+    base=$(basename "$path")
+    resolved_path="${dir}/${base}"
+    CLUSTER_COMPOSE_OVERRIDES+=("$resolved_path")
+
+    if [[ "$resolved_path" -ef "$LOADTEST_COMPOSE_FILE" ]]; then
+        LOADTEST_OVERRIDE=true
+    fi
+}
+
 usage() {
     cat <<EOF
-Usage: ./cluster [cluster_num] [-p profile] <command> [args...]
+Usage: ./cluster [cluster_num] [-p profile] [tenant mode] <command> [args...]
        ./cluster list
 
 Cluster number is optional:
-  - For 'up': auto-selects next available number
+  - For 'up': reuses existing cluster, or auto-selects next available
   - For other commands: auto-selects if only one cluster running
 
 Profiles:
@@ -193,9 +516,46 @@ Profiles:
   local     docker-compose.local.yml
   prod      docker-compose.yml
 
+Tenant mode:
+  Always defaults to TRACECAT__EE_MULTI_TENANT=true for cluster development.
+  .env and shell values are ignored; only the flags below override it.
+  --single-tenant                 Set TRACECAT__EE_MULTI_TENANT=false
+  --multi-tenant                  Set TRACECAT__EE_MULTI_TENANT=true
+  --ee-multi-tenant true|false    Set TRACECAT__EE_MULTI_TENANT explicitly
+
+Sandbox mode:
+  Enabled by default for cluster development.
+  --sandbox                       Keep nsjail sandboxing enabled
+  --no-sandbox                    Disable nsjail sandboxing and sandbox
+                                  compose privileges
+
+Compose overrides:
+  Layered after the profile and sandbox compose files. They do not change the
+  project name, ports, or volume names, so cluster isolation is preserved.
+  --loadtest                      Layer the package-owned load-test override
+                                  (constrained postgres_db + pool budget)
+                                  Used internally by the loadtest command.
+                                  Direct 'up' use is diagnostic only and
+                                  requires --new/-n or an explicit cluster.
+  --compose-override <path>       Layer an arbitrary compose file (repeatable)
+                                  The load-test file has the same 'up' safety
+                                  requirement as --loadtest.
+
 Commands:
+  loadtest       Validate and run a CSV configuration matrix on one fresh,
+                 isolated cluster. Use ./cluster loadtest --help for options.
   up [args]     Start the cluster (e.g., up -d)
-                Use --seed to auto-register test@tracecat.com:password1234
+                Reuses existing cluster for this worktree if one is running.
+                Use --new/-n to force a new cluster instead.
+                Use --single-tenant or --multi-tenant to override tenant mode.
+                Seeds test@tracecat.com superuser, dev@tracecat.com tenant
+                user, and all default tier entitlements by default for the dev
+                profile. Use --no-seed to skip.
+                Use --default-tier-entitlements all|none|a,b to override.
+                Use --no-sandbox to opt out of nsjail sandboxing.
+  seed [args]   Seed or update the dev superuser, tenant user, and default tier
+                for an already running cluster. Use
+                --default-tier-entitlements all|none|a,b to override.
   down          Stop the cluster (keeps volumes)
   rm            Remove the cluster (down + remove volumes)
   restart [svc] Restart the cluster or specific service
@@ -203,8 +563,12 @@ Commands:
   logs [svc]    Show logs (optionally for specific service)
   attach <svc>  Attach to a running service container (e.g., attach api)
   db            Open lazysql to the cluster's PostgreSQL database
+  docs [args]   Start the Mintlify docs preview from docs/
+  open          Open the cluster UI in the default browser
   ports         Show port mappings for the cluster
   list          List all running Tracecat clusters
+  compose-files Print the resolved compose files and project name, then exit
+                (dry run; does not touch Docker)
   nuke [opts]   Destroy cluster and optionally volumes/images
 
 Nuke options:
@@ -215,15 +579,32 @@ Nuke options:
   nuke volumes          List and select volumes to remove
 
 Examples:
-  ./cluster up -d                Start next available cluster
-  ./cluster up -d --seed         Start cluster and register test user
+  ./cluster loadtest --matrix packages/tracecat-benchmark/tracecat_benchmark/examples/matrix.example.csv
+                                  Run every enabled CSV matrix case
+  ./cluster loadtest --matrix packages/tracecat-benchmark/tracecat_benchmark/examples/matrix.example.csv --case smoke
+                                  Run one named matrix case
+  ./cluster up -d                Start sandboxed cluster and create dev users
+  ./cluster up -d --single-tenant
+                                  Start cluster with multi-tenancy disabled
+  ./cluster --ee-multi-tenant false up -d
+                                  Start cluster with explicit tenant mode
+  ./cluster up -d --no-sandbox    Start cluster without nsjail sandboxing
+  ./cluster up -d --new          Force a new cluster on next available number
+  ./cluster up -d --no-seed      Start cluster without creating dev tenant user
+  ./cluster up -d --default-tier-entitlements none
+  ./cluster up -d --default-tier-entitlements custom_registry,case_addons
+  ./cluster seed                 Seed dev users for a running cluster
+  ./cluster seed --default-tier-entitlements none
   ./cluster down                 Stop cluster (keeps volumes)
   ./cluster rm                   Remove cluster and volumes
   ./cluster restart api          Restart the api service
   ./cluster 2 up -d              Start cluster 2 explicitly
   ./cluster 2 -p local up -d     Start cluster 2 with local profile
   ./cluster attach api           Attach shell to api service
+  ./cluster open                 Open cluster UI in browser
   ./cluster db                   Open lazysql to the database
+  ./cluster docs                 Start Mintlify docs preview
+  ./cluster docs --no-open       Start docs preview without opening browser
   ./cluster list                 List all clusters
   ./cluster nuke                 Destroy cluster and volumes (interactive)
   ./cluster nuke minio           Remove only minio volume
@@ -234,12 +615,35 @@ EOF
     exit 0
 }
 
+normalize_bool() {
+    local value
+    value=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+
+    case "$value" in
+        true|1|yes|y|on)
+            echo "true"
+            ;;
+        false|0|no|n|off)
+            echo "false"
+            ;;
+        *)
+            echo "Error: expected a boolean value, got '$1'" >&2
+            exit 1
+            ;;
+    esac
+}
+
 # Calculate ports for a given cluster number
 calculate_ports() {
     local cluster_num=$1
     local offset=$(( (cluster_num - 1) * 100 ))
+    local public_app_base=$BASE_PUBLIC_APP_PORT
 
-    PUBLIC_APP_PORT=$(( BASE_PUBLIC_APP_PORT + offset ))
+    if portless_enabled; then
+        public_app_base=$BASE_PORTLESS_PUBLIC_APP_PORT
+    fi
+
+    PUBLIC_APP_PORT=$(( public_app_base + offset ))
     UI_PORT=$(( BASE_UI_PORT + offset ))
     PG_PORT=$(( BASE_PG_PORT + offset ))
     REDIS_PORT_HOST=$(( BASE_REDIS_PORT + offset ))
@@ -248,17 +652,33 @@ calculate_ports() {
     TEMPORAL_UI_PORT=$(( BASE_TEMPORAL_UI_PORT + offset ))
     MINIO_PORT=$(( BASE_MINIO_PORT + offset ))
     MINIO_CONSOLE_PORT=$(( BASE_MINIO_CONSOLE_PORT + offset ))
-    MCP_PORT=$(( BASE_MCP_PORT + offset ))
+    TEMPORAL_WORKER_METRICS_PORT=$(( BASE_TEMPORAL_WORKER_METRICS_PORT + offset ))
+    TEMPORAL_EXECUTOR_METRICS_PORT=$(( BASE_TEMPORAL_EXECUTOR_METRICS_PORT + offset ))
+    TEMPORAL_EXECUTOR_METRICS_PORT_END=$(( TEMPORAL_EXECUTOR_METRICS_PORT + MAX_LOADTEST_EXECUTOR_REPLICAS - 1 ))
+    API_DB_POOL_METRICS_PORT=$(( BASE_API_DB_POOL_METRICS_PORT + offset ))
+    WORKER_DB_POOL_METRICS_PORT=$(( BASE_WORKER_DB_POOL_METRICS_PORT + offset ))
+    EXECUTOR_DB_POOL_METRICS_PORT=$(( BASE_EXECUTOR_DB_POOL_METRICS_PORT + offset ))
+    EXECUTOR_DB_POOL_METRICS_PORT_END=$(( EXECUTOR_DB_POOL_METRICS_PORT + MAX_LOADTEST_EXECUTOR_REPLICAS - 1 ))
+    PGDOG_METRICS_PORT=$(( BASE_PGDOG_METRICS_PORT + offset ))
 }
 
 # Build environment variables for docker compose
 build_env() {
     local cluster_num=$1
     calculate_ports "$cluster_num"
+    local public_app_url_override="${CLUSTER_PUBLIC_APP_URL_OVERRIDE:-}"
+    local public_api_url_override="${CLUSTER_PUBLIC_API_URL_OVERRIDE:-}"
 
     # URLs that depend on ports
     local PUBLIC_APP_URL="http://localhost:${PUBLIC_APP_PORT}"
+    if [[ -n "$public_app_url_override" ]]; then
+        PUBLIC_APP_URL="${public_app_url_override%/}"
+    fi
+
     local PUBLIC_API_URL="${PUBLIC_APP_URL}/api"
+    if [[ -n "$public_api_url_override" ]]; then
+        PUBLIC_API_URL="${public_api_url_override%/}"
+    fi
 
     # Export all variables (include worktree ID for isolation)
     export COMPOSE_PROJECT_NAME="tracecat-${WORKTREE_ID}-${cluster_num}"
@@ -273,22 +693,40 @@ build_env() {
     export TEMPORAL_UI_PORT
     export MINIO_PORT
     export MINIO_CONSOLE_PORT
-    export MCP_PORT
+    export TEMPORAL_WORKER_METRICS_PORT
+    export TEMPORAL_EXECUTOR_METRICS_PORT
+    export TEMPORAL_EXECUTOR_METRICS_PORT_END
+    export API_DB_POOL_METRICS_PORT
+    export WORKER_DB_POOL_METRICS_PORT
+    export EXECUTOR_DB_POOL_METRICS_PORT
+    export EXECUTOR_DB_POOL_METRICS_PORT_END
+    export PGDOG_METRICS_PORT
 
-    # URL variables that reference the public port
+    # Always compute public URLs per cluster so `just`-loaded `.env` values from
+    # cluster 1 do not leak into other clusters. Use explicit override vars for
+    # tunnels or custom public hosts when needed.
     export TRACECAT__PUBLIC_APP_URL="${PUBLIC_APP_URL}"
     export TRACECAT__PUBLIC_API_URL="${PUBLIC_API_URL}"
     export NEXT_PUBLIC_APP_URL="${PUBLIC_APP_URL}"
-    export NEXT_PUBLIC_API_URL="http://localhost:${PUBLIC_APP_PORT}/api"
+    export NEXT_PUBLIC_API_URL="${PUBLIC_API_URL}"
 
     # Caddy configuration
     export BASE_DOMAIN=":${PUBLIC_APP_PORT}"
 
-    # Default to direct executor backend for development
-    export TRACECAT__EXECUTOR_BACKEND="${TRACECAT__EXECUTOR_BACKEND:-direct}"
+    if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
+        export TRACECAT__DISABLE_NSJAIL=false
+        export TRACECAT__EXECUTOR_BACKEND=ephemeral
+    else
+        # Default to direct executor backend for development
+        export TRACECAT__DISABLE_NSJAIL=true
+        export TRACECAT__EXECUTOR_BACKEND=direct
+    fi
 
-    # Enable multitenancy and all feature flags for development
-    export TRACECAT__EE_MULTI_TENANT=true
+    # Cluster development always defaults to multi-tenant mode. Only the
+    # explicit cluster flags (--single-tenant / --multi-tenant /
+    # --ee-multi-tenant) override it; .env and shell values are ignored so
+    # fresh worktrees behave consistently.
+    export TRACECAT__EE_MULTI_TENANT="${CLUSTER_EE_MULTI_TENANT:-true}"
     FEATURE_FLAGS=$(cd "$REPO_ROOT" && uv run python -c "from tracecat.feature_flags.enums import FeatureFlag; print(','.join(f.value for f in FeatureFlag))" 2>/dev/null) || FEATURE_FLAGS=""
     if [[ -n "$FEATURE_FLAGS" ]]; then
         export TRACECAT__FEATURE_FLAGS="$FEATURE_FLAGS"
@@ -310,7 +748,13 @@ Cluster ${WORKTREE_ID}-${cluster_num} port mappings:
   Temporal UI:     http://localhost:${TEMPORAL_UI_PORT}
   MinIO:           localhost:${MINIO_PORT}
   MinIO Console:   http://localhost:${MINIO_CONSOLE_PORT}
-  MCP:             localhost:${MCP_PORT}
+  Worker metrics:  http://localhost:${TEMPORAL_WORKER_METRICS_PORT}/metrics
+  Executor metrics: http://localhost:${TEMPORAL_EXECUTOR_METRICS_PORT}/metrics
+  API DB pool metrics: http://localhost:${API_DB_POOL_METRICS_PORT}/db-pool-metrics
+  Worker DB pool metrics: http://localhost:${WORKER_DB_POOL_METRICS_PORT}/db-pool-metrics
+  Executor DB pool metrics: http://localhost:${EXECUTOR_DB_POOL_METRICS_PORT}/db-pool-metrics
+  PgDog metrics:   http://localhost:${PGDOG_METRICS_PORT}/metrics
+  MCP:             http://localhost:${PUBLIC_APP_PORT}/mcp
 EOF
 }
 
@@ -326,14 +770,16 @@ list_clusters() {
         # Match any tracecat cluster: tracecat-{worktree}-{num}
         if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
             found=true
-            local worktree="${BASH_REMATCH[1]}"
+            local project_worktree="${BASH_REMATCH[1]}"
             local cluster_num="${BASH_REMATCH[2]}"
             calculate_ports "$cluster_num"
-            local status
-            status=$(docker compose -p "$project" ps --format json 2>/dev/null | jq -r 'if type == "array" then .[0].State else .State end' 2>/dev/null || echo "unknown")
             local marker=""
             [[ "$project" == "${current_worktree_prefix}${cluster_num}" ]] && marker=" (this worktree)"
-            echo "  ${project}: http://localhost:${PUBLIC_APP_PORT}${marker}"
+            local portless_suffix=""
+            if portless_enabled; then
+                portless_suffix="  |  $(portless_url "$cluster_num" "$project_worktree")"
+            fi
+            echo "  ${project}: http://localhost:${PUBLIC_APP_PORT}${portless_suffix}${marker}"
         fi
     done
 
@@ -347,9 +793,12 @@ if [[ $# -lt 1 ]]; then
     usage
 fi
 
+source_env_file
+
 # Handle 'list' command specially
 if [[ "$1" == "list" ]]; then
     list_clusters
+    portless_install_tip
     exit 0
 fi
 
@@ -372,15 +821,66 @@ if [[ $# -lt 1 ]]; then
     usage
 fi
 
-# Parse optional -p/--profile flag
-if [[ "$1" == "-p" ]] || [[ "$1" == "--profile" ]]; then
-    if [[ $# -lt 2 ]]; then
-        echo "Error: -p/--profile requires a profile name"
-        exit 1
-    fi
-    PROFILE="$2"
-    shift 2
-fi
+# Parse cluster-level flags that appear before the command.
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -p|--profile)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: -p/--profile requires a profile name" >&2
+                exit 1
+            fi
+            PROFILE="$2"
+            shift 2
+            ;;
+        --single-tenant)
+            CLUSTER_EE_MULTI_TENANT="false"
+            shift
+            ;;
+        --multi-tenant)
+            CLUSTER_EE_MULTI_TENANT="true"
+            shift
+            ;;
+        --ee-multi-tenant)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --ee-multi-tenant requires true or false" >&2
+                exit 1
+            fi
+            CLUSTER_EE_MULTI_TENANT=$(normalize_bool "$2")
+            shift 2
+            ;;
+        --ee-multi-tenant=*)
+            CLUSTER_EE_MULTI_TENANT=$(normalize_bool "${1#*=}")
+            shift
+            ;;
+        --sandbox)
+            CLUSTER_USE_SANDBOX_COMPOSE=true
+            shift
+            ;;
+        --no-sandbox)
+            CLUSTER_USE_SANDBOX_COMPOSE=false
+            shift
+            ;;
+        --loadtest)
+            add_compose_override "$LOADTEST_COMPOSE_FILE"
+            shift
+            ;;
+        --compose-override)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --compose-override requires a compose file path" >&2
+                exit 1
+            fi
+            add_compose_override "$2"
+            shift 2
+            ;;
+        --compose-override=*)
+            add_compose_override "${1#*=}"
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 if [[ $# -lt 1 ]]; then
     usage
@@ -389,15 +889,191 @@ fi
 COMMAND="$1"
 shift
 
+# A load test is a complete workflow, not an ordinary Compose command. Delegate
+# before cluster auto-selection so the orchestrator can validate the entire CSV
+# before it creates any local runtime state.
+if [[ "$COMMAND" == "loadtest" ]]; then
+    cd "$REPO_ROOT"
+    export TRACECAT_LOADTEST_REPO_ROOT="$REPO_ROOT"
+    exec uv run --all-packages tracecat-benchmark "$@"
+fi
+
+# Handle 'docs' command before cluster auto-selection. The docs preview is
+# independent of Docker Compose and should not require a running cluster.
+if [[ "$COMMAND" == "docs" ]]; then
+    if ! command -v mint >/dev/null 2>&1; then
+        echo "Error: Mintlify CLI is not installed" >&2
+        echo "Install it with: npm i -g mint" >&2
+        exit 1
+    fi
+
+    echo "Starting Mintlify docs preview from ${REPO_ROOT}/docs ..."
+    cd "${REPO_ROOT}/docs"
+    if portless_enabled; then
+        DOCS_PORTLESS_ALIAS=$(portless_docs_alias_name)
+        trap 'portless alias --remove "$DOCS_PORTLESS_ALIAS" >/dev/null 2>&1 || true' EXIT
+        mint dev "$@" 2>&1 | while IFS= read -r line; do
+            echo "$line"
+            if [[ -z "${DOCS_PORTLESS_REGISTERED:-}" && "$line" =~ localhost:([0-9]+) ]]; then
+                DOCS_PORTLESS_REGISTERED=1
+                portless_register_alias "$DOCS_PORTLESS_ALIAS" "${BASH_REMATCH[1]}" || true
+            fi
+        done
+        exit "${PIPESTATUS[0]}"
+    fi
+
+    portless_install_tip
+    exec mint dev "$@"
+fi
+
+# Parse cluster-level flags that appear after the command, so both of these work:
+#   ./cluster --single-tenant up -d
+#   ./cluster up -d --single-tenant
+FILTERED_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --single-tenant)
+            CLUSTER_EE_MULTI_TENANT="false"
+            shift
+            ;;
+        --multi-tenant)
+            CLUSTER_EE_MULTI_TENANT="true"
+            shift
+            ;;
+        --ee-multi-tenant)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --ee-multi-tenant requires true or false" >&2
+                exit 1
+            fi
+            CLUSTER_EE_MULTI_TENANT=$(normalize_bool "$2")
+            shift 2
+            ;;
+        --ee-multi-tenant=*)
+            CLUSTER_EE_MULTI_TENANT=$(normalize_bool "${1#*=}")
+            shift
+            ;;
+        --sandbox)
+            CLUSTER_USE_SANDBOX_COMPOSE=true
+            shift
+            ;;
+        --no-sandbox)
+            CLUSTER_USE_SANDBOX_COMPOSE=false
+            shift
+            ;;
+        --loadtest)
+            add_compose_override "$LOADTEST_COMPOSE_FILE"
+            shift
+            ;;
+        --compose-override)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --compose-override requires a compose file path" >&2
+                exit 1
+            fi
+            add_compose_override "$2"
+            shift 2
+            ;;
+        --compose-override=*)
+            add_compose_override "${1#*=}"
+            shift
+            ;;
+        *)
+            FILTERED_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+if [[ ${#FILTERED_ARGS[@]} -gt 0 ]]; then
+    set -- "${FILTERED_ARGS[@]}"
+else
+    set --
+fi
+
+# Parse orchestration-only up flags before forwarding remaining args to Compose.
+FORCE_NEW_CLUSTER=false
+SKIP_DEPENDENCY_SYNC=false
+if [[ "$COMMAND" == "up" ]]; then
+    FILTERED_ARGS=()
+    for arg in "$@"; do
+        if [[ "$arg" == "--new" || "$arg" == "-n" ]]; then
+            FORCE_NEW_CLUSTER=true
+        elif [[ "$arg" == "--skip-dependency-sync" ]]; then
+            SKIP_DEPENDENCY_SYNC=true
+        else
+            FILTERED_ARGS+=("$arg")
+        fi
+    done
+    set -- ${FILTERED_ARGS[@]+"${FILTERED_ARGS[@]}"}
+fi
+
+# A constrained load-test override must never be applied implicitly to the one
+# running developer cluster for this worktree. Require either a fresh,
+# auto-selected project or an explicitly selected numbered project.
+if [[ "$COMMAND" == "up" ]] \
+    && [[ "$LOADTEST_OVERRIDE" == "true" ]] \
+    && [[ "$AUTO_SELECT" == "true" ]] \
+    && [[ "$FORCE_NEW_CLUSTER" != "true" ]]; then
+    echo "Error: the load-test override with 'up' requires --new/-n or an explicit cluster number" >&2
+    exit 1
+fi
+
 # Auto-select cluster number if not specified
 if [[ "$AUTO_SELECT" == "true" ]]; then
     if [[ "$COMMAND" == "up" ]]; then
-        CLUSTER_NUM=$(get_next_cluster_num)
-        echo "Auto-selected cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
+        if [[ "$FORCE_NEW_CLUSTER" == "true" ]]; then
+            CLUSTER_NUM=$(get_next_cluster_num)
+            echo "Auto-selected new cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
+        else
+            # Prefer a live cluster. Fall back to stopped state whose volumes
+            # were deliberately retained by `down` only when nothing is live.
+            running=$(get_reusable_worktree_cluster_nums)
+            count=0
+            if [[ -n "$running" ]]; then
+                count=$(echo "$running" | wc -l | tr -d ' ')
+            fi
+
+            if [[ "$count" -eq 0 ]]; then
+                CLUSTER_NUM=$(get_next_cluster_num)
+                echo "No existing cluster — auto-selected cluster ${CLUSTER_NUM} for worktree '${WORKTREE_ID}'"
+            elif [[ "$count" -eq 1 ]]; then
+                CLUSTER_NUM="$running"
+                echo "Reusing existing cluster ${CLUSTER_NUM} for worktree '${WORKTREE_ID}'"
+            else
+                echo "Multiple existing clusters — select one:" >&2
+                CLUSTER_NUM=$(echo "$running" | select_cluster_interactive)
+            fi
+        fi
+    elif [[ "$COMMAND" == "compose-files" ]]; then
+        # Resolve an existing cluster when possible so the printed project can
+        # be passed directly to collectors. Fall back to the next free number
+        # only for a true pre-start dry run.
+        compose_running=$(get_reusable_worktree_cluster_nums)
+        compose_count=0
+        if [[ -n "$compose_running" ]]; then
+            compose_count=$(echo "$compose_running" | wc -l | tr -d ' ')
+        fi
+
+        if [[ "$compose_count" -eq 0 ]]; then
+            CLUSTER_NUM=$(get_next_cluster_num)
+        elif [[ "$compose_count" -eq 1 ]]; then
+            CLUSTER_NUM="$compose_running"
+        else
+            echo "Multiple existing clusters — select one:" >&2
+            CLUSTER_NUM=$(echo "$compose_running" | select_cluster_interactive)
+        fi
     elif [[ "$COMMAND" == "nuke" ]]; then
         # For nuke, try to find any cluster (running or with leftover volumes)
-        CLUSTER_NUM=$(get_running_clusters | head -1)
-        if [[ -z "$CLUSTER_NUM" ]]; then
+        nuke_running=$(get_running_clusters)
+        nuke_count=0
+        if [[ -n "$nuke_running" ]]; then
+            nuke_count=$(echo "$nuke_running" | wc -l | tr -d ' ')
+        fi
+
+        if [[ "$nuke_count" -eq 1 ]]; then
+            CLUSTER_NUM="$nuke_running"
+        elif [[ "$nuke_count" -gt 1 ]]; then
+            echo "Multiple clusters running — select one to nuke:" >&2
+            CLUSTER_NUM=$(echo "$nuke_running" | select_cluster_interactive)
+        else
             # No running cluster, check for orphaned volumes
             ORPHAN_VOLUME=$(docker volume ls --format "{{.Name}}" | grep "^tracecat-${WORKTREE_ID}-" | head -1 || true)
             if [[ -n "$ORPHAN_VOLUME" && "$ORPHAN_VOLUME" =~ ^tracecat-${WORKTREE_ID}-([0-9]+)_ ]]; then
@@ -415,10 +1091,53 @@ fi
 
 # Get compose file for profile
 COMPOSE_FILE=$(get_compose_file "$PROFILE")
+COMPOSE_FILES=(-f "$COMPOSE_FILE")
+if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
+    COMPOSE_FILES+=(-f "${REPO_ROOT}/docker-compose.sandbox.yml")
+fi
+for compose_override in ${CLUSTER_COMPOSE_OVERRIDES[@]+"${CLUSTER_COMPOSE_OVERRIDES[@]}"}; do
+    COMPOSE_FILES+=(-f "$compose_override")
+done
+
+# Handle 'compose-files' command - dry run that prints the resolved compose
+# invocation without touching Docker. Useful for verifying flag parsing.
+if [[ "$COMMAND" == "compose-files" ]]; then
+    echo "Project:  tracecat-${WORKTREE_ID}-${CLUSTER_NUM}"
+    echo "Profile:  ${PROFILE}"
+    echo "Compose files:"
+    for compose_arg in "${COMPOSE_FILES[@]}"; do
+        [[ "$compose_arg" == "-f" ]] && continue
+        echo "  ${compose_arg}"
+    done
+    exit 0
+fi
 
 # Handle 'ports' command
 if [[ "$COMMAND" == "ports" ]]; then
     show_ports "$CLUSTER_NUM"
+    if portless_enabled; then
+        echo "  Portless URL:    $(portless_url "$CLUSTER_NUM")"
+    else
+        portless_install_tip
+    fi
+    exit 0
+fi
+
+# Handle 'open' command - open cluster URL in default browser
+if [[ "$COMMAND" == "open" ]]; then
+    calculate_ports "$CLUSTER_NUM"
+    if portless_enabled; then
+        if portless_register "$CLUSTER_NUM" "$PUBLIC_APP_PORT" >/dev/null; then
+            target_url="$(portless_url "$CLUSTER_NUM")"
+        else
+            target_url="http://localhost:${PUBLIC_APP_PORT}"
+        fi
+    else
+        target_url="http://localhost:${PUBLIC_APP_PORT}"
+        portless_install_tip
+    fi
+    echo "Opening ${target_url} ..."
+    open "$target_url"
     exit 0
 fi
 
@@ -428,14 +1147,6 @@ if [[ "$COMMAND" == "db" ]]; then
         echo "Error: TablePlus is not installed" >&2
         echo "Install from: https://tableplus.com or brew install --cask tableplus" >&2
         exit 1
-    fi
-
-    # Source .env for credentials if it exists
-    if [[ -f "$ENV_FILE" ]]; then
-        set -a
-        # shellcheck disable=SC1090
-        source "$ENV_FILE"
-        set +a
     fi
 
     calculate_ports "$CLUSTER_NUM"
@@ -458,20 +1169,28 @@ if [[ "$COMMAND" == "attach" ]]; then
     build_env "$CLUSTER_NUM"
 
     # Try bash first, fall back to sh
-    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/bash "$@" 2>/dev/null \
-        || exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/sh "$@"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/bash "$@" 2>/dev/null \
+        || exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/sh "$@"
 fi
 
 # Handle 'restart' command
 if [[ "$COMMAND" == "restart" ]]; then
     build_env "$CLUSTER_NUM"
-    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" restart "$@"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" restart "$@"
 fi
 
 # Handle 'rm' command - down + remove volumes
 if [[ "$COMMAND" == "rm" ]]; then
     build_env "$CLUSTER_NUM"
-    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down --volumes --remove-orphans "$@"
+    portless_enabled && portless_unregister "$CLUSTER_NUM"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down --volumes --remove-orphans "$@"
+fi
+
+# Handle 'down' command - stop containers and remove the stale portless alias.
+if [[ "$COMMAND" == "down" ]]; then
+    build_env "$CLUSTER_NUM"
+    portless_enabled && portless_unregister "$CLUSTER_NUM"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down "$@"
 fi
 
 # Handle 'nuke' command - destroy cluster and optionally volumes/images
@@ -530,7 +1249,7 @@ if [[ "$COMMAND" == "nuke" ]]; then
         fi
 
         echo "Volumes to remove:"
-        echo "$VOLUMES" | sed 's/^/  /'
+        printf '  %s\n' "${VOLUMES//$'\n'/$'\n'  }"
 
         if [[ "$DRY_RUN" == "true" ]]; then
             echo ""
@@ -578,7 +1297,8 @@ if [[ "$COMMAND" == "nuke" ]]; then
 
     echo ""
     echo "Stopping containers..."
-    docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down --remove-orphans
+    portless_enabled && portless_unregister "$CLUSTER_NUM"
+    docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" down --remove-orphans
 
     echo ""
     echo "Removing volumes..."
@@ -604,12 +1324,31 @@ if [[ "$COMMAND" == "nuke" ]]; then
     exit 0
 fi
 
+# If portless is available and the user is bringing the cluster up, register a
+# stable .localhost alias and steer the app's PUBLIC_APP_URL through it. Must
+# happen before build_env so the override flows into TRACECAT__PUBLIC_APP_URL,
+# NEXT_PUBLIC_APP_URL, etc.
+if [[ "$COMMAND" == "up" ]] && portless_enabled && [[ -z "${CLUSTER_PUBLIC_APP_URL_OVERRIDE:-}" ]]; then
+    calculate_ports "$CLUSTER_NUM"
+    if portless_register "$CLUSTER_NUM" "$PUBLIC_APP_PORT"; then
+        CLUSTER_PUBLIC_APP_URL_OVERRIDE="$(portless_url "$CLUSTER_NUM")"
+        export CLUSTER_PUBLIC_APP_URL_OVERRIDE
+    fi
+fi
+
+if [[ "$COMMAND" == "up" ]]; then
+    portless_install_tip
+fi
+
 # Build environment and run docker compose
 build_env "$CLUSTER_NUM"
 
-# Auto-create .env from .env.example if not present
+# Auto-create .env only for commands that intentionally initialize runtime
+# state. Read-only commands such as `config` must never mutate the worktree.
 ENV_SCRIPT="${REPO_ROOT}/env.sh"
-if [[ ! -f "$ENV_FILE" ]] && [[ -f "$ENV_SCRIPT" ]]; then
+if [[ "$COMMAND" == "up" || "$COMMAND" == "seed" ]] \
+    && [[ ! -f "$ENV_FILE" ]] \
+    && [[ -f "$ENV_SCRIPT" ]]; then
     echo "No .env file found. Running env.sh to create one with dev defaults..."
     # Pass dev defaults: production=n, url=localhost, ssl=n, email=test@tracecat.com
     (cd "$REPO_ROOT" && bash "$ENV_SCRIPT" <<< $'n\n\nn\ntest@tracecat.com')
@@ -624,48 +1363,113 @@ fi
 
 # Source the .env file for other variables (but our exports take precedence)
 if [[ -f "$ENV_FILE" ]]; then
-    set -a
-    # shellcheck disable=SC1090
-    source "$ENV_FILE"
-    set +a
-    # Re-apply our overrides (source may have overwritten them)
-    build_env "$CLUSTER_NUM"
+    source_env_file
+fi
+# Matrix values are applied after .env and must remain authoritative when the
+# collector later asks this wrapper to re-render the deployed Compose model.
+source_loadtest_env_file
+# Re-apply computed cluster overrides after both environment layers.
+build_env "$CLUSTER_NUM"
+
+if [[ "$COMMAND" == "up" ]]; then
+    echo "EE multi-tenant: ${TRACECAT__EE_MULTI_TENANT}"
 fi
 
-# Sync dependencies before starting cluster
-if [[ "$COMMAND" == "up" ]]; then
+# Sync dependencies before the first cluster start or standalone dev seed.
+# Matrix reconfiguration uses the already-synced worktree for subsequent rows.
+if [[ "$COMMAND" == "seed" ]] \
+    || [[ "$COMMAND" == "up" && "$SKIP_DEPENDENCY_SYNC" != "true" ]]; then
     echo "Syncing dependencies..."
-    (cd "$REPO_ROOT" && uv sync --group admin --quiet)
+    uv_sync_args=(--group admin --quiet)
+    if [[ "$LOADTEST_OVERRIDE" == "true" ]]; then
+        # The matrix launches collector and runner modules after cluster startup.
+        # Keep its workspace package installed when startup synchronizes the venv.
+        uv_sync_args+=(--all-packages)
+    fi
+    (cd "$REPO_ROOT" && uv sync "${uv_sync_args[@]}")
+fi
+if [[ "$COMMAND" == "up" && "$SKIP_DEPENDENCY_SYNC" != "true" ]]; then
     (cd "$REPO_ROOT" && pnpm -C frontend install > /dev/null 2>&1)
 fi
 
-# Check for --seed flag in up command
+# Check for seed flags in up command. Dev profile seeds by default.
 SEED_USER=false
+if [[ "$COMMAND" == "up" && "$PROFILE" == "dev" ]]; then
+    SEED_USER=true
+fi
+DETACHED_UP=false
+DEFAULT_TIER_ENTITLEMENTS="${TRACECAT__DEV_DEFAULT_TIER_ENTITLEMENTS:-all}"
 UP_ARGS=()
 if [[ "$COMMAND" == "up" ]]; then
-    for arg in "$@"; do
-        if [[ "$arg" == "--seed" ]]; then
-            SEED_USER=true
-        else
-            UP_ARGS+=("$arg")
-        fi
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -d|--detach)
+                DETACHED_UP=true
+                UP_ARGS+=("$1")
+                shift
+                ;;
+            --seed)
+                SEED_USER=true
+                shift
+                ;;
+            --no-seed)
+                SEED_USER=false
+                shift
+                ;;
+            --default-tier-entitlements)
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: --default-tier-entitlements requires a value" >&2
+                    exit 1
+                fi
+                DEFAULT_TIER_ENTITLEMENTS="$2"
+                shift 2
+                ;;
+            --default-tier-entitlements=*)
+                DEFAULT_TIER_ENTITLEMENTS="${1#*=}"
+                shift
+                ;;
+            *)
+                UP_ARGS+=("$1")
+                shift
+                ;;
+        esac
     done
     set -- ${UP_ARGS[@]+"${UP_ARGS[@]}"}
+elif [[ "$COMMAND" == "seed" ]]; then
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --default-tier-entitlements)
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: --default-tier-entitlements requires a value" >&2
+                    exit 1
+                fi
+                DEFAULT_TIER_ENTITLEMENTS="$2"
+                shift 2
+                ;;
+            --default-tier-entitlements=*)
+                DEFAULT_TIER_ENTITLEMENTS="${1#*=}"
+                shift
+                ;;
+            *)
+                echo "Error: unknown seed argument '$1'" >&2
+                exit 1
+                ;;
+        esac
+    done
 fi
 
-# Function to seed test user after cluster starts
-seed_test_user() {
+# Function to seed a tenant dev user after cluster starts
+seed_dev_user() {
     local api_url="http://localhost:${PUBLIC_APP_PORT}/api"
-    local max_attempts=60
+    local max_attempts=150
     local attempt=1
 
-    echo "Waiting for API to be ready..."
+    echo "[dev-seed] Waiting for API health check (up to 5 minutes)..."
     while [[ $attempt -le $max_attempts ]]; do
-        # Use /ready endpoint which checks full startup completion (not /health which returns immediately)
         local status_code
-        status_code=$(curl -s -o /dev/null -w "%{http_code}" "${api_url}/ready" 2>/dev/null || echo "000")
+        status_code=$(curl -s -o /dev/null -w "%{http_code}" "${api_url}/health" 2>/dev/null || echo "000")
         if [[ "$status_code" == "200" ]]; then
-            echo "API is ready"
+            echo "[dev-seed] API health check passed"
             break
         fi
         sleep 2
@@ -673,39 +1477,49 @@ seed_test_user() {
     done
 
     if [[ $attempt -gt $max_attempts ]]; then
-        echo "Warning: API did not become ready in time, skipping user registration"
+        echo "[dev-seed] Warning: API health check did not pass within 5 minutes, skipping dev seed"
         return 1
     fi
 
-    echo "Registering test user (test@tracecat.com)..."
-    local response
-    response=$(curl -s -w "\n%{http_code}" -X POST "${api_url}/auth/register" \
-        -H "Content-Type: application/json" \
-        -d '{"email": "test@tracecat.com", "password": "password1234"}')
+    local seed_email="${TRACECAT__DEV_USER_EMAIL:-dev@tracecat.com}"
+    local seed_password="${TRACECAT__DEV_USER_PASSWORD:-password1234}"
+    local seed_superuser_email="${TRACECAT__DEV_SUPERUSER_EMAIL:-test@tracecat.com}"
+    local seed_superuser_password="${TRACECAT__DEV_SUPERUSER_PASSWORD:-password1234}"
+    local seed_org_role="${TRACECAT__DEV_ORG_ROLE:-organization-owner}"
+    local seed_workspace_role="${TRACECAT__DEV_WORKSPACE_ROLE:-workspace-admin}"
+    local seed_default_tier_entitlements="${DEFAULT_TIER_ENTITLEMENTS}"
+    local seed_db_uri="postgresql+psycopg://postgres:postgres@localhost:${PG_PORT}/postgres"
 
-    local http_code
-    http_code=$(echo "$response" | tail -n1)
-    local body
-    body=$(echo "$response" | sed '$d')
-
-    case "$http_code" in
-        201)
-            echo "Successfully registered test user"
-            ;;
-        400|409)
-            echo "Test user already exists"
-            ;;
-        *)
-            echo "Warning: Registration returned status $http_code: $body"
-            ;;
-    esac
+    echo "[dev-seed] Seeding dev superuser (${seed_superuser_email}), tenant user (${seed_email}), and default tier (${seed_default_tier_entitlements})..."
+    (
+        cd "$REPO_ROOT"
+        TRACECAT__DB_URI="$seed_db_uri" \
+            uv run tracecat admin create-dev-user \
+            --email "$seed_email" \
+            --password "$seed_password" \
+            --superuser-email "$seed_superuser_email" \
+            --superuser-password "$seed_superuser_password" \
+            --default-tier-entitlements "$seed_default_tier_entitlements" \
+            --org-role "$seed_org_role" \
+            --workspace-role "$seed_workspace_role"
+    )
 }
+
+if [[ "$COMMAND" == "seed" ]]; then
+    seed_dev_user
+    exit $?
+fi
 
 # Run docker compose with the configured environment
 if [[ "$SEED_USER" == "true" && "$COMMAND" == "up" ]]; then
-    # Run in background mode for seeding, then seed
-    docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
-    seed_test_user
+    if [[ "$DETACHED_UP" == "true" ]]; then
+        docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+        seed_dev_user
+    else
+        # Keep compose attached while a background seeder waits for API readiness.
+        seed_dev_user &
+        exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+    fi
 else
-    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
 fi

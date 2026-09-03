@@ -47,6 +47,7 @@ class CaseFieldRead(TypedDict):
     """Case field with value."""
 
     id: str  # Field name (e.g., 'id', 'created_at', 'custom_field')
+    display_name: str
     type: str
     description: str | None
     nullable: bool
@@ -175,7 +176,23 @@ class CaseComment(TypedDict):
     updated_at: datetime
     content: str
     parent_id: UUID | None
+    workflow_id: UUID | None
+    workflow_title: str | None
+    workflow_alias: str | None
+    workflow_wf_exec_id: str | None
+    workflow_status: str | None
     last_edited_at: datetime | None
+    deleted_at: datetime | None
+
+
+class CaseCommentWorkflowRead(TypedDict):
+    """Workflow metadata attached to a case comment."""
+
+    workflow_id: UUID | None
+    title: str
+    alias: str | None
+    wf_exec_id: str | None
+    status: str
 
 
 class CaseCommentRead(TypedDict):
@@ -186,8 +203,20 @@ class CaseCommentRead(TypedDict):
     updated_at: datetime
     content: str
     parent_id: UUID | None
+    workflow: CaseCommentWorkflowRead | None
     user: UserRead | None
     last_edited_at: datetime | None
+    deleted_at: datetime | None
+    is_deleted: bool
+
+
+class CaseCommentThreadRead(TypedDict):
+    """Threaded case comment information."""
+
+    comment: CaseCommentRead
+    replies: list[CaseCommentRead]
+    reply_count: int
+    last_activity_at: datetime
 
 
 class CaseTaskRead(TypedDict):
@@ -671,14 +700,94 @@ class AgentPresetRead(TypedDict):
     """Agent preset information."""
 
     id: UUID
+    workspace_id: UUID
     name: str
     slug: str
+    # Deprecated legacy model fields retained for backward compatibility.
+    # catalog_id is the canonical model selector for new callers.
     model_name: str
     model_provider: str
+    catalog_id: UUID | None
     description: str | None
     instructions: str | None
     base_url: str | None
     output_type: Any
     actions: list[str] | None
+    namespaces: list[str] | None
+    tool_approvals: dict[str, bool] | None
+    mcp_integrations: list[str] | None
+    agents: dict[str, Any]
+    retries: int
+    enable_thinking: bool
+    enable_internet_access: bool
+    skills: list[dict[str, Any]]
+    current_version_id: UUID | None
     created_at: datetime
     updated_at: datetime
+
+
+# ============================================================================
+# Workflow Execution Types
+# ============================================================================
+
+
+class WorkflowExecutionSummaryRead(TypedDict):
+    """Summary of a single workflow execution."""
+
+    id: str
+    run_id: str
+    status: str | None
+    start_time: str
+    close_time: str | None
+    trigger_type: str | None
+    execution_type: str | None
+
+
+class WorkflowExecutionPageRead(TypedDict):
+    """Cursor-paginated page of workflow execution summaries."""
+
+    items: list[WorkflowExecutionSummaryRead]
+    next_cursor: str | None
+    prev_cursor: str | None
+    has_more: bool
+    has_previous: bool
+
+
+class WorkflowExecutionEventErrorRead(TypedDict):
+    """Action-level error in a workflow execution event."""
+
+    message: str
+    cause: Any | None
+
+
+class WorkflowExecutionEventRead(TypedDict):
+    """Compact per-action event in a workflow execution timeline."""
+
+    action_ref: str | None
+    action_name: str | None
+    status: str
+    schedule_time: str
+    start_time: str | None
+    close_time: str | None
+    error: WorkflowExecutionEventErrorRead | None
+    result: Any | None
+    result_truncated: str | None
+
+
+class WorkflowExecutionStatusRead(TypedDict):
+    """Status of a workflow execution.
+
+    The event-timeline fields are non-null only when requested with
+    ``include_events=True``.
+    """
+
+    workflow_execution_id: str
+    status: str
+    start_time: str | None
+    close_time: str | None
+    result: Any | None
+    error: str | None
+    trigger_type: str | None
+    execution_type: str | None
+    history_length: int | None
+    events: list[WorkflowExecutionEventRead] | None

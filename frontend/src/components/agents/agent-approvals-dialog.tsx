@@ -31,11 +31,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
+import { invalidateChatTurnQueries } from "@/hooks/use-chat"
 import type {
   AgentApprovalDecisionPayload,
   AgentSessionWithStatus,
 } from "@/lib/agents"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
+import { useQueryClient } from "@/lib/query"
 import { reconstructActionType } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -100,6 +102,7 @@ export function AgentApprovalsDialog({
   onSubmitted,
 }: AgentApprovalsDialogProps) {
   const workspaceId = useWorkspaceId()
+  const queryClient = useQueryClient()
   const { toast } = useToast()
   const formatWorkflowLabel = (
     summary?: AgentSessionWithStatus["parent_workflow"]
@@ -208,6 +211,10 @@ export function AgentApprovalsDialog({
         requestBody: {
           approvals: approvalsPayload,
         },
+      })
+      invalidateChatTurnQueries(queryClient, {
+        chatId: session.id,
+        workspaceId,
       })
       toast({
         title: "Approvals submitted",
@@ -349,7 +356,6 @@ export function AgentApprovalsDialog({
                       <JsonViewWithControls
                         src={parsedArgs}
                         defaultExpanded
-                        defaultTab="nested"
                         showControls={false}
                         className="text-xs"
                       />

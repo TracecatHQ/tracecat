@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
+from typing import Any, cast
 
+from tracecat.dsl.common import build_action_statements_from_actions
 from tracecat.dsl.view import (
     RFEdge,
     RFGraph,
@@ -11,6 +14,12 @@ from tracecat.dsl.view import (
     TriggerNodeData,
     UDFNode,
     UDFNodeData,
+)
+from tracecat.expressions.expectations import ExpectedField, create_expectation_model
+from tracecat.registry.actions.schemas import (
+    ActionStep,
+    TemplateAction,
+    TemplateActionDefinition,
 )
 
 
@@ -126,3 +135,54 @@ class TestRFGraphNormalizeActionIds:
         assert len(action_nodes) == 2
         node_ids = {n.id for n in action_nodes}
         assert node_ids == {action1_uuid, action2_uuid}
+
+
+def test_build_action_statements_preserves_date_like_string_input() -> None:
+    """Date-like string inputs should stay strings for template arg validation."""
+    template = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Date-like string input",
+            description="Synthetic template for input parsing regression coverage.",
+            name="date_like_string",
+            namespace="testing",
+            display_group="Testing",
+            expects={
+                "api_version": ExpectedField(
+                    type="str",
+                    description="A string that YAML can parse as a date.",
+                ),
+            },
+            steps=[
+                ActionStep(
+                    ref="identity",
+                    action="core.transform.reshape",
+                    args={"value": "${{ inputs.api_version }}"},
+                )
+            ],
+            returns="${{ steps.identity.result }}",
+        ),
+    )
+    expectation_model = create_expectation_model(template.definition.expects)
+    action = cast(
+        Any,
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            ref="date_like_string",
+            type=template.definition.action,
+            inputs="""
+api_version: 2025-09-01
+""",
+            control_flow={},
+            upstream_edges=[],
+            is_interactive=False,
+            interaction=None,
+        ),
+    )
+
+    statements = build_action_statements_from_actions([action])
+
+    assert len(statements) == 1
+    assert statements[0].args["api_version"] == "2025-09-01"
+    validated_args = expectation_model.model_validate(statements[0].args)
+    assert validated_args.model_dump()["api_version"] == "2025-09-01"

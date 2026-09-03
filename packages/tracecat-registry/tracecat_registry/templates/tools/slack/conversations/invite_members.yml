@@ -3,7 +3,7 @@ definition:
   title: Invite members to channel
   description: Invite members to a Slack channel.
   display_group: Slack
-  doc_url: https://api.slack.com/methods/conversations.invite
+  doc_url: https://docs.slack.dev/reference/methods/conversations.invite/
   namespace: tools.slack
   name: invite_members
   expects:

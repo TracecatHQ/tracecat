@@ -1,26 +1,239 @@
 name: Update draft release
 
 on:
-  pull_request_target:
+  push:
     branches:
       - main
-    types:
-      - opened
-      - reopened
-      - synchronize
-      - labeled
-      - unlabeled
-  workflow_dispatch:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
 
 permissions:
-  contents: write
-  pull-requests: read
+  contents: read
 
 jobs:
-  main:
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+  # Squash-merged PRs sometimes reach main without labels: fork PRs cannot be
+  # autolabeled, and a PR opened before a rule existed never gets re-evaluated.
+  # This resolves each pushed subject back to its PR and adds what the config
+  # says it should carry. It only ever adds, so re-running is a no-op.
+  backfill:
+    if: github.event_name == 'push'
+    runs-on: blacksmith-2vcpu-ubuntu-2204
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
+        with:
+          python-version: "3.12"
+
+      - name: Backfill labels from squashed commit subjects
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BEFORE}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ]; then
+            subjects=$(gh api "repos/${REPO}/commits/${AFTER}" \
+              --jq '.commit.message | split("\n")[0]')
+          else
+            # `--paginate` is not optional here. The compare endpoint caps a
+            # page at 250 commits and reports no error when it truncates, so a
+            # large push would silently backfill only its first 250 subjects.
+            subjects=$(gh api --paginate \
+              "repos/${REPO}/compare/${BEFORE}...${AFTER}?per_page=100" \
+              --jq '.commits[].commit.message | split("\n")[0]')
+          fi
+
+          # Only labels that already exist are applied. Posting an unknown name
+          # to the labels API creates it, with a random colour.
+          gh api "repos/${REPO}/labels" --paginate --jq '.[].name' \
+            | sort -u > /tmp/repo-labels.txt
+
+          printf '%s\n' "${subjects}" | while IFS= read -r subject; do
+            number=$(printf '%s' "${subject}" | sed -n 's/.*(#\([0-9]\{1,\}\))$/\1/p')
+            if [ -z "${number}" ]; then
+              continue
+            fi
+            title=$(printf '%s' "${subject}" | sed 's/ (#[0-9]\{1,\})$//')
+
+            # The trailing `(#N)` is only text: roughly two in five commits on
+            # main are direct pushes, and one of those can end in `(#42)`
+            # without #42 having produced it. `issues/N/labels` also addresses
+            # issues, so an unverified number can relabel an unrelated issue.
+            # `pulls/N` 404s on a plain issue, and matching the title closes
+            # the rest of the gap.
+            # Distinguish "not a pull request" from "the API was unavailable".
+            # Swallowing both alike would let one rate-limited response
+            # silently and permanently skip a real pull request's labels,
+            # which is the failure this job exists to prevent. Only a 404
+            # means the number is not a pull request; anything else is a
+            # warning in the log rather than a silent skip.
+            if ! pr_title=$(gh api "repos/${REPO}/pulls/${number}" --jq .title \
+              2>/tmp/pr-lookup-err); then
+              if grep -q "HTTP 404" /tmp/pr-lookup-err; then
+                echo "#${number}: not a pull request, skipping"
+              else
+                echo "::warning::#${number}: lookup failed, skipping. $(cat /tmp/pr-lookup-err)"
+              fi
+              continue
+            fi
+            if [ "${pr_title}" != "${title}" ]; then
+              echo "#${number}: subject does not match the pull request title, skipping"
+              continue
+            fi
+
+            python scripts/audit_commit_conventions.py labels-for "${title}" \
+              | sort -u > /tmp/desired-labels.txt
+            gh api "repos/${REPO}/issues/${number}/labels" --jq '.[].name' \
+              | sort -u > /tmp/current-labels.txt
+
+            missing=$(grep -Fxf /tmp/repo-labels.txt /tmp/desired-labels.txt \
+              | grep -Fxv -f /tmp/current-labels.txt || true)
+            if [ -z "${missing}" ]; then
+              echo "#${number}: nothing to add"
+              continue
+            fi
+
+            echo "#${number}: adding ${missing}"
+            printf '%s\n' "${missing}" | while IFS= read -r label; do
+              gh api "repos/${REPO}/issues/${number}/labels" \
+                -f "labels[]=${label}" --silent
+            done
+          done
+
+  draft:
+    # One draft job at a time. This job reads the drafted body, rewrites it and
+    # PATCHes it back, so without a group two pushes could interleave that
+    # read/modify/write and lose whatever the other added.
+    #
+    # What the group guarantees is that no two PATCHes overlap. It does NOT
+    # guarantee the newest push writes last: the group is acquired after each
+    # run's own `backfill`, those run unserialized, and an older run whose
+    # backfill finishes late can therefore reach the group after a newer run
+    # has already written.
+    #
+    # That is survivable because Release Drafter regenerates the body from the
+    # merged pull requests each time it runs, so a late writer still produces
+    # current CONTENT. The one thing that can lag is the version of
+    # dedupe_release_notes.py in that run's checkout, and only until the next
+    # push to main runs the newer one. Rejecting superseded runs outright would
+    # trade that for a worse failure: if the newest run then failed, no run
+    # would update the draft at all.
+    #
+    # `cancel-in-progress: false` so pushes queue rather than cancel, since
+    # cancelling would take that run's backfill with it and silently skip
+    # labelling a push. The guard is on this job alone: the backfill only adds
+    # labels and is idempotent, so racing it is harmless.
+    concurrency:
+      group: release-draft-${{ github.ref }}
+      cancel-in-progress: false
+
+    # Ordered after the backfill so the notes reflect labels applied this push,
+    # but not gated on it. The backfill is best-effort label hygiene; the draft
+    # is the release path. A transient `gh api` failure in the backfill must not
+    # stop the draft from updating.
+    needs: backfill
+    if: ${{ !cancelled() && github.event_name == 'push' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
+        with:
+          python-version: "3.12"
+
       - name: Draft release
-        uses: release-drafter/release-drafter@v6
+        id: draft
+        uses: release-drafter/release-drafter@6a93d829887aa2e0748befe2e808c66c0ec6e4c7 # v6
+        with:
+          disable-autolabeler: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Release Drafter lists a pull request under every category its labels
+      # match; its own source calls that intentional. This repo wants each
+      # change once, in the highest-ranked section that claimed it, which is
+      # what the `categories:` order in release-drafter.yml means. The action
+      # has no per-category `exclude-labels` and no first-match option, so the
+      # ranking is applied here, to the body it just wrote. Sections come out
+      # in config order, so first occurrence is highest rank.
+      - name: Keep each pull request in one section
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
+          TAG_NAME: ${{ steps.draft.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RELEASE_ID}" ]; then
+            echo "::warning::the draft step reported no release id, skipping"
+            exit 0
+          fi
+
+          gh api "repos/${REPO}/releases/${RELEASE_ID}" --jq .body > /tmp/body.md
+          python scripts/dedupe_release_notes.py < /tmp/body.md > /tmp/deduped.md
+
+          before=$(grep -c '^- ' /tmp/body.md || true)
+          after=$(grep -c '^- ' /tmp/deduped.md || true)
+          if [ "${before}" = "${after}" ]; then
+            echo "no duplicates across ${before} entries"
+            exit 0
+          fi
+
+          echo "removed $((before - after)) duplicate entries, ${after} remain"
+
+          # `tag_name` has to be resent. A draft release PATCHed without it is
+          # treated as untagged: GitHub replaces the tag with an
+          # `untagged-<hash>` placeholder, which silently unnames the release
+          # anyone would publish 1.0.0 from. Release Drafter resends it on its
+          # own update for the same reason.
+          if [ -z "${TAG_NAME}" ]; then
+            echo "::warning::the draft step reported no tag, skipping to avoid untagging it"
+            exit 0
+          fi
+
+          jq -Rs --arg tag "${TAG_NAME}" '{body: ., tag_name: $tag}' \
+            < /tmp/deduped.md > /tmp/payload.json
+          gh api --method PATCH "repos/${REPO}/releases/${RELEASE_ID}" \
+            --input /tmp/payload.json --silent
+
+          restored=$(gh api "repos/${REPO}/releases/${RELEASE_ID}" --jq .tag_name)
+          if [ "${restored}" != "${TAG_NAME}" ]; then
+            echo "::error::draft tag is '${restored}', expected '${TAG_NAME}'"
+            exit 1
+          fi
+
+  # Same-repo PRs only: fork PRs get a read-only token, so the autolabeler
+  # cannot write to them. Fork PRs are labelled by the backfill job once they
+  # land on main.
+  autolabel:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Autolabel pull request
+        uses: release-drafter/release-drafter@6a93d829887aa2e0748befe2e808c66c0ec6e4c7 # v6
+        with:
+          disable-releaser: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

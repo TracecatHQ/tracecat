@@ -3,7 +3,7 @@ definition:
   title: Create message
   description: Create a message in an Okta Access Request ticket.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/api/iga/openapi/governance.requests.admin.v1/tag/Requests/#tag/Requests/operation/createRequestMessage
+  doc_url: https://developer.okta.com/docs/api/iga/openapi/governance-production-requests-admin-v1-reference/requests/#tag/Requests/operation/createRequestMessage
   namespace: tools.okta_oar
   name: create_message
   secrets:
@@ -12,7 +12,7 @@ definition:
   expects:
     base_url:
       type: str | None
-      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      description: Okta domain base URL (e.g., 'https://your-org.okta.com')
       default: null
     request_id:
       type: str

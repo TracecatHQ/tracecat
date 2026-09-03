@@ -5,7 +5,13 @@ from unittest.mock import patch
 
 import pytest
 
-from tracecat.concurrency import GatheringTaskGroup, apartial, cooperative
+from tracecat.concurrency import (
+    GatheringTaskGroup,
+    apartial,
+    cooperative,
+    cooperative_every,
+    rejoin_future_through_cancellation,
+)
 
 
 @pytest.mark.anyio
@@ -270,6 +276,88 @@ async def test_cooperative_return_type():
     assert isinstance(coop_gen, AsyncGenerator)
 
 
+@pytest.mark.anyio
+async def test_cooperative_every_basic():
+    """Test cooperative_every() with a basic list."""
+    items = [1, 2, 3, 4, 5]
+
+    result = []
+    async for item in cooperative_every(items, every=2):
+        result.append(item)
+
+    assert result == items
+
+
+@pytest.mark.anyio
+async def test_cooperative_every_sleep_frequency():
+    """Test that cooperative_every() sleeps once per checkpoint."""
+    items = [1, 2, 3, 4, 5]
+
+    with patch("asyncio.sleep") as mock_sleep:
+        mock_sleep.return_value = None
+
+        result = []
+        async for item in cooperative_every(items, every=2):
+            result.append(item)
+
+        assert result == items
+        assert mock_sleep.call_count == 2
+        for call in mock_sleep.call_args_list:
+            assert call[0] == (0,)
+
+
+@pytest.mark.anyio
+async def test_cooperative_every_custom_delay():
+    """Test cooperative_every() with a custom delay."""
+    items = [1, 2, 3, 4]
+    delay = 0.01
+
+    with patch("asyncio.sleep") as mock_sleep:
+        mock_sleep.return_value = None
+
+        result = []
+        async for item in cooperative_every(items, every=2, delay=delay):
+            result.append(item)
+
+        assert result == items
+        assert mock_sleep.call_count == 2
+        for call in mock_sleep.call_args_list:
+            assert call[0] == (delay,)
+
+
+@pytest.mark.anyio
+async def test_cooperative_every_allows_event_loop_cooperation():
+    """Test that cooperative_every() allows other tasks to run."""
+    items = list(range(10))
+    other_task_executed = False
+
+    async def other_task():
+        nonlocal other_task_executed
+        await asyncio.sleep(0.001)
+        other_task_executed = True
+
+    task = asyncio.create_task(other_task())
+
+    result = []
+    async for item in cooperative_every(items, every=3, delay=0.001):
+        result.append(item)
+        if len(result) == 6:
+            await asyncio.sleep(0.002)
+
+    await task
+
+    assert result == items
+    assert other_task_executed
+
+
+@pytest.mark.anyio
+async def test_cooperative_every_invalid_frequency():
+    """Test cooperative_every() validates the checkpoint frequency."""
+    with pytest.raises(ValueError, match="'every' must be greater than 0"):
+        async for _ in cooperative_every([1, 2, 3], every=0):
+            pass
+
+
 # Integration tests
 @pytest.mark.anyio
 async def test_cooperative_with_traverse_expressions():
@@ -498,3 +586,57 @@ async def test_cooperative_exception_during_sleep():
     assert len(result) >= 1
     assert result[0] == 1
     assert len(result) <= 2  # At most 2 items before exception
+
+
+@pytest.mark.anyio
+async def test_rejoin_future_finishes_through_repeated_cancellation() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def operation() -> None:
+        started.set()
+        await release.wait()
+        finished.set()
+
+    operation_task = asyncio.create_task(operation())
+    joining_task = asyncio.create_task(
+        rejoin_future_through_cancellation(operation_task)
+    )
+    await started.wait()
+
+    joining_task.cancel()
+    await asyncio.sleep(0)
+    joining_task.cancel()
+    await asyncio.sleep(0)
+    assert not joining_task.done()
+
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await joining_task
+    assert finished.is_set()
+
+
+@pytest.mark.anyio
+async def test_rejoin_future_chains_cleanup_failure_from_cancellation() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    cleanup_error = RuntimeError("cleanup failed")
+
+    async def operation() -> None:
+        started.set()
+        await release.wait()
+        raise cleanup_error
+
+    operation_task = asyncio.create_task(operation())
+    joining_task = asyncio.create_task(
+        rejoin_future_through_cancellation(operation_task)
+    )
+    await started.wait()
+
+    joining_task.cancel()
+    await asyncio.sleep(0)
+    release.set()
+    with pytest.raises(asyncio.CancelledError) as raised:
+        await joining_task
+    assert raised.value.__cause__ is cleanup_error

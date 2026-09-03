@@ -44,6 +44,7 @@ def _build_email_message(
     headers: dict[str, str] | None = None,
     sender_prefix: str | None = None,
     allowed_attributes: dict[str, list[str]] | None = None,
+    plaintext_alternative: str | None = None,
 ) -> EmailMessage:
     msg = EmailMessage()
 
@@ -51,9 +52,13 @@ def _build_email_message(
     if content_type == "text/html":
         # Follow MIME standards for HTML emails
         # https://www.w3.org/Protocols/rfc1341/7_2_Multipart.html
-        msg.add_alternative(
-            "This email requires an HTML viewer to display properly.", subtype="plain"
-        )
+        if plaintext_alternative is not None:
+            msg.add_alternative(plaintext_alternative, subtype="plain")
+        else:
+            msg.add_alternative(
+                "This email requires an HTML viewer to display properly.",
+                subtype="plain",
+            )
         if allowed_attributes:
             attrs = deepcopy(nh3.ALLOWED_ATTRIBUTES)
             for tag, attributes in allowed_attributes.items():
@@ -122,6 +127,13 @@ def send_email_smtp(
             "Email content type ('text/plain' or 'text/html'). Defaults to 'text/plain'."
         ),
     ] = "text/plain",
+    plaintext_alternative: Annotated[
+        str | None,
+        Doc(
+            "Plaintext alternative body for html emails. Defaults to 'This email "
+            "requires an HTML viewer to display properly.' if not provided."
+        ),
+    ] = None,
     # Additional recipients
     bcc: Annotated[
         str | list[str] | None,
@@ -173,7 +185,7 @@ def send_email_smtp(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    """Run a send email action.
+    """Send email using SMTP.
 
     Returns
     -------
@@ -181,6 +193,9 @@ def send_email_smtp(
     Otherwise, a dict with one entry for each recipient that was refused.
     Entry entry contains a tuple of the SMTP error code and the accompanying error message sent by the server.
     """
+
+    if content_type == "text/plain" and plaintext_alternative is not None:
+        raise ValueError("Plaintext alternative only supported for HTML emails")
 
     timeout = timeout or socket.getdefaulttimeout() or 10.0
     smtp_host = secrets.get("SMTP_HOST")
@@ -207,6 +222,7 @@ def send_email_smtp(
         sender=sender,
         subject=subject,
         allowed_attributes=allowed_attributes,
+        plaintext_alternative=plaintext_alternative,
     )
 
     context = ssl.create_default_context()

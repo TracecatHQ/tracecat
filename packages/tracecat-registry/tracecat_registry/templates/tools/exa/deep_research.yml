@@ -1,0 +1,58 @@
+type: action
+definition:
+  title: Deep research
+  description: Run Exa deep-reasoning search for research-style discovery and synthesis.
+  display_group: Exa
+  doc_url: https://exa.ai/docs/changelog/may-2026-api-deprecations
+  namespace: tools.exa
+  name: deep_research
+  secrets:
+    - name: exa
+      keys: ["EXA_API_KEY"]
+  expects:
+    query:
+      type: str
+      description: Natural language research query or instructions.
+    numResults:
+      type: int | None
+      description: Number of results to return. Exa supports 1 to 100.
+      default: null
+    contents:
+      type: dict[str, Any] | None
+      description: Optional Exa contents options nested under the search request contents field.
+      default: null
+    additionalQueries:
+      type: list[str] | None
+      description: Additional query variations used alongside the main query.
+      default: null
+    systemPrompt:
+      type: str | None
+      description: Additional instructions that guide synthesized output or search planning.
+      default: null
+    outputSchema:
+      type: dict[str, Any] | None
+      description: JSON schema for synthesized output. Supported root types are text and object.
+      default: null
+    compliance:
+      type: enum["hipaa"] | None
+      description: Optional Exa enterprise compliance mode.
+      default: null
+  steps:
+    - ref: deep_research
+      action: core.http_request
+      args:
+        url: https://api.exa.ai/search
+        method: POST
+        headers:
+          Content-Type: application/json
+          x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
+        payload:
+          query: ${{ inputs.query }}
+          type: deep-reasoning
+          numResults: ${{ inputs.numResults }}
+          contents: ${{ inputs.contents }}
+          additionalQueries: ${{ inputs.additionalQueries }}
+          systemPrompt: ${{ inputs.systemPrompt }}
+          outputSchema: ${{ inputs.outputSchema }}
+          compliance: ${{ inputs.compliance }}
+  returns: ${{ steps.deep_research.result.data }}

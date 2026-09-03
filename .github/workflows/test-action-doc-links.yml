@@ -1,0 +1,47 @@
+name: Test action documentation links
+
+on:
+  schedule:
+    # Runs daily at 10:17 UTC.
+    - cron: "17 10 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-action-doc-links-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-action-doc-links:
+    runs-on: blacksmith-2vcpu-ubuntu-2204
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            packages/*/pyproject.toml
+            uv.lock
+          cache-suffix: action-doc-links
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Check action documentation links
+        env:
+          TRACECAT_TEST_ACTION_DOC_LINKS: "1"
+        run: uv run --no-sync pytest scripts/tests/test_action_doc_links.py -ra

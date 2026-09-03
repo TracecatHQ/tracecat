@@ -57,6 +57,20 @@ class CaseStatus(StrEnum):
     OTHER = "other"
 
 
+class CaseVersionField(StrEnum):
+    """Case text fields that have immutable version history."""
+
+    SUMMARY = "summary"
+    DESCRIPTION = "description"
+
+
+class CaseAgentSessionInteractionOperation(StrEnum):
+    """Operations that associate an agent session with a case."""
+
+    CREATE = "create"
+    UPDATE = "update"
+
+
 class CaseEventType(StrEnum):
     """Case activity type values."""
 
@@ -84,6 +98,12 @@ class CaseEventType(StrEnum):
     DROPDOWN_VALUE_CHANGED = "dropdown_value_changed"
     TABLE_ROW_LINKED = "table_row_linked"
     TABLE_ROW_UNLINKED = "table_row_unlinked"
+    COMMENT_CREATED = "comment_created"
+    COMMENT_UPDATED = "comment_updated"
+    COMMENT_DELETED = "comment_deleted"
+    COMMENT_REPLY_CREATED = "comment_reply_created"
+    COMMENT_REPLY_UPDATED = "comment_reply_updated"
+    COMMENT_REPLY_DELETED = "comment_reply_deleted"
 
 
 class CaseTaskStatus(StrEnum):
@@ -93,3 +113,50 @@ class CaseTaskStatus(StrEnum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     BLOCKED = "blocked"
+
+
+class CaseFieldKind(StrEnum):
+    """Semantic kind for case custom fields.
+
+    Controls how the field is rendered in the UI without changing the underlying
+    SQL storage type.
+    """
+
+    LONG_TEXT = "LONG_TEXT"
+    URL = "URL"
+
+
+class CaseFieldReadType(StrEnum):
+    """Read-only type for case field metadata."""
+
+    TEXT = "TEXT"
+    INTEGER = "INTEGER"
+    NUMERIC = "NUMERIC"
+    DATE = "DATE"
+    BOOLEAN = "BOOLEAN"
+    TIMESTAMPTZ = "TIMESTAMPTZ"
+    JSONB = "JSONB"
+    SELECT = "SELECT"
+    MULTI_SELECT = "MULTI_SELECT"
+    UUID = "UUID"
+
+
+class MentionTargetType(StrEnum):
+    """Polymorphic target kind for a parsed case-comment mention.
+
+    Only ``AGENT`` is supported today. The finite set lives here (rather than
+    as a bare ``str`` checked at runtime) so every mention-aware call site —
+    the parser, persistence, and API read schema — shares one exhaustive,
+    type-checked domain of valid target kinds.
+    """
+
+    AGENT = "agent"
+
+
+class CaseCommentAgentInvocationStatus(StrEnum):
+    """Lifecycle state for an agent invoked from a case-comment mention."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"

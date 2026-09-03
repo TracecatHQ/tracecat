@@ -1,11 +1,12 @@
 "use client"
 
+import Cookies from "js-cookie"
 import {
-  BookOpenIcon,
   BuildingIcon,
   ChevronsUpDown,
   CircleCheck,
   Plus,
+  RadarIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -37,14 +38,21 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import {
+  useOrganization,
+  useOrganizationMemberships,
+} from "@/hooks/use-organization"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
+import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 
 export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { workspaces, createWorkspace } = useWorkspaceManager()
+  const { organization: activeOrganization } = useOrganization()
+  const { organizations } = useOrganizationMemberships()
   const canAdministerOrg = useScopeCheck("org:update")
   const canCreateWorkspace = useScopeCheck("workspace:create")
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -52,6 +60,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const [isCreating, setIsCreating] = useState(false)
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === workspaceId)
+  const showOrganizationSelector = (organizations?.length ?? 0) > 1
 
   const buildWorkspaceHref = (
     targetWorkspaceId: string,
@@ -61,11 +70,11 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
     const currentPath = pathname ?? ""
     const search = searchParams?.toString()
     if (!preserveRelativePath || !currentPath.startsWith("/workspaces/")) {
-      return `/workspaces/${targetWorkspaceId}/workflows`
+      return getWorkspaceLandingPath(targetWorkspaceId)
     }
     const relativePath = currentPath.replace(/^\/workspaces\/[^/]+/, "")
     const normalizedPath =
-      relativePath && relativePath !== "/" ? relativePath : "/workflows"
+      relativePath && relativePath !== "/" ? relativePath : "/chat"
 
     return `/workspaces/${targetWorkspaceId}${normalizedPath}${
       search ? `?${search}` : ""
@@ -104,6 +113,21 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
       .toUpperCase()
   }
 
+  const handleSelectOrganization = (organizationId: string) => {
+    if (organizationId === activeOrganization?.id) {
+      return
+    }
+
+    Cookies.set("tracecat:active-org-id", organizationId, {
+      sameSite: "lax",
+      secure:
+        typeof window !== "undefined" && window.location.protocol === "https:",
+    })
+    // Hard navigation: switching orgs invalidates all org-scoped client state
+    // (React Query caches, providers), so re-bootstrap instead of router.push.
+    window.location.assign("/workspaces")
+  }
+
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -114,7 +138,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
               className="data-[state=open]:bg-foreground/5 dark:data-[state=open]:bg-foreground/10 pl-0"
             >
               <img src="/icon.png" alt="Tracecat" className="size-6 ml-0.5" />
-              <span className="truncate font-semibold text-zinc-700 dark:text-zinc-300">
+              <span className="truncate font-semibold text-sidebar-foreground">
                 {activeWorkspace?.name || "Select workspace"}
               </span>
               <ChevronsUpDown className="ml-auto size-4" />
@@ -211,6 +235,34 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
               </Dialog>
             )}
 
+            {showOrganizationSelector && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                  Organizations
+                </DropdownMenuLabel>
+                {organizations?.map((organization) => (
+                  <DropdownMenuItem
+                    key={organization.id}
+                    className={cn(
+                      "flex items-center gap-2 py-1 px-2",
+                      organization.id === activeOrganization?.id &&
+                        "bg-foreground/5 dark:bg-foreground/10"
+                    )}
+                    onSelect={() => handleSelectOrganization(organization.id)}
+                  >
+                    <div className="flex size-6 items-center justify-center rounded-md bg-muted text-[10px]">
+                      {getWorkspaceInitials(organization.name)}
+                    </div>
+                    <span className="flex-1">{organization.name}</span>
+                    {organization.id === activeOrganization?.id && (
+                      <CircleCheck className="ml-auto size-4" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </>
+            )}
+
             <DropdownMenuSeparator />
             {canAdministerOrg && (
               <DropdownMenuItem asChild>
@@ -225,17 +277,19 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                 </Link>
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem asChild>
-              <Link
-                href="/registry/actions"
-                className="flex items-center gap-2 py-1 px-2 cursor-default"
-              >
-                <div className="flex size-6 items-center justify-center">
-                  <BookOpenIcon className="size-4" />
-                </div>
-                <span>Registry</span>
-              </Link>
-            </DropdownMenuItem>
+            {canAdministerOrg && (
+              <DropdownMenuItem asChild>
+                <Link
+                  href="/watchtower"
+                  className="flex items-center gap-2 py-1 px-2 cursor-default"
+                >
+                  <div className="flex size-6 items-center justify-center">
+                    <RadarIcon className="size-4" />
+                  </div>
+                  <span>Watchtower</span>
+                </Link>
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>

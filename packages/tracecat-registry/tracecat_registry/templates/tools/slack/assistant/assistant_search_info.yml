@@ -1,0 +1,16 @@
+type: action
+definition:
+  title: Assistant search info
+  description: Return Slack assistant search capabilities for the workspace.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/assistant.search.info/
+  namespace: tools.slack
+  name: assistant_search_info
+  expects: {}
+  steps:
+    - ref: assistant_search_info
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: assistant.search.info
+        params: {}
+  returns: ${{ steps.assistant_search_info.result }}

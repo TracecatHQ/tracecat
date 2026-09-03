@@ -11,6 +11,7 @@ from pydantic import UUID4, BaseModel, Field
 
 from tracecat import config
 from tracecat.config import TRACECAT__APP_ENV
+from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.logger import logger
 
 
@@ -39,14 +40,12 @@ class ExecutorBackendType(StrEnum):
 
     All sandbox backends use untrusted mode - DB credentials are never passed.
 
-    - POOL: Warm nsjail workers (high throughput, single-tenant, untrusted)
     - EPHEMERAL: Cold nsjail subprocess per action (full isolation, multi-tenant, untrusted)
     - DIRECT: Direct subprocess execution (no warm workers)
     - TEST: In-process execution for tests only
-    - AUTO: Auto-select based on environment
+    - AUTO: Auto-select based on environment (never selects experimental backends)
     """
 
-    POOL = "pool"
     EPHEMERAL = "ephemeral"
     DIRECT = "direct"
     TEST = "test"
@@ -84,15 +83,14 @@ def resolve_backend_type() -> ExecutorBackendType:
             backend_type = ExecutorBackendType.DIRECT
         elif _is_nsjail_available():
             logger.info(
-                "Auto-selecting 'pool' backend (nsjail available)",
+                "Auto-selecting 'ephemeral' backend (nsjail available)",
             )
-            backend_type = ExecutorBackendType.POOL
+            backend_type = ExecutorBackendType.EPHEMERAL
         else:
             logger.warning(
                 "Auto-selecting 'direct' backend (nsjail not available)",
             )
             backend_type = ExecutorBackendType.DIRECT
-
     return backend_type
 
 
@@ -138,7 +136,11 @@ class ResolvedContext(BaseModel):
     """
 
     secrets: dict[str, Any] = {}
-    """Pre-resolved secrets keyed by secret name."""
+    """Pre-resolved secrets keyed by secret name.
+
+    Used for expression evaluation (e.g. ``${{ SECRETS.aws.AWS_ROLE_ARN }}``).
+    Never mutated by host-side credential resolution.
+    """
 
     variables: dict[str, Any] = {}
     """Pre-resolved workspace variables keyed by variable name."""
@@ -164,6 +166,9 @@ class ResolvedContext(BaseModel):
 
     logical_time: datetime | None = None
     """Logical time for deterministic FN.now() during workflow execution."""
+
+    secret_projection: SecretEnvProjection | None = Field(default=None, exclude=True)
+    """Runtime-ready secret env cached for host-side execution reuse."""
 
 
 class ExecutorActionErrorInfo(BaseModel):

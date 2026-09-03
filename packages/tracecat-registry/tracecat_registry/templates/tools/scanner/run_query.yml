@@ -1,0 +1,75 @@
+type: action
+definition:
+  title: Run Scanner query
+  description: Execute a blocking ad hoc query and return its results.
+  display_group: Scanner
+  doc_url: https://docs.scanner.dev/scanner/using-scanner-complete-feature-reference/developer-tools/api/ad-hoc-queries
+  namespace: tools.scanner
+  name: run_query
+  secrets:
+    - name: scanner
+      keys: ["SCANNER_API_KEY"]
+  expects:
+    query:
+      type: str
+      description: Scanner query text to execute.
+    start_time:
+      type: str
+      description: Inclusive query start timestamp in RFC 3339 format.
+    end_time:
+      type: str
+      description: Exclusive query end timestamp in RFC 3339 format.
+    max_rows:
+      type: int | None
+      description: Maximum rows to return. Scanner defaults to 1,000 and allows up to 100,000.
+      default: null
+    max_bytes:
+      type: int | None
+      description: Maximum bytes for the result table. Scanner defaults to 134,217,728 bytes.
+      default: null
+    scan_back_to_front:
+      type: bool | None
+      description: Scan from the latest events toward the earliest events.
+      default: null
+    timeout_seconds:
+      type: int
+      description: HTTP timeout in seconds. Scanner may hold blocking queries open for up to 300 seconds.
+      default: 310
+    base_url:
+      type: str | None
+      description: Scanner team API URL. Falls back to `VARS.scanner.base_url`.
+      default: null
+  steps:
+    - ref: build_query_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          query: ${{ inputs.query }}
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
+          max_rows: ${{ inputs.max_rows }}
+          max_bytes: ${{ inputs.max_bytes }}
+          scan_back_to_front: ${{ inputs.scan_back_to_front }}
+        script: |
+          def main(query, start_time, end_time, max_rows, max_bytes, scan_back_to_front):
+              payload = {
+                  "query": query,
+                  "start_time": start_time,
+                  "end_time": end_time,
+                  "max_rows": max_rows,
+                  "max_bytes": max_bytes,
+                  "scan_back_to_front": scan_back_to_front,
+              }
+              return {key: value for key, value in payload.items() if value is not None}
+    - ref: run_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.scanner.base_url }}/v1/blocking_query
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.scanner.SCANNER_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ steps.build_query_payload.result }}
+        timeout: ${{ inputs.timeout_seconds }}
+  returns: ${{ steps.run_query.result.data }}

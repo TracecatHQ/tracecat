@@ -1,0 +1,82 @@
+type: action
+definition:
+  title: Search alerts
+  description: Search for alerts based on a set of filters. Calls GET /alert/v3 directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/alerts-search
+  namespace: tools.recorded_future
+  name: search_alerts
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    triggered:
+      type: str | None
+      description: The triggered time itself has millisecond precision, but can be searched for using parameters of higher granularity on the form [x, y], which is interpreted as beginning of x until end of y.
+      default: null
+    assignee:
+      type: str | None
+      description: Filter by a specific assigned user, using the email address associated with that user account, or use NONE to explicitly match against unassigned alerts.
+      default: null
+    statusInPortal:
+      type: str | None
+      description: Filter by review status. Allowed values are New, Resolved, Pending, Dismissed and Flag for Tuning.
+      default: null
+    alertRule:
+      type: str | None
+      description: Filter by alert rule id.
+      default: null
+    freetext:
+      type: str | None
+      description: Filter by any text.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of items to include. The maximum is 1000 and Recorded Future defaults to 10.
+      default: null
+    from:
+      type: int | None
+      description: Offset search from previous result. The API may only return the first 1000 results, meaning that limit + from cannot exceed 1000.
+      default: null
+    taggedText:
+      type: bool | None
+      description: Include text tags.
+      default: null
+    orderby:
+      type: str | None
+      description: Sort order. The only allowed value is triggered.
+      default: null
+    direction:
+      type: str | None
+      description: Sort direction based on the triggered timestamp. Allowed values are asc and desc.
+      default: null
+    fields:
+      type: str | None
+      description: Fields to include in the response. If no specific fields are requested, all available fields are included in the response. Values should be separated by comma. Available fields are ai_insights, enriched_entities, hits, id, log, owner_organisation_details, review, rule, title, triggered_by, type and url.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/alert/v3
+        method: GET
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+        params:
+          triggered: ${{ inputs.triggered }}
+          assignee: ${{ inputs.assignee }}
+          statusInPortal: ${{ inputs.statusInPortal }}
+          alertRule: ${{ inputs.alertRule }}
+          freetext: ${{ inputs.freetext }}
+          limit: ${{ inputs.limit }}
+          from: ${{ inputs.from }}
+          taggedText: ${{ inputs.taggedText }}
+          orderby: ${{ inputs.orderby }}
+          direction: ${{ inputs.direction }}
+          fields: ${{ inputs.fields }}
+  returns: ${{ steps.request.result }}

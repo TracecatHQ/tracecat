@@ -59,7 +59,18 @@ from pydantic_ai.messages import (
 )
 from pydantic_core import to_json
 
-from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.common.stream_types import (
+    StreamEventType,
+    ToolCallContent,
+    UnifiedStreamEvent,
+    parse_vercel_frame_cursor,
+)
+from tracecat.agent.common.tool_inputs import (
+    AGENT_TOOL_NAMES,
+    sanitize_agent_tool_input,
+)
+from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.stream.events import (
     StreamDelta,
@@ -70,9 +81,12 @@ from tracecat.agent.stream.events import (
     StreamMessage,
 )
 from tracecat.agent.types import UnifiedMessage
+from tracecat.artifacts.schemas import ARTIFACT_DATA_PART_TYPE
 from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
+    CANCELLED_DATA_PART_TYPE,
+    COMPACTION_DATA_PART_TYPE,
 )
 from tracecat.chat.enums import MessageKind
 from tracecat.logger import logger
@@ -81,6 +95,22 @@ if TYPE_CHECKING:
     from tracecat.chat.schemas import ChatMessage
 # Using a type alias for ProviderMetadata since its structure is not defined.
 ProviderMetadata = dict[str, dict[str, Any]]
+
+
+def _approval_item_to_data_part(item: ToolCallContent) -> dict[str, Any]:
+    """Convert a stream approval item into the UI approval-card payload."""
+    data: dict[str, Any] = {
+        "tool_call_id": item.id,
+        "tool_name": item.name,
+        "args": strip_proxy_tool_metadata(item.input),
+    }
+    if item.status is not None:
+        data["status"] = item.status
+    if item.decision is not None:
+        data["decision"] = item.decision
+    if item.reason is not None:
+        data["reason"] = item.reason
+    return data
 
 
 def _extract_structured_error(output: Any) -> str | None:
@@ -671,6 +701,10 @@ class ToolInputAvailableEventPayload:
     toolName: str
     input: Any
 
+    def __post_init__(self) -> None:
+        if isinstance(self.input, dict):
+            self.input = strip_proxy_tool_metadata(self.input)
+
 
 @dataclasses.dataclass(slots=True, kw_only=True)
 class ToolOutputAvailableEventPayload:
@@ -679,6 +713,12 @@ class ToolOutputAvailableEventPayload:
     )
     toolCallId: str
     output: Any
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
+class CompactionDataPayload:
+    phase: Literal["started", "completed", "failed"]
+    pre_tokens: int | None = None
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
@@ -716,9 +756,14 @@ VercelSSEPayload = (
 )
 
 
-def format_sse(data: VercelSSEPayload) -> str:
-    """Formats a dictionary into a Server-Sent Event string."""
-    return f"data: {to_json(data).decode()}\n\n"
+def format_sse(data: VercelSSEPayload, sse_id: str | None = None) -> str:
+    """Formats a payload into a Server-Sent Event string.
+
+    When ``sse_id`` is given, emit an ``id:`` line so the browser records it as
+    the Last-Event-ID for reconnect.
+    """
+    prefix = f"id: {sse_id}\n" if sse_id else ""
+    return f"{prefix}data: {to_json(data).decode()}\n\n"
 
 
 @dataclasses.dataclass
@@ -740,7 +785,7 @@ class VercelStreamContext:
     consistent start/delta/end sequences required by the Vercel protocol.
     """
 
-    message_id: str
+    message_id: str | None
     # Active parts keyed by event index -> maintains per-part lifecycle state.
     part_states: dict[int, _PartState] = dataclasses.field(default_factory=dict)
     tool_finished: dict[str, bool] = dataclasses.field(default_factory=dict)
@@ -752,6 +797,11 @@ class VercelStreamContext:
     # Cache approval data for continuation reconstruction
     approval_tool_name: dict[str, str] = dataclasses.field(default_factory=dict)
     approval_input: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Count of repair frames synthesized on resume (a *_DELTA reopening a part
+    # whose start was emitted before the reconnect cursor). These frames did not
+    # exist in the original stream, so sse_vercel must emit them but neither count
+    # them toward the composite frame index nor apply the resume-drop filter.
+    repair_frames: int = 0
 
     def _create_part_state(
         self,
@@ -858,11 +908,15 @@ class VercelStreamContext:
                 if event.part_id is not None:
                     state = self.part_states.get(event.part_id)
                     if state is None:
-                        logger.warning(
-                            "Received delta for unknown part index",
-                            index=event.part_id,
-                        )
-                    elif event.text:
+                        # Resume landed mid-text-block: the TEXT_START was emitted
+                        # before the reconnect cursor, so this fresh context never
+                        # opened the part. Lazily open one so the tail renders as a
+                        # new text part in the same bubble instead of vanishing.
+                        # This start is a repair frame (not in the original stream).
+                        state = self._create_part_state(event.part_id, "text")
+                        self.repair_frames += 1
+                        yield TextStartEventPayload(id=state.part_id)
+                    if event.text:
                         yield TextDeltaEventPayload(id=state.part_id, delta=event.text)
 
             case StreamEventType.TEXT_STOP:
@@ -886,7 +940,14 @@ class VercelStreamContext:
             case StreamEventType.THINKING_DELTA:
                 if event.part_id is not None:
                     state = self.part_states.get(event.part_id)
-                    if state and event.thinking:
+                    if state is None:
+                        # Resume landed mid-thinking-block (see TEXT_DELTA above):
+                        # lazily open a reasoning part so the tail isn't dropped.
+                        # This start is a repair frame (not in the original stream).
+                        state = self._create_part_state(event.part_id, "reasoning")
+                        self.repair_frames += 1
+                        yield ReasoningStartEventPayload(id=state.part_id)
+                    if event.thinking:
                         yield ReasoningDeltaEventPayload(
                             id=state.part_id, delta=event.thinking
                         )
@@ -908,7 +969,7 @@ class VercelStreamContext:
                 tool_call = ToolCallPart(
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
-                    args=event.tool_input or {},
+                    args=strip_proxy_tool_metadata(event.tool_input or {}),
                 )
                 state = self._create_part_state(
                     event.part_id or 0, "tool", tool_call=tool_call
@@ -923,10 +984,11 @@ class VercelStreamContext:
                 if event.part_id is not None:
                     state = self.part_states.get(event.part_id)
                     if state and state.tool_call and event.text:
-                        yield ToolInputDeltaEventPayload(
-                            toolCallId=state.tool_call.tool_call_id,
-                            inputTextDelta=event.text,
-                        )
+                        if state.tool_call.tool_name not in AGENT_TOOL_NAMES:
+                            yield ToolInputDeltaEventPayload(
+                                toolCallId=state.tool_call.tool_call_id,
+                                inputTextDelta=event.text,
+                            )
 
             case StreamEventType.TOOL_CALL_STOP:
                 if event.part_id is not None:
@@ -935,12 +997,14 @@ class VercelStreamContext:
                         tool_call_id = state.tool_call.tool_call_id
                         if not self.tool_input_emitted.get(tool_call_id, False):
                             # Emit final tool input
-                            tool_input = (
-                                event.tool_input or state.tool_call.args_as_dict()
+                            tool_name = event.tool_name or state.tool_call.tool_name
+                            tool_input = sanitize_agent_tool_input(
+                                tool_name,
+                                event.tool_input or state.tool_call.args_as_dict(),
                             )
                             yield ToolInputAvailableEventPayload(
                                 toolCallId=tool_call_id,
-                                toolName=event.tool_name or state.tool_call.tool_name,
+                                toolName=tool_name,
                                 input=tool_input,
                             )
                             self.tool_input_emitted[tool_call_id] = True
@@ -949,23 +1013,38 @@ class VercelStreamContext:
 
             case StreamEventType.TOOL_RESULT:
                 tool_call_id = event.tool_call_id or "unknown"
+                has_known_tool_input = self.tool_input_emitted.get(tool_call_id, False)
+                has_cached_tool_metadata = tool_call_id in self.approval_tool_name
 
                 # Close any open part for this tool
                 if tool_call_id in self.tool_index:
                     index = self.tool_index[tool_call_id]
                     for message in self.collect_current_part_end_events(index=index):
                         yield message
+                    has_known_tool_input = True
+
+                if (
+                    not has_known_tool_input
+                    and not has_cached_tool_metadata
+                    and event.tool_name is None
+                ):
+                    logger.debug(
+                        "Skipping uncorrelated tool result without tool metadata",
+                        tool_call_id=tool_call_id,
+                    )
+                    return
 
                 # Ensure input-available before output
                 if not self.tool_input_emitted.get(tool_call_id, False):
-                    tool_name = self.approval_tool_name.get(
-                        tool_call_id, event.tool_name or "tool"
+                    tool_name = (
+                        self.approval_tool_name.get(tool_call_id)
+                        or event.tool_name
+                        or "tool"
                     )
-                    input_payload: Any = self.approval_input.get(tool_call_id, {})
                     yield ToolInputAvailableEventPayload(
                         toolCallId=tool_call_id,
-                        toolName=str(tool_name),
-                        input=input_payload,
+                        toolName=tool_name,
+                        input=self.approval_input.get(tool_call_id, {}),
                     )
                     self.tool_input_emitted[tool_call_id] = True
 
@@ -993,6 +1072,48 @@ class VercelStreamContext:
                         output=event.tool_output,
                     )
 
+            case StreamEventType.COMPACTION:
+                metadata = event.metadata or {}
+                payload = CompactionDataPayload(
+                    phase=metadata["phase"],
+                    pre_tokens=metadata.get("pre_tokens"),
+                )
+                yield DataEventPayload(
+                    type=COMPACTION_DATA_PART_TYPE,
+                    data=payload,
+                )
+
+            case StreamEventType.ARTIFACT:
+                if event.artifact_data is None:
+                    logger.warning("Skipping malformed artifact stream event")
+                    return
+                yield DataEventPayload(
+                    type=ARTIFACT_DATA_PART_TYPE,
+                    data=event.artifact_data.to_dict(),
+                )
+
+            case StreamEventType.CANCELLED:
+                metadata = event.metadata or {}
+                reason = metadata.get("reason")
+                raw_tool_call_ids = metadata.get("tool_call_ids")
+                tool_call_ids = [
+                    item
+                    for item in (
+                        raw_tool_call_ids if isinstance(raw_tool_call_ids, list) else []
+                    )
+                    if isinstance(item, str)
+                ]
+                yield DataEventPayload(
+                    type=CANCELLED_DATA_PART_TYPE,
+                    data={
+                        "reason": reason if isinstance(reason, str) else None,
+                        # Structured interrupt metadata: the tool calls this
+                        # interrupt aborted, so the UI can render them as
+                        # "interrupted" without inspecting error text.
+                        "tool_call_ids": tool_call_ids,
+                    },
+                )
+
             case StreamEventType.ERROR:
                 yield ErrorEventPayload(errorText=event.error or "Unknown error")
 
@@ -1000,9 +1121,10 @@ class VercelStreamContext:
                 # Unified approval request from any harness (pydantic-ai or claude)
                 if event.approval_items:
                     for item in event.approval_items:
+                        sanitized_input = strip_proxy_tool_metadata(item.input)
                         # Cache tool data for UI reconstruction on continuation
                         self.approval_tool_name[item.id] = item.name
-                        self.approval_input[item.id] = item.input
+                        self.approval_input[item.id] = sanitized_input
 
                         # Finalize any open tool parts so UI shows input-available
                         if item.id in self.tool_index:
@@ -1016,11 +1138,7 @@ class VercelStreamContext:
                     yield DataEventPayload(
                         type=APPROVAL_DATA_PART_TYPE,
                         data=[
-                            {
-                                "tool_call_id": item.id,
-                                "tool_name": item.name,
-                                "args": item.input,
-                            }
+                            _approval_item_to_data_part(item)
                             for item in event.approval_items
                         ],
                     )
@@ -1216,6 +1334,10 @@ class MutableToolPart:
     output: Any | None = None
     error_text: str | None = None
 
+    def __post_init__(self) -> None:
+        if isinstance(self.input, dict):
+            self.input = strip_proxy_tool_metadata(self.input)
+
     def set_result(
         self,
         content: Any,
@@ -1334,7 +1456,7 @@ def _extract_approval_payload_from_message(
                             ToolCallPart(
                                 tool_name=part.tool_name,
                                 tool_call_id=part.tool_call_id,
-                                args=part.args_as_dict(),
+                                args=strip_proxy_tool_metadata(part.args_as_dict()),
                             )
                         )
                 return approvals if approvals else None
@@ -1360,7 +1482,7 @@ def _extract_approval_payload_from_message(
                     ToolCallPart(
                         tool_name=block.name,
                         tool_call_id=block.id,
-                        args=block.input or {},
+                        args=strip_proxy_tool_metadata(block.input or {}),
                     )
                 )
         return approvals if approvals else None
@@ -1483,12 +1605,55 @@ def convert_chat_messages_to_ui(
     """
     mutable_messages: list[MutableMessage] = []
     tool_entries: dict[str, MutableToolPart] = {}
+    has_pending_approval = any(
+        message.kind == MessageKind.APPROVAL_REQUEST
+        and message.approval is not None
+        and message.approval.status == ApprovalStatus.PENDING
+        for message in messages
+    )
 
     for chat_message in messages:
+        # Handle compaction status badges from DB (kind=COMPACTION)
+        # These show when a conversation was compacted
+        if chat_message.kind == MessageKind.COMPACTION and chat_message.compaction:
+            compaction_data = chat_message.compaction
+            # Create a system message with the compaction data part
+            mutable_message = MutableMessage(
+                id=chat_message.id,
+                role="system",
+                parts=[
+                    DataUIPart(type=COMPACTION_DATA_PART_TYPE, data=compaction_data)
+                ],
+            )
+            mutable_messages.append(mutable_message)
+            continue
+
+        # Handle turn-cancelled markers from DB (kind=CANCELLED)
+        # These render as the "stopped by user" divider in the timeline
+        if chat_message.kind == MessageKind.CANCELLED:
+            mutable_messages.append(
+                MutableMessage(
+                    id=chat_message.id,
+                    role="system",
+                    parts=[
+                        DataUIPart(
+                            type=CANCELLED_DATA_PART_TYPE,
+                            data=chat_message.cancelled or {"reason": None},
+                        )
+                    ],
+                )
+            )
+            continue
+
         # Handle approval request bubbles from DB (kind=APPROVAL_REQUEST)
         # These are inserted by list_messages() when loading session history
         if chat_message.kind == MessageKind.APPROVAL_REQUEST and chat_message.approval:
             approval = chat_message.approval
+            # Keep decided cards visible while their batch is still waiting.
+            # Once no approvals are pending, the completed tool state makes the
+            # approval card redundant.
+            if approval.status != ApprovalStatus.PENDING and not has_pending_approval:
+                continue
             # Create an assistant message with the approval data part
             # Normalize tool name for display
             tool_name = normalize_mcp_tool_name(approval.tool_name)
@@ -1496,6 +1661,9 @@ def convert_chat_messages_to_ui(
                 "tool_call_id": approval.tool_call_id,
                 "tool_name": tool_name,
                 "args": approval.tool_call_args or {},
+                "status": approval.status.value,
+                "decision": approval.decision,
+                "reason": approval.reason,
             }
             mutable_message = MutableMessage(
                 id=chat_message.id,
@@ -1590,14 +1758,15 @@ def convert_chat_messages_to_ui(
                     # Extract underlying tool name for execute_tool wrapper
                     tool_name = part.name
                     tool_input = part.input or {}
-                    if (
-                        part.name == "mcp__tracecat-registry__execute_tool"
-                        and isinstance(tool_input, dict)
-                    ):
+                    if part.name in {
+                        "mcp__tracecat-registry__execute_tool",
+                        "mcp__tracecat_registry__execute_tool",
+                    } and isinstance(tool_input, dict):
                         tool_name = tool_input.get("tool_name", part.name)
                         tool_input = tool_input.get("args", tool_input)
                     # Normalize MCP registry prefix
                     tool_name = normalize_mcp_tool_name(tool_name)
+                    tool_input = sanitize_agent_tool_input(tool_name, tool_input)
                     tool_part = MutableToolPart(
                         type=f"tool-{tool_name}",
                         tool_call_id=part.id,
@@ -1702,24 +1871,72 @@ def convert_chat_messages_to_ui(
     return UIMessagesTA.validate_python(raw_messages)
 
 
-async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
-    """Stream Redis events as Vercel AI SDK frames without persisting adapter output."""
+async def sse_vercel(
+    events: AsyncIterable[StreamEvent],
+    *,
+    message_id: str | None,
+    resume_from: str | None = None,
+) -> AsyncIterable[str]:
+    """Stream Redis events as Vercel AI SDK frames without persisting adapter output.
 
-    message_id = f"msg_{uuid.uuid4().hex}"
+    ``message_id`` is the stable assistant-bubble id (``session_id:curr_run_id``)
+    so reconnects within a turn resume the same bubble instead of spawning a new
+    one. It is omitted for terminal reconnects where no run id can be resolved.
+
+    Each Redis entry can fan out to many Vercel frames, so frames carry a
+    composite ``id: {redis_id}:{frame_index}`` that the browser sends back as
+    ``Last-Event-ID``. On resume we re-fan the cursor entry and drop the frames
+    the client already saw (``resume_from``).
+    """
+
     context = VercelStreamContext(message_id=message_id)
+    resume_cursor = parse_vercel_frame_cursor(resume_from)
+
+    # Composite-id state: the Redis id of the entry currently fanning out and a
+    # per-entry frame counter. emit() omits id: when redis_id is None.
+    redis_id: str | None = None
+    frame_index = 0
+
+    def emit(payload: VercelSSEPayload) -> str | None:
+        nonlocal frame_index
+        # Repair frames (a part-start the handler synthesized on resume because
+        # the real start was before the cursor) did not exist in the original
+        # stream. Always emit them and do NOT consume a frame index, so the real
+        # frames keep their original indices and the drop math stays correct.
+        # They carry no id: the client never needs to resume *to* a synthesized
+        # frame, and reusing the next real frame's id would collide.
+        if context.repair_frames > 0:
+            context.repair_frames -= 1
+            return format_sse(payload)
+        sse_id = f"{redis_id}:{frame_index}" if redis_id else None
+        current_frame_index = frame_index
+        frame_index += 1
+        # Drop frames at or before the resume cursor within its entry: the client
+        # already rendered them.
+        if (
+            resume_cursor is not None
+            and redis_id == resume_cursor.redis_id
+            and current_frame_index <= resume_cursor.frame_index
+        ):
+            return None
+        return format_sse(payload, sse_id)
 
     try:
         # 1. Start of the message stream
-        yield format_sse(StartEventPayload(messageId=message_id))
+        if message_id is not None:
+            yield format_sse(StartEventPayload(messageId=message_id))
 
         # 2. Process events from Redis stream
         async for stream_event in events:
             match stream_event:
-                case StreamDelta(event=agent_event):
+                case StreamDelta(id=delta_id, event=agent_event):
+                    redis_id, frame_index = delta_id, 0
                     # Process agent stream events (PartStartEvent, PartDeltaEvent, etc.)
                     async for msg in context.handle_event(agent_event):
-                        yield format_sse(msg)
-                case StreamMessage(message=message):
+                        if frame := emit(msg):
+                            yield frame
+                case StreamMessage(id=message_redis_id, message=message):
+                    redis_id, frame_index = message_redis_id, 0
                     if approval_payload := _extract_approval_payload_from_message(
                         message
                     ):
@@ -1742,7 +1959,8 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                                     ) in context.collect_current_part_end_events(
                                         index=index
                                     ):
-                                        yield format_sse(end_evt)
+                                        if frame := emit(end_evt):
+                                            yield frame
                         except Exception:
                             # Best-effort only; do not abort streaming on cache/finalize errors
                             pass
@@ -1753,7 +1971,8 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                             )
                         )
                         for data_event in context.flush_data_events():
-                            yield format_sse(data_event)
+                            if frame := emit(data_event):
+                                yield frame
                     continue
                 case StreamKeepAlive():
                     yield StreamKeepAlive.sse()
@@ -1770,9 +1989,14 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                     logger.debug("End-of-stream marker from Redis")
                     break
 
-        # 3. Finalize any open parts at the end of the stream
+        # 3. Finalize any open parts at the end of the stream.
+        # These post-StreamEnd frames inherit the previous entry's redis_id, so a
+        # composite-cursor resume could reopen an empty part. Safe today: /stream
+        # forces 0-0 replay (resume_from=None). Give them a sentinel id before
+        # enabling composite resume here.
         for message in context.collect_current_part_end_events():
-            yield format_sse(message)
+            if frame := emit(message):
+                yield frame
 
     except Exception as e:
         # 4. Handle errors

@@ -16,18 +16,18 @@ definition:
     fields:
       type: list[dict[str, Any]]
       description: >-
-        List of fields to update in the issue.
+        List of fields to update in the issue. ADF values can be passed as objects.
 
         For example usage:
         ```
         [
           {"customfield_10000": "New value"},
-          {"customfield_10001": ["Another value"]}
+          {"customfield_10001": {"version": 1, "type": "doc", "content": []}}
         ]
         ```
     base_url:
       type: str | None
-      description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
+      description: Jira tenant URL (e.g. https://your-domain.atlassian.net).
       default: null
   steps:
     - ref: update_issue

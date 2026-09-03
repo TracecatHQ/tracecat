@@ -4,82 +4,137 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from collections import OrderedDict
+import math
+import threading
+import time
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import orjson
-from aiocache import Cache
+from botocore.exceptions import HTTPClientError
+from cachetools import TTLCache
 
 from tracecat.logger import logger
 from tracecat.storage import blob
 
 if TYPE_CHECKING:
-    from aiocache.base import BaseCache
-
     from tracecat.storage.object import InlineObject, StoredObject
 
 # Cache configuration
 MAX_CACHEABLE_BLOB_SIZE = 50 * 1024 * 1024  # 50 MB per item
 BLOB_CACHE_MAX_BYTES = 500 * 1024 * 1024  # 500 MB total pool
 BLOB_CACHE_TTL = 300.0  # 5 minutes
+STORAGE_TRANSPORT_RETRY_ATTEMPTS = 3
+STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS = 0.25
+
+
+def is_retryable_storage_transport_error(exc: BaseException) -> bool:
+    """Return true for transient blob-storage transport failures.
+
+    Keep this deliberately narrow: retry aiobotocore/botocore HTTP client
+    transport failures, but do not retry S3 service errors, missing objects,
+    integrity failures, validation errors, or user/data errors. Walk the
+    exception chain so a wrapped transport error is still detected.
+    """
+    seen: set[int] = set()
+    stack: list[BaseException | None] = [exc]
+    while stack:
+        current = stack.pop()
+        if current is None:
+            continue
+        current_id = id(current)
+        if current_id in seen:
+            continue
+        seen.add(current_id)
+        if isinstance(current, HTTPClientError):
+            return True
+        if isinstance(current, BaseExceptionGroup):
+            stack.extend(current.exceptions)
+        stack.append(current.__cause__)
+        stack.append(current.__context__)
+    return False
+
+
+async def retry_storage_transport_error[T](
+    operation: str,
+    fn: Callable[[], Awaitable[T]],
+    **log_context: Any,
+) -> T:
+    """Retry a storage operation only for transient HTTP transport failures."""
+    max_attempts = max(1, STORAGE_TRANSPORT_RETRY_ATTEMPTS)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await fn()
+        except Exception as e:
+            if attempt >= max_attempts or not is_retryable_storage_transport_error(e):
+                raise
+            delay = STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+            logger.warning(
+                "Retrying blob storage transport operation",
+                operation=operation,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                delay_seconds=delay,
+                error=str(e),
+                **log_context,
+            )
+            await asyncio.sleep(delay)
+    raise RuntimeError("unreachable")
 
 
 class SizedMemoryCache:
-    """Byte-aware wrapper around aiocache SimpleMemoryCache with LRU eviction."""
+    """Thread-safe byte-aware memory cache with TTL and LRU eviction."""
 
     def __init__(self, max_bytes: int, ttl: float = 300.0):
-        self._cache: BaseCache = Cache(Cache.MEMORY, ttl=ttl)
-        self._sizes: OrderedDict[str, int] = OrderedDict()
-        self._total_bytes = 0
+        self._cache: TTLCache[str, bytes] = TTLCache(
+            maxsize=max_bytes,
+            ttl=ttl if ttl > 0 else math.inf,
+            timer=time.monotonic,
+            getsizeof=len,
+        )
         self._max_bytes = max_bytes
-        self._lock = asyncio.Lock()
+        # Temporal can execute async activities on multiple event loops in a
+        # thread pool. asyncio locks are bound to one loop under contention, and
+        # cachetools caches are not thread-safe without external synchronization.
+        self._lock = threading.RLock()
 
     async def get(self, key: str) -> bytes | None:
-        value: bytes | None = await self._cache.get(key)
-        if value is None and key in self._sizes:
-            # TTL expired in underlying cache, sync our tracking
-            async with self._lock:
-                if key in self._sizes:
-                    self._total_bytes -= self._sizes.pop(key)
-        elif value is not None:
-            # Mark as recently used (LRU)
-            async with self._lock:
-                if key in self._sizes:
-                    self._sizes.move_to_end(key)
-        return value
+        with self._lock:
+            self._cache.expire()
+            return self._cache.get(key)
 
     async def set(self, key: str, value: bytes) -> None:
         size = len(value)
-        if size > self._max_bytes:
-            logger.debug(
-                "Cache entry too large to store",
-                key=key,
-                size_bytes=size,
-                max_bytes=self._max_bytes,
-            )
-            return
-        async with self._lock:
-            # Remove old entry if exists
-            if key in self._sizes:
-                self._total_bytes -= self._sizes.pop(key)
+        with self._lock:
+            self._cache.expire()
+            if size > self._max_bytes:
+                logger.debug(
+                    "Cache entry too large to store",
+                    key=key,
+                    size_bytes=size,
+                    max_bytes=self._max_bytes,
+                )
+                return
 
-            # Evict LRU items until we have room
-            while self._total_bytes + size > self._max_bytes and self._sizes:
-                oldest_key, oldest_size = self._sizes.popitem(last=False)
-                self._total_bytes -= oldest_size
-                await self._cache.delete(oldest_key)
-
-            await self._cache.set(key, value)
-            self._sizes[key] = size
-            self._total_bytes += size
+            try:
+                self._cache[key] = value
+            except ValueError:
+                logger.debug(
+                    "Cache entry too large to store",
+                    key=key,
+                    size_bytes=size,
+                    max_bytes=self._max_bytes,
+                )
 
     @property
     def total_bytes(self) -> int:
-        return self._total_bytes
+        with self._lock:
+            return int(self._cache.currsize)
 
     @property
     def item_count(self) -> int:
-        return len(self._sizes)
+        with self._lock:
+            return len(self._cache)
 
 
 # Module-level cache for blob downloads and S3 Select results
@@ -144,7 +199,12 @@ async def cached_blob_download(sha256: str, bucket: str, key: str) -> bytes:
         logger.debug("Blob cache hit", sha256=sha256[:16])
         return cached
 
-    content = await blob.download_file(key=key, bucket=bucket)
+    content = await retry_storage_transport_error(
+        "blob_download",
+        lambda: blob.download_file(key=key, bucket=bucket),
+        key=key,
+        bucket=bucket,
+    )
 
     # Skip caching large blobs to prevent memory bloat
     if len(content) <= MAX_CACHEABLE_BLOB_SIZE:
@@ -186,10 +246,15 @@ async def cached_select_item(
         return deserialize_object(cached)
 
     expression = f"SELECT s.items[{local_index}] FROM s3object s"
-    result_bytes = await blob.select_object_content(
+    result_bytes = await retry_storage_transport_error(
+        "select_object_content",
+        lambda: blob.select_object_content(
+            key=key,
+            bucket=bucket,
+            expression=expression,
+        ),
         key=key,
         bucket=bucket,
-        expression=expression,
     )
 
     # S3 Select returns {"_1": <item>} for indexed array access
@@ -228,15 +293,14 @@ async def resolve_to_inline(stored: StoredObject) -> InlineObject:
         CollectionObject,
         ExternalObject,
         InlineObject,
-        get_object_storage,
+        retrieve_stored_object,
     )
 
     match stored:
         case InlineObject():
             return stored
         case ExternalObject() | CollectionObject():
-            storage = get_object_storage()
-            data = await storage.retrieve(stored)
+            data = await retrieve_stored_object(stored)
             return InlineObject(data=data)
         case _:
             raise TypeError(f"Expected StoredObject, got {type(stored).__name__}")

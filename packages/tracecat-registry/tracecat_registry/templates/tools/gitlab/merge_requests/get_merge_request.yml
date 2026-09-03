@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Get merge request
+  description: >-
+    Get merge request. Calls GET /projects/{project_id}/merge_requests/{merge_request_iid} directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: get_merge_request
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    merge_request_iid:
+      type: int
+      description: GitLab API path value for merge_request_iid.
+    include_diverged_commits_count:
+      type: bool | None
+      description: If `true`, response includes the commits behind the target branch.
+      default: null
+    include_rebase_in_progress:
+      type: bool | None
+      description: If `true`, response includes whether a rebase operation is in progress.
+      default: null
+    render_html:
+      type: bool | None
+      description: If `true`, response includes rendered HTML for title and description.
+      default: null
+    base_url:
+      type: str
+      description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
+      default: https://gitlab.com/api/v4
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/merge_requests/${{ FN.url_encode(inputs.merge_request_iid) }}
+        method: GET
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Accept: application/json
+        params:
+          include_diverged_commits_count: ${{ inputs.include_diverged_commits_count }}
+          include_rebase_in_progress: ${{ inputs.include_rebase_in_progress }}
+          render_html: ${{ inputs.render_html }}
+  returns: ${{ steps.request.result }}

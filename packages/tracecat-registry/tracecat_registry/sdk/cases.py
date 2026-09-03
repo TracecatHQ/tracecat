@@ -189,6 +189,7 @@ class CasesClient:
         order_by: str | Unset = UNSET,
         sort: Literal["asc", "desc"] | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
+        include_payload: bool | Unset = UNSET,
     ) -> types.CaseListResponse:
         """List cases using default server-side filtering.
 
@@ -213,6 +214,8 @@ class CasesClient:
             params["sort"] = sort
         if is_set(include_rows):
             params["include_rows"] = include_rows
+        if is_set(include_payload):
+            params["include_payload"] = include_payload
 
         return await self._client.get("/cases", params=params)
 
@@ -236,6 +239,7 @@ class CasesClient:
         updated_after: datetime | str | Unset = UNSET,
         updated_before: datetime | str | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
+        include_payload: bool | Unset = UNSET,
     ) -> types.CaseListResponse:
         """Search cases with filtering and pagination."""
         params: dict[str, Any] = {"limit": limit}
@@ -285,6 +289,10 @@ class CasesClient:
                 if isinstance(updated_before, datetime)
                 else updated_before
             )
+        if is_set(include_rows):
+            params["include_rows"] = include_rows
+        if is_set(include_payload):
+            params["include_payload"] = include_payload
 
         return await self._client.get("/cases/search", params=params)
 
@@ -300,6 +308,12 @@ class CasesClient:
             List of comments.
         """
         return await self._client.get(f"/cases/{case_id}/comments")
+
+    async def list_comment_threads(
+        self, case_id: str
+    ) -> list[types.CaseCommentThreadRead]:
+        """List threaded comments on a case."""
+        return await self._client.get(f"/cases/{case_id}/comments/threads")
 
     async def create_comment(
         self,
@@ -328,6 +342,20 @@ class CasesClient:
             json=data,
         )
 
+    async def reply_to_comment(
+        self,
+        case_id: str,
+        *,
+        parent_comment_id: str,
+        content: str,
+    ) -> types.CaseComment:
+        """Reply to a top-level case comment using the UDF-compatible endpoint."""
+        return await self.create_comment_simple(
+            case_id,
+            content=content,
+            parent_id=parent_comment_id,
+        )
+
     async def update_comment(
         self,
         case_id: str,
@@ -354,28 +382,25 @@ class CasesClient:
         self,
         comment_id: str,
         *,
-        content: str | Unset = UNSET,
-        parent_id: str | Unset = UNSET,
+        content: str,
     ) -> types.CaseCommentRead:
         """Update a comment by ID without requiring case_id.
 
         Args:
             comment_id: The comment UUID.
             content: New content.
-            parent_id: New parent comment ID.
 
         Returns:
             Updated comment data.
         """
-        data: dict[str, Any] = {}
-        if is_set(content):
-            data["content"] = content
-        if is_set(parent_id):
-            data["parent_id"] = parent_id
         return await self._client.patch(
             f"/comments/{comment_id}",
-            json=data,
+            json={"content": content},
         )
+
+    async def get_comment_thread(self, comment_id: str) -> types.CaseCommentThreadRead:
+        """Get the thread containing a given comment."""
+        return await self._client.get(f"/comments/{comment_id}/thread")
 
     async def delete_comment(self, case_id: str, comment_id: str) -> None:
         """Delete a comment.
@@ -613,6 +638,7 @@ class CasesClient:
         tags: list[str] | None | Unset = UNSET,
         fields: dict[str, Any] | None | Unset = UNSET,
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = UNSET,
+        create_missing_tags: bool = False,
     ) -> types.Case:
         """Create a new case and return simple dict format.
 
@@ -652,6 +678,8 @@ class CasesClient:
             # Write payloads use `dropdown_values` because they represent persisted
             # per-case selections (definition/option IDs).
             data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
+        if create_missing_tags:
+            data["create_missing_tags"] = create_missing_tags
 
         return await self._client.post("/cases/simple", json=data)
 
@@ -670,6 +698,7 @@ class CasesClient:
         tags: list[str] | None | Unset = UNSET,
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = UNSET,
         append_description: bool = False,
+        create_missing_tags: bool = False,
     ) -> types.Case:
         """Update a case and return simple dict format.
 
@@ -717,6 +746,8 @@ class CasesClient:
             data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
         if append_description:
             data["append_description"] = append_description
+        if create_missing_tags:
+            data["create_missing_tags"] = create_missing_tags
 
         return await self._client.patch(f"/cases/{case_id}/simple", json=data)
 
@@ -726,6 +757,7 @@ class CasesClient:
         *,
         content: str,
         parent_id: str | Unset = UNSET,
+        workflow_id: str | Unset = UNSET,
     ) -> types.CaseComment:
         """Create a comment on a case and return simple dict format.
 
@@ -735,6 +767,7 @@ class CasesClient:
             case_id: The case UUID.
             content: Comment content.
             parent_id: Parent comment ID for replies.
+            workflow_id: Selected workflow ID for workflow-backed comments.
 
         Returns:
             Created comment data (CaseCommentDict format).
@@ -742,6 +775,8 @@ class CasesClient:
         data: dict[str, Any] = {"content": content}
         if is_set(parent_id):
             data["parent_id"] = parent_id
+        if is_set(workflow_id):
+            data["workflow_id"] = workflow_id
         return await self._client.post(
             f"/cases/{case_id}/comments/simple",
             json=data,
@@ -751,8 +786,7 @@ class CasesClient:
         self,
         comment_id: str,
         *,
-        content: str | Unset = UNSET,
-        parent_id: str | Unset = UNSET,
+        content: str,
     ) -> types.CaseComment:
         """Update a comment and return simple dict format.
 
@@ -761,19 +795,13 @@ class CasesClient:
         Args:
             comment_id: The comment UUID.
             content: New content.
-            parent_id: New parent comment ID.
 
         Returns:
             Updated comment data (CaseCommentDict format).
         """
-        data: dict[str, Any] = {}
-        if is_set(content):
-            data["content"] = content
-        if is_set(parent_id):
-            data["parent_id"] = parent_id
         return await self._client.patch(
             f"/comments/{comment_id}/simple",
-            json=data,
+            json={"content": content},
         )
 
     async def assign_user_simple(
@@ -991,25 +1019,25 @@ class CasesClient:
             params["cursor"] = cursor
         if is_set(reverse):
             params["reverse"] = reverse
-        return await self._client.get(f"/internal/cases/{case_id}/rows", params=params)
+        return await self._client.get(f"/cases/{case_id}/rows", params=params)
 
     async def link_case_row(
         self, case_id: str, *, table_id: str, row_id: str
     ) -> types.CaseTableRowRead:
         return await self._client.post(
-            f"/internal/cases/{case_id}/rows",
+            f"/cases/{case_id}/rows",
             json={"table_id": table_id, "row_id": row_id},
         )
 
     async def unlink_case_row(
         self, case_id: str, *, table_id: str, row_id: str
     ) -> None:
-        await self._client.delete(f"/internal/cases/{case_id}/rows/{table_id}/{row_id}")
+        await self._client.delete(f"/cases/{case_id}/rows/{table_id}/{row_id}")
 
     async def insert_case_row(
         self, case_id: str, *, table_id: str, row: dict[str, Any]
     ) -> types.CaseTableRowRead:
         return await self._client.post(
-            f"/internal/cases/{case_id}/rows/insert",
+            f"/cases/{case_id}/rows/insert",
             json={"table_id": table_id, "row": {"data": row}},
         )

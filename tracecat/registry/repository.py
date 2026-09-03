@@ -31,7 +31,7 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.exceptions import RegistryError
+from tracecat.exceptions import RegistryError, RegistryTemplateLoadError
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.git.utils import GitUrl, get_git_repository_sha, parse_git_url
@@ -609,6 +609,15 @@ class Repository:
             raise
         return pkg_or_mod
 
+    async def load_installed(self, package_name: str) -> None:
+        """Load a registry package that is already available on ``sys.path``.
+
+        Registry sync uses this after installing an untrusted package in a
+        separate sandbox phase. Keeping installation out of this method lets
+        discovery run without network or service credentials.
+        """
+        await self._load_repository(self._origin, package_name)
+
     def _register_udf_from_function(
         self,
         fn: F,
@@ -804,9 +813,19 @@ class Repository:
                 continue
 
             logger.info(f"Loading template actions from {file_path!s}")
-            template_action = self.load_template_action_from_file(
-                file_path, origin, overwrite=overwrite
-            )
+            try:
+                template_action = self.load_template_action_from_file(
+                    file_path, origin, overwrite=overwrite
+                )
+            except Exception as exc:
+                logger.error(
+                    "Failed to load template action",
+                    path=file_path,
+                    error=str(exc),
+                )
+                raise RegistryTemplateLoadError(
+                    f"Failed to load template action from {file_path}: {exc}"
+                ) from exc
             if template_action is None:
                 continue
 

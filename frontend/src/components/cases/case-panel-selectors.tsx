@@ -1,6 +1,7 @@
 "use client"
 
-import { CircleIcon, ListIcon, UserIcon } from "lucide-react"
+import { CircleIcon, CircleSlashIcon, ListIcon } from "lucide-react"
+import { useMemo, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
   CaseDropdownValueRead,
@@ -16,15 +17,29 @@ import {
 } from "@/components/cases/case-categories"
 import { CaseValueDisplay } from "@/components/cases/case-value-display"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
+import { CheckIndicator } from "@/components/ui/check-indicator"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  selectTriggerVariants,
 } from "@/components/ui/select"
 import UserAvatar from "@/components/user-avatar"
-import { getDisplayName } from "@/lib/auth"
 import { cn, linearStyles } from "@/lib/utils"
 
 /**
@@ -46,7 +61,7 @@ function getPriorityColor(priority: CasePriority): string {
     case "medium":
       return "text-orange-600"
     case "low":
-      return "text-gray-600"
+      return "text-muted-foreground"
     default:
       return "text-muted-foreground"
   }
@@ -63,9 +78,9 @@ function getSeverityColor(severity: CaseSeverity): string {
     case "medium":
       return "text-orange-600"
     case "low":
-      return "text-gray-600"
+      return "text-muted-foreground"
     case "other":
-      return "text-gray-600"
+      return "text-muted-foreground"
     default:
       return "text-muted-foreground"
   }
@@ -84,7 +99,7 @@ function getStatusColor(status: CaseStatus): string {
     case "closed":
       return "text-violet-600"
     case "other":
-      return "text-gray-600"
+      return "text-muted-foreground"
     default:
       return "text-muted-foreground"
   }
@@ -272,6 +287,27 @@ export function SeveritySelect({
 
 export const UNASSIGNED = "__UNASSIGNED__" as const
 
+/**
+ * Members sorted by email, which is the only field a row renders and therefore
+ * the order a user reads as alphabetical. Copies before sorting so the caller's
+ * array is left untouched.
+ */
+function sortMembersByEmail(members: WorkspaceMember[]): WorkspaceMember[] {
+  return [...members].sort((a, b) => a.email.localeCompare(b.email))
+}
+
+/**
+ * Text `cmdk` matches a member row against.
+ *
+ * Rows only show the email, but people search by first name, so the name parts
+ * ride along in the row's `value`.
+ */
+function memberSearchValue(member: WorkspaceMember): string {
+  return [member.email, member.first_name, member.last_name]
+    .filter(Boolean)
+    .join(" ")
+}
+
 interface AssigneeSelectProps {
   assignee?: AssigneeInfo | null
   workspaceMembers: WorkspaceMember[]
@@ -281,6 +317,13 @@ interface AssigneeSelectProps {
   valueClassName?: string
 }
 
+/**
+ * Searchable single-select for a case assignee.
+ *
+ * Lists workspace members alphabetically by email with "Unassigned" pinned
+ * above them, and filters on email as well as first and last name. Reports a
+ * member as an {@link AssigneeInfo} and unassignment as `null`.
+ */
 export function AssigneeSelect({
   assignee,
   workspaceMembers,
@@ -289,107 +332,158 @@ export function AssigneeSelect({
   triggerClassName,
   valueClassName,
 }: AssigneeSelectProps) {
+  const [open, setOpen] = useState(false)
+  // Sorted live rather than snapshotted per open session the way the tag picker
+  // does it: this is a single-select that closes on choose, and the sort key
+  // never depends on the selection, so no row can move under the pointer.
+  const sortedMembers = useMemo(
+    () => sortMembersByEmail(workspaceMembers),
+    [workspaceMembers]
+  )
+
+  function handleUnassign() {
+    setOpen(false)
+    onValueChange(null)
+  }
+
+  function handleAssign(member: WorkspaceMember) {
+    setOpen(false)
+    onValueChange({
+      id: member.user_id,
+      email: member.email,
+      first_name: member.first_name,
+      last_name: member.last_name,
+    })
+  }
+
   return (
-    <Select
-      value={assignee?.id ?? UNASSIGNED}
-      onValueChange={(value) => {
-        if (value === UNASSIGNED) {
-          onValueChange(null)
-          return
-        }
-        const user = workspaceMembers.find((user) => user.user_id === value)
-        if (user) {
-          onValueChange({
-            id: user.user_id,
-            email: user.email,
-            first_name: user.first_name,
-            last_name: user.last_name,
-          })
-        } else {
-          onValueChange(null)
-        }
-      }}
-    >
-      <SelectTrigger
-        className={cn(
-          linearStyles.trigger.base,
-          linearStyles.trigger.hover,
-          triggerClassName
-        )}
-      >
-        <SelectValue>
-          <div
-            className={cn(
-              "flex items-center gap-2",
-              !showLabel && "w-full justify-end"
-            )}
-          >
-            {showLabel && (
-              <span className="text-xs text-muted-foreground">Assignee</span>
-            )}
-            {assignee ? (
-              <div className="flex items-center gap-1.5">
-                <UserAvatar
-                  alt={assignee.first_name || assignee.email}
-                  email={assignee.email}
-                  firstName={assignee.first_name}
-                  className="size-5 text-xs text-foreground"
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          // `selectTriggerVariants()` keeps this pixel-identical to the sibling
+          // `Select` triggers in this file, which callers style through
+          // `triggerClassName`. `linearStyles.trigger.base` hides the trigger
+          // chevron via `[&>svg]:hidden`, so there is none to reproduce here.
+          className={cn(
+            selectTriggerVariants(),
+            linearStyles.trigger.base,
+            linearStyles.trigger.hover,
+            triggerClassName
+          )}
+        >
+          {/* `SelectValue` used to render this span and callers target it with
+              `[&>span]:*` rules, so the wrapper has to stay. */}
+          <span className="pointer-events-none">
+            <div
+              className={cn(
+                "flex items-center gap-2",
+                !showLabel && "w-full justify-end"
+              )}
+            >
+              {showLabel && (
+                <span className="text-xs text-muted-foreground">Assignee</span>
+              )}
+              {assignee ? (
+                <div className="flex items-center gap-1.5">
+                  <UserAvatar
+                    alt={assignee.first_name || assignee.email}
+                    email={assignee.email}
+                    firstName={assignee.first_name}
+                    className="size-5 text-xs text-foreground"
+                  />
+                  <span className={cn("truncate", valueClassName)}>
+                    {assignee.email}
+                  </span>
+                </div>
+              ) : (
+                <NoAssignee
+                  className={valueClassName}
+                  labelClassName={valueClassName}
                 />
-                <span className={cn("font-medium", valueClassName)}>
-                  {assignee.first_name || assignee.email.split("@")[0]}
-                </span>
-              </div>
-            ) : (
-              <NoAssignee
-                className={valueClassName}
-                labelClassName={valueClassName}
-              />
-            )}
-          </div>
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={UNASSIGNED}>
-          <NoAssignee
-            text="Unassigned"
-            className="text-sm"
-            labelClassName="text-sm"
-          />
-        </SelectItem>
-        {workspaceMembers.length === 0 ? (
-          <div className="flex items-center justify-center p-4 text-xs text-muted-foreground">
-            No users available to assign
-          </div>
-        ) : (
-          workspaceMembers.map((member) => (
-            <SelectItem key={member.user_id} value={member.user_id}>
-              <AssignedUser
-                email={member.email}
-                firstName={member.first_name}
-                lastName={member.last_name}
-              />
-            </SelectItem>
-          ))
-        )}
-      </SelectContent>
-    </Select>
+              )}
+            </div>
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-56 p-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Command>
+          <CommandInput placeholder="Search assignees..." className="text-xs" />
+          <CommandList>
+            <CommandEmpty>No assignees found.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value="Unassigned"
+                className="group text-xs"
+                onSelect={handleUnassign}
+              >
+                <CheckIndicator checked={!assignee} />
+                <NoAssignee iconClassName="!size-2.5" />
+                {/* cmdk owns `aria-selected` for highlight, so the current
+                    assignee rides on the accessible name instead. */}
+                {!assignee && <span className="sr-only">{", selected"}</span>}
+              </CommandItem>
+              {sortedMembers.map((member) => {
+                const isAssignee = assignee?.id === member.user_id
+                return (
+                  <CommandItem
+                    key={member.user_id}
+                    value={memberSearchValue(member)}
+                    className="group text-xs"
+                    onSelect={() => handleAssign(member)}
+                  >
+                    <CheckIndicator checked={isAssignee} />
+                    <AssignedUser
+                      email={member.email}
+                      firstName={member.first_name}
+                      lastName={member.last_name}
+                    />
+                    {isAssignee && (
+                      <span className="sr-only">{", selected"}</span>
+                    )}
+                  </CommandItem>
+                )
+              })}
+              {workspaceMembers.length === 0 && (
+                <div className="flex items-center justify-center p-4 text-xs text-muted-foreground">
+                  No users available to assign
+                </div>
+              )}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   )
 }
 
+/** Placeholder row shown in place of an assignee when a case has none. */
 export function NoAssignee({
   text,
   className,
   labelClassName,
+  iconClassName,
 }: {
   text?: string
   className?: string
   labelClassName?: string
+  /**
+   * Overrides the icon size. `cmdk` rows force `[&_svg]:size-4` onto their
+   * children, so callers inside one need `!size-2.5` to keep the default.
+   */
+  iconClassName?: string
 }) {
   const baseClass = "flex items-center gap-1.5 text-xs leading-4"
   return (
     <div className={cn(baseClass, "text-muted-foreground", className)}>
-      <div className="flex size-4 items-center justify-center rounded-full border border-dashed border-muted-foreground/50">
-        <UserIcon className="size-3 text-muted-foreground" />
+      <div className="flex size-4 items-center justify-center">
+        <CircleSlashIcon
+          className={cn("size-2.5 text-muted-foreground/50", iconClassName)}
+        />
       </div>
       <span className={cn("text-xs text-muted-foreground", labelClassName)}>
         {text ?? "Unassigned"}
@@ -409,11 +503,6 @@ export function AssignedUser({
   lastName?: string | null
   className?: string
 }) {
-  const displayName = getDisplayName({
-    email,
-    first_name: firstName,
-    last_name: lastName,
-  })
   return (
     <div
       className={cn(
@@ -422,14 +511,14 @@ export function AssignedUser({
       )}
     >
       <UserAvatar
-        alt={displayName}
+        alt={email}
         email={email}
         firstName={firstName}
         className="size-4 text-foreground"
         fallbackClassName="text-[10px]"
       />
-      <span className="truncate text-xs" title={displayName}>
-        {displayName}
+      <span className="truncate" title={email}>
+        {email}
       </span>
     </div>
   )

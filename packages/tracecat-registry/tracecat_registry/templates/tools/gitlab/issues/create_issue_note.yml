@@ -1,0 +1,63 @@
+type: action
+definition:
+  title: Create issue note
+  description: >-
+    Create issue note. Calls POST /projects/{project_id}/issues/{issue_iid}/notes directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: create_issue_note
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    issue_iid:
+      type: int
+      description: GitLab API path value for issue_iid.
+    body:
+      type: str
+      description: The content of a note. Limited to 1,000,000 characters.
+    confidential:
+      type: bool | None
+      description: "Deprecated: Renamed to `internal`. The confidential flag of a note. Default is false."
+      default: null
+    internal:
+      type: bool | None
+      description: The internal flag of a note. Overrides `confidential` when both parameters are submitted. Default is false.
+      default: null
+    created_at:
+      type: str | None
+      description: "Date time string, ISO 8601 formatted. It must be after 1970-01-01. Example: `2016-03-11T03:45:40Z` (requires administrator or project/group owner rights)."
+      default: null
+    payload:
+      # Generic: GitLab accepts these attributes in the query string (its own curl
+      # examples do) or a JSON body, but a null body field violates NOT NULL on
+      # `confidential` and Grape reads a null array as "unassign". Named inputs above
+      # go on the query string; this stays for callers sending a body.
+      type: dict[str, Any] | None
+      description: API-native request body passed through without validation.
+      default: null
+    base_url:
+      type: str
+      description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
+      default: https://gitlab.com/api/v4
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/issues/${{ FN.url_encode(inputs.issue_iid) }}/notes
+        method: POST
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Accept: application/json
+        params:
+          body: ${{ inputs.body }}
+          confidential: ${{ inputs.confidential }}
+          internal: ${{ inputs.internal }}
+          created_at: ${{ inputs.created_at }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

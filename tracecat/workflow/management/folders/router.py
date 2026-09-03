@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -15,15 +15,36 @@ from tracecat.workflow.management.folders.schemas import (
     WorkflowFolderRead,
     WorkflowFolderUpdate,
 )
-from tracecat.workflow.management.folders.service import WorkflowFolderService
+from tracecat.workflow.management.folders.service import (
+    WorkflowFolderErrorCode,
+    WorkflowFolderService,
+)
 
 router = APIRouter(prefix="/folders", tags=["folders"])
+
+
+def _folder_http_exception(err: TracecatValidationError) -> HTTPException:
+    detail = err.detail if isinstance(err.detail, dict) else {}
+    raw_code = detail.get("code") if isinstance(detail, dict) else None
+    try:
+        code = WorkflowFolderErrorCode(raw_code)
+    except (TypeError, ValueError):
+        code = None
+
+    if code in {
+        WorkflowFolderErrorCode.NOT_FOUND,
+        WorkflowFolderErrorCode.PARENT_NOT_FOUND,
+    }:
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err))
+    if code == WorkflowFolderErrorCode.CONFLICT:
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(err))
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
 
 
 @router.get("/directory")
 @require_scope("workflow:read")
 async def get_directory(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     path: str = Query(default="/", description="Folder path"),
 ) -> list[DirectoryItem]:
@@ -39,7 +60,7 @@ async def get_directory(
 @router.get("")
 @require_scope("workflow:read")
 async def list_folders(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     parent_path: str = Query(default="/", description="Parent folder path"),
 ) -> list[WorkflowFolderRead]:
@@ -62,7 +83,7 @@ async def list_folders(
 @router.post("", status_code=status.HTTP_201_CREATED)
 @require_scope("workflow:create")
 async def create_folder(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: WorkflowFolderCreate,
 ) -> WorkflowFolderRead:
@@ -74,16 +95,13 @@ async def create_folder(
         )
         return WorkflowFolderRead.model_validate(folder, from_attributes=True)
     except TracecatValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A folder with this name already exists at this location",
-        ) from e
+        raise _folder_http_exception(e) from e
 
 
 @router.get("/{folder_id}")
 @require_scope("workflow:read")
 async def get_folder(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     folder_id: UUID,
 ) -> WorkflowFolderRead:
@@ -100,7 +118,7 @@ async def get_folder(
 @router.patch("/{folder_id}")
 @require_scope("workflow:update")
 async def update_folder(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     folder_id: UUID,
     params: WorkflowFolderUpdate,
@@ -126,12 +144,14 @@ async def update_folder(
             status_code=status.HTTP_409_CONFLICT,
             detail="A folder with this name already exists at this location",
         ) from e
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
 
 
 @router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("workflow:delete")
 async def delete_folder(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     folder_id: UUID,
     params: WorkflowFolderDelete,
@@ -149,15 +169,13 @@ async def delete_folder(
             status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found"
         ) from e
     except TracecatValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
+        raise _folder_http_exception(e) from e
 
 
 @router.post("/{folder_id}/move")
 @require_scope("workflow:update")
 async def move_folder(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     folder_id: UUID,
     params: WorkflowFolderMove,
@@ -187,3 +205,5 @@ async def move_folder(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e

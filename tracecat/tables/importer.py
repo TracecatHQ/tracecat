@@ -2,7 +2,6 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Self
-from uuid import UUID
 
 import orjson
 from pydantic import BaseModel
@@ -166,7 +165,6 @@ class ColumnStats:
     int_candidate: bool = True
     numeric_candidate: bool = True
     timestamp_candidate: bool = True
-    uuid_candidate: bool = True
     json_candidate: bool = True
 
     def observe(self, value: str | None) -> None:
@@ -201,12 +199,6 @@ class ColumnStats:
             except (TypeError, ValueError):
                 self.timestamp_candidate = False
 
-        if self.uuid_candidate:
-            try:
-                UUID(stripped)
-            except ValueError:
-                self.uuid_candidate = False
-
         if self.json_candidate:
             if not _looks_like_json(stripped):
                 self.json_candidate = False
@@ -227,8 +219,6 @@ class ColumnStats:
             return SqlType.NUMERIC
         if self.timestamp_candidate:
             return SqlType.TIMESTAMPTZ
-        if self.uuid_candidate:
-            return SqlType.UUID
         if self.json_candidate:
             return SqlType.JSONB
         return SqlType.TEXT

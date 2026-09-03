@@ -15,13 +15,17 @@ import { CaseSelectionProvider } from "@/components/cases/case-selection-context
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
+import { SettingsModal } from "@/components/settings/settings-modal"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useWorkspaceManager } from "@/lib/hooks"
+import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
+import { AgentPresetDetailProvider } from "@/providers/agent-preset-detail"
 import { WorkflowBuilderProvider } from "@/providers/builder"
 import { ScopeProvider } from "@/providers/scopes"
+import { SkillsStudioProvider } from "@/providers/skills-studio"
 import { WorkflowProvider } from "@/providers/workflow"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
 
@@ -46,6 +50,7 @@ export default function WorkspaceLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
+  const { user, userIsLoading } = useAuth()
   const {
     workspaces,
     workspacesLoading,
@@ -53,9 +58,16 @@ export default function WorkspaceLayout({
     setLastWorkspaceId,
     getLastWorkspaceId,
   } = useWorkspaceManager()
-  const params = useParams<{ workspaceId?: string; workflowId?: string }>()
+  const params = useParams<{
+    workspaceId?: string
+    workflowId?: string
+    skillId?: string
+    presetId?: string
+  }>()
   const workspaceId = params?.workspaceId
   const workflowId = params?.workflowId
+  const skillId = params?.skillId
+  const presetId = params?.presetId
   const requestedWorkspaceExists = useMemo(() => {
     if (!workspaceId || !workspaces) {
       return false
@@ -89,6 +101,8 @@ export default function WorkspaceLayout({
     }
     return lastViewedWorkspaceId ?? workspaces[0]?.id
   }, [lastViewedWorkspaceId, workspaces])
+  const hasNoOrgMemberships =
+    workspacesError && isNoOrgMembershipsError(workspacesError)
 
   useEffect(() => {
     if (
@@ -100,7 +114,7 @@ export default function WorkspaceLayout({
     ) {
       return
     }
-    router.replace(`/workspaces/${fallbackWorkspaceId}`)
+    router.replace(getWorkspaceLandingPath(fallbackWorkspaceId))
   }, [
     fallbackWorkspaceId,
     requestedWorkspaceExists,
@@ -110,10 +124,20 @@ export default function WorkspaceLayout({
     workspacesLoading,
   ])
 
+  useEffect(() => {
+    if (!hasNoOrgMemberships || userIsLoading || !user?.isSuperuser) {
+      return
+    }
+    router.replace("/admin")
+  }, [hasNoOrgMemberships, router, user?.isSuperuser, userIsLoading])
+
   if (workspacesLoading) {
     return <CenteredSpinner />
   }
-  if (workspacesError && isNoOrgMembershipsError(workspacesError)) {
+  if (hasNoOrgMemberships) {
+    if (userIsLoading || user?.isSuperuser) {
+      return <CenteredSpinner />
+    }
     return <NoOrganizationAccess />
   }
   if (workspacesError || !workspaces) {
@@ -156,9 +180,21 @@ export default function WorkspaceLayout({
           >
             <WorkspaceChildren>{children}</WorkspaceChildren>
           </WorkflowView>
+        ) : skillId ? (
+          <SkillsStudioProvider
+            workspaceId={selectedWorkspaceId}
+            skillId={skillId}
+          >
+            <WorkspaceChildren>{children}</WorkspaceChildren>
+          </SkillsStudioProvider>
+        ) : presetId ? (
+          <AgentPresetDetailProvider>
+            <WorkspaceChildren>{children}</WorkspaceChildren>
+          </AgentPresetDetailProvider>
         ) : (
           <WorkspaceChildren>{children}</WorkspaceChildren>
         )}
+        <SettingsModal />
       </ScopeProvider>
     </WorkspaceIdProvider>
   )
@@ -174,7 +210,6 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const isTablesPage = Boolean(pathname?.match(/\/tables(\/|$)/))
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
-  const isRegistryPage = pathname?.includes("/registry")
 
   if (canReadWorkspace === undefined) {
     return <CenteredSpinner />
@@ -194,8 +229,8 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     )
   }
 
-  // Settings, organization and registry pages have their own sidebars
-  if (isSettingsPage || isOrganizationPage || isRegistryPage) {
+  // Settings and organization pages have their own sidebars
+  if (isSettingsPage || isOrganizationPage) {
     return <>{children}</>
   }
 
@@ -281,7 +316,7 @@ function NoWorkspaces() {
     setIsCreating(true)
     try {
       const workspace = await createWorkspace({ name: "New Workspace" })
-      router.replace(`/workspaces/${workspace.id}/workflows`)
+      router.replace(getWorkspaceLandingPath(workspace.id))
     } catch (error) {
       console.error("Error creating workspace", error)
       setIsCreating(false)

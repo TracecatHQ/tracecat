@@ -3,8 +3,7 @@ from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 
-from tracecat_registry import config, registry, types
-from tracecat_registry.context import get_context
+from tracecat_registry import config, ctx, registry, types
 from tracecat_registry.sdk.exceptions import TracecatConflictError
 
 
@@ -28,7 +27,7 @@ async def lookup(
         Doc("The value to lookup."),
     ],
 ) -> dict[str, Any] | None:
-    return await get_context().tables.lookup(table=table, column=column, value=value)
+    return await ctx.tables.aio.lookup(table=table, column=column, value=value)
 
 
 @registry.register(
@@ -51,7 +50,7 @@ async def is_in(
         Doc("The value to check for."),
     ],
 ) -> bool:
-    return await get_context().tables.exists(table=table, column=column, value=value)
+    return await ctx.tables.aio.exists(table=table, column=column, value=value)
 
 
 @registry.register(
@@ -90,7 +89,7 @@ async def lookup_many(
     }
     if limit is not None:
         params["limit"] = limit
-    return await get_context().tables.lookup_many(**params)
+    return await ctx.tables.aio.lookup_many(**params)
 
 
 @registry.register(
@@ -162,7 +161,7 @@ async def search_rows(
     if cursor is not None:
         params["cursor"] = cursor
     params["reverse"] = reverse
-    response = await get_context().tables.search_rows(**params)
+    response = await ctx.tables.aio.search_rows(**params)
     if paginate:
         return response
     if isinstance(response, dict):
@@ -190,7 +189,7 @@ async def insert_row(
         Doc("If true, update the row if it already exists (based on primary key)."),
     ] = False,
 ) -> dict[str, Any]:
-    return await get_context().tables.insert_row(
+    return await ctx.tables.aio.insert_row(
         table=table,
         row_data=row_data,
         upsert=upsert,
@@ -217,7 +216,7 @@ async def insert_rows(
         Doc("If true, update the rows if they already exist (based on primary key)."),
     ] = False,
 ) -> int:
-    return await get_context().tables.insert_rows(
+    return await ctx.tables.aio.insert_rows(
         table=table,
         rows_data=rows_data,
         upsert=upsert,
@@ -244,7 +243,7 @@ async def update_row(
         Doc("The new data for the row."),
     ],
 ) -> dict[str, Any]:
-    return await get_context().tables.update_row(
+    return await ctx.tables.aio.update_row(
         table=table,
         row_id=row_id,
         row_data=row_data,
@@ -267,7 +266,7 @@ async def delete_row(
         Doc("The ID of the row to delete."),
     ],
 ) -> None:
-    await get_context().tables.delete_row(table=table, row_id=row_id)
+    await ctx.tables.aio.delete_row(table=table, row_id=row_id)
 
 
 @registry.register(
@@ -284,7 +283,12 @@ async def create_table(
     columns: Annotated[
         list[dict[str, Any]] | None,
         Doc(
-            "List of column definitions. Each column should have 'name', 'type', and optionally 'nullable' and 'default' fields."
+            "List of column definitions. Each item is an object with required "
+            "`name` and uppercase `type`, plus optional `nullable`, `default`, "
+            "and `options` fields. Use `TEXT`, `INTEGER`, `NUMERIC`, "
+            "`BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, or "
+            "`MULTI_SELECT`. `options` is required for `SELECT` and "
+            "`MULTI_SELECT`, and invalid for other types."
         ),
     ] = None,
     raise_on_duplicate: Annotated[
@@ -299,7 +303,7 @@ async def create_table(
     if columns is not None:
         client_params["columns"] = columns
     try:
-        return await get_context().tables.create_table(**client_params)
+        return await ctx.tables.aio.create_table(**client_params)
     except TracecatConflictError as exc:
         raise ValueError("Table already exists") from exc
 
@@ -311,7 +315,7 @@ async def create_table(
     namespace="core.table",
 )
 async def list_tables() -> list[types.Table]:
-    return await get_context().tables.list_tables()
+    return await ctx.tables.aio.list_tables()
 
 
 @registry.register(
@@ -323,7 +327,100 @@ async def list_tables() -> list[types.Table]:
 async def get_table_metadata(
     name: Annotated[str, Doc("The name of the table to get.")],
 ) -> types.TableRead:
-    return await get_context().tables.get_table_metadata(name)
+    return await ctx.tables.aio.get_table_metadata(name)
+
+
+@registry.register(
+    default_title="Update table",
+    description="Rename a table by name.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def update_table(
+    name: Annotated[
+        str,
+        Doc("The current name of the table to update."),
+    ],
+    new_name: Annotated[
+        str,
+        Doc("The new table name."),
+    ],
+) -> types.TableRead:
+    return await ctx.tables.aio.update_table(name=name, new_name=new_name)
+
+
+@registry.register(
+    default_title="Create column",
+    description="Add a column to an existing table.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def create_column(
+    table: Annotated[
+        str,
+        Doc("The table to add the column to."),
+    ],
+    column: Annotated[
+        dict[str, Any],
+        Doc(
+            "Column definition with required `name` and uppercase `type`, plus "
+            "optional `nullable`, `default`, and `options` fields. Use `TEXT`, "
+            "`INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, "
+            "`SELECT`, or `MULTI_SELECT`. `options` is required for `SELECT` "
+            "and `MULTI_SELECT`."
+        ),
+    ],
+) -> types.TableRead:
+    return await ctx.tables.aio.create_column(table=table, column=column)
+
+
+@registry.register(
+    default_title="Update column",
+    description="Update a table column's name, type, nullability, default, index, or options.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def update_column(
+    table: Annotated[
+        str,
+        Doc("The table containing the column."),
+    ],
+    column: Annotated[
+        str,
+        Doc("The current column name."),
+    ],
+    update: Annotated[
+        dict[str, Any],
+        Doc(
+            "Partial column update. Supported fields: `name`, `type`, "
+            "`nullable`, `default`, `is_index`, and `options`."
+        ),
+    ],
+) -> types.TableRead:
+    return await ctx.tables.aio.update_column(
+        table=table,
+        column=column,
+        update=update,
+    )
+
+
+@registry.register(
+    default_title="Delete column",
+    description="Delete a column from an existing table.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def delete_column(
+    table: Annotated[
+        str,
+        Doc("The table containing the column."),
+    ],
+    column: Annotated[
+        str,
+        Doc("The column name to delete."),
+    ],
+) -> types.TableRead:
+    return await ctx.tables.aio.delete_column(table=table, column=column)
 
 
 @registry.register(
@@ -352,4 +449,4 @@ async def download(
         params["format"] = format
     if limit is not None:
         params["limit"] = limit
-    return await get_context().tables.download(**params)
+    return await ctx.tables.aio.download(**params)

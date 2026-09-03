@@ -543,12 +543,12 @@ export class InnerContentWidget extends WidgetType {
       contextSpan.appendChild(pathSpan)
 
       const colors = {
-        ACTIONS: "#3b82f6",
-        FN: "#8b5cf6",
-        ENV: "#10b981",
-        SECRETS: "#f59e0b",
-        VARS: "#06b6d4",
-        var: "#ef4444",
+        ACTIONS: "hsl(var(--syntax-action))",
+        FN: "hsl(var(--syntax-function))",
+        ENV: "hsl(var(--syntax-string))",
+        SECRETS: "hsl(var(--syntax-secret))",
+        VARS: "hsl(var(--syntax-variable))",
+        var: "hsl(var(--syntax-local-variable))",
       }
 
       contextSpan.style.color = colors[contextType as keyof typeof colors]
@@ -888,8 +888,8 @@ export async function createNodeTooltipForPosition(
   }
 }
 
-// Create tooltip content for a specific token/node
-async function createNodeTooltipContent(
+/** Create tooltip content for a specific expression token. */
+export async function createNodeTooltipContent(
   token: { type: string; value: string; start: number; end: number },
   fullExpression: string,
   workspaceId: string
@@ -908,7 +908,7 @@ async function createNodeTooltipContent(
 
   // Add type-specific information based on value patterns
   if (fullExpression.startsWith("ACTIONS.")) {
-    addActionTooltipInfo(container, tokenValue, workspaceId)
+    addActionTooltipInfo(container, tokenValue)
   } else if (fullExpression.startsWith("FN.")) {
     await addFunctionTooltipInfo(container, tokenValue, workspaceId)
   } else if (fullExpression.startsWith("SECRETS.")) {
@@ -929,7 +929,7 @@ async function createNodeTooltipContent(
   ) {
     // Handle context types even without dot notation
     if (token.type === "ACTIONS") {
-      addActionTooltipInfo(container, tokenValue, workspaceId)
+      addActionTooltipInfo(container, tokenValue)
     } else if (token.type === "FN") {
       await addFunctionTooltipInfo(container, tokenValue, workspaceId)
     } else if (token.type === "SECRETS") {
@@ -952,12 +952,25 @@ async function createNodeTooltipContent(
   return container
 }
 
-// Helper functions for type-specific tooltip content
-function addActionTooltipInfo(
+function appendTooltipLine(
   container: HTMLElement,
-  value: string,
-  workspaceId: string
+  className: string,
+  text: string,
+  strongText?: string
 ) {
+  const line = document.createElement("div")
+  line.className = className
+  line.appendChild(document.createTextNode(text))
+  if (strongText !== undefined) {
+    const strong = document.createElement("strong")
+    strong.textContent = strongText
+    line.appendChild(strong)
+  }
+  container.appendChild(line)
+}
+
+// Helper functions for type-specific tooltip content
+function addActionTooltipInfo(container: HTMLElement, value: string) {
   const info = document.createElement("div")
   info.className = "cm-tooltip-action-info"
 
@@ -965,24 +978,28 @@ function addActionTooltipInfo(
   const match = value.match(/ACTIONS\.(\w+)(?:\.(.+))?/)
   if (match) {
     const [, actionRef, propertyPath] = match
-    info.innerHTML = `
-      <div class="action-ref">Action: <strong>${actionRef}</strong></div>
-      ${propertyPath ? `<div class="action-prop">Property: <strong>${propertyPath}</strong></div>` : ""}
-      <div class="action-desc">References output from action step</div>
-    `
+    appendTooltipLine(info, "action-ref", "Action: ", actionRef)
+    if (propertyPath) {
+      appendTooltipLine(info, "action-prop", "Property: ", propertyPath)
+    }
+    appendTooltipLine(info, "action-desc", "References output from action step")
   } else {
     // Fallback for partial matches or just "ACTIONS"
     const cleanValue = value.replace(/^ACTIONS\.?/, "")
     if (cleanValue) {
-      info.innerHTML = `
-        <div class="action-ref">Action reference: <strong>${cleanValue}</strong></div>
-        <div class="action-desc">References output from action step</div>
-      `
+      appendTooltipLine(info, "action-ref", "Action reference: ", cleanValue)
+      appendTooltipLine(
+        info,
+        "action-desc",
+        "References output from action step"
+      )
     } else {
-      info.innerHTML = `
-        <div class="action-ref">Action namespace</div>
-        <div class="action-desc">Used to reference outputs from workflow actions</div>
-      `
+      appendTooltipLine(info, "action-ref", "Action namespace")
+      appendTooltipLine(
+        info,
+        "action-desc",
+        "Used to reference outputs from workflow actions"
+      )
     }
   }
 
@@ -1039,24 +1056,32 @@ function addSecretTooltipInfo(container: HTMLElement, value: string) {
   const match = value.match(/SECRETS\.(\w+)(?:\.(.+))?/)
   if (match) {
     const [, secretName, key] = match
-    info.innerHTML = `
-      <div class="secret-name">Secret: <strong>${secretName}</strong></div>
-      ${key ? `<div class="secret-key">Key: <strong>${key}</strong></div>` : ""}
-      <div class="secret-desc">References stored secret credential</div>
-    `
+    appendTooltipLine(info, "secret-name", "Secret: ", secretName)
+    if (key) {
+      appendTooltipLine(info, "secret-key", "Key: ", key)
+    }
+    appendTooltipLine(
+      info,
+      "secret-desc",
+      "References stored secret credential"
+    )
   } else {
     // Fallback for partial matches or just "SECRETS"
     const cleanValue = value.replace(/^SECRETS\.?/, "")
     if (cleanValue) {
-      info.innerHTML = `
-        <div class="secret-name">Secret reference: <strong>${cleanValue}</strong></div>
-        <div class="secret-desc">References stored secret credential</div>
-      `
+      appendTooltipLine(info, "secret-name", "Secret reference: ", cleanValue)
+      appendTooltipLine(
+        info,
+        "secret-desc",
+        "References stored secret credential"
+      )
     } else {
-      info.innerHTML = `
-        <div class="secret-name">Secrets namespace</div>
-        <div class="secret-desc">Used to reference stored secret credentials</div>
-      `
+      appendTooltipLine(info, "secret-name", "Secrets namespace")
+      appendTooltipLine(
+        info,
+        "secret-desc",
+        "Used to reference stored secret credentials"
+      )
     }
   }
 
@@ -1070,24 +1095,24 @@ function addVarsTooltipInfo(container: HTMLElement, value: string) {
   const match = value.match(/VARS\.(\w+)(?:\.(.+))?/)
   if (match) {
     const [, varName, key] = match
-    info.innerHTML = `
-      <div class="vars-name">Variable: <strong>${varName}</strong></div>
-      ${key ? `<div class="vars-key">Key: <strong>${key}</strong></div>` : ""}
-      <div class="vars-desc">References workspace variable</div>
-    `
+    appendTooltipLine(info, "vars-name", "Variable: ", varName)
+    if (key) {
+      appendTooltipLine(info, "vars-key", "Key: ", key)
+    }
+    appendTooltipLine(info, "vars-desc", "References workspace variable")
   } else {
     // Fallback for partial matches or just "VARS"
     const cleanValue = value.replace(/^VARS\.?/, "")
     if (cleanValue) {
-      info.innerHTML = `
-        <div class="vars-name">Variable reference: <strong>${cleanValue}</strong></div>
-        <div class="vars-desc">References workspace variable</div>
-      `
+      appendTooltipLine(info, "vars-name", "Variable reference: ", cleanValue)
+      appendTooltipLine(info, "vars-desc", "References workspace variable")
     } else {
-      info.innerHTML = `
-        <div class="vars-name">Variables namespace</div>
-        <div class="vars-desc">Used to reference workspace variables</div>
-      `
+      appendTooltipLine(info, "vars-name", "Variables namespace")
+      appendTooltipLine(
+        info,
+        "vars-desc",
+        "Used to reference workspace variables"
+      )
     }
   }
 
@@ -1101,23 +1126,29 @@ function addEnvTooltipInfo(container: HTMLElement, value: string) {
   const match = value.match(/ENV\.(.+)/)
   if (match) {
     const [, envPath] = match
-    info.innerHTML = `
-      <div class="env-path">Path: <strong>${envPath}</strong></div>
-      <div class="env-desc">References environment variable or configuration</div>
-    `
+    appendTooltipLine(info, "env-path", "Path: ", envPath)
+    appendTooltipLine(
+      info,
+      "env-desc",
+      "References environment variable or configuration"
+    )
   } else {
     // Fallback for partial matches or just "ENV"
     const cleanValue = value.replace(/^ENV\.?/, "")
     if (cleanValue) {
-      info.innerHTML = `
-        <div class="env-path">Environment variable: <strong>${cleanValue}</strong></div>
-        <div class="env-desc">References environment variable or configuration</div>
-      `
+      appendTooltipLine(info, "env-path", "Environment variable: ", cleanValue)
+      appendTooltipLine(
+        info,
+        "env-desc",
+        "References environment variable or configuration"
+      )
     } else {
-      info.innerHTML = `
-        <div class="env-path">Environment namespace</div>
-        <div class="env-desc">Used to reference environment variables and configuration</div>
-      `
+      appendTooltipLine(info, "env-path", "Environment namespace")
+      appendTooltipLine(
+        info,
+        "env-desc",
+        "Used to reference environment variables and configuration"
+      )
     }
   }
 
@@ -1131,10 +1162,16 @@ function addTriggerTooltipInfo(container: HTMLElement, value: string) {
   const match = value.match(/TRIGGER(?:\.(.+))?/)
   if (match) {
     const [, triggerPath] = match
-    info.innerHTML = `
-      ${triggerPath ? `<div class="trigger-path">Path: <strong>${triggerPath}</strong></div>` : '<div class="trigger-root">Trigger data</div>'}
-      <div class="trigger-desc">References workflow trigger input data</div>
-    `
+    if (triggerPath) {
+      appendTooltipLine(info, "trigger-path", "Path: ", triggerPath)
+    } else {
+      appendTooltipLine(info, "trigger-root", "Trigger data")
+    }
+    appendTooltipLine(
+      info,
+      "trigger-desc",
+      "References workflow trigger input data"
+    )
   } else {
     info.textContent = "Trigger reference"
   }
@@ -1346,21 +1383,21 @@ function FunctionTooltip({ fn }: { fn: EditorFunctionRead }) {
   const signature = `${fn.name}(${params}) → ${fn.return_type || "any"}`
   return (
     <div className="max-w-[400px] overflow-hidden p-0 text-xs">
-      <div className="border-b px-3 py-2 font-mono font-semibold text-[#24292f]">
+      <div className="border-b px-3 py-2 font-mono font-semibold text-foreground">
         {fn.name}
       </div>
-      <div className="border-b px-3 py-2 font-mono text-[11px] text-[#656d76]">
+      <div className="border-b px-3 py-2 font-mono text-[11px] text-muted-foreground">
         {signature}
       </div>
-      <div className="p-3 text-xs leading-6 text-[#24292f]">
+      <div className="p-3 text-xs leading-6 text-foreground">
         {fn.description || "No description available"}
       </div>
       {/*parameters*/}
-      <div className="px-3 py-2 font-mono text-[11px] text-[#656d76]">
+      <div className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
         Parameters: {params}
       </div>
       {/*return type*/}
-      <div className="px-3 py-2 font-mono text-[11px] text-[#656d76]">
+      <div className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
         Returns: {fn.return_type || "any"}
       </div>
     </div>
@@ -1470,7 +1507,7 @@ export async function fetchSecrets(
     // Import the secrets function from the client
     const secrets = await secretsListSecrets({
       workspaceId,
-      type: ["custom", "ssh-key", "mtls", "ca-cert"],
+      type: ["custom", "ssh_key", "mtls", "ca_cert"],
     })
     secretsCache.set(workspaceId, secrets)
     return secrets
@@ -2072,11 +2109,11 @@ export function createAutocomplete({
 // Common theme for template pills
 export const templatePillTheme = EditorView.theme({
   ".cm-template-pill": {
-    backgroundColor: "rgba(59, 130, 246, 0.15)",
-    color: "#1e40af",
+    backgroundColor: "hsl(var(--syntax-action) / 0.15)",
+    color: "hsl(var(--syntax-template))",
     padding: "0.075em 0.3em",
     borderRadius: "0.25rem",
-    border: "0.5px solid rgba(59, 130, 246, 0.3)",
+    border: "0.5px solid hsl(var(--syntax-action) / 0.3)",
     cursor: "pointer",
     display: "inline-flex",
     alignItems: "center",
@@ -2090,57 +2127,57 @@ export const templatePillTheme = EditorView.theme({
     fontFamily: "ui-monospace, monospace",
   },
   ".cm-template-pill:hover": {
-    backgroundColor: "rgba(59, 130, 246, 0.25)",
-    borderColor: "rgba(59, 130, 246, 0.5)",
+    backgroundColor: "hsl(var(--syntax-action) / 0.25)",
+    borderColor: "hsl(var(--syntax-action) / 0.5)",
     zIndex: "2",
   },
   ".cm-template-error": {
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
-    border: "1px solid rgba(239, 68, 68, 0.5)",
-    color: "#dc2626",
+    backgroundColor: "hsl(var(--syntax-local-variable) / 0.2)",
+    border: "1px solid hsl(var(--syntax-local-variable) / 0.5)",
+    color: "hsl(var(--syntax-local-variable))",
   },
   ".cm-template-error-icon": {
-    color: "#ef4444",
+    color: "hsl(var(--syntax-local-variable))",
     fontSize: "0.8em",
     marginLeft: "0.2em",
     fontWeight: "bold",
   },
   ".cm-template-error-fallback": {
-    backgroundColor: "rgba(239, 68, 68, 0.3)",
-    border: "1px solid rgba(239, 68, 68, 0.7)",
-    color: "#dc2626",
+    backgroundColor: "hsl(var(--syntax-local-variable) / 0.3)",
+    border: "1px solid hsl(var(--syntax-local-variable) / 0.7)",
+    color: "hsl(var(--syntax-local-variable))",
     fontStyle: "italic",
   },
   ".cm-template-editing": {
     padding: "0 0.6em !important",
-    border: "1px solid rgba(59, 130, 246, 0.8)",
-    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    border: "1px solid hsl(var(--syntax-action) / 0.8)",
+    backgroundColor: "hsl(var(--syntax-action) / 0.1)",
     outline: "none",
     transform: "none",
   },
   // Context-specific styling
   ".cm-template-pill.cm-context-actions": {
-    color: "#3b82f6 !important",
+    color: "hsl(var(--syntax-action)) !important",
     fontWeight: "600",
   },
   ".cm-template-pill.cm-context-fn": {
-    color: "#8b5cf6 !important",
+    color: "hsl(var(--syntax-function)) !important",
     fontWeight: "600",
   },
   ".cm-template-pill.cm-context-env": {
-    color: "#10b981 !important",
+    color: "hsl(var(--syntax-string)) !important",
     fontWeight: "600",
   },
   ".cm-template-pill.cm-context-secrets": {
-    color: "#f59e0b !important",
+    color: "hsl(var(--syntax-secret)) !important",
     fontWeight: "600",
   },
   ".cm-template-pill.cm-context-vars": {
-    color: "#06b6d4 !important",
+    color: "hsl(var(--syntax-variable)) !important",
     fontWeight: "600",
   },
   ".cm-template-pill.cm-context-var": {
-    color: "#ef4444 !important",
+    color: "hsl(var(--syntax-local-variable)) !important",
     fontWeight: "600",
   },
   ".cm-expression-node-tooltip": {
@@ -2164,90 +2201,90 @@ export const templatePillTheme = EditorView.theme({
     fontFamily: "ui-monospace, monospace",
   },
   ".cm-tooltip-action-info": {
-    color: "#3b82f6",
+    color: "hsl(var(--syntax-action))",
   },
   ".cm-tooltip-action-info .action-ref": {
     marginBottom: "2px",
   },
   ".cm-tooltip-action-info .action-prop": {
     marginBottom: "2px",
-    color: "#ddd6fe",
+    color: "hsl(var(--syntax-function))",
   },
   ".cm-tooltip-action-info .action-desc": {
     fontSize: "11px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     fontStyle: "italic",
   },
   ".cm-tooltip-function-info": {
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
   },
   ".cm-tooltip-function-info .function-name": {
     marginBottom: "2px",
   },
   ".cm-tooltip-function-info .function-params": {
     marginBottom: "2px",
-    color: "#6366f1",
+    color: "hsl(var(--syntax-function))",
     fontSize: "11px",
   },
   ".cm-tooltip-function-info .function-params code": {
-    backgroundColor: "rgba(139, 92, 246, 0.2)",
+    backgroundColor: "hsl(var(--syntax-function) / 0.2)",
     padding: "1px 4px",
     borderRadius: "3px",
     fontFamily: "ui-monospace, monospace",
   },
   ".cm-tooltip-function-info .function-desc": {
     fontSize: "11px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     fontStyle: "italic",
   },
   ".cm-tooltip-function-info .function-description": {
     fontSize: "11px",
-    color: "#d1d5db",
+    color: "hsl(var(--foreground))",
     marginTop: "4px",
   },
   ".cm-tooltip-secret-info": {
-    color: "#fbbf24",
+    color: "hsl(var(--syntax-secret))",
   },
   ".cm-tooltip-secret-info .secret-name": {
     marginBottom: "2px",
   },
   ".cm-tooltip-secret-info .secret-key": {
     marginBottom: "2px",
-    color: "#fed7aa",
+    color: "hsl(var(--syntax-secret))",
   },
   ".cm-tooltip-secret-info .secret-desc": {
     fontSize: "11px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     fontStyle: "italic",
   },
   ".cm-tooltip-vars-info": {
-    color: "#22d3ee",
+    color: "hsl(var(--syntax-variable))",
   },
   ".cm-tooltip-vars-info .vars-name": {
     marginBottom: "2px",
   },
   ".cm-tooltip-vars-info .vars-key": {
     marginBottom: "2px",
-    color: "#a5f3fc",
+    color: "hsl(var(--syntax-variable))",
   },
   ".cm-tooltip-vars-info .vars-desc": {
     fontSize: "11px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     fontStyle: "italic",
   },
   ".cm-tooltip-env-info": {
-    color: "#6ee7b7",
+    color: "hsl(var(--syntax-string))",
   },
   ".cm-tooltip-env-info .env-path": {
     marginBottom: "2px",
   },
   ".cm-tooltip-env-info .env-desc": {
     fontSize: "11px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     fontStyle: "italic",
   },
   ".cm-tooltip-trigger-info": {
-    color: "#f472b6",
+    color: "hsl(var(--syntax-trigger))",
   },
   ".cm-tooltip-trigger-info .trigger-path": {
     marginBottom: "2px",
@@ -2257,11 +2294,11 @@ export const templatePillTheme = EditorView.theme({
   },
   ".cm-tooltip-trigger-info .trigger-desc": {
     fontSize: "11px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     fontStyle: "italic",
   },
   ".cm-tooltip-generic-info": {
-    color: "#d1d5db",
+    color: "hsl(var(--foreground))",
     fontSize: "11px",
   },
 })

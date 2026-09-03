@@ -15,19 +15,28 @@ Both build activities are async and can be called directly from async tests.
 from __future__ import annotations
 
 import uuid
+from typing import cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
 
+from tracecat.agent.common.types import MCPHttpServerConfig, MCPStdioServerConfig
 from tracecat.auth.types import Role
 from tracecat.dsl.action import (
     BuildAgentArgsActivityInput,
-    BuildPresetAgentArgsActivityInput,
     DSLActivities,
 )
 from tracecat.dsl.schemas import ExecutionContext, TaskResult
-from tracecat.storage.object import InlineObject
+from tracecat.exceptions import TracecatValidationError
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.storage.object import InlineObject, StoredObject
+from tracecat.temporal.errors import extract_error_classification
 
 
 @pytest.fixture
@@ -54,6 +63,110 @@ def _make_context(
         ACTIONS=actions or {},
         TRIGGER=_inline({}),
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("preset", [False, True], ids=["agent", "preset-agent"])
+async def test_agent_materialization_failure_keeps_platform_attribution(
+    role: Role,
+    preset: bool,
+) -> None:
+    args = (
+        {"preset": "my-preset", "user_prompt": "Hello"}
+        if preset
+        else {
+            "user_prompt": "Hello",
+            "model_name": "test-model",
+            "model_provider": "test-provider",
+        }
+    )
+    input = BuildAgentArgsActivityInput(
+        args=args,
+        operand=_make_context(),
+        role=role,
+        task_environment=None,
+        default_environment="default",
+    )
+    input.operand["TRIGGER"] = cast(StoredObject, {"type": "external"})
+    build_activity = (
+        DSLActivities.build_preset_agent_args_activity
+        if preset
+        else DSLActivities.build_agent_args_activity
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await build_activity(input)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.STORAGE_MATERIALIZATION_INVALID_DATA
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("preset", [False, True], ids=["agent", "preset-agent"])
+@pytest.mark.parametrize(
+    ("error", "owner", "kind", "retry_disposition"),
+    [
+        (
+            TracecatValidationError("invalid agent input diagnostic"),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.WORKFLOW_AGENT_INPUT_INVALID,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+        (
+            RuntimeError("agent dependency diagnostic"),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.WORKFLOW_AGENT_PREPARATION_FAILED,
+            RetryDisposition.RETRYABLE,
+        ),
+    ],
+    ids=["invalid-input", "dependency-failure"],
+)
+async def test_agent_preparation_classifies_user_and_platform_failures(
+    role: Role,
+    preset: bool,
+    error: Exception,
+    owner: RuntimeErrorOwner,
+    kind: RuntimeErrorKind,
+    retry_disposition: RetryDisposition,
+) -> None:
+    input = BuildAgentArgsActivityInput(
+        args=(
+            {"preset": "my-preset", "user_prompt": "Hello"}
+            if preset
+            else {
+                "user_prompt": "Hello",
+                "model_name": "test-model",
+                "model_provider": "test-provider",
+            }
+        ),
+        operand=_make_context(),
+        role=role,
+        task_environment=None,
+        default_environment="default",
+    )
+    build_activity = (
+        DSLActivities.build_preset_agent_args_activity
+        if preset
+        else DSLActivities.build_agent_args_activity
+    )
+
+    with (
+        patch(
+            "tracecat.dsl.action._evaluate_agent_args",
+            new=AsyncMock(side_effect=error),
+        ),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await build_activity(input)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is owner
+    assert classification.kind is kind
+    assert classification.retry_disposition is retry_disposition
+    assert str(error) not in str(exc_info.value)
 
 
 class TestBuildAgentArgsActivity:
@@ -126,6 +239,7 @@ class TestBuildAgentArgsActivity:
             "user_prompt": "Hello",
             "model_name": "claude-sonnet-4-5-20250929",
             "model_provider": "anthropic",
+            "base_url": "https://llm.example.com/v1",
         }
         input = BuildAgentArgsActivityInput(
             args=args,
@@ -143,6 +257,35 @@ class TestBuildAgentArgsActivity:
 
         mock_get_vars.assert_not_called()
         assert result.model_name == "claude-sonnet-4-5-20250929"
+        assert result.base_url == "https://llm.example.com/v1"
+
+    @pytest.mark.anyio
+    async def test_model_selection_overrides_deprecated_model_fields(self, role: Role):
+        """When both model shapes are present, the new model selection wins."""
+        catalog_id = uuid.uuid4()
+        args = {
+            "user_prompt": "Hello",
+            "model": {
+                "model_name": "claude-sonnet-4-5-20250929",
+                "model_provider": "anthropic",
+                "catalog_id": str(catalog_id),
+            },
+            "model_name": "gpt-4o-mini",
+            "model_provider": "openai",
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.model_name == "claude-sonnet-4-5-20250929"
+        assert result.model_provider == "anthropic"
+        assert result.catalog_id == catalog_id
 
     @pytest.mark.anyio
     async def test_vars_with_action_context(self, role: Role):
@@ -257,6 +400,315 @@ class TestBuildAgentArgsActivity:
 
         mock_get_vars.assert_not_called()
 
+    @pytest.mark.anyio
+    async def test_preserves_enable_thinking_flag(self, role: Role):
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "enable_thinking": False,
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.enable_thinking is False
+
+    @pytest.mark.anyio
+    async def test_preserves_explicit_reasoning_effort_in_model_settings(
+        self, role: Role
+    ):
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "enable_thinking": True,
+            "model_settings": {"reasoning_effort": "medium"},
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.model_settings == {"reasoning_effort": "medium"}
+
+    @pytest.mark.anyio
+    async def test_preserves_agents_config(self, role: Role):
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "agents": {
+                "enabled": True,
+                "subagents": [
+                    {
+                        "preset": "qa-child-agent",
+                        "preset_version": None,
+                        "name": "child-analyst",
+                        "description": "Use for enrichment analysis.",
+                        "max_turns": 2,
+                    }
+                ],
+            },
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.agents.model_dump(mode="json") == args["agents"]
+
+    @pytest.mark.anyio
+    async def test_null_agents_config_normalizes_to_disabled(self, role: Role):
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "agents": None,
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.agents.model_dump(mode="json") == {
+            "enabled": False,
+            "subagents": [],
+        }
+
+
+class TestBuildAgentArgsMcpResolution:
+    """Tests for mcp_integration_ids → mcp_servers resolution inside build_agent_args_activity."""
+
+    @pytest.mark.anyio
+    async def test_mcp_integration_ids_resolve_to_mcp_servers(self, role: Role):
+        """mcp_integration_ids in args are resolved to partial MCPServerConfigs
+        and surfaced as mcp_servers on the result; the raw IDs are not present."""
+        integration_id = str(uuid.uuid4())
+        resolved: MCPHttpServerConfig = {
+            "type": "http",
+            "name": "my-server",
+            "url": "https://mcp.example.com",
+            "id": integration_id,
+        }
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "mcp_integrations": [integration_id],
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+            return_value=[resolved],
+        ) as mock_resolve:
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        mock_resolve.assert_awaited_once_with([integration_id], role=role)
+        assert result.mcp_servers == [resolved]
+
+    @pytest.mark.anyio
+    async def test_mcp_integration_ids_not_present_on_result(self, role: Role):
+        """mcp_integration_ids must not appear as a field on AgentActionArgs."""
+        integration_id = str(uuid.uuid4())
+        resolved: MCPHttpServerConfig = {
+            "type": "http",
+            "name": "my-server",
+            "url": "https://mcp.example.com",
+            "id": integration_id,
+        }
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "mcp_integrations": [integration_id],
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+            return_value=[resolved],
+        ):
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        assert not hasattr(result, "mcp_integration_ids")
+
+    @pytest.mark.anyio
+    async def test_no_mcp_integration_ids_skips_resolution(self, role: Role):
+        """When mcp_integration_ids is absent, resolution is never called and
+        mcp_servers is None."""
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+        ) as mock_resolve:
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        mock_resolve.assert_not_called()
+        assert result.mcp_servers is None
+
+    @pytest.mark.anyio
+    async def test_multiple_mcp_integration_ids_resolve(self, role: Role):
+        """All IDs in the list are forwarded to the resolver as a batch."""
+        id1, id2 = str(uuid.uuid4()), str(uuid.uuid4())
+        resolved: list[MCPHttpServerConfig] = [
+            {
+                "type": "http",
+                "name": "server-a",
+                "url": "https://a.example.com",
+                "id": id1,
+            },
+            {
+                "type": "http",
+                "name": "server-b",
+                "url": "https://b.example.com",
+                "id": id2,
+            },
+        ]
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "mcp_integrations": [id1, id2],
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+            return_value=resolved,
+        ) as mock_resolve:
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        mock_resolve.assert_awaited_once_with([id1, id2], role=role)
+        assert result.mcp_servers == resolved
+        assert len(result.mcp_servers) == 2  # type: ignore[arg-type]
+
+    @pytest.mark.anyio
+    async def test_stdio_mcp_integration_resolves(self, role: Role):
+        """Stdio server configs are resolved the same way as HTTP ones."""
+        integration_id = str(uuid.uuid4())
+        resolved: MCPStdioServerConfig = {
+            "type": "stdio",
+            "name": "local-tools",
+            "command": "python",
+            "args": ["-m", "my_mcp_server"],
+            "id": integration_id,
+        }
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "mcp_integrations": [integration_id],
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+            return_value=[resolved],
+        ):
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.mcp_servers == [resolved]
+        assert result.mcp_servers[0]["type"] == "stdio"  # type: ignore[index]
+
+    @pytest.mark.anyio
+    async def test_resolved_configs_carry_no_secrets(self, role: Role):
+        """Resolved HTTP configs must not contain headers (secrets are omitted
+        on the partial config that crosses Temporal boundaries)."""
+        integration_id = str(uuid.uuid4())
+        resolved: MCPHttpServerConfig = {
+            "type": "http",
+            "name": "secure-server",
+            "url": "https://secure.example.com",
+            "id": integration_id,
+            # no 'headers' key — intentionally absent
+        }
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "mcp_integrations": [integration_id],
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+            return_value=[resolved],
+        ):
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.mcp_servers is not None
+        assert "headers" not in result.mcp_servers[0]
+
 
 class TestBuildPresetAgentArgsActivity:
     """Tests for DSLActivities.build_preset_agent_args_activity."""
@@ -268,7 +720,7 @@ class TestBuildPresetAgentArgsActivity:
             "preset": "my-preset",
             "user_prompt": "${{ VARS.prompts.default }}",
         }
-        input = BuildPresetAgentArgsActivityInput(
+        input = BuildAgentArgsActivityInput(
             args=args,
             operand=_make_context(),
             role=role,
@@ -294,7 +746,7 @@ class TestBuildPresetAgentArgsActivity:
             "preset": "my-preset",
             "user_prompt": "Hello",
         }
-        input = BuildPresetAgentArgsActivityInput(
+        input = BuildAgentArgsActivityInput(
             args=args,
             operand=_make_context(),
             role=role,
@@ -318,7 +770,7 @@ class TestBuildPresetAgentArgsActivity:
             "preset": "my-preset",
             "user_prompt": "${{ VARS.prompts.default }}",
         }
-        input = BuildPresetAgentArgsActivityInput(
+        input = BuildAgentArgsActivityInput(
             args=args,
             operand=_make_context(),
             role=role,

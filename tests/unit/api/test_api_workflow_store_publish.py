@@ -8,9 +8,10 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatSettingsError, TracecatValidationError
 from tracecat.registry.repositories.schemas import GitBranchInfo
 from tracecat.vcs.github.app import GitHubAppError
+from tracecat.vcs.gitlab.app import GitLabError
 from tracecat.workflow.store.schemas import WorkflowDslPublishResult
 
 
@@ -135,6 +136,49 @@ async def test_publish_workflow_invalid_branch_returns_400(
 
 
 @pytest.mark.anyio
+async def test_publish_workflow_vcs_provider_error_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test publish maps VCS provider errors to 400."""
+    workflow_id = str(uuid.uuid4())
+    workflow = Mock()
+    workflow.id = uuid.UUID(workflow_id)
+
+    definition = Mock()
+    definition.content = _sample_dsl_content()
+    definition.workflow = workflow
+
+    with (
+        patch(
+            "tracecat.workflow.store.router.WorkflowDefinitionsService"
+        ) as mock_defn_cls,
+        patch("tracecat.workflow.store.router.WorkflowStoreService") as mock_store_cls,
+    ):
+        mock_defn_svc = AsyncMock()
+        mock_defn_svc.get_definition_by_workflow_id.return_value = definition
+        mock_defn_cls.return_value = mock_defn_svc
+
+        mock_store_svc = AsyncMock()
+        mock_store_svc.publish_workflow_dsl.side_effect = GitLabError(
+            "Failed to retrieve GitLab token credentials: credentials not found"
+        )
+        mock_store_cls.return_value = mock_store_svc
+
+        response = client.post(
+            f"/workflows/{workflow_id}/publish",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "branch": "feature/shared-workflow",
+                "create_pr": True,
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "GitLab token credentials" in response.json()["detail"]
+
+
+@pytest.mark.anyio
 async def test_publish_workflow_definition_not_found_returns_404(
     client: TestClient,
     test_admin_role: Role,
@@ -184,24 +228,13 @@ async def test_list_workflow_branches_success(
     test_admin_role: Role,
 ) -> None:
     """Test GET /workflows/sync/branches returns branch list."""
-    with (
-        patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls,
-        patch("tracecat.workflow.store.router.WorkflowSyncService") as mock_sync_cls,
-    ):
-        mock_workspace_svc = AsyncMock()
-        mock_workspace = Mock()
-        mock_workspace.settings = {
-            "git_repo_url": "git+ssh://git@github.com/test-org/test-repo.git"
-        }
-        mock_workspace_svc.get_workspace.return_value = mock_workspace
-        mock_workspace_cls.return_value = mock_workspace_svc
-
+    with patch("tracecat.workflow.store.router.WorkspaceSyncService") as mock_sync_cls:
         mock_sync_svc = AsyncMock()
         mock_sync_svc.list_branches.return_value = [
             GitBranchInfo(name="main", is_default=True),
             GitBranchInfo(name="feature/workflow-publish", is_default=False),
         ]
-        mock_sync_cls.return_value = mock_sync_svc
+        mock_sync_cls.for_workspace = AsyncMock(return_value=mock_sync_svc)
 
         response = client.get(
             "/workflows/sync/branches",
@@ -222,12 +255,12 @@ async def test_list_workflow_branches_missing_repo_returns_400(
     test_admin_role: Role,
 ) -> None:
     """Test GET /workflows/sync/branches returns 400 when repo URL is missing."""
-    with patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls:
-        mock_workspace_svc = AsyncMock()
-        mock_workspace = Mock()
-        mock_workspace.settings = {}
-        mock_workspace_svc.get_workspace.return_value = mock_workspace
-        mock_workspace_cls.return_value = mock_workspace_svc
+    with patch("tracecat.workflow.store.router.WorkspaceSyncService") as mock_sync_cls:
+        mock_sync_svc = AsyncMock()
+        mock_sync_svc.list_branches.side_effect = TracecatSettingsError(
+            "Git repository URL not configured for this workspace."
+        )
+        mock_sync_cls.for_workspace = AsyncMock(return_value=mock_sync_svc)
 
         response = client.get(
             "/workflows/sync/branches",
@@ -244,23 +277,12 @@ async def test_list_workflow_branches_github_error_returns_400(
     test_admin_role: Role,
 ) -> None:
     """Test GET /workflows/sync/branches maps GitHub errors to 400."""
-    with (
-        patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls,
-        patch("tracecat.workflow.store.router.WorkflowSyncService") as mock_sync_cls,
-    ):
-        mock_workspace_svc = AsyncMock()
-        mock_workspace = Mock()
-        mock_workspace.settings = {
-            "git_repo_url": "git+ssh://git@github.com/test-org/test-repo.git"
-        }
-        mock_workspace_svc.get_workspace.return_value = mock_workspace
-        mock_workspace_cls.return_value = mock_workspace_svc
-
+    with patch("tracecat.workflow.store.router.WorkspaceSyncService") as mock_sync_cls:
         mock_sync_svc = AsyncMock()
         mock_sync_svc.list_branches.side_effect = GitHubAppError(
             "Unable to access repository"
         )
-        mock_sync_cls.return_value = mock_sync_svc
+        mock_sync_cls.for_workspace = AsyncMock(return_value=mock_sync_svc)
 
         response = client.get(
             "/workflows/sync/branches",
@@ -269,3 +291,37 @@ async def test_list_workflow_branches_github_error_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "Unable to access repository" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        (
+            "/workflows/sync/export",
+            {"message": "Sync workspace", "branch": "sync/workspace"},
+        ),
+        ("/workflows/sync/export/preview", {}),
+    ],
+)
+@pytest.mark.anyio
+async def test_workspace_sync_export_routes_map_service_construction_errors_to_400(
+    client: TestClient,
+    test_admin_role: Role,
+    path: str,
+    payload: dict[str, object],
+) -> None:
+    with patch("tracecat.workflow.store.router.WorkspaceSyncService") as mock_sync_cls:
+        mock_sync_cls.for_workspace = AsyncMock(
+            side_effect=TracecatSettingsError(
+                "Unsupported Git provider configured for this workspace: unknown"
+            )
+        )
+
+        response = client.post(
+            path,
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json=payload,
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Unsupported Git provider configured" in response.json()["detail"]

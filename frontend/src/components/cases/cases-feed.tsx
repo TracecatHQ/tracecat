@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useMemo } from "react"
-import type { CaseEventRead } from "@/client"
+import type { CaseEventRead, CaseFieldRead } from "@/client"
 import {
   AssigneeChangedEvent,
   AttachmentCreatedEvent,
@@ -19,6 +19,12 @@ import {
   CaseReopenedEvent,
   CaseUpdatedEvent,
   CaseViewedEvent,
+  CommentCreatedEvent,
+  CommentDeletedEvent,
+  CommentReplyCreatedEvent,
+  CommentReplyDeletedEvent,
+  CommentReplyUpdatedEvent,
+  CommentUpdatedEvent,
   DropdownValueChangedEvent,
   EventActor,
   EventCreatedAt,
@@ -28,6 +34,8 @@ import {
   PriorityChangedEvent,
   SeverityChangedEvent,
   StatusChangedEvent,
+  TagAddedEvent,
+  TagRemovedEvent,
   TaskAssigneeChangedEvent,
   TaskCreatedEvent,
   TaskDeletedEvent,
@@ -50,18 +58,54 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { SYSTEM_USER, User } from "@/lib/auth"
+import { createCaseFieldDisplayNameMap } from "@/lib/case-field-display"
 import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import { useAppInfo, useCaseEvents } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 import { InlineDotSeparator } from "../separator"
 
+const HANDLED_FEED_EVENT_TYPES = new Set([
+  "case_created",
+  "case_closed",
+  "case_reopened",
+  "case_viewed",
+  "case_updated",
+  "status_changed",
+  "priority_changed",
+  "severity_changed",
+  "fields_changed",
+  "assignee_changed",
+  "task_created",
+  "task_deleted",
+  "task_status_changed",
+  "task_priority_changed",
+  "task_workflow_changed",
+  "task_assignee_changed",
+  "attachment_created",
+  "attachment_deleted",
+  "payload_changed",
+  "comment_created",
+  "comment_reply_created",
+  "comment_updated",
+  "comment_reply_updated",
+  "comment_deleted",
+  "comment_reply_deleted",
+  "dropdown_value_changed",
+  "table_row_linked",
+  "table_row_unlinked",
+  "tag_added",
+  "tag_removed",
+])
+
 function CaseFeedEvent({
   event,
   users,
+  caseFieldDisplayNameById,
 }: {
   event: CaseEventRead
   users: Record<string, User>
+  caseFieldDisplayNameById: ReadonlyMap<string, string>
 }) {
   const actor = event.user_id ? users[event.user_id] : SYSTEM_USER
 
@@ -84,7 +128,11 @@ function CaseFeedEvent({
         )}
         {/* Case field events */}
         {event.type === "fields_changed" && (
-          <FieldsChangedEvent event={event} actor={actor} />
+          <FieldsChangedEvent
+            event={event}
+            actor={actor}
+            caseFieldDisplayNameById={caseFieldDisplayNameById}
+          />
         )}
 
         {/* Case events */}
@@ -156,6 +204,30 @@ function CaseFeedEvent({
           <PayloadChangedEvent event={event} actor={actor} />
         )}
 
+        {event.type === "comment_created" && (
+          <CommentCreatedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "comment_reply_created" && (
+          <CommentReplyCreatedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "comment_updated" && (
+          <CommentUpdatedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "comment_reply_updated" && (
+          <CommentReplyUpdatedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "comment_deleted" && (
+          <CommentDeletedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "comment_reply_deleted" && (
+          <CommentReplyDeletedEvent event={event} actor={actor} />
+        )}
+
         {event.type === "dropdown_value_changed" && (
           <DropdownValueChangedEvent event={event} actor={actor} />
         )}
@@ -176,6 +248,23 @@ function CaseFeedEvent({
             <span>
               <EventActor user={actor} /> unlinked a row from{" "}
               {(event as { table_name?: string }).table_name || "a table"}
+            </span>
+          </div>
+        )}
+
+        {event.type === "tag_added" && (
+          <TagAddedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "tag_removed" && (
+          <TagRemovedEvent event={event} actor={actor} />
+        )}
+
+        {event.type && !HANDLED_FEED_EVENT_TYPES.has(event.type) && (
+          <div className="flex items-center space-x-2 text-xs">
+            <EventIcon icon={PlusIcon} />
+            <span>
+              <EventActor user={actor} /> {event.type.replace(/_/g, " ")}
             </span>
           </div>
         )}
@@ -258,9 +347,11 @@ function groupEventsByDate(events: CaseEventRead[]) {
 export function CaseFeed({
   caseId,
   workspaceId,
+  caseFields,
 }: {
   caseId: string
   workspaceId: string
+  caseFields: CaseFieldRead[]
 }) {
   const { caseEvents, caseEventsIsLoading, caseEventsError } = useCaseEvents({
     caseId,
@@ -276,11 +367,15 @@ export function CaseFeed({
       return acc
     }, {})
   }, [caseEvents])
+  const caseFieldDisplayNameById = useMemo(
+    () => createCaseFieldDisplayNameMap(caseFields),
+    [caseFields]
+  )
 
   if (caseEventsIsLoading) {
     return (
       <div className="mx-auto w-full">
-        <div className="space-y-4 p-4">
+        <div className="space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="space-y-2">
               <Skeleton className="h-6 w-full" />
@@ -295,7 +390,7 @@ export function CaseFeed({
   if (caseEventsError) {
     return (
       <div className="mx-auto w-full">
-        <div className="space-y-4 p-4">
+        <div className="space-y-4">
           <div className="flex items-center justify-center p-8">
             <div className="flex items-center gap-2 text-red-600">
               <AlertCircle className="h-4 w-4" />
@@ -310,7 +405,7 @@ export function CaseFeed({
   if (events.length === 0) {
     return (
       <div className="mx-auto w-full">
-        <div className="p-4">
+        <div>
           <Empty>
             <EmptyHeader>
               <EmptyMedia variant="icon">
@@ -331,10 +426,10 @@ export function CaseFeed({
 
   return (
     <div className="mx-auto w-full">
-      <div className="space-y-4 p-4">
+      <div className="space-y-4">
         {groupedEvents.map(({ date, events: dateEvents }) => (
           <div key={date.toISOString()} className="space-y-2">
-            <div className="sticky top-0 z-10 py-2">
+            <div className="sticky top-0 z-10 -mt-2 bg-background py-2">
               <div className="flex items-center">
                 <div className="text-sm font-medium">
                   {date.toLocaleDateString(undefined, {
@@ -350,12 +445,17 @@ export function CaseFeed({
 
             <div className="relative">
               <div
-                className="absolute inset-y-0 left-2 w-px bg-gray-200"
+                className="absolute inset-y-0 left-2 w-px bg-border"
                 aria-hidden="true"
               />
               <div className="space-y-2">
                 {dateEvents.map((event, index) => (
-                  <CaseFeedEvent key={index} event={event} users={users} />
+                  <CaseFeedEvent
+                    key={index}
+                    event={event}
+                    users={users}
+                    caseFieldDisplayNameById={caseFieldDisplayNameById}
+                  />
                 ))}
               </div>
             </div>

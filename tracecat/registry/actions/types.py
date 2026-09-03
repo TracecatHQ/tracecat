@@ -14,6 +14,14 @@ if TYPE_CHECKING:
     from tracecat.registry.versions.schemas import RegistryVersionManifest
 
 
+@dataclass(frozen=True, slots=True)
+class RepositorySyncOutcome:
+    """Commit and version produced by a repository sync."""
+
+    commit_sha: str | None
+    version: str | None
+
+
 @dataclass(slots=True)
 class IndexEntry:
     """Data holder for registry index entries from UNION ALL query results.
@@ -33,6 +41,7 @@ class IndexEntry:
     doc_url: str | None = None
     author: str | None = None
     deprecated: str | None = None
+    missing_entitlements: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)

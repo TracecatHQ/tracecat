@@ -3,7 +3,7 @@ definition:
   title: List threats
   description: List threats from VirusTotal.
   display_group: VirusTotal
-  doc_url: https://gtidocs.virustotal.com/reference/list-threats
+  doc_url: https://docs.virustotal.com/reference/overview
   namespace: tools.virustotal
   name: list_threats
   secrets:

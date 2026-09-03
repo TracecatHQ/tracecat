@@ -1,26 +1,40 @@
 import asyncio
 import importlib
 import os
+import socket
+import subprocess
+import sys
+import tempfile
 import time
+import urllib.request
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-# Set workflow return strategy BEFORE importing tracecat modules
-# test_workflows.py was written when we returned the full context by default
-# This must happen before any tracecat imports to ensure config reads the correct value
+from dotenv import dotenv_values, load_dotenv
+
+# Set test defaults BEFORE importing tracecat modules so config reads them.
+# test_workflows.py was written when we returned the full context by default.
 os.environ.setdefault("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+os.environ.setdefault(
+    "TRACECAT__SERVICE_KEY",
+    dotenv_values(Path(__file__).resolve().parents[1] / ".env").get(
+        "TRACECAT__SERVICE_KEY"
+    )
+    or "test-service-key",
+)
 
 import aioboto3
 import pytest
 import redis
 import tracecat_registry.integrations.aws_boto3 as boto3_module
-from dotenv import load_dotenv
 from minio import Minio
 from minio.error import S3Error
 from sqlalchemy import create_engine, select, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -37,6 +51,7 @@ from tracecat.authz.scopes import (
 )
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
+    get_async_auth_engine,
     get_async_engine,
     get_async_session_context_manager,
     reset_async_engine,
@@ -49,7 +64,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.plugins import TracecatPydanticAIPlugin
+from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.executor.backends import ExecutorBackend
@@ -67,6 +82,9 @@ TEST_ORG_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 # Worker-specific configuration for pytest-xdist parallel execution
 # Get xdist worker ID, defaults to "master" if not using xdist
 WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "master")
+ACTION_GATEWAY_TEST_SOCKET = (
+    Path("/tmp") / f"tracecat-action-gateway-{os.getpid()}-{WORKER_ID}.sock"
+)
 
 # Generate worker-specific port offsets
 # master = 0, gw0 = 0, gw1 = 1, gw2 = 2, etc.
@@ -76,8 +94,158 @@ else:
     # Extract number from "gwN" format
     WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
 
+MAX_AUTO_XDIST_WORKERS = 15
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
+    """Cap auto xdist workers to the Redis DBs reserved for tests."""
+    del config
+    requested = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
+    if requested is not None:
+        try:
+            return min(int(requested), MAX_AUTO_XDIST_WORKERS)
+        except ValueError:
+            pass
+    return min(os.cpu_count() or 1, MAX_AUTO_XDIST_WORKERS)
+
+
 # Port configuration - reads from environment for worktree cluster support
 # Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT, REDIS_PORT
+
+
+def _install_case_number_allocator(conn: Any) -> None:
+    """Mirror the production trigger used to allocate workspace-local case numbers."""
+    conn.execute(
+        text(
+            """
+            CREATE OR REPLACE FUNCTION assign_workspace_case_number()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                IF NEW.case_number IS NULL THEN
+                    UPDATE workspace
+                    SET last_case_number = last_case_number + 1
+                    WHERE id = NEW.workspace_id
+                    RETURNING last_case_number INTO NEW.case_number;
+                    IF NOT FOUND THEN
+                        RAISE EXCEPTION
+                            'Workspace % not found while allocating case number',
+                            NEW.workspace_id;
+                    END IF;
+                ELSIF NEW.case_number > 0 THEN
+                    UPDATE workspace
+                    SET last_case_number = NEW.case_number
+                    WHERE id = NEW.workspace_id
+                      AND last_case_number < NEW.case_number;
+
+                    IF NOT FOUND THEN
+                        PERFORM 1 FROM workspace WHERE id = NEW.workspace_id;
+                        IF NOT FOUND THEN
+                            RAISE EXCEPTION
+                                'Workspace % not found while allocating case number',
+                                NEW.workspace_id;
+                        END IF;
+                    END IF;
+                ELSE
+                    PERFORM 1 FROM workspace WHERE id = NEW.workspace_id;
+                    IF NOT FOUND THEN
+                        RAISE EXCEPTION
+                            'Workspace % not found while deferring case number allocation',
+                            NEW.workspace_id;
+                    END IF;
+                END IF;
+
+                RETURN NEW;
+            END;
+            $$;
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE OR REPLACE FUNCTION require_assigned_workspace_case_number()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM "case"
+                    WHERE id = NEW.id
+                      AND case_number <= 0
+                ) THEN
+                    RAISE EXCEPTION 'Case number must be assigned before commit'
+                        USING ERRCODE = '23514';
+                END IF;
+
+                RETURN NULL;
+            END;
+            $$;
+            """
+        )
+    )
+    conn.execute(
+        text('DROP TRIGGER IF EXISTS trg_case_require_assigned_number ON "case"')
+    )
+    conn.execute(
+        text(
+            """
+            CREATE CONSTRAINT TRIGGER trg_case_require_assigned_number
+            AFTER INSERT OR UPDATE OF case_number ON "case"
+            DEFERRABLE INITIALLY DEFERRED
+            FOR EACH ROW
+            WHEN (NEW.case_number <= 0)
+            EXECUTE FUNCTION require_assigned_workspace_case_number()
+            """
+        )
+    )
+    conn.execute(
+        text('DROP TRIGGER IF EXISTS trg_case_assign_workspace_case_number ON "case"')
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TRIGGER trg_case_assign_workspace_case_number
+            BEFORE INSERT ON "case"
+            FOR EACH ROW
+            EXECUTE FUNCTION assign_workspace_case_number()
+            """
+        )
+    )
+
+
+def _lock_test_db_setup(conn: Any, db_uri: str) -> None:
+    """Serialize shared test DB setup across xdist workers."""
+    db_name = make_url(db_uri).database or "postgres"
+    conn.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:lock_key)::bigint)"),
+        {"lock_key": f"tests:db-setup:{db_name}"},
+    )
+
+
+def _get_free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _wait_for_http_ok(url: str, *, timeout: float = 45.0) -> None:
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1.0) as response:
+                if 200 <= response.getcode() < 300:
+                    return
+        except Exception as exc:
+            last_error = exc
+        time.sleep(0.2)
+    raise RuntimeError(f"Timed out waiting for {url}: {last_error}")
+
+
 PG_PORT = int(os.environ.get("PG_PORT", "5432"))
 TEMPORAL_PORT = int(os.environ.get("TEMPORAL_PORT", "7233"))
 MINIO_PORT = int(os.environ.get("MINIO_PORT", "9000"))
@@ -205,16 +373,17 @@ async def test_db_engine():
     and don't hold references to closed event loops when using pytest-xdist.
     """
     engine = get_async_engine()
+    auth_engine = get_async_auth_engine()
     try:
         yield engine
     finally:
-        try:
-            await engine.dispose()
-        except Exception as e:
-            logger.warning(f"Error disposing engine: {e}")
-        finally:
-            # Reset the global so next test gets a fresh engine
-            reset_async_engine()
+        for eng in (engine, auth_engine):
+            try:
+                await eng.dispose()
+            except Exception as e:
+                logger.warning(f"Error disposing engine: {e}")
+        # Reset the globals so next test gets fresh engines
+        reset_async_engine()
 
 
 @pytest.fixture(scope="session")
@@ -248,6 +417,7 @@ def db() -> Iterator[None]:
         with test_engine.begin() as conn:
             logger.info("Creating all tables")
             Base.metadata.create_all(conn)
+            _install_case_number_allocator(conn)
         yield
     finally:
         if test_engine is not None:
@@ -279,7 +449,10 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
         sync_engine = create_engine(sync_db_uri)
 
         # Ensure schema exists for service sessions that target the default DB.
-        Base.metadata.create_all(sync_engine)
+        with sync_engine.begin() as conn:
+            _lock_test_db_setup(conn, sync_db_uri)
+            Base.metadata.create_all(conn)
+            _install_case_number_allocator(conn)
 
         with Session(sync_engine) as session:
             base_org_slug = f"test-org-{TEST_ORG_ID.hex[:8]}"
@@ -541,6 +714,86 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "implementation": create_case_impl,
             }
 
+            # core.cases.create_task (case add-on gated)
+            create_task_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.ee.tasks",
+                "name": "create_task",
+            }
+            manifest_actions["core.cases.create_task"] = {
+                "namespace": "core.cases",
+                "name": "create_task",
+                "action_type": "udf",
+                "description": "Create a case task",
+                "default_title": "Create task",
+                "display_group": "Cases",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": create_task_impl,
+                "options": {"required_entitlements": ["case_addons"]},
+            }
+
+            # core.cases.get_case_metrics (case add-on gated)
+            get_case_metrics_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.ee.durations",
+                "name": "get_case_metrics",
+            }
+            manifest_actions["core.cases.get_case_metrics"] = {
+                "namespace": "core.cases",
+                "name": "get_case_metrics",
+                "action_type": "udf",
+                "description": "Get case metrics",
+                "default_title": "Get case metrics",
+                "display_group": "Cases",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": get_case_metrics_impl,
+                "options": {"required_entitlements": ["case_addons"]},
+            }
+
+            # ai.agent preset CRUD actions (agent add-on gated)
+            agent_preset_actions = {
+                "create_preset": {
+                    "description": "Create an agent preset",
+                    "default_title": "Create agent preset",
+                },
+                "get_preset": {
+                    "description": "Get an agent preset",
+                    "default_title": "Get agent preset",
+                },
+                "list_presets": {
+                    "description": "List agent presets",
+                    "default_title": "List agent presets",
+                },
+                "update_preset": {
+                    "description": "Update an agent preset",
+                    "default_title": "Update agent preset",
+                },
+                "delete_preset": {
+                    "description": "Delete an agent preset",
+                    "default_title": "Delete agent preset",
+                },
+            }
+            for action_name, metadata in agent_preset_actions.items():
+                preset_impl = {
+                    "type": "udf",
+                    "url": origin,
+                    "module": "tracecat_registry.core.presets",
+                    "name": action_name,
+                }
+                manifest_actions[f"ai.agent.{action_name}"] = {
+                    "namespace": "ai.agent",
+                    "name": action_name,
+                    "action_type": "udf",
+                    "description": metadata["description"],
+                    "default_title": metadata["default_title"],
+                    "display_group": "Agent Presets",
+                    "interface": {"expects": {}, "returns": None},
+                    "implementation": preset_impl,
+                    "options": {"required_entitlements": ["agent_addons"]},
+                }
+
             # core.table.lookup
             table_lookup_impl = {
                 "type": "udf",
@@ -712,13 +965,15 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     RegistryVersion.version == version,
                 )
             )
+            fake_tarball_uri = "s3://test/test.tar.gz"
+
             if rv is None:
                 rv = RegistryVersion(
                     organization_id=TEST_ORG_ID,
                     repository_id=repo.id,
                     version=version,
                     manifest=manifest,
-                    tarball_uri="s3://test/test.tar.gz",
+                    tarball_uri=fake_tarball_uri,
                 )
                 session.add(rv)
                 try:
@@ -738,7 +993,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     session.refresh(rv)
             else:
                 rv.manifest = manifest
-                rv.tarball_uri = "s3://test/test.tar.gz"
+                rv.tarball_uri = fake_tarball_uri
                 session.commit()
 
             # Set current_version_id on the repository for lock resolution
@@ -789,7 +1044,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     repository_id=platform_repo.id,
                     version=version,
                     manifest=manifest,
-                    tarball_uri="s3://test/test.tar.gz",
+                    tarball_uri=fake_tarball_uri,
                 )
                 session.add(platform_rv)
                 try:
@@ -808,11 +1063,31 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     session.refresh(platform_rv)
             else:
                 platform_rv.manifest = manifest
-                platform_rv.tarball_uri = "s3://test/test.tar.gz"
+                platform_rv.tarball_uri = fake_tarball_uri
                 session.commit()
 
-            platform_repo.current_version_id = platform_rv.id
-            session.commit()
+            # Do not replace an already-selected live platform registry version.
+            # Integration tests run against Docker services that sync a real
+            # builtin tarball; clobbering it with this fixture's fake tarball can
+            # make unrelated workflow executions try to download s3://test/test.tar.gz.
+            current_platform_version = (
+                session.scalar(
+                    select(PlatformRegistryVersion).where(
+                        PlatformRegistryVersion.id == platform_repo.current_version_id
+                    )
+                )
+                if platform_repo.current_version_id is not None
+                else None
+            )
+            if _should_select_fixture_platform_current(
+                sync_db_uri,
+                current_version=current_platform_version.version
+                if current_platform_version is not None
+                else None,
+                fixture_version=version,
+            ):
+                platform_repo.current_version_id = platform_rv.id
+                session.commit()
 
             # Create PlatformRegistryIndex entries for each action in the manifest
             # This is required for get_actions_from_index to work in agent tools
@@ -872,6 +1147,24 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
 
     yield
     # No cleanup needed - the database is dropped at the end of the session
+
+
+def _should_select_fixture_platform_current(
+    sync_db_uri: str,
+    *,
+    current_version: str | None,
+    fixture_version: str,
+) -> bool:
+    """Return whether the fixture platform version should be current.
+
+    The fake fixture tarball is safe as the selected version when no platform
+    current exists yet. The shared/default DB may also be used by live executor
+    services, so preserve any existing live current selection instead of
+    clobbering it with the fixture version.
+    """
+    if sync_db_uri == TEST_DB_CONFIG.test_url_sync:
+        return True
+    return current_version is None or current_version == fixture_version
 
 
 @pytest.fixture(scope="function")
@@ -957,6 +1250,9 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(
         config, "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", MINIO_WORKFLOW_BUCKET
     )
+    monkeysession.setattr(
+        config, "TRACECAT__BLOB_STORAGE_BUCKET_AGENT", MINIO_WORKFLOW_BUCKET
+    )
     monkeysession.setattr(config, "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", True)
     # Externalize all results for testing (threshold=0)
     monkeysession.setattr(config, "TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", 0)
@@ -979,6 +1275,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv(
         "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", MINIO_WORKFLOW_BUCKET
     )
+    monkeysession.setenv("TRACECAT__BLOB_STORAGE_BUCKET_AGENT", MINIO_WORKFLOW_BUCKET)
     monkeysession.setenv("TRACECAT__RESULT_EXTERNALIZATION_ENABLED", "true")
     monkeysession.setenv("TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", "0")
     # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
@@ -988,13 +1285,26 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
     monkeysession.setenv("TRACECAT__API_URL", api_url)
     monkeysession.setenv("TRACECAT__EXECUTOR_URL", executor_url)
+    monkeysession.setattr(
+        config,
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(ACTION_GATEWAY_TEST_SOCKET),
+    )
+    monkeysession.setenv(
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(ACTION_GATEWAY_TEST_SOCKET),
+    )
     # Use TestBackend for in-process executor (no sandbox overhead) unless overridden
     if not IN_DOCKER:
         monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "test")
         monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "test")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
-    monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
+    service_key = os.environ["TRACECAT__SERVICE_KEY"]
+    monkeysession.setattr(config, "TRACECAT__SERVICE_KEY", service_key)
+    monkeysession.setenv("TRACECAT__SERVICE_KEY", service_key)
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
+    monkeysession.setenv("USER_AUTH_SECRET", "test-user-auth-secret")
+    monkeysession.setattr(config, "USER_AUTH_SECRET", "test-user-auth-secret")
     monkeysession.setenv("TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233")
     monkeysession.setenv("TEMPORAL__CLUSTER_NAMESPACE", "default")
     # Use worker-specific task queues for pytest-xdist isolation
@@ -1007,6 +1317,107 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
 
     yield
     logger.info("Environment variables cleaned up")
+
+
+@pytest.fixture(scope="session")
+def inprocess_api_server(
+    env_sandbox: None,
+    default_org: None,
+    workflow_bucket: None,
+    redis_server: None,
+    monkeysession: pytest.MonkeyPatch,
+) -> Iterator[str]:
+    """Run the real Tracecat API on localhost without building the Docker image.
+
+    The API runs in a separate local process instead of a thread so SQLAlchemy's
+    async engine/pool is never shared across the pytest and Uvicorn event loops.
+    """
+    port = _get_free_tcp_port()
+    api_url = f"http://127.0.0.1:{port}"
+    monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
+    monkeysession.setenv("TRACECAT__API_URL", api_url)
+    monkeysession.setattr(config, "TRACECAT__PUBLIC_API_URL", f"{api_url}/api")
+    monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"{api_url}/api")
+
+    api_env = os.environ.copy()
+    api_env["TRACECAT__API_URL"] = api_url
+    api_env["TRACECAT__PUBLIC_API_URL"] = f"{api_url}/api"
+
+    log_file = tempfile.NamedTemporaryFile(
+        mode="w+",
+        prefix=f"tracecat-api-{WORKER_ID}-",
+        suffix=".log",
+        delete=True,
+    )
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "tracecat.api.app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--log-level",
+            "warning",
+            "--no-access-log",
+        ],
+        env=api_env,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        _wait_for_http_ok(f"{api_url}/health")
+        yield api_url
+    except Exception as exc:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=10)
+        log_file.seek(0)
+        logs = log_file.read()[-4000:]
+        raise RuntimeError(f"Tracecat API test server failed. Logs:\n{logs}") from exc
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+        log_file.close()
+
+
+@pytest.fixture(autouse=True)
+def api_server_for_requires_api_tests(
+    request: pytest.FixtureRequest,
+    monkeysession: pytest.MonkeyPatch,
+) -> None:
+    """Select the API harness for tests marked ``requires_api``.
+
+    PR CI uses an in-process uvicorn server to keep behavioral coverage without
+    building the API image. Full integration jobs keep using the external API.
+    """
+    if request.node.get_closest_marker("requires_api") is None:
+        return
+
+    mode = os.environ.get("TRACECAT_TEST_API_MODE", "external")
+    if mode == "inprocess":
+        request.getfixturevalue("inprocess_api_server")
+    elif mode == "external":
+        if api_url := os.environ.get("TRACECAT_TEST_EXTERNAL_API_URL"):
+            monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
+            monkeysession.setenv("TRACECAT__API_URL", api_url)
+        return
+    else:
+        pytest.fail(
+            "TRACECAT_TEST_API_MODE must be either 'inprocess' or 'external', "
+            f"got {mode!r}"
+        )
 
 
 @pytest.fixture(scope="session")
@@ -1139,19 +1550,18 @@ async def test_workspace(test_organization, mock_org_id):
     )
 
     async with WorkspaceService.with_session(role=org_role) as svc:
-        # Create new test workspace
         workspace = await svc.create_workspace(name=workspace_name, override_id=ws_id)
 
-        logger.debug("Created test workspace", workspace=workspace)
+    logger.debug("Created test workspace", workspace=workspace)
+    try:
+        yield workspace
+    finally:
+        logger.debug("Teardown test workspace")
         try:
-            yield workspace
-        finally:
-            # Clean up the workspace
-            logger.debug("Teardown test workspace")
-            try:
+            async with WorkspaceService.with_session(role=org_role) as svc:
                 await svc.delete_workspace(ws_id)
-            except Exception as e:
-                logger.warning(f"Error during workspace cleanup: {e}")
+        except Exception as e:
+            logger.warning(f"Error during workspace cleanup: {e}")
 
 
 @pytest.fixture(scope="session")
@@ -1162,9 +1572,7 @@ def temporal_client():
         policy = asyncio.get_event_loop_policy()
         loop = policy.new_event_loop()
 
-    client = loop.run_until_complete(
-        get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
-    )
+    client = loop.run_until_complete(get_temporal_client())
     return client
 
 
@@ -1381,12 +1789,13 @@ def minio_server():
 
 @pytest.fixture(scope="session", autouse=True)
 def workflow_bucket(minio_server, env_sandbox):
-    """Create the workflow bucket for result externalization and reset object storage.
+    """Create test storage buckets and reset object storage.
 
     This fixture:
     1. Creates the bucket used by S3ObjectStorage for StoredObject externalization
-    2. Reloads the blob module to pick up the test config
-    3. Resets the object storage singleton so it uses S3ObjectStorage
+    2. Creates API-owned buckets that are needed when tests run without API startup
+    3. Reloads the blob module to pick up the test config
+    4. Resets the object storage singleton so it uses S3ObjectStorage
 
     Session-scoped and autouse to ensure all tests use S3-backed object storage.
     Depends on env_sandbox to ensure config is set before we create the bucket.
@@ -1397,7 +1806,6 @@ def workflow_bucket(minio_server, env_sandbox):
     # Reload blob module to pick up MinIO config
     importlib.reload(blob)
 
-    # Create workflow bucket if it doesn't exist
     access_key, secret_key = _minio_credentials()
     client = Minio(
         f"localhost:{MINIO_PORT}",
@@ -1405,13 +1813,21 @@ def workflow_bucket(minio_server, env_sandbox):
         secret_key=secret_key,
         secure=False,
     )
-    try:
-        if not client.bucket_exists(MINIO_WORKFLOW_BUCKET):
-            client.make_bucket(MINIO_WORKFLOW_BUCKET)
-            logger.info(f"Created workflow bucket: {MINIO_WORKFLOW_BUCKET}")
-    except S3Error as e:
-        if e.code != "BucketAlreadyOwnedByYou":
-            raise
+    bucket_names = {
+        config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+        config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY,
+        config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+        config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT,
+        config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW,
+    }
+    for bucket_name in sorted(bucket_names):
+        try:
+            if not client.bucket_exists(bucket_name):
+                client.make_bucket(bucket_name)
+                logger.info(f"Created MinIO bucket: {bucket_name}")
+        except S3Error as e:
+            if e.code != "BucketAlreadyOwnedByYou":
+                raise
 
     # Reset object storage singleton so it picks up the test config (S3ObjectStorage)
     object_module.reset_object_storage()
@@ -1507,15 +1923,21 @@ def threadpool() -> Iterator[ThreadPoolExecutor]:
 
 @pytest.fixture(scope="function")
 async def executor_backend() -> AsyncGenerator[ExecutorBackend, None]:
-    """Initialize executor backend once per test function."""
+    """Initialize the executor backend and its worker-owned action gateway."""
+    from tracecat.executor.action_gateway.server import ActionGateway
     from tracecat.executor.backends import (
         initialize_executor_backend,
         shutdown_executor_backend,
     )
 
-    backend = await initialize_executor_backend()
-    yield backend
-    await shutdown_executor_backend()
+    action_gateway = ActionGateway(socket_path=ACTION_GATEWAY_TEST_SOCKET)
+    await action_gateway.start()
+    try:
+        backend = await initialize_executor_backend()
+        yield backend
+    finally:
+        await shutdown_executor_backend()
+        await action_gateway.stop()
 
 
 @pytest.fixture(scope="function")
@@ -1529,16 +1951,18 @@ async def test_worker_factory(
         *,
         activities: list[Callable] | None = None,
         task_queue: str | None = None,
+        workflows: list[type] | None = None,
     ) -> Worker:
         """Create a worker with the same configuration as production."""
 
-        activities = activities or get_activities()
+        activities = get_activities() if activities is None else activities
         return Worker(
             client=client,
             task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],
             activities=activities,
-            workflows=[DSLWorkflow],
+            workflows=workflows or [DSLWorkflow],
             workflow_runner=new_sandbox_runner(),
+            interceptors=[RuntimeErrorAttributionInterceptor()],
             activity_executor=threadpool,
         )
 

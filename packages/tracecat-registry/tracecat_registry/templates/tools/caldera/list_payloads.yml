@@ -3,7 +3,7 @@ definition:
   title: List payloads
   description: List uploaded payloads from Caldera.
   display_group: MITRE Caldera
-  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#payloads
+  doc_url: https://caldera.readthedocs.io/en/latest/The-REST-API.html
   namespace: tools.caldera
   name: list_payloads
   secrets:

@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: List user reports
+  description: List Sublime user-reported messages using API-native filters.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/listuserreports
+  namespace: tools.sublime
+  name: list_user_reports
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    limit:
+      type: int | None
+      description: The maximum number of message groups to return. If the value exceeds the maximum, then the maximum value will be used.
+      default: null
+    reported_at_gte:
+      type: datetime | None
+      description: Inclusive start datetime filter for time of report, in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z'). Only reports at or after this time will be returned.
+      default: null
+    reported_at_lt:
+      type: datetime | None
+      description: Exclusive end datetime filter for time of report, in UTC using the ISO 8601 format (e.g., '2021-03-14T15:09:26Z'). Only reports before this time will be returned.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/user-reports
+        method: GET
+        params:
+          limit: ${{ inputs.limit }}
+          "reported_at[gte]": ${{ inputs.reported_at_gte }}
+          "reported_at[lt]": ${{ inputs.reported_at_lt }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

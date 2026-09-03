@@ -2,6 +2,7 @@
 
 import { createContext, type ReactNode, useContext, useMemo } from "react"
 import { useUserScopes } from "@/lib/hooks"
+import { hasGrantedScope } from "@/lib/scopes"
 import { useOptionalWorkspaceId } from "@/providers/workspace-id"
 
 interface ScopeContextValue {
@@ -25,48 +26,6 @@ interface ScopeContextValue {
 
 const ScopeContext = createContext<ScopeContextValue | undefined>(undefined)
 
-/**
- * Match a required scope against a user's granted scopes.
- * Supports wildcards in granted scopes (e.g., "workflow:*" matches "workflow:read").
- */
-function matchScope(
-  requiredScope: string,
-  grantedScopes: Set<string>
-): boolean {
-  // Direct match
-  if (grantedScopes.has(requiredScope)) {
-    return true
-  }
-
-  // Check for superuser wildcard
-  if (grantedScopes.has("*")) {
-    return true
-  }
-
-  // Check for pattern matches (e.g., "workflow:*" matches "workflow:read")
-  for (const granted of grantedScopes) {
-    if (granted.endsWith(":*")) {
-      const prefix = granted.slice(0, -1) // Remove the "*" to get "workflow:"
-      if (requiredScope.startsWith(prefix)) {
-        return true
-      }
-    }
-    // Handle more complex wildcards like "action:tools.virustotal.*:execute"
-    if (granted.includes("*")) {
-      // Escape all regex special chars except *, then replace * with .*
-      const pattern = granted
-        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-        .replace(/\*/g, ".*")
-      const regex = new RegExp(`^${pattern}$`)
-      if (regex.test(requiredScope)) {
-        return true
-      }
-    }
-  }
-
-  return false
-}
-
 export function ScopeProvider({ children }: { children: ReactNode }) {
   const workspaceId = useOptionalWorkspaceId()
   const { userScopes, isLoading, error } = useUserScopes(workspaceId)
@@ -75,7 +34,7 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     const scopes = new Set(userScopes?.scopes ?? [])
 
     const hasScope = (scope: string): boolean => {
-      return matchScope(scope, scopes)
+      return hasGrantedScope(scope, scopes)
     }
 
     const hasAnyScope = (requiredScopes: string[]): boolean => {

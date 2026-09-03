@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: List labels
+  description: List all labels defined in Fleet, including built-in platform labels.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-labels
+  namespace: tools.fleetdm
+  name: list_labels
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    order_key:
+      type: str | None
+      description: Field to order labels by (e.g. name, created_at).
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            order_key: ${{ inputs.order_key }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
+    - ref: list_labels
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/labels
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_labels.result.data }}

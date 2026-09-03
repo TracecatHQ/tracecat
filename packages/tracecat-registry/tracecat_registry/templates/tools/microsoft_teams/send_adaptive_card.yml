@@ -3,7 +3,7 @@ definition:
   title: Send adaptive card
   description: Send a message with Adaptive Cards to a Microsoft Teams channel.
   display_group: Microsoft Teams
-  doc_url: https://learn.microsoft.com/en-us/graph/api/channel-post-messages
+  doc_url: https://learn.microsoft.com/en-us/graph/api/channel-post-messages?view=graph-rest-1.0
   namespace: tools.microsoft_teams
   name: send_adaptive_card
   secrets:

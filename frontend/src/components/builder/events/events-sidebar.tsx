@@ -2,17 +2,12 @@
 
 import {
   AlarmClockOffIcon,
-  CalendarSearchIcon,
   CircleArrowRightIcon,
   CircleCheck,
   CircleMinusIcon,
   CircleX,
-  FileInputIcon,
   GitBranchIcon,
-  MessagesSquare,
-  ShapesIcon,
   TimerResetIcon,
-  WorkflowIcon,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import type { ImperativePanelHandle } from "react-resizable-panels"
@@ -21,23 +16,16 @@ import {
   type TriggerType,
   type WorkflowExecutionReadMinimal,
 } from "@/client"
-import { ActionEventPane } from "@/components/builder/events/events-selected-action"
-import { EventsSidebarEmpty } from "@/components/builder/events/events-sidebar-empty"
-import { WorkflowInteractions } from "@/components/builder/events/events-sidebar-interactions"
 import {
-  getTriggerTypeIcon,
-  WorkflowEvents,
-  WorkflowEventsHeader,
-} from "@/components/builder/events/events-workflow"
+  buildEventsTabItems,
+  EventsLoading,
+  type EventsSidebarTabs,
+  NoWorkflowRuns,
+} from "@/components/builder/events/events-shared"
+import { EventsSidebarEmpty } from "@/components/builder/events/events-sidebar-empty"
+import { getTriggerTypeIcon } from "@/components/builder/events/events-workflow"
 import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import {
   Select,
@@ -56,6 +44,8 @@ import {
 import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
+
+export type { EventsSidebarTabs }
 
 // Define the available trigger types for UI generation
 const AVAILABLE_TRIGGER_TYPES: readonly TriggerType[] = $TriggerType.enum
@@ -187,11 +177,6 @@ function ExecutionOptionRow({
   )
 }
 
-export type EventsSidebarTabs =
-  | "workflow-events"
-  | "action-input"
-  | "action-result"
-  | "action-interaction"
 /**
  * Interface for controlling the events sidebar through a ref
  */
@@ -307,14 +292,7 @@ export function BuilderSidebarEvents() {
   ])
 
   if (workflowExecutionsIsLoading) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center space-y-2">
-        <span className="text-xs text-muted-foreground">
-          Fetching executions...
-        </span>
-        <Spinner className="size-6" />
-      </div>
-    )
+    return <EventsLoading message="Fetching executions..." />
   }
 
   if (workflowExecutionsError) {
@@ -327,21 +305,7 @@ export function BuilderSidebarEvents() {
   }
 
   if (!executionId) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Empty className="border-none">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <WorkflowIcon />
-            </EmptyMedia>
-            <EmptyTitle>No workflow runs</EmptyTitle>
-            <EmptyDescription>
-              Get started by running your workflow
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      </div>
-    )
+    return <NoWorkflowRuns />
   }
 
   return (
@@ -374,21 +338,8 @@ function BuilderSidebarEventsList({
   const { execution, executionIsLoading, executionError } =
     useCompactWorkflowExecution(executionId)
 
-  console.debug({
-    execId: execution?.id,
-    execIsLoading: executionIsLoading,
-    execError: executionError,
-  })
-
   if (executionIsLoading) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center space-y-2">
-        <span className="text-xs text-muted-foreground">
-          Fetching events...
-        </span>
-        <Spinner className="size-6" />
-      </div>
-    )
+    return <EventsLoading message="Fetching events..." />
   }
   if (executionError) {
     return (
@@ -406,42 +357,10 @@ function BuilderSidebarEventsList({
       />
     )
   }
-  const tabItems = [
-    {
-      value: "workflow-events",
-      label: "Events",
-      icon: CalendarSearchIcon,
-      content: (
-        <>
-          <WorkflowEventsHeader execution={execution} />
-          {appSettings?.app_interactions_enabled && (
-            <WorkflowInteractions execution={execution} />
-          )}
-          <WorkflowEvents events={execution.events} status={execution.status} />
-        </>
-      ),
-    },
-    {
-      value: "action-input",
-      label: "Input",
-      icon: FileInputIcon,
-      content: <ActionEventPane execution={execution} type="input" />,
-    },
-    {
-      value: "action-result",
-      label: "Result",
-      icon: ShapesIcon,
-      content: <ActionEventPane execution={execution} type="result" />,
-    },
-  ]
-  if (appSettings?.app_interactions_enabled) {
-    tabItems.push({
-      value: "action-interaction",
-      label: "Interaction",
-      icon: MessagesSquare,
-      content: <ActionEventPane execution={execution} type="interaction" />,
-    })
-  }
+  const tabItems = buildEventsTabItems({
+    execution,
+    interactionsEnabled: !!appSettings?.app_interactions_enabled,
+  })
 
   return (
     <div className="h-full">

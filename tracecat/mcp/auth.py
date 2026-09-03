@@ -5,41 +5,74 @@ from __future__ import annotations
 import html
 import json
 import re
+import time
 import uuid
 from base64 import urlsafe_b64decode
-from typing import Any
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from typing import Any, cast
+from urllib.parse import parse_qs, urlparse
 
+import httpx
 from cryptography.fernet import Fernet
-from fastmcp.server.auth import AuthProvider
+from fastmcp.server.auth import AccessToken, AuthProvider, MultiAuth, TokenVerifier
+from fastmcp.server.auth.cimd import CIMDDocument
+from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
+from fastmcp.server.auth.redirect_validation import (
+    validate_redirect_uri as validate_client_redirect_uri,
+)
 from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
-from mcp.server.auth.provider import TokenError
-from pydantic import BaseModel, Field
+from mcp.server.auth.provider import (
+    AuthorizationParams,
+    TokenError,
+)
+from mcp.shared.auth import InvalidRedirectUriError, OAuthClientInformationFull
+from pydantic import AnyUrl, BaseModel, Field
+from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
+from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
+from starlette.routing import Route
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from tracecat import config
 from tracecat.auth.credentials import compute_effective_scopes
-from tracecat.auth.oidc import get_platform_oidc_config
 from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope
 from tracecat.authz.enums import OrgRole, WorkspaceRole
-from tracecat.config import REDIS_URL, TRACECAT__DB_ENCRYPTION_KEY
+from tracecat.config import (
+    REDIS_URL,
+    TRACECAT__PUBLIC_APP_URL,
+)
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+)
 from tracecat.db.models import (
     Membership,
+    Organization,
     OrganizationMembership,
     User,
     Workspace,
 )
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.logger import logger
-from tracecat.mcp.config import (
-    TRACECAT_MCP__BASE_URL,
+from tracecat.mcp.oidc.config import (
+    INTERNAL_CLIENT_ID,
+    get_internal_client_secret,
+    get_internal_discovery_url,
 )
+from tracecat.mcp.oidc.features import (
+    OFFLINE_ACCESS_SCOPE,
+    get_supported_scopes,
+)
+from tracecat.mcp.personal_access_tokens.constants import MCP_PAT_PREFIX
+from tracecat.mcp.personal_access_tokens.service import verify_mcp_personal_access_token
 
 
 class MCPTokenIdentity(BaseModel):
@@ -57,6 +90,141 @@ _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
     ),
     "workspace": re.compile(r"^(?:workspace|workspace_id):(?P<uuid>[0-9a-fA-F-]{36})$"),
 }
+
+_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 24 * 60 * 60
+_MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
+_MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+class _UserinfoFetchError(RuntimeError):
+    """Raised when the upstream userinfo endpoint cannot be queried."""
+
+
+def append_scope_if_missing(scopes: list[str], scope: str) -> list[str]:
+    """Append a scope only if it is not already present."""
+    if scope in scopes:
+        return scopes
+    return [*scopes, scope]
+
+
+def merge_unique_scopes(scopes: list[str], extra_scopes: Sequence[str]) -> list[str]:
+    """Append extra scopes while preserving order and uniqueness."""
+    merged = scopes
+    for scope in extra_scopes:
+        merged = append_scope_if_missing(merged, scope)
+    return merged
+
+
+def merge_scope_string(
+    scope: str | None,
+    extra_scopes: Sequence[str],
+) -> str:
+    """Return a space-separated scope string with required scopes appended."""
+    merged_scopes = merge_unique_scopes(scope.split() if scope else [], extra_scopes)
+    return " ".join(merged_scopes)
+
+
+def remove_scope(scopes: list[str], scope: str) -> list[str]:
+    """Return a scope list with the target scope removed."""
+    return [value for value in scopes if value != scope]
+
+
+def supports_refresh_scope(scopes_supported: Sequence[str] | None) -> bool:
+    """Return whether provider metadata supports MCP refresh scope requests."""
+    if scopes_supported is None:
+        # If provider metadata omits scopes_supported, optimistically request.
+        return True
+    return OFFLINE_ACCESS_SCOPE in scopes_supported
+
+
+def _patch_oauth_metadata_route(app: ASGIApp) -> ASGIApp:
+    """Patch only the advertised token auth methods on discovery responses."""
+
+    async def patched_app(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await app(scope, receive, send)
+            return
+
+        start_message: Message | None = None
+        body_chunks: list[bytes] = []
+
+        async def capture(message: Message) -> None:
+            nonlocal start_message
+
+            match message["type"]:
+                case "http.response.start":
+                    start_message = dict(message)
+                case "http.response.body":
+                    body_chunks.append(message.get("body", b""))
+                case _:
+                    await send(message)
+
+        await app(scope, receive, capture)
+
+        if start_message is None:
+            return
+
+        body = b"".join(body_chunks)
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            payload["token_endpoint_auth_methods_supported"] = (
+                _MCP_TOKEN_ENDPOINT_AUTH_METHODS
+            )
+            body = json.dumps(payload).encode("utf-8")
+
+        headers = MutableHeaders(raw=start_message["headers"])
+        headers["content-length"] = str(len(body))
+        await send(start_message)
+        await send({"type": "http.response.body", "body": body, "more_body": False})
+
+    return patched_app
+
+
+def _normalize_loopback_path(path: str) -> str:
+    normalized = path or "/"
+    return normalized.rstrip("/") or "/"
+
+
+def _parse_loopback_redirect_uri(value: str) -> tuple[str, str, str, str] | None:
+    parsed = urlparse(value)
+    host = parsed.hostname.lower() if parsed.hostname else None
+    if host not in _LOOPBACK_HOSTS:
+        return None
+    return (
+        parsed.scheme.lower(),
+        host,
+        _normalize_loopback_path(parsed.path),
+        parsed.query,
+    )
+
+
+def _matches_cimd_loopback_redirect_uri(
+    *,
+    redirect_uri: AnyUrl,
+    cimd_document: CIMDDocument,
+    allowed_redirect_uri_patterns: list[str] | None,
+) -> bool:
+    requested = _parse_loopback_redirect_uri(str(redirect_uri))
+    if requested is None:
+        return False
+
+    if allowed_redirect_uri_patterns is not None and not validate_client_redirect_uri(
+        redirect_uri=redirect_uri,
+        allowed_patterns=allowed_redirect_uri_patterns,
+    ):
+        return False
+
+    requested_signature = requested
+    for registered_uri in cimd_document.redirect_uris:
+        if "*" in registered_uri:
+            continue
+        if _parse_loopback_redirect_uri(registered_uri) == requested_signature:
+            return True
+    return False
 
 
 def _coerce_uuid(value: object) -> uuid.UUID | None:
@@ -118,6 +286,146 @@ def _extract_scope_uuids(scopes: list[str], resource: str) -> set[uuid.UUID]:
     return ids
 
 
+def get_email_claim(claims: Mapping[str, object]) -> str | None:
+    """Extract an email claim from FastMCP token claims."""
+    match claims:
+        case {"email": str(raw_email)} if email := raw_email.strip():
+            return email
+        case {"upstream_claims": {"email": str(raw_email)}} if (
+            email := raw_email.strip()
+        ):
+            return email
+        case _:
+            return None
+
+
+def _decode_unverified_id_token_claims(id_token: str) -> dict[str, object]:
+    """Decode a JWT payload without signature verification.
+
+    The upstream token exchange has already validated the token. This helper only
+    extracts claims for local attribution logic (email/org/workspace hints).
+    """
+    payload_b64 = id_token.split(".")[1]
+    padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+    claims = json.loads(urlsafe_b64decode(padded))
+    if not isinstance(claims, dict):
+        raise ValueError("id_token payload is not an object")
+    return claims
+
+
+def _normalize_email_claim(value: object) -> str | None:
+    if isinstance(value, str) and (email := value.strip()):
+        return email
+    return None
+
+
+def _normalize_subject_claim(value: object) -> str | None:
+    if isinstance(value, str) and (subject := value.strip()):
+        return subject
+    return None
+
+
+def _merge_fastmcp_token_claims(
+    *,
+    validated_claims: Mapping[str, object],
+    fastmcp_claims: Mapping[str, object],
+) -> dict[str, object]:
+    """Merge proxy JWT claims back into the validated upstream token claims.
+
+    FastMCP's OAuth proxy validates tool requests by swapping its own JWT for the
+    upstream provider access token. That means downstream callers often see the
+    upstream token claims, which may omit identity data that Tracecat embedded in
+    the proxy JWT under ``upstream_claims``. Preserve those proxy claims here so
+    request-scoped identity helpers can read a consistent claim set.
+    """
+
+    merged = dict(validated_claims)
+
+    proxy_upstream_claims_obj = fastmcp_claims.get("upstream_claims")
+    if isinstance(proxy_upstream_claims_obj, Mapping):
+        proxy_upstream_claims = dict(
+            cast(Mapping[str, object], proxy_upstream_claims_obj)
+        )
+        merged["upstream_claims"] = proxy_upstream_claims
+        if _normalize_email_claim(merged.get("email")) is None and (
+            email := _normalize_email_claim(proxy_upstream_claims.get("email"))
+        ):
+            merged["email"] = email
+
+    if isinstance(fastmcp_claims.get("client_id"), str):
+        merged["client_id"] = fastmcp_claims["client_id"]
+
+    return merged
+
+
+def _extract_fastmcp_scopes(fastmcp_claims: Mapping[str, object]) -> list[str] | None:
+    raw_scope = fastmcp_claims.get("scope")
+    if isinstance(raw_scope, str):
+        return [scope for scope in raw_scope.split() if scope]
+    if isinstance(raw_scope, list) and all(
+        isinstance(scope, str) for scope in raw_scope
+    ):
+        return [scope for scope in raw_scope if scope]
+    return None
+
+
+def _expires_at_timestamp(expires_at: datetime | None) -> int | None:
+    if expires_at is None:
+        return None
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    else:
+        expires_at = expires_at.astimezone(UTC)
+    return int(expires_at.timestamp())
+
+
+class MCPPATTokenVerifier(TokenVerifier):
+    """FastMCP token verifier for workspace-scoped MCP personal access tokens."""
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if not token.startswith(MCP_PAT_PREFIX):
+            return None
+
+        identity = await verify_mcp_personal_access_token(token)
+        if identity is None:
+            return None
+
+        client_id = f"mcp_pat:{identity.key_id}"
+        claims: dict[str, object] = {
+            "sub": str(identity.user_id),
+            "email": identity.email,
+            "organization_id": str(identity.organization_id),
+            "organization_ids": [str(identity.organization_id)],
+            "client_id": client_id,
+            "workspace_id": str(identity.workspace_id),
+            "workspace_ids": [str(identity.workspace_id)],
+        }
+        return AccessToken(
+            token=token,
+            client_id=client_id,
+            scopes=[],
+            expires_at=_expires_at_timestamp(identity.expires_at),
+            claims=claims,
+        )
+
+
+async def _fetch_userinfo_claims(
+    *,
+    access_token: str,
+    userinfo_endpoint: str,
+) -> dict[str, object]:
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            userinfo_endpoint,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError("userinfo payload is not an object")
+    return payload
+
+
 def get_token_identity() -> MCPTokenIdentity:
     """Extract normalized caller identity from the current access token."""
     access_token = get_access_token()
@@ -125,17 +433,17 @@ def get_token_identity() -> MCPTokenIdentity:
         raise ValueError("Authentication required")
 
     claims = access_token.claims
-    raw_email = claims.get("email")
-    email = raw_email.strip() if isinstance(raw_email, str) else None
-    client_id_claim = (
-        claims.get("client_id")
-        or claims.get("azp")
-        or claims.get("sub")
-        or access_token.client_id
+    email = get_email_claim(claims)
+    raw_client_ids = [
+        claims.get("client_id"),
+        claims.get("azp"),
+        access_token.client_id,
+        claims.get("sub"),
+    ]
+    client_id = next(
+        (c for raw in raw_client_ids if isinstance(raw, str) and (c := raw.strip())),
+        "",
     )
-    client_id = str(client_id_claim).strip() if client_id_claim else ""
-    if not client_id:
-        client_id = access_token.client_id
 
     organization_ids = _extract_claimed_uuids(
         claims,
@@ -387,68 +695,311 @@ def _build_oidc_consent_html(
 </html>"""
 
 
-def create_mcp_auth() -> AuthProvider:
-    """Build auth provider for external MCP."""
-    base_url = TRACECAT_MCP__BASE_URL.strip().rstrip("/")
-    if not base_url:
-        raise ValueError(
-            "TRACECAT_MCP__BASE_URL must be configured for the MCP server. "
-            "Set it to the public URL where the MCP server is accessible."
-        )
+def _create_oidc_auth() -> OIDCProxy:
+    """Build the OIDC auth provider for external MCP."""
+    base_url = TRACECAT__PUBLIC_APP_URL.rstrip("/")
 
-    oidc_config = get_platform_oidc_config()
-    if not oidc_config.issuer:
-        raise ValueError("OIDC_ISSUER must be configured for the MCP server.")
+    # The internal OIDC issuer lives on the API server. The MCP server
+    # uses it as the upstream identity provider instead of an external BYO
+    # OIDC IdP. Keep ``offline_access`` out of ``_required_scopes`` so
+    # validated tool tokens do not require it. Advertise and default the
+    # refresh scope only when refresh-token support is enabled for this
+    # deployment.
+    _required_scopes = ["openid", "profile", "email"]
+    _supported_scopes = get_supported_scopes()
+
+    class TracecatProxyDCRClient(ProxyDCRClient):
+        """Relax CIMD loopback callback validation to allow ephemeral local ports."""
+
+        def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
+            try:
+                return super().validate_redirect_uri(redirect_uri)
+            except InvalidRedirectUriError:
+                if (
+                    redirect_uri is None
+                    or self.cimd_document is None
+                    or not _matches_cimd_loopback_redirect_uri(
+                        redirect_uri=redirect_uri,
+                        cimd_document=self.cimd_document,
+                        allowed_redirect_uri_patterns=self.allowed_redirect_uri_patterns,
+                    )
+                ):
+                    raise
+                return redirect_uri
 
     class TracecatOIDCProxy(OIDCProxy):
         """OIDC proxy with user-existence validation and a custom consent page."""
 
+        async def register_client(
+            self, client_info: OAuthClientInformationFull
+        ) -> None:
+            stored_client = client_info.model_copy(
+                update={
+                    "scope": merge_scope_string(client_info.scope, _required_scopes)
+                }
+            )
+            await super().register_client(stored_client)
+
+        async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
+            client = await super().get_client(client_id)
+            if client is None:
+                return None
+
+            client = client.model_copy(
+                update={"scope": merge_scope_string(client.scope, _required_scopes)}
+            )
+
+            if not isinstance(client, ProxyDCRClient) or client.cimd_document is None:
+                return client
+            if isinstance(client, TracecatProxyDCRClient):
+                return client
+            return TracecatProxyDCRClient.model_validate(client.model_dump())
+
+        async def authorize(
+            self,
+            client: OAuthClientInformationFull,
+            params: AuthorizationParams,
+        ) -> str:
+            """Merge all required OIDC scopes into the authorization request.
+
+            Request ``offline_access`` optimistically even if the upstream OIDC
+            metadata omits it — some providers issue refresh tokens despite not
+            advertising the scope in discovery metadata.  If the provider truly
+            rejects the scope, ``_retry_without_refresh_scope()`` handles a
+            single retry without it.
+            """
+            scopes = merge_unique_scopes(list(params.scopes or []), _required_scopes)
+            params_with_scopes = params.model_copy(update={"scopes": scopes})
+            return await super().authorize(client, params_with_scopes)
+
+        async def _retry_without_refresh_scope(
+            self,
+            *,
+            request: Request,
+        ) -> RedirectResponse | None:
+            """Retry OAuth authorization once without refresh scope on invalid_scope."""
+            if request.query_params.get("error") != "invalid_scope":
+                return None
+
+            txn_id = request.query_params.get("state")
+            if not txn_id:
+                return None
+
+            txn_model = await self._transaction_store.get(key=txn_id)
+            if txn_model is None:
+                return None
+
+            scopes = list(txn_model.scopes or [])
+            if OFFLINE_ACCESS_SCOPE not in scopes:
+                # We already retried (or refresh scope was never requested).
+                return None
+
+            updated_scopes = remove_scope(scopes, OFFLINE_ACCESS_SCOPE)
+            updated_txn = txn_model.model_copy(update={"scopes": updated_scopes})
+
+            age_seconds = max(0.0, time.time() - float(txn_model.created_at))
+            remaining_ttl = max(
+                1, int(_MCP_OAUTH_TRANSACTION_TTL_SECONDS - age_seconds)
+            )
+            await self._transaction_store.put(
+                key=txn_id,
+                value=updated_txn,
+                ttl=remaining_ttl,
+            )
+
+            logger.warning(
+                "OIDC provider rejected refresh scope; retrying authorization without refresh scope",
+                scope=OFFLINE_ACCESS_SCOPE,
+                transaction_id=txn_id,
+            )
+
+            retry_url = self._build_upstream_authorize_url(
+                txn_id,
+                updated_txn.model_dump(),
+            )
+            return RedirectResponse(url=retry_url)
+
         async def _extract_upstream_claims(
             self, idp_tokens: dict[str, Any]
         ) -> dict[str, Any] | None:
-            """Validate the authenticated user exists in Tracecat before issuing a session token."""
-            id_token = idp_tokens.get("id_token")
-            if not id_token:
-                raise TokenError(
-                    "invalid_grant",
-                    "OIDC provider did not return an id_token",
-                )
+            """Extract claims from the internal OIDC issuer's tokens.
 
-            # Decode the JWT payload without verification (already
-            # validated by the upstream exchange).
+            The internal issuer already validated that the user exists in the
+            Tracecat DB and resolved their organization, so we only need to
+            decode the id_token to extract claims.
+            """
+            id_token = idp_tokens.get("id_token")
+            if isinstance(id_token, str) and id_token:
+                try:
+                    claims = _decode_unverified_id_token_claims(id_token)
+                except Exception:
+                    claims = {}
+                if email := _normalize_email_claim(claims.get("email")):
+                    return {
+                        "email": email,
+                        "organization_id": claims.get("organization_id"),
+                        "is_platform_superuser": claims.get(
+                            "is_platform_superuser", False
+                        ),
+                    }
+
+            # Fallback to the standard email resolution path.
             try:
-                payload_b64 = id_token.split(".")[1]
-                # Pad base64
-                padded = payload_b64 + "=" * (-len(payload_b64) % 4)
-                claims = json.loads(urlsafe_b64decode(padded))
+                email = await self._resolve_idp_email(idp_tokens)
             except Exception as exc:
                 raise TokenError(
                     "invalid_grant",
-                    "Failed to decode id_token claims",
+                    "Failed to resolve OIDC email claims from internal issuer",
                 ) from exc
 
-            email = claims.get("email")
-            if not email:
+            if email is None:
                 raise TokenError(
                     "invalid_client",
-                    "No email claim in id_token — cannot resolve Tracecat user",
+                    "No email claim in internal issuer tokens",
                 )
-
-            # Check the user exists in the platform DB
-            try:
-                await resolve_user_by_email(email)
-            except ValueError:
-                logger.warning(
-                    "MCP auth rejected: no Tracecat user for email",
-                    email=email,
-                )
-                raise TokenError(
-                    "invalid_client",
-                    f"No Tracecat account found for {email}. "
-                    "Please sign up or ask an admin to invite you.",
-                ) from None
-
             return {"email": email}
+
+        async def load_access_token(self, token: str) -> AccessToken | None:
+            """Preserve FastMCP JWT identity claims after upstream token validation."""
+            access_token = cast(
+                AccessToken | None, await super().load_access_token(token)
+            )
+            if access_token is None:
+                return None
+
+            try:
+                fastmcp_claims = self.jwt_issuer.verify_token(token)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to decode FastMCP token claims during MCP auth",
+                    error=str(exc),
+                )
+                return access_token
+
+            merged_claims = _merge_fastmcp_token_claims(
+                validated_claims=access_token.claims,
+                fastmcp_claims=fastmcp_claims,
+            )
+            scopes = access_token.scopes
+            if (fastmcp_scopes := _extract_fastmcp_scopes(fastmcp_claims)) is not None:
+                scopes = fastmcp_scopes
+            client_id = access_token.client_id
+            if not client_id and isinstance(fastmcp_claims.get("client_id"), str):
+                client_id = fastmcp_claims["client_id"].strip()
+
+            return access_token.model_copy(
+                update={
+                    "claims": merged_claims,
+                    "client_id": client_id,
+                    "scopes": scopes,
+                }
+            )
+
+        async def _handle_idp_callback(
+            self, request: Request
+        ) -> HTMLResponse | RedirectResponse:
+            if fallback_response := await self._retry_without_refresh_scope(
+                request=request
+            ):
+                return fallback_response
+
+            response = await super()._handle_idp_callback(request)
+            if not isinstance(response, RedirectResponse):
+                return response
+
+            if not config.TRACECAT__EE_MULTI_TENANT:
+                return response
+
+            location = response.headers.get("location")
+            if location is None:
+                return response
+
+            parsed = urlparse(location)
+            callback_codes = parse_qs(parsed.query).get("code")
+            if not callback_codes:
+                return response
+
+            auth_code = callback_codes[0]
+            if not auth_code:
+                return response
+
+            try:
+                code_model = await self._code_store.get(key=auth_code)
+                if code_model is None:
+                    return response
+
+                payload = code_model.model_dump()
+                idp_tokens = payload.get("idp_tokens")
+                if not isinstance(idp_tokens, dict):
+                    return response
+
+                email = await self._resolve_idp_email(idp_tokens)
+                if email is None:
+                    return response
+
+                from tracecat_ee.watchtower.service import (
+                    maybe_create_oauth_provisional_session,
+                )
+
+                raw_client_id = payload.get("client_id")
+                auth_client_id = (
+                    raw_client_id.strip()
+                    if isinstance(raw_client_id, str) and raw_client_id.strip()
+                    else None
+                )
+
+                await maybe_create_oauth_provisional_session(
+                    email=email,
+                    auth_client_id=auth_client_id,
+                    auth_transaction_id=request.query_params.get("state"),
+                    user_agent=request.headers.get("user-agent"),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to record Watchtower OAuth callback",
+                    error=str(exc),
+                )
+
+            return response
+
+        async def _resolve_idp_email(
+            self, idp_tokens: Mapping[str, object]
+        ) -> str | None:
+            id_token_subject: str | None = None
+            id_token = idp_tokens.get("id_token")
+            if isinstance(id_token, str) and id_token:
+                claims = _decode_unverified_id_token_claims(id_token)
+                id_token_subject = _normalize_subject_claim(claims.get("sub"))
+                if email := _normalize_email_claim(claims.get("email")):
+                    return email
+
+            access_token = idp_tokens.get("access_token")
+            userinfo_endpoint = self.oidc_config.userinfo_endpoint
+            if isinstance(access_token, str) and userinfo_endpoint:
+                try:
+                    userinfo = await _fetch_userinfo_claims(
+                        access_token=access_token,
+                        userinfo_endpoint=str(userinfo_endpoint),
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to fetch upstream userinfo for MCP auth",
+                        error=str(exc),
+                    )
+                    raise _UserinfoFetchError from exc
+                else:
+                    if id_token_subject is not None:
+                        userinfo_subject = _normalize_subject_claim(userinfo.get("sub"))
+                        if userinfo_subject != id_token_subject:
+                            logger.warning(
+                                "Rejected upstream userinfo subject mismatch for MCP auth",
+                                id_token_subject=id_token_subject,
+                                userinfo_subject=userinfo_subject,
+                            )
+                            return None
+                    return _normalize_email_claim(userinfo.get("email"))
+
+            return None
 
         async def _show_consent_page(
             self, request: Request
@@ -489,14 +1040,32 @@ def create_mcp_auth() -> AuthProvider:
             response.headers["content-length"] = str(len(response.body))
             return response
 
+        def get_routes(self, mcp_path: str | None = None) -> list[Route]:
+            """Patch OAuth metadata to advertise public-client auth (``"none"``)."""
+            routes = super().get_routes(mcp_path)
+            if self.base_url is None:
+                return routes
+
+            for route in routes:
+                if not (
+                    isinstance(route, Route)
+                    and route.path.startswith("/.well-known/oauth-authorization-server")
+                ):
+                    continue
+
+                route.app = _patch_oauth_metadata_route(route.app)
+
+            return routes
+
     # Build Redis-backed storage for OAuth state (client registrations,
     # auth codes, tokens, transactions) so state survives restarts and
     # is shared across MCP replicas.
-    redis_store = RedisStore(url=REDIS_URL)
+    redis_client = AsyncRedis.from_url(REDIS_URL, decode_responses=True)
+    redis_store = RedisStore(client=redis_client)
     prefixed_store = PrefixCollectionsWrapper(redis_store, prefix="mcp")
-    if TRACECAT__DB_ENCRYPTION_KEY:
+    if config.TRACECAT__DB_ENCRYPTION_KEY:
         client_storage = FernetEncryptionWrapper(
-            prefixed_store, fernet=Fernet(TRACECAT__DB_ENCRYPTION_KEY)
+            prefixed_store, fernet=Fernet(config.TRACECAT__DB_ENCRYPTION_KEY)
         )
     else:
         logger.warning(
@@ -505,22 +1074,40 @@ def create_mcp_auth() -> AuthProvider:
         )
         client_storage = prefixed_store
 
-    config_url = f"{oidc_config.issuer}/.well-known/openid-configuration"
-    return TracecatOIDCProxy(
+    # Use the internal issuer's discovery URL for server-to-server
+    # communication (avoids hairpin NAT through the reverse proxy).
+    config_url = get_internal_discovery_url()
+    auth = TracecatOIDCProxy(
         config_url=config_url,
-        client_id=oidc_config.client_id,
-        client_secret=oidc_config.client_secret,
+        client_id=INTERNAL_CLIENT_ID,
+        client_secret=get_internal_client_secret(),
         base_url=base_url,
         client_storage=client_storage,
+        fallback_access_token_expiry_seconds=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+        algorithm="ES256",
     )
+    # Patch client_registration_options so the MCP SDK's registration
+    # handler advertises and accepts the full scope set.  Do NOT pass
+    # required_scopes to the constructor — it flows into the JWT
+    # verifier which then rejects any token missing those scopes.
+    if auth.client_registration_options is not None:
+        auth.client_registration_options.valid_scopes = _supported_scopes
+        auth.client_registration_options.default_scopes = _supported_scopes
+    auth._default_scope_str = " ".join(_supported_scopes)
+    if auth._cimd_manager is not None:
+        auth._cimd_manager.default_scope = auth._default_scope_str
+    return auth
+
+
+def create_mcp_auth() -> AuthProvider:
+    """Build the auth provider for external MCP."""
+    return MultiAuth(server=_create_oidc_auth(), verifiers=[MCPPATTokenVerifier()])
 
 
 async def resolve_user_by_email(email: str) -> User:
     """Look up a user by email, raising if not found."""
-    async with get_async_session_context_manager() as session:
-        result = await session.execute(
-            select(User).where(User.email == email)  # pyright: ignore[reportArgumentType]
-        )
+    async with get_async_session_bypass_rls_context_manager() as session:
+        result = await session.execute(select(User).filter_by(email=email))
         user = result.scalars().first()
         if user is None:
             raise ValueError(f"No user found for email: {email}")
@@ -546,7 +1133,7 @@ async def resolve_org_membership(
     Raises:
         ValueError: If the user has no membership in the organization.
     """
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(
             select(OrganizationMembership).where(
                 OrganizationMembership.user_id == user_id,
@@ -567,7 +1154,7 @@ async def resolve_workspace_org(workspace_id: WorkspaceID) -> OrganizationID:
     Raises:
         ValueError: If the workspace does not exist.
     """
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(
             select(Workspace.organization_id).where(Workspace.id == workspace_id)
         )
@@ -586,7 +1173,7 @@ async def resolve_workspace_membership(
     The Membership model is a simple link table without a role column.
     Membership presence grants editor-level access.
     """
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(
             select(Membership).where(
                 Membership.user_id == user_id,
@@ -604,28 +1191,29 @@ async def resolve_workspace_membership(
 async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
     """Resolve a user's Role for a given workspace from their OAuth email.
 
-    Pipeline: email -> User -> Workspace.organization_id -> OrganizationMembership -> Membership -> Role
+    Pipeline: email -> User -> Workspace.organization_id -> scopes/membership -> Role
 
-    The workspace's owning organization is resolved first, then the user's
-    membership in *that* organization is checked. This prevents an admin in
-    org A from gaining access to a workspace belonging to org B.
+    Org admins/owners (users with ``org:workspace:read`` scope) bypass the
+    workspace-level membership check, matching the behaviour of the main API.
     """
     user = await resolve_user_by_email(email)
-    org_id = await resolve_workspace_org(workspace_id)
-    # Validate the user belongs to the organization (raises on missing membership)
-    await resolve_org_membership(user.id, org_id)
-    # Validate workspace-level access
-    await resolve_workspace_membership(user.id, workspace_id)
 
+    org_id = await resolve_workspace_org(workspace_id)
+
+    # Compute scopes early so we can check for org-level workspace access
     role = Role(
         type="user",
         user_id=user.id,
         workspace_id=workspace_id,
         organization_id=org_id,
         service_id="tracecat-mcp",
-        is_platform_superuser=user.is_superuser,
     )
     scopes = await compute_effective_scopes(role)
+
+    # Org admins/owners can access any workspace in their org.
+    if not has_scope(scopes, "org:workspace:read"):
+        await resolve_workspace_membership(user.id, workspace_id)
+
     role = role.model_copy(update={"scopes": scopes})
     # Set context variable so downstream services that rely on ctx_role
     # (e.g. SecretsService.with_session()) can resolve the role automatically.
@@ -635,37 +1223,288 @@ async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
 
 async def list_user_workspaces(
     email: str,
-    organization_id: OrganizationID | None = None,
+    organization_ids: frozenset[OrganizationID] | None = None,
 ) -> list[dict[str, str]]:
-    """List workspaces the user has explicit Membership rows for.
+    """List workspaces accessible to the user.
 
-    Only returns workspaces where the user is a direct member.
+    Users with ``org:workspace:read`` scope (org admins/owners) see every
+    workspace in their organization(s). Other users see only workspaces where
+    they have an explicit Membership row.
     """
     user = await resolve_user_by_email(email)
-    async with get_async_session_context_manager() as session:
-        stmt = (
-            select(Workspace.id, Workspace.name)
-            .join(Membership, Membership.workspace_id == Workspace.id)
-            .where(Membership.user_id == user.id)
-            .order_by(Workspace.name.asc(), Workspace.id.asc())
-        )
-        if organization_id is not None:
-            stmt = stmt.where(Workspace.organization_id == organization_id)
 
-        result = await session.execute(stmt)
-        return [{"id": str(row.id), "name": row.name} for row in result.all()]
+    async with get_async_session_bypass_rls_context_manager() as session:
+
+        async def _list_direct_membership_rows(
+            scoped_org_ids: set[OrganizationID] | None = None,
+        ) -> list[tuple[uuid.UUID, str, uuid.UUID, str]]:
+            member_stmt = (
+                select(
+                    Workspace.id,
+                    Workspace.name,
+                    Workspace.organization_id,
+                    Organization.slug,
+                )
+                .join(Membership, Membership.workspace_id == Workspace.id)
+                .join(Organization, Organization.id == Workspace.organization_id)
+                .where(Membership.user_id == user.id)
+                .where(Organization.is_active.is_(True))
+            )
+            if scoped_org_ids:
+                member_stmt = member_stmt.where(
+                    Workspace.organization_id.in_(scoped_org_ids)
+                )
+            member_result = await session.execute(member_stmt)
+            return sorted(
+                member_result.tuples().all(),
+                key=lambda item: (item[3], item[1], str(item[0])),
+            )
+
+        # Resolve the user's organization(s)
+        org_stmt = (
+            select(OrganizationMembership.organization_id)
+            .join(
+                Organization, Organization.id == OrganizationMembership.organization_id
+            )
+            .where(
+                OrganizationMembership.user_id == user.id,
+                Organization.is_active.is_(True),
+            )
+        )
+        org_result = await session.execute(org_stmt)
+        org_ids = set(org_result.scalars().all())
+
+        if organization_ids:
+            org_ids &= set(organization_ids)
+            if not org_ids:
+                return [
+                    {
+                        "id": str(workspace_id),
+                        "name": name,
+                        "org_id": str(organization_id),
+                        "org_slug": organization_slug,
+                    }
+                    for (
+                        workspace_id,
+                        name,
+                        organization_id,
+                        organization_slug,
+                    ) in await _list_direct_membership_rows(set(organization_ids))
+                ]
+
+        # Determine org-admin visibility on a per-organization basis.
+        org_admin_ids: set[OrganizationID] = set()
+        for oid in org_ids:
+            role = Role(
+                type="user",
+                user_id=user.id,
+                organization_id=oid,
+                workspace_id=None,
+                service_id="tracecat-mcp",
+            )
+            scopes = await compute_effective_scopes(role)
+            if has_scope(scopes, "org:workspace:read"):
+                org_admin_ids.add(oid)
+
+        workspace_map: dict[uuid.UUID, dict[str, str]] = {}
+
+        # For orgs where the user is org-admin/owner, list all workspaces in that org.
+        if org_admin_ids:
+            admin_stmt = (
+                select(
+                    Workspace.id,
+                    Workspace.name,
+                    Workspace.organization_id,
+                    Organization.slug,
+                )
+                .join(Organization, Organization.id == Workspace.organization_id)
+                .where(
+                    Workspace.organization_id.in_(org_admin_ids),
+                    Organization.is_active.is_(True),
+                )
+            )
+            admin_result = await session.execute(admin_stmt)
+            for (
+                workspace_id,
+                workspace_name,
+                organization_id,
+                organization_slug,
+            ) in admin_result.tuples().all():
+                workspace_map[workspace_id] = {
+                    "id": str(workspace_id),
+                    "name": workspace_name,
+                    "org_id": str(organization_id),
+                    "org_slug": organization_slug,
+                }
+
+        # For other orgs, list only direct workspace memberships.
+        member_org_ids = org_ids - org_admin_ids
+        if member_org_ids:
+            member_stmt = (
+                select(
+                    Workspace.id,
+                    Workspace.name,
+                    Workspace.organization_id,
+                    Organization.slug,
+                )
+                .join(Membership, Membership.workspace_id == Workspace.id)
+                .join(Organization, Organization.id == Workspace.organization_id)
+                .where(
+                    Membership.user_id == user.id,
+                    Workspace.organization_id.in_(member_org_ids),
+                    Organization.is_active.is_(True),
+                )
+            )
+            member_result = await session.execute(member_stmt)
+            for (
+                workspace_id,
+                workspace_name,
+                organization_id,
+                organization_slug,
+            ) in member_result.tuples().all():
+                workspace_map[workspace_id] = {
+                    "id": str(workspace_id),
+                    "name": workspace_name,
+                    "org_id": str(organization_id),
+                    "org_slug": organization_slug,
+                }
+
+        if not org_ids:
+            for (
+                workspace_id,
+                workspace_name,
+                organization_id,
+                organization_slug,
+            ) in await _list_direct_membership_rows():
+                workspace_map[workspace_id] = {
+                    "id": str(workspace_id),
+                    "name": workspace_name,
+                    "org_id": str(organization_id),
+                    "org_slug": organization_slug,
+                }
+
+        ordered = sorted(
+            workspace_map.values(),
+            key=lambda item: (
+                item["org_slug"],
+                item["name"],
+                item["id"],
+            ),
+        )
+        return ordered
 
 
 async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
     """Resolve caller role for a workspace."""
-    email = get_email_from_token()
-    return await resolve_role(email, workspace_id)
+    identity = get_token_identity()
+    if identity.email is None:
+        raise ValueError("Token does not contain an email claim")
+    if identity.workspace_ids and workspace_id not in identity.workspace_ids:
+        raise ValueError("Token is not scoped to the requested workspace")
+    if identity.organization_ids:
+        workspace_org_id = await resolve_workspace_org(workspace_id)
+        if workspace_org_id not in identity.organization_ids:
+            raise ValueError("Token is not scoped to the requested organization")
+    return await resolve_role(identity.email, workspace_id)
+
+
+async def resolve_org_role_for_request(
+    organization_id: OrganizationID | None = None,
+) -> Role:
+    """Resolve a role with organization context from the current MCP token.
+
+    Looks up the caller's organization memberships and rejects ambiguous
+    multi-org cases unless the caller passes an explicit org ID. Unlike the
+    HTTP API's ``_resolve_org_for_regular_user``, which falls back to a
+    stable active membership, tokens have an explicit scoping mechanism, so
+    ambiguity is an error here. When the token carries an ``organization_id``
+    claim or ``org:<uuid>`` scope, that scoping is intersected with the
+    user's memberships and any explicit organization before the ambiguity
+    check, so a single-org-scoped token resolves cleanly even when the user
+    belongs to multiple orgs overall.
+    """
+    identity = get_token_identity()
+    if identity.email is None:
+        raise ValueError("Token does not contain an email claim")
+    if identity.workspace_ids:
+        raise ValueError(
+            "Workspace-scoped tokens cannot access organization-level tools"
+        )
+
+    user = await resolve_user_by_email(identity.email)
+
+    async with get_async_session_bypass_rls_context_manager() as session:
+        result = await session.execute(
+            select(OrganizationMembership.organization_id)
+            .join(
+                Organization, Organization.id == OrganizationMembership.organization_id
+            )
+            .where(
+                OrganizationMembership.user_id == user.id,
+                Organization.is_active.is_(True),
+            )
+        )
+        org_ids = {row[0] for row in result.all()}
+
+    if identity.organization_ids:
+        org_ids &= identity.organization_ids
+    if organization_id is not None:
+        if (
+            identity.organization_ids
+            and organization_id not in identity.organization_ids
+        ):
+            raise ValueError("Token is not scoped to the requested organization")
+        org_ids &= {organization_id}
+
+    if not org_ids:
+        if organization_id is not None:
+            raise ValueError(
+                f"User {identity.email} has no membership in organization {organization_id}"
+            )
+        if identity.organization_ids:
+            raise ValueError(
+                f"User {identity.email} has no organization memberships "
+                "matching the token's org scope"
+            )
+        raise ValueError(f"User {identity.email} has no organization memberships")
+    if len(org_ids) > 1:
+        raise ValueError(
+            "Multiple organizations resolved for caller; org-scoped tools "
+            "require org_id, a single-org token organization_id claim, "
+            "or an org:<uuid> scope."
+        )
+
+    organization_id = next(iter(org_ids))
+    role = Role(
+        type="user",
+        user_id=user.id,
+        workspace_id=None,
+        organization_id=organization_id,
+        service_id="tracecat-mcp",
+    )
+    scopes = await compute_effective_scopes(role)
+    role = role.model_copy(update={"scopes": scopes})
+    ctx_role.set(role)
+    return role
 
 
 async def list_workspaces_for_request() -> list[dict[str, str]]:
     """List workspaces accessible to the current MCP caller."""
-    email = get_email_from_token()
-    return await list_user_workspaces(email)
+    identity = get_token_identity()
+    if identity.email is None:
+        raise ValueError("Token does not contain an email claim")
+    scoped_org_ids = identity.organization_ids or None
+    workspaces = await list_user_workspaces(
+        identity.email,
+        organization_ids=scoped_org_ids,
+    )
+    if not identity.workspace_ids:
+        return workspaces
+    return [
+        workspace
+        for workspace in workspaces
+        if _coerce_uuid(workspace["id"]) in identity.workspace_ids
+    ]
 
 
 def get_email_from_token() -> str:

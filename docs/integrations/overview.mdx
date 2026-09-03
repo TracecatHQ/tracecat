@@ -1,57 +1,23 @@
 ---
-title: Overview
-description: Pre-built integrations and response actions in both YAML and Python.
-icon: puzzle-piece
+title: "Overview"
+description: "Connect third-party tools to Tracecat: how integrations work, how to authenticate them, and where to find the full catalog."
 ---
 
-import ContributingCTA from "/snippets/contributing-cta.mdx";
+## What is an integration?
 
-<Tip>
-  All integrations are open source in the [Tracecat GitHub repository](https://github.com/TracecatHQ/tracecat).
+Third-party integrations are actions under the `tools.*` namespace that call a vendor API.
+Each integration is either a YAML template built from core action steps or a Python UDF.
 
-  - View YAML action templates [here](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/templates).
-  - View Python integrations [here](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations).
-</Tip>
+## Authenticate an integration
 
-<ContributingCTA />
+Most integrations require a secret before their actions run.
+Store API keys and tokens as [prebuilt credentials](/automations/integrations/prebuilt-credentials), or connect a provider through [OAuth](/automations/integrations/oauth-integrations).
 
-## Before you begin
+## Browse the catalog
 
-Check out the [custom integrations](/tutorials/custom-integrations) tutorial to learn how to configure and sync custom integrations from a private Git repository into Tracecat.
+Every available integration has its own page in this tab's sidebar, listing each action and its inputs.
 
-## What is Tracecat Registry?
+## Build your own
 
-**Tracecat Registry** is a collection of community-driven integrations and response actions in both YAML and Python.
-The majority of integrations are written in YAML as **Action Templates**, which are reusable building blocks for response automation.
-
-Tracecat also provides built-in **OAuth integrations** for secure connections to third-party services with automatic credential management and token refresh.
-
-All integrations can be found under the `tools` namespace with the following naming convention in lower snake case:
-
-```
-tools.<integration_name>.<action_name>
-```
-
-For example, the [Crowdstrike list alerts](https://github.com/TracecatHQ/tracecat/blob/main/packages/tracecat-registry/tracecat_registry/templates/detect/list_alerts/crowdstrike_alerts.yml)
-action is called `tools.crowdstrike.list_alerts` and the [Slack post notification](https://github.com/TracecatHQ/tracecat/blob/main/packages/tracecat-registry/tracecat_registry/templates/notify/post_notification/slack.yml)
-action is called `tools.slack.post_notification`.
-
-## Learn more
-
-<CardGroup cols={2}>
-  <Card title="Action Templates" icon="file-code" href="/integrations/action-templates">
-    Build flexible integrations fast with Tracecat's YAML-based DSL.
-  </Card>
-  <Card title="Python UDFs" icon="python" href="/integrations/python-udfs">
-    Turn your Python scripts into Tracecat no-code actions.
-  </Card>
-  <Card title="OAuth Integrations" icon="key" href="/integrations/oauth-integrations">
-    Built-in OAuth 2.0 integrations with automatic credential management.
-  </Card>
-  <Card title="Local Development" icon="terminal" href="/integrations/development">
-    Learn how to build and test Tracecat integrations locally.
-  </Card>
-  <Card title="Contributing" icon="github" href="https://github.com/TracecatHQ/tracecat/blob/main/CONTRIBUTING.md">
-    Got integrations to share? Contribute to the Tracecat Registry!
-  </Card>
-</CardGroup>
+When the catalog does not cover a vendor, build the integration yourself as a YAML template or Python UDF.
+See [Custom actions](/custom-actions/custom-registry) to get started.

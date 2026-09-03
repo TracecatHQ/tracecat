@@ -4,7 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
+from tracecat.cases.schemas import (
+    CaseCreate,
+    CaseFieldCreate,
+    CaseFieldUpdate,
+    CaseUpdate,
+)
 from tracecat.cases.service import CaseFieldsService, CasesService
 from tracecat.db.models import Case, User
 from tracecat.pagination import CursorPaginationParams
@@ -282,6 +287,24 @@ class TestCaseFieldsIntegration:
         )
         fields_after_delete = await cases_service.fields.get_fields(deleted_case)
         assert fields_after_delete is None
+
+    async def test_update_field_rejects_sql_injection_like_field_id(
+        self,
+        case_fields_service: CaseFieldsService,
+    ) -> None:
+        """Reject field IDs that are not valid SQL identifiers before DDL runs."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(
+                name="safe_field",
+                type=SqlType.TEXT,
+            )
+        )
+
+        with pytest.raises(ValueError, match="Identifier must"):
+            await case_fields_service.update_field(
+                'safe_field"; DROP TABLE case_fields; --',
+                CaseFieldUpdate(default="still text"),
+            )
 
 
 @pytest.mark.anyio

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import DBAPIError, NoResultFound
@@ -11,6 +11,7 @@ from starlette.status import (
     HTTP_201_CREATED,
     HTTP_204_NO_CONTENT,
     HTTP_400_BAD_REQUEST,
+    HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
@@ -25,12 +26,14 @@ from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationMetric
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.filters import parse_assignee_filter
 from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
     CaseCommentCreate,
     CaseCommentRead,
+    CaseCommentThreadRead,
     CaseCommentUpdate,
     CaseCreate,
     CaseEventRead,
@@ -49,6 +52,7 @@ from tracecat.cases.schemas import (
 )
 from tracecat.cases.service import (
     CaseCommentsService,
+    CaseFieldsService,
     CasesService,
     CaseTasksService,
 )
@@ -56,7 +60,11 @@ from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -69,6 +77,14 @@ router = APIRouter(
 # Sub-routers for feature-gated routes (service-layer entitlement checks)
 task_router = APIRouter()
 duration_router = APIRouter()
+
+
+def _raise_comment_http_error(
+    exc: TracecatValidationError | TracecatAuthorizationError,
+) -> NoReturn:
+    if isinstance(exc, TracecatValidationError):
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 async def _list_case_dropdown_values(
@@ -125,6 +141,11 @@ async def list_cases(
         None, description="Direction to sort (asc or desc)"
     ),
     include_rows: bool = Query(False, description="Include linked table rows"),
+    field_ids: list[str] | None = Query(
+        None, description="Include only the requested custom field IDs"
+    ),
+    include_durations: bool = Query(False, description="Include case duration values"),
+    include_payload: bool = Query(False, description="Include case payload"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
@@ -135,6 +156,8 @@ async def list_cases(
             reverse=reverse,
             order_by=order_by,
             sort=sort,
+            include_durations=include_durations,
+            include_payload=include_payload,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list cases: {e}")
@@ -160,6 +183,25 @@ async def list_cases(
             item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
             for item in cases.items
         ]
+    if field_ids:
+        try:
+            fields_service = CaseFieldsService(session, role)
+            fields_by_case = await fields_service.batch_get_fields(
+                case_ids=[item.id for item in cases.items],
+                field_ids=field_ids,
+            )
+            if cases.items:
+                cases.items = [
+                    item.model_copy(
+                        update={"field_values": fields_by_case.get(item.id)}
+                    )
+                    for item in cases.items
+                ]
+        except ValueError as e:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="Invalid request for case field hydration",
+            ) from e
     return cases
 
 
@@ -179,6 +221,10 @@ async def search_cases(
     search_term: str | None = Query(
         None,
         description="Text to search for in case summary, description, or short ID",
+    ),
+    short_id: str | None = Query(
+        None,
+        description="Search by exact case short ID (e.g. 42 or CASE-0042)",
     ),
     status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
     priority: list[CasePriority] | None = Query(
@@ -220,6 +266,11 @@ async def search_cases(
         None, description="Direction to sort (asc or desc)"
     ),
     include_rows: bool = Query(False, description="Include linked table rows"),
+    field_ids: list[str] | None = Query(
+        None, description="Include only the requested custom field IDs"
+    ),
+    include_durations: bool = Query(False, description="Include case duration values"),
+    include_payload: bool = Query(False, description="Include case payload"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
@@ -239,20 +290,7 @@ async def search_cases(
         reverse=reverse,
     )
 
-    parsed_assignee_ids: list[uuid.UUID] = []
-    include_unassigned = False
-    if assignee_id:
-        for identifier in assignee_id:
-            if identifier == "unassigned":
-                include_unassigned = True
-                continue
-            try:
-                parsed_assignee_ids.append(uuid.UUID(identifier))
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid assignee_id: {identifier}",
-                ) from e
+    parsed_assignee_filters = parse_assignee_filter(assignee_id)
 
     parsed_dropdown_filters: dict[str, list[str]] | None = None
     if dropdown:
@@ -270,11 +308,12 @@ async def search_cases(
         cases = await service.search_cases(
             pagination_params,
             search_term=search_term,
+            short_id=short_id,
             status=status,
             priority=priority,
             severity=severity,
-            assignee_ids=parsed_assignee_ids or None,
-            include_unassigned=include_unassigned,
+            assignee_ids=parsed_assignee_filters["assignee_ids"],
+            include_unassigned=parsed_assignee_filters["include_unassigned"],
             tag_ids=tag_ids if tag_ids else None,
             dropdown_filters=parsed_dropdown_filters,
             start_time=start_time,
@@ -283,6 +322,8 @@ async def search_cases(
             updated_before=updated_before,
             order_by=order_by,
             sort=sort,
+            include_durations=include_durations,
+            include_payload=include_payload,
         )
         if include_rows and cases.items:
             rows_service = CaseTableRowsService(session, role)
@@ -294,6 +335,25 @@ async def search_cases(
                 item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
                 for item in cases.items
             ]
+        if field_ids:
+            try:
+                fields_service = CaseFieldsService(session, role)
+                fields_by_case = await fields_service.batch_get_fields(
+                    case_ids=[item.id for item in cases.items],
+                    field_ids=field_ids,
+                )
+                if cases.items:
+                    cases.items = [
+                        item.model_copy(
+                            update={"field_values": fields_by_case.get(item.id)}
+                        )
+                        for item in cases.items
+                    ]
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST,
+                    detail="Invalid request for case field hydration",
+                ) from e
         return cases
 
     except ValueError as e:
@@ -336,13 +396,7 @@ async def get_case(
         f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
         final_fields.append(
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
         )
@@ -406,13 +460,7 @@ async def create_case(
         f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
         final_fields.append(
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
         )
@@ -455,7 +503,7 @@ async def update_case(
     include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CaseRead:
     service = CasesService(session, role)
-    case = await service.get_case(case_id)
+    case = await service.get_case(case_id, for_update=True)
     if case is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
@@ -483,13 +531,7 @@ async def update_case(
         f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
         final_fields.append(
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
         )
@@ -563,13 +605,26 @@ async def list_comments(
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
-    res: list[CaseCommentRead] = []
-    for comment, user in await comments_svc.list_comments(case):
-        comment_data = CaseCommentRead.model_validate(comment, from_attributes=True)
-        if user:
-            comment_data.user = UserRead.model_validate(user, from_attributes=True)
-        res.append(comment_data)
-    return res
+    return await comments_svc.list_comments(case)
+
+
+@router.get("/{case_id}/comments/threads", status_code=HTTP_200_OK)
+@require_scope("case:read")
+async def list_comment_threads(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+) -> list[CaseCommentThreadRead]:
+    service = CasesService(session, role)
+    case = await service.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+    comments_svc = CaseCommentsService(session, role)
+    return await comments_svc.list_comment_threads(case)
 
 
 @router.post("/{case_id}/comments", status_code=HTTP_201_CREATED)
@@ -589,8 +644,11 @@ async def create_comment(
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
-    comment = await comments_svc.create_comment(case, params)
-    return CaseCommentRead.model_validate(comment, from_attributes=True)
+    try:
+        comment = await comments_svc.create_comment(case, params)
+    except (TracecatAuthorizationError, TracecatValidationError) as exc:
+        _raise_comment_http_error(exc)
+    return await comments_svc.serialize_comment_with_mentions(comment)
 
 
 @router.patch(
@@ -614,14 +672,17 @@ async def update_comment(
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
-    comment = await comments_svc.get_comment(comment_id)
+    comment = await comments_svc.get_comment_in_case(case.id, comment_id)
     if comment is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Comment with ID {comment_id} not found",
         )
-    updated_comment = await comments_svc.update_comment(comment, params)
-    return CaseCommentRead.model_validate(updated_comment, from_attributes=True)
+    try:
+        updated_comment = await comments_svc.update_comment(comment, params)
+    except (TracecatAuthorizationError, TracecatValidationError) as exc:
+        _raise_comment_http_error(exc)
+    return await comments_svc.serialize_comment_with_mentions(updated_comment)
 
 
 # Separate router for comment operations that don't require case_id in path
@@ -650,8 +711,33 @@ async def update_comment_by_id(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Comment with ID {comment_id} not found",
         )
-    updated_comment = await comments_svc.update_comment(comment, params)
-    return CaseCommentRead.model_validate(updated_comment, from_attributes=True)
+    try:
+        updated_comment = await comments_svc.update_comment(comment, params)
+    except (TracecatAuthorizationError, TracecatValidationError) as exc:
+        _raise_comment_http_error(exc)
+    return await comments_svc.serialize_comment_with_mentions(updated_comment)
+
+
+@comments_router.get(
+    "/{comment_id}/thread",
+    status_code=HTTP_200_OK,
+)
+@require_scope("case:read")
+async def get_comment_thread(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    comment_id: uuid.UUID,
+) -> CaseCommentThreadRead:
+    """Get a thread by any comment ID in the thread."""
+    comments_svc = CaseCommentsService(session, role)
+    thread = await comments_svc.get_comment_thread(comment_id)
+    if thread is None:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=f"Comment with ID {comment_id} not found",
+        )
+    return thread
 
 
 @router.delete("/{case_id}/comments/{comment_id}", status_code=HTTP_204_NO_CONTENT)
@@ -671,13 +757,16 @@ async def delete_comment(
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
-    comment = await comments_svc.get_comment(comment_id)
+    comment = await comments_svc.get_comment_in_case(case.id, comment_id)
     if comment is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Comment with ID {comment_id} not found",
         )
-    await comments_svc.delete_comment(comment)
+    try:
+        await comments_svc.delete_comment(comment)
+    except (TracecatAuthorizationError, TracecatValidationError) as exc:
+        _raise_comment_http_error(exc)
 
 
 @router.get(
@@ -782,13 +871,7 @@ async def get_case_metrics(
         fields = await cases_service.fields.get_fields(case) or {}
         field_reads = [
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
             for f in field_templates
@@ -1086,12 +1169,14 @@ class CaseCreateWithTags(CaseCreate):
     """Extended case create request with tags support for UDFs."""
 
     tags: list[str] | None = None
+    create_missing_tags: bool = False
 
 
 class CaseUpdateWithTags(CaseUpdate):
     """Extended case update request with tags and append support for UDFs."""
 
     tags: list[str] | None = None
+    create_missing_tags: bool = False
     append_description: bool = False
 
 
@@ -1139,7 +1224,9 @@ async def create_case_simple(
         # Add tags if provided
         if params.tags:
             for tag in params.tags:
-                await service.tags.add_case_tag(case.id, tag)
+                await service.tags.add_case_tag(
+                    case.id, tag, create_if_missing=params.create_missing_tags
+                )
             await session.refresh(case)
 
     except NoResultFound as e:
@@ -1211,10 +1298,17 @@ async def update_case_simple(
             for existing_tag in existing_tags:
                 await service.tags.remove_case_tag(case.id, existing_tag.ref)
             for tag in params.tags:
-                await service.tags.add_case_tag(case.id, tag)
+                await service.tags.add_case_tag(
+                    case.id, tag, create_if_missing=params.create_missing_tags
+                )
             await session.refresh(updated_case)
 
     except NoResultFound as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -1252,7 +1346,10 @@ async def create_comment_simple(
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
-    comment = await comments_svc.create_comment(case, params)
+    try:
+        comment = await comments_svc.create_comment(case, params)
+    except (TracecatAuthorizationError, TracecatValidationError) as exc:
+        _raise_comment_http_error(exc)
     return InternalCaseCommentData.model_validate(comment, from_attributes=True)
 
 
@@ -1273,7 +1370,10 @@ async def update_comment_simple(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Comment with ID {comment_id} not found",
         )
-    updated_comment = await comments_svc.update_comment(comment, params)
+    try:
+        updated_comment = await comments_svc.update_comment(comment, params)
+    except (TracecatAuthorizationError, TracecatValidationError) as exc:
+        _raise_comment_http_error(exc)
     return InternalCaseCommentData.model_validate(updated_comment, from_attributes=True)
 
 

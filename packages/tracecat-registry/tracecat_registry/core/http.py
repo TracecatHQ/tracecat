@@ -80,6 +80,7 @@ mtls_secret = RegistrySecret(
     name="mtls",
     keys=["TLS_CERTIFICATE", "TLS_PRIVATE_KEY"],
     optional=True,
+    secret_type="mtls",
 )
 """HTTP mTLS certificate secret.
 
@@ -98,6 +99,7 @@ ca_cert_secret = RegistrySecret(
     name="ca_cert",
     keys=["CA_CERTIFICATE"],
     optional=True,
+    secret_type="ca_cert",
 )
 """HTTP CA certificate secret.
 
@@ -121,7 +123,7 @@ Method = Annotated[
     Doc("HTTP request method"),
 ]
 Headers = Annotated[
-    dict[str, str] | None,
+    dict[str, str | None] | None,
     Doc("HTTP request headers"),
 ]
 Params = Annotated[
@@ -131,6 +133,13 @@ Params = Annotated[
 Payload = Annotated[
     JSONObjectOrArray | None,
     Doc("JSON serializable data in request body (POST, PUT, and PATCH)"),
+]
+Content = Annotated[
+    str | None,
+    Doc(
+        "Raw string content to send as the request body (POST, PUT, and PATCH). "
+        "Cannot be combined with payload, form_data, or files."
+    ),
 ]
 FormData = Annotated[
     dict[str, Any] | None,
@@ -585,6 +594,7 @@ async def http_request(
     headers: Headers = None,
     params: Params = None,
     payload: Payload = None,
+    content: Content = None,
     form_data: FormData = None,
     files: Files = None,
     auth: Auth = None,
@@ -606,6 +616,22 @@ async def http_request(
     verify_ssl: VerifySSL = True,
 ) -> HTTPResponse:
     """Perform a HTTP request to a given URL."""
+
+    if content is not None and any(
+        body is not None for body in (payload, form_data, files)
+    ):
+        raise ValueError(
+            "Raw content cannot be combined with payload, form_data, or files."
+        )
+
+    # Unset optional params and headers must be omitted, not sent as empty values.
+    # Bound to new names so the pruned header type narrows to dict[str, str].
+    request_params = (
+        {k: v for k, v in params.items() if v is not None} if params else None
+    )
+    request_headers = (
+        {k: v for k, v in headers.items() if v is not None} if headers else None
+    )
 
     ignore_status_codes = ignore_status_codes or []
     basic_auth = httpx.BasicAuth(**auth) if auth else None
@@ -642,8 +668,9 @@ async def http_request(
                 response = await client.request(
                     method=method,
                     url=url,
-                    headers=headers,
-                    params=params,
+                    headers=request_headers,
+                    params=request_params,
+                    content=content,
                     json=payload,
                     data=form_data,
                     files=httpx_files_param,
@@ -721,6 +748,15 @@ async def http_poll(
     ] = None,
 ) -> HTTPResponse:
     """Perform a HTTP request to a given URL with optional polling."""
+
+    # Unset optional params and headers must be omitted, not sent as empty values.
+    # Bound to new names so the pruned header type narrows to dict[str, str].
+    request_params = (
+        {k: v for k, v in params.items() if v is not None} if params else None
+    )
+    request_headers = (
+        {k: v for k, v in headers.items() if v is not None} if headers else None
+    )
 
     basic_auth = httpx.BasicAuth(**auth) if auth else None
 
@@ -800,8 +836,8 @@ async def http_poll(
                     response = await client.request(
                         method=method,
                         url=url,
-                        headers=headers,
-                        params=params,
+                        headers=request_headers,
+                        params=request_params,
                         json=payload,
                         data=form_data,
                     )

@@ -10,11 +10,14 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, SecretNotFoundError
 
+from tracecat import config
+from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.types import Role
 from tracecat.db.models import RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import ExecutionError, LoopExecutionError
+from tracecat.executor import service as executor_service
 from tracecat.executor.backends.test import TestBackend
 from tracecat.executor.schemas import ActionImplementation, ExecutorActionErrorInfo
 from tracecat.executor.service import (
@@ -136,6 +139,28 @@ def make_registry_lock(action: str, origin: str = "tracecat_registry") -> Regist
     )
 
 
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [
+        pytest.param(
+            Role(type="service", service_id="tracecat-mcp"),
+            "agent",
+            id="agent-service",
+        ),
+        pytest.param(
+            Role(type="service", service_id="tracecat-executor"),
+            "workflow",
+            id="workflow",
+        ),
+    ],
+)
+def test_execution_origin_for_role(
+    role: Role,
+    expected: str,
+) -> None:
+    assert executor_service._execution_origin_for_role(role) == expected
+
+
 async def run_action_test(input: RunActionInput, role: Role) -> Any:
     """Test helper: execute action using production code path.
 
@@ -165,6 +190,100 @@ def mock_run_context():
         environment="default",
         logical_time=datetime.now(UTC),
     )
+
+
+@pytest.mark.anyio
+async def test_template_step_token_preserves_root_execution_claims(
+    mock_run_context: RunContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    root_action = "testing.template"
+    step_action = "core.script.run_python"
+    agent_session_id = uuid.uuid4()
+    action_impl = ActionImplementation(
+        type="udf",
+        action_name=step_action,
+        module="tracecat_registry.core.python",
+        name="run_python",
+    )
+
+    async def resolve_action(*_args: Any, **_kwargs: Any) -> ActionImplementation:
+        return action_impl
+
+    monkeypatch.setattr(
+        executor_service.registry_resolver,
+        "resolve_action",
+        resolve_action,
+    )
+    input = RunActionInput(
+        task=ActionStatement(ref="template", action=root_action, args={}),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        agent_session_id=agent_session_id,
+        registry_lock=make_registry_lock(step_action),
+    )
+    parent_resolved = executor_service.ResolvedContext(
+        action_impl=ActionImplementation(
+            type="template",
+            action_name=root_action,
+            template_definition={},
+        ),
+        evaluated_args={},
+        workspace_id=str(role.workspace_id),
+        workflow_id=str(mock_run_context.wf_id),
+        run_id=str(mock_run_context.wf_run_id),
+        executor_token="parent-token",
+    )
+
+    step_resolved = await executor_service._prepare_step_context(
+        step_action=step_action,
+        evaluated_args={},
+        parent_resolved=parent_resolved,
+        input=input,
+        role=role,
+    )
+
+    claims = verify_executor_token(step_resolved.executor_token)
+    assert claims.execution_origin == "agent"
+    assert claims.root_action == root_action
+    assert claims.agent_session_id == agent_session_id
+
+
+def test_workflow_token_omits_untrusted_agent_session_id(
+    mock_run_context: RunContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    role = Role(
+        type="service",
+        service_id="tracecat-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="action",
+            action="core.http_request",
+            args={"agent_session_id": str(uuid.uuid4())},
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        agent_session_id=uuid.uuid4(),
+        registry_lock=make_registry_lock("core.http_request"),
+    )
+
+    token = executor_service._mint_action_executor_token(input, role)
+
+    claims = verify_executor_token(token)
+    assert claims.execution_origin == "workflow"
+    assert claims.agent_session_id is None
 
 
 @pytest.fixture(scope="function")
@@ -852,6 +971,116 @@ async def test_dispatcher(
         assert e.value.loop_errors[0].info.loop_vars == {"x": None}
     finally:
         ctx_role.reset(token)
+
+
+@pytest.mark.anyio
+async def test_dispatch_action_for_each_uses_configured_worker_limit(
+    monkeypatch,
+    test_role,
+    mock_run_context,
+):
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY", 2)
+
+    active_iterations = 0
+    max_active_iterations = 0
+
+    async def fake_invoke_once(
+        backend: TestBackend,
+        input: RunActionInput,
+        ctx: Any,
+        iteration: int | None = None,
+    ) -> int:
+        nonlocal active_iterations, max_active_iterations
+
+        assert iteration is not None
+        active_iterations += 1
+        max_active_iterations = max(max_active_iterations, active_iterations)
+        try:
+            await asyncio.sleep(0.01)
+            local_vars = input.exec_context.get("var")
+            assert local_vars is not None
+            return local_vars["x"]
+        finally:
+            active_iterations -= 1
+
+    monkeypatch.setattr(executor_service, "invoke_once", fake_invoke_once)
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.add_100",
+            run_if=None,
+            args={"num": "${{ var.x }}"},
+            for_each="${{ for var.x in [1,2,3,4,5,6] }}",
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        registry_lock=make_registry_lock("testing.add_100"),
+    )
+
+    result = await dispatch_action(TestBackend(), input)
+
+    assert result == [1, 2, 3, 4, 5, 6]
+    assert max_active_iterations == 2
+
+
+@pytest.mark.anyio
+async def test_dispatch_action_for_each_finishes_after_iteration_error(
+    monkeypatch,
+    test_role,
+    mock_run_context,
+):
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY", 1)
+
+    seen: list[int] = []
+
+    async def fake_invoke_once(
+        backend: TestBackend,
+        input: RunActionInput,
+        ctx: Any,
+        iteration: int | None = None,
+    ) -> int:
+        assert iteration is not None
+        local_vars = input.exec_context.get("var")
+        assert local_vars is not None
+        value = local_vars["x"]
+        seen.append(value)
+        if value == 2:
+            raise ExecutionError(
+                info=ExecutorActionErrorInfo(
+                    action_name=input.task.action,
+                    type="ValueError",
+                    message="bad loop item",
+                    filename=__file__,
+                    function="fake_invoke_once",
+                    loop_iteration=iteration,
+                    loop_vars=local_vars,
+                )
+            )
+        return value
+
+    monkeypatch.setattr(executor_service, "invoke_once", fake_invoke_once)
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.add_100",
+            run_if=None,
+            args={"num": "${{ var.x }}"},
+            for_each="${{ for var.x in [1,2,3] }}",
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        registry_lock=make_registry_lock("testing.add_100"),
+    )
+
+    with pytest.raises(LoopExecutionError) as e:
+        await dispatch_action(TestBackend(), input)
+
+    assert seen == [1, 2, 3]
+    assert len(e.value.loop_errors) == 1
+    assert e.value.loop_errors[0].info.loop_iteration == 1
+    assert e.value.loop_errors[0].info.loop_vars == {"x": 2}
 
 
 @pytest.fixture

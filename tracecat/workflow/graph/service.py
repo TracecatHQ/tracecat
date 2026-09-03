@@ -3,14 +3,21 @@
 Implements the canonical graph API with optimistic concurrency.
 """
 
-from typing import Any
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from fastapi import HTTPException, status
 from sqlalchemy import column, delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import selectinload
 
+from tracecat.agent.types import clamp_agent_timeout_seconds
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.db.models import Action, Workflow
+from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -28,19 +35,79 @@ from tracecat.workflow.management.schemas import (
     UpdateViewportPayload,
 )
 
+type EdgeSourceType = Literal["trigger", "udf"]
+type EdgeHandle = Literal["success", "error"]
+
+_STRUCTURAL_OPERATION_TYPES = {
+    "add_node",
+    "update_node",
+    "delete_node",
+    "add_edge",
+    "delete_edge",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class EdgeDedupKey:
+    source_id: str
+    source_type: EdgeSourceType
+    source_handle: EdgeHandle | None
+
+
+def _normalize_agent_control_flow(
+    action_type: str, control_flow: dict[str, Any]
+) -> dict[str, Any]:
+    """Persist agent timeouts already normalized so stored always equals
+    executed, regardless of which write surface supplied the value. Absent
+    or malformed timeouts get the deployment default; explicit values clamp
+    to the deployment bounds. Non-agent actions pass through untouched."""
+    if not PlatformAction.is_agent(action_type):
+        return control_flow
+    retry_policy = dict(control_flow.get("retry_policy") or {})
+    timeout = retry_policy.get("timeout")
+    retry_policy["timeout"] = clamp_agent_timeout_seconds(
+        timeout if isinstance(timeout, int) and not isinstance(timeout, bool) else None
+    )
+    return {**control_flow, "retry_policy": retry_policy}
+
 
 class WorkflowGraphService(BaseWorkspaceService):
     """Service for graph operations on workflows."""
 
     service_name = "workflow_graph"
 
-    _STRUCTURAL_OPS = {
-        "add_node",
-        "update_node",
-        "delete_node",
-        "add_edge",
-        "delete_edge",
-    }
+    _STRUCTURAL_OPS = _STRUCTURAL_OPERATION_TYPES
+
+    def _graph_audit_details(
+        self,
+        workflow_id: WorkflowID,
+        base_version: int,
+        operations: list[GraphOperation],
+    ) -> AuditEventDetails:
+        changed_fields = sorted(
+            {
+                (
+                    "definition"
+                    if operation.type in _STRUCTURAL_OPERATION_TYPES
+                    else "layout"
+                )
+                for operation in operations
+            }
+        )
+        return AuditEventDetails(data={"changed_fields": changed_fields})
+
+    # Gradual form: a named signature fails pyright's name check; _graph_audit_details keeps P pinned.
+    @staticmethod
+    def _graph_audit_result(
+        result: GraphResponse | None, *args: Any, **kwargs: Any
+    ) -> AuditEventDetails:
+        return AuditEventDetails(
+            status=(
+                AuditEventStatus.SUCCESS
+                if result is not None
+                else AuditEventStatus.FAILURE
+            )
+        )
 
     async def get_graph(self, workflow_id: WorkflowID) -> GraphResponse | None:
         """Get the canonical graph projection from Actions.
@@ -79,6 +146,12 @@ class WorkflowGraphService(BaseWorkspaceService):
             },
         )
 
+    @audit_log(
+        resource_type="workflow",
+        action="update",
+        attempt_metadata=_graph_audit_details,
+        terminal_metadata=_graph_audit_result,
+    )
     async def apply_operations(
         self,
         workflow_id: WorkflowID,
@@ -90,7 +163,6 @@ class WorkflowGraphService(BaseWorkspaceService):
         Returns 409 if base_version doesn't match current graph_version.
         """
         workflow_uuid = WorkflowUUID.new(workflow_id)
-
         # Load workflow with FOR UPDATE lock
         stmt = (
             select(Workflow)
@@ -106,6 +178,25 @@ class WorkflowGraphService(BaseWorkspaceService):
 
         if workflow is None:
             return None
+        return await self.apply_operations_to_locked_workflow(
+            workflow,
+            base_version=base_version,
+            operations=operations,
+        )
+
+    async def apply_operations_to_locked_workflow(
+        self,
+        workflow: Workflow,
+        *,
+        base_version: int,
+        operations: list[GraphOperation],
+    ) -> GraphResponse:
+        """Apply operations to a workflow locked by the caller.
+
+        This compositional entry point does not perform another lookup or emit
+        an independent audit event. The caller owns the workflow lock and the
+        surrounding operation's audit lifecycle.
+        """
 
         # Check version for optimistic concurrency
         if workflow.graph_version != base_version:
@@ -203,6 +294,9 @@ class WorkflowGraphService(BaseWorkspaceService):
 
     async def _add_node(self, workflow: Workflow, payload: AddNodePayload) -> None:
         """Add a new action node."""
+        control_flow = _normalize_agent_control_flow(
+            payload.type, dict(payload.control_flow or {})
+        )
         action = Action(
             workspace_id=self.workspace_id,
             workflow_id=workflow.id,
@@ -210,7 +304,7 @@ class WorkflowGraphService(BaseWorkspaceService):
             title=payload.title,
             description=payload.description or "",
             inputs=payload.inputs or "",
-            control_flow=payload.control_flow or {},
+            control_flow=control_flow,
             position_x=payload.position_x,
             position_y=payload.position_y,
             upstream_edges=[],  # New nodes start as entrypoints
@@ -235,6 +329,19 @@ class WorkflowGraphService(BaseWorkspaceService):
 
         if not update_values:
             return
+
+        if "control_flow" in update_values:
+            action_type = await self.session.scalar(
+                select(Action.type).where(
+                    Action.workspace_id == self.workspace_id,
+                    Action.workflow_id == workflow.id,
+                    Action.id == payload.action_id,
+                )
+            )
+            if action_type is not None:
+                update_values["control_flow"] = _normalize_agent_control_flow(
+                    action_type, update_values["control_flow"]
+                )
 
         stmt = (
             update(Action)
@@ -291,11 +398,54 @@ class WorkflowGraphService(BaseWorkspaceService):
         )
         await self.session.execute(delete_stmt)
 
+    @staticmethod
+    def _edge_dedup_key(
+        source_id: str,
+        source_type: EdgeSourceType,
+        source_handle: EdgeHandle | None,
+    ) -> EdgeDedupKey:
+        """Canonical key used to dedupe upstream edges.
+
+        Trigger edges have no handle; udf edges with a missing handle are
+        treated as the implicit "success" default so legacy data dedupes
+        correctly against newly-written edges.
+        """
+        if source_type == "udf":
+            return EdgeDedupKey(source_id, source_type, source_handle or "success")
+        return EdgeDedupKey(source_id, source_type, None)
+
+    @classmethod
+    def _stored_edge_dedup_key(cls, edge: dict[str, Any]) -> EdgeDedupKey | None:
+        source_id = edge.get("source_id")
+        if not isinstance(source_id, str):
+            return None
+
+        source_type: EdgeSourceType
+        match edge.get("source_type"):
+            case "trigger":
+                source_type = "trigger"
+            case "udf":
+                source_type = "udf"
+            case _:
+                source_type = "trigger" if source_id.startswith("trigger-") else "udf"
+
+        source_handle: EdgeHandle | None
+        match edge.get("source_handle"):
+            case "success":
+                source_handle = "success"
+            case "error":
+                source_handle = "error"
+            case _:
+                source_handle = None
+
+        return cls._edge_dedup_key(source_id, source_type, source_handle)
+
     async def _add_edge(self, workflow: Workflow, payload: AddEdgePayload) -> None:
         """Add an edge between two nodes.
 
         Supports both trigger and action sources. Validates source exists.
-        Normalizes duplicates (only one edge per source_id + source_type).
+        Dedupes by (source_id, source_type, source_handle) so success and
+        error edges between the same pair can coexist.
         """
         # Validate source based on type
         if payload.source_type == "udf":
@@ -329,24 +479,20 @@ class WorkflowGraphService(BaseWorkspaceService):
         if target_action is None:
             raise ValueError(f"Target action {payload.target_id} not found")
 
+        new_key = self._edge_dedup_key(
+            payload.source_id, payload.source_type, payload.source_handle
+        )
+
         # Build the new edge
         new_edge: dict[str, Any] = {
             "source_id": payload.source_id,
             "source_type": payload.source_type,
         }
         if payload.source_type == "udf":
-            new_edge["source_handle"] = payload.source_handle or "success"
+            new_edge["source_handle"] = new_key.source_handle
 
-        # Filter out existing edge with same source_id + source_type, then add new one
         edges = target_action.upstream_edges or []
-        filtered_edges = [
-            e
-            for e in edges
-            if not (
-                e.get("source_id") == payload.source_id
-                and e.get("source_type") == payload.source_type
-            )
-        ]
+        filtered_edges = [e for e in edges if self._stored_edge_dedup_key(e) != new_key]
         filtered_edges.append(new_edge)
 
         target_action.upstream_edges = filtered_edges
@@ -355,7 +501,11 @@ class WorkflowGraphService(BaseWorkspaceService):
     async def _delete_edge(
         self, workflow: Workflow, payload: DeleteEdgePayload
     ) -> None:
-        """Delete an edge between two nodes."""
+        """Delete an edge between two nodes.
+
+        Matches on (source_id, source_type, source_handle) so deleting one
+        handle leaves the other intact when both exist for the same pair.
+        """
         # Get target action
         target_result = await self.session.execute(
             select(Action).where(
@@ -368,15 +518,13 @@ class WorkflowGraphService(BaseWorkspaceService):
         if target_action is None:
             raise ValueError(f"Target action {payload.target_id} not found")
 
-        # Remove edge from target's upstream_edges by matching source_id + source_type
+        target_key = self._edge_dedup_key(
+            payload.source_id, payload.source_type, payload.source_handle
+        )
+
         edges = target_action.upstream_edges or []
         target_action.upstream_edges = [
-            e
-            for e in edges
-            if not (
-                e.get("source_id") == payload.source_id
-                and e.get("source_type") == payload.source_type
-            )
+            e for e in edges if self._stored_edge_dedup_key(e) != target_key
         ]
         self.session.add(target_action)
 

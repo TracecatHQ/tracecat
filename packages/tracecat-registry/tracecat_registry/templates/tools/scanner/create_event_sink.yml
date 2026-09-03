@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Create Scanner event sink
+  description: Create a Slack, webhook, or PagerDuty event sink in Scanner.
+  display_group: Scanner
+  doc_url: https://docs.scanner.dev/scanner/using-scanner-complete-feature-reference/developer-tools/api/event-sinks
+  namespace: tools.scanner
+  name: create_event_sink
+  secrets:
+    - name: scanner
+      keys: ["SCANNER_API_KEY"]
+  expects:
+    tenant_id:
+      type: str
+      description: Unique identifier for the Scanner tenant.
+    name:
+      type: str
+      description: Name of the event sink.
+    description:
+      type: str
+      description: Description of the event sink.
+    event_sink_args:
+      type: dict[str, Any]
+      description: 'API-native event sink configuration, such as {"Webhook": {"url": "https://example.com/webhook"}}.'
+    base_url:
+      type: str | None
+      description: Scanner team API URL. Falls back to `VARS.scanner.base_url`.
+      default: null
+  steps:
+    - ref: create_event_sink
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.scanner.base_url }}/v1/event_sink
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.scanner.SCANNER_API_KEY }}
+          Content-Type: application/json
+        payload:
+          tenant_id: ${{ inputs.tenant_id }}
+          name: ${{ inputs.name }}
+          description: ${{ inputs.description }}
+          event_sink_args: ${{ inputs.event_sink_args }}
+  returns: ${{ steps.create_event_sink.result.data }}

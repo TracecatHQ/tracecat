@@ -1,9 +1,9 @@
 type: action
 definition:
   title: Search events
-  description: Search events from Elasticsearch using query DSL.
+  description: Search Elasticsearch events with a query DSL body and result limit.
   display_group: Elasticsearch
-  doc_url: https://www.elastic.co/guide/en/elasticsearch/reference/current/search-search.html
+  doc_url: https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-search
   namespace: tools.elasticsearch
   name: search_events
   secrets:

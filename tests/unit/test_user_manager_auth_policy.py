@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.password import PasswordHelper
@@ -32,6 +34,26 @@ pytestmark = pytest.mark.usefixtures("db")
 def user_manager(session: AsyncSession) -> UserManager:
     user_db = SQLAlchemyUserDatabase(session, User, OAuthAccount)
     return UserManager(user_db)
+
+
+@pytest.fixture(autouse=True)
+def patch_auth_session_context_manager(
+    monkeypatch: pytest.MonkeyPatch, session: AsyncSession
+) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+
+    @asynccontextmanager
+    async def _session_cm():
+        yield session
+
+    monkeypatch.setattr(
+        "tracecat.auth.users.get_async_session_auth_context_manager",
+        _session_cm,
+    )
 
 
 async def _create_user_with_org_membership(

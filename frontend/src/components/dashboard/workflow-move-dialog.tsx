@@ -98,7 +98,7 @@ export function WorkflowMoveDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Move Workflow</DialogTitle>
+          <DialogTitle>Move workflow</DialogTitle>
           <DialogDescription>
             Choose a folder to move{" "}
             <span className="font-medium">{selectedWorkflow?.title}</span> to
@@ -138,7 +138,10 @@ export function WorkflowMoveDialog({
                 <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[--radix-popover-trigger-width] overflow-hidden p-0">
+            <PopoverContent
+              className="w-[--radix-popover-trigger-width] overflow-hidden p-0"
+              portal={true}
+            >
               <FileTreeCommand
                 items={fileTreeItems}
                 onSelect={handleSelectFolder}

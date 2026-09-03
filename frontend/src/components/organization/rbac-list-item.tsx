@@ -21,6 +21,7 @@ interface RbacListItemProps {
   isExpanded?: boolean
   onExpandedChange?: (expanded: boolean) => void
   className?: string
+  reserveExpandSpace?: boolean
 }
 
 export function RbacListItem({
@@ -33,6 +34,7 @@ export function RbacListItem({
   isExpanded,
   onExpandedChange,
   className,
+  reserveExpandSpace = true,
 }: RbacListItemProps) {
   const hasExpandableContent = Boolean(children)
 
@@ -61,9 +63,9 @@ export function RbacListItem({
                 />
               </Button>
             </CollapsibleTrigger>
-          ) : (
+          ) : reserveExpandSpace ? (
             <div className="size-6" />
-          )}
+          ) : null}
 
           {/* Icon */}
           {icon && (

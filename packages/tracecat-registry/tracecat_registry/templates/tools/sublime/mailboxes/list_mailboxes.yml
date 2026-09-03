@@ -1,0 +1,71 @@
+type: action
+definition:
+  title: List mailboxes
+  description: List Sublime mailboxes using API-native filters.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/listmailboxes
+  namespace: tools.sublime
+  name: list_mailboxes
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    active:
+      type: bool | None
+      description: Filter for effectively active mailboxes (marked active with a live subscription)
+      default: null
+    email_addresses:
+      type: str | None
+      description: Email addresses of the mailboxes to return (comma-delimited)
+      default: null
+    limit:
+      type: int | None
+      description: The maximum number of entries to return. If the value exceeds the maximum, then the maximum value will be used
+      default: null
+    mailbox_types:
+      type: str | None
+      description: Comma-delimited list of mailbox types to filter by
+      default: null
+    marked_active:
+      type: bool | None
+      description: Filter for mailboxes marked active
+      default: null
+    message_source_id:
+      type: str | None
+      description: ID of the message source the mailboxes belong to
+      default: null
+    offset:
+      type: int | None
+      description: The (zero-based) offset of the first mailbox to return
+      default: null
+    search:
+      type: str | None
+      description: Search across mailbox names and email addresses
+      default: null
+    sub_error_types:
+      type: str | None
+      description: Comma-delimited list of subscription error types to filter by
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/mailboxes
+        method: GET
+        params:
+          active: ${{ inputs.active }}
+          email_addresses: ${{ inputs.email_addresses }}
+          limit: ${{ inputs.limit }}
+          mailbox_types: ${{ inputs.mailbox_types }}
+          marked_active: ${{ inputs.marked_active }}
+          message_source_id: ${{ inputs.message_source_id }}
+          offset: ${{ inputs.offset }}
+          search: ${{ inputs.search }}
+          sub_error_types: ${{ inputs.sub_error_types }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

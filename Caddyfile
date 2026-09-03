@@ -1,21 +1,61 @@
+{
+	servers {
+		trusted_proxies static {$TRACECAT__TRUSTED_PROXY_CIDRS:127.0.0.1/32}
+		trusted_proxies_strict
+	}
+}
+
 {$BASE_DOMAIN} {
 	bind {$ADDRESS} # Binds to all available network interfaces if not specified
 
-	# MinIO S3 API proxy for presigned URLs
+	# MinIO S3 API proxy for presigned URLs.
+	# Presigned URLs are signed against the internal MinIO endpoint, so forward
+	# that host upstream or SigV4 signatures fail.
 	handle_path /s3/* {
 		reverse_proxy http://minio:9000 {
-			header_up Host {host}
+			header_up Host {upstream_hostport}
 			header_up -Server
 		}
 	}
 
 	handle_path /api* {
 		reverse_proxy http://api:8000 {
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Real-IP {remote_host}
-			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Real-IP {client_ip}
 			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto {scheme}
 		}
 	}
-	reverse_proxy http://ui:3000
+
+	# MCP server (FastMCP serves at /mcp by default, so preserve the path)
+	handle /mcp* {
+		reverse_proxy http://mcp:8099 {
+			flush_interval -1
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Real-IP {client_ip}
+		}
+	}
+
+	# MCP OAuth and discovery routes (served at root level by FastMCP)
+	@mcp_oauth_routes {
+		path /.well-known/oauth-authorization-server
+		path /.well-known/oauth-protected-resource /.well-known/oauth-protected-resource/*
+		path /authorize /authorize/*
+		path /token
+		path /register
+		path /consent /consent/*
+		path /auth/callback /auth/callback/*
+	}
+	handle @mcp_oauth_routes {
+		reverse_proxy http://mcp:8099 {
+			flush_interval -1
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Real-IP {client_ip}
+		}
+	}
+
+	reverse_proxy http://ui:3000 {
+		header_up X-Forwarded-For {client_ip}
+		header_up X-Real-IP {client_ip}
+	}
 }

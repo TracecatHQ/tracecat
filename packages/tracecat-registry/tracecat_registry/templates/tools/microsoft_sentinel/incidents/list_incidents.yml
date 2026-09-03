@@ -3,7 +3,7 @@ definition:
   title: List incidents
   description: Get all incidents in Microsoft Sentinel workspace.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/incidents/list
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/incidents/list?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: list_incidents
   secrets:

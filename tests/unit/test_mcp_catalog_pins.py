@@ -1,0 +1,186 @@
+"""Regression tests for QA-verified stdio MCP package pins."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import orjson
+
+QA_VERIFIED_STDIO_SOURCE_PINS = {
+    "sentinelone-mcp": "07d4992089b10affff6163f296b1f6cb5734539f",
+}
+
+# Source SHAs retain the QA provenance; exact registry versions are the runtime pins.
+QA_VERIFIED_STDIO_PACKAGE_PINS = {
+    "panther-mcp": {
+        "manager": "uvx",
+        "package": "mcp-panther==2.3.1",
+        "source_sha": "7e6eca6f4f7f790057ed860bcfac669e13898d0c",
+    },
+    "clickhouse-mcp": {
+        "manager": "uvx",
+        "package": "mcp-clickhouse==0.4.0",
+        "source_sha": "5645bc9c2931ccba3314c29927b10e6cfafc7323",
+    },
+    "crowdstrike-falcon-mcp": {
+        "manager": "uvx",
+        "package": "falcon-mcp==0.13.0",
+        "source_sha": "5f6c0581e8f941a3a05ad884c4ae667b85b8f6b7",
+    },
+    "okta-mcp": {
+        "manager": "uvx",
+        "package": "okta-mcp-server==1.1.3",
+        "source_sha": "f9f6157f62d3d436bfbfce84ac20f198fcb94dde",
+    },
+    "aws-mcp": {
+        "manager": "uvx",
+        "package": "mcp-proxy-for-aws==1.6.3",
+        "source_sha": "9a3022410f88cf6a6800bf411504615dad1adf12",
+    },
+    "zscaler-mcp": {
+        "manager": "uvx",
+        "package": "zscaler-mcp==0.13.1",
+        "source_sha": "23912913f8588c650b104d3bd30c0c755d6962cd",
+    },
+    "pagerduty-mcp": {
+        "manager": "uvx",
+        "package": "pagerduty-mcp==1.1.0",
+        "source_sha": "62c806c98c90ac13de92d8b1ad7b4aa3ecc366c4",
+    },
+    "rootly-mcp": {
+        "manager": "uvx",
+        "package": "rootly-mcp-server==2.3.9",
+        "source_sha": "f4f55a049dbee11c8321daf52e4d6d5e2ab4f806",
+    },
+    "greynoise-mcp": {
+        "manager": "npx",
+        "package": "@greynoise/greynoise-mcp-server@0.4.0",
+        "source_sha": "017bc228439be1672da60b3f49ef902d6311ea51",
+    },
+    "snyk-mcp": {
+        "manager": "npx",
+        "package": "snyk@1.1306.0",
+        "source_sha": "d4e9a98123a364a47b91770df8d86e2d31dcbc45",
+    },
+    "grafana-mcp": {
+        "manager": "uvx",
+        "package": "mcp-grafana==0.17.2",
+        "source_sha": "fac7c8a312c6f6aee8330de72182dcf45bf4ae26",
+    },
+}
+
+# Launchers retired by the 2026-08-13 cold-install audit: each one fails on a
+# fresh dependency resolution, so no catalog row may reintroduce them.
+RETIRED_STDIO_LAUNCHERS = (
+    "scc-mcp==",
+    "gti-mcp==",
+    "google-secops-mcp==",
+    "servicenow-mcp==",
+    "semgrep-mcp==",
+    "Jamf-Concepts/mcp-hub",
+    '"scc_mcp"',
+    '"gti_mcp"',
+    '"secops_mcp"',
+)
+
+# Rows dropped from the catalog with no replacement recipe. Google SecOps left
+# this tuple once Google's managed remote server replaced the retired local
+# stdio recipe.
+RETIRED_CATALOG_SLUGS = (
+    "google-security-command-center-mcp",
+    "virustotal-mcp",
+)
+
+
+def _catalog_servers() -> dict[str, dict[str, Any]]:
+    catalog_path = (
+        Path(__file__).parents[2]
+        / "packages/tracecat-ee/tracecat_ee/mcp/catalog/mcp_catalog_private.json"
+    )
+    payload = orjson.loads(catalog_path.read_bytes())
+    return {server["slug"]: server for server in payload["servers"]}
+
+
+def _public_catalog_servers() -> dict[str, dict[str, Any]]:
+    catalog_path = (
+        Path(__file__).parents[2] / "tracecat/integrations/catalog/mcp_catalog.json"
+    )
+    payload = orjson.loads(catalog_path.read_bytes())
+    return {server["slug"]: server for server in payload["servers"]}
+
+
+def _stdio_spec(server: dict[str, Any]) -> dict[str, Any]:
+    if (spec := server.get("connection_spec")) and spec.get("server_type") == "stdio":
+        return spec
+    for option in server.get("connection_options", []):
+        if (spec := option.get("connection_spec")) and spec.get(
+            "server_type"
+        ) == "stdio":
+            return spec
+    raise AssertionError(f"No stdio connection spec found for {server['slug']}")
+
+
+def test_qa_verified_stdio_mcp_recipes_are_pinned_to_source_shas() -> None:
+    servers = _catalog_servers()
+
+    for slug, sha in QA_VERIFIED_STDIO_SOURCE_PINS.items():
+        spec = _stdio_spec(servers[slug])
+        packages = spec["packages"]
+
+        assert spec["stdio_command"] == "uvx"
+        assert sha in " ".join(spec["stdio_args"])
+        assert packages
+        assert all(package["manager"] == "uvx" for package in packages)
+        assert all(sha in " ".join(package["args"]) for package in packages)
+        assert all(sha in package["package"] for package in packages)
+
+
+def test_qa_verified_registry_mcp_recipes_are_pinned_to_exact_versions() -> None:
+    servers = _catalog_servers()
+
+    for slug, expected in QA_VERIFIED_STDIO_PACKAGE_PINS.items():
+        spec = _stdio_spec(servers[slug])
+        packages = spec["packages"]
+
+        assert len(packages) == 1
+        assert spec["stdio_command"] == expected["manager"]
+        assert expected["package"] in spec["stdio_args"]
+        assert packages[0]["manager"] == expected["manager"]
+        assert packages[0]["command"] == expected["manager"]
+        assert packages[0]["args"] == spec["stdio_args"]
+        assert packages[0]["package"] == expected["package"]
+        assert len(expected["source_sha"]) == 40
+        assert set(expected["source_sha"]) <= set("0123456789abcdef")
+
+
+def test_unavailable_qa_integrations_are_coming_soon_without_specs() -> None:
+    private_servers = _catalog_servers()
+    public_servers = _public_catalog_servers()
+
+    for slug in (
+        "splunk-mcp",
+        "hashicorp-vault-mcp",
+        "palo-alto-mcp",
+        "terraform-mcp",
+    ):
+        assert public_servers[slug]["status"] == "coming_soon"
+        assert "connection_spec" not in private_servers[slug]
+        assert private_servers[slug]["_research"]["notes"].startswith("Coming soon")
+
+
+def test_retired_stdio_launchers_are_absent() -> None:
+    """Retired recipes must not creep back in, in any row or option."""
+    catalog_path = (
+        Path(__file__).parents[2]
+        / "packages/tracecat-ee/tracecat_ee/mcp/catalog/mcp_catalog_private.json"
+    )
+    raw = catalog_path.read_text(encoding="utf-8")
+    for launcher in RETIRED_STDIO_LAUNCHERS:
+        assert launcher not in raw
+
+    private_servers = _catalog_servers()
+    public_servers = _public_catalog_servers()
+    for slug in RETIRED_CATALOG_SLUGS:
+        assert slug not in private_servers
+        assert slug not in public_servers

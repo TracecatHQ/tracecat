@@ -3,7 +3,7 @@ definition:
   title: Suspend user
   description: Suspend an Okta user.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/UserLifecycle/#tag/UserLifecycle/operation/suspendUser
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tags/userlifecycle/#tag/UserLifecycle/operation/suspendUser
   namespace: tools.okta
   name: suspend_user
   secrets:

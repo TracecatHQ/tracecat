@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -21,6 +22,19 @@ def _dedupe_items[T](items: list[T]) -> list[T]:
         seen.add(item)
         deduped.append(item)
     return deduped
+
+
+def is_case_trigger_configured(
+    *,
+    status: str | None,
+    event_types: Sequence[CaseEventType | str] | None,
+    tag_filters: Sequence[str] | None,
+) -> bool:
+    if status == "online":
+        return True
+    if event_types:
+        return True
+    return any(ref.strip() for ref in tag_filters or [])
 
 
 class CaseTriggerConfig(BaseModel):
@@ -44,6 +58,13 @@ class CaseTriggerConfig(BaseModel):
         if self.status == "online" and not self.event_types:
             raise ValueError("event_types must be non-empty when status is online")
         return self
+
+    def is_configured(self) -> bool:
+        return is_case_trigger_configured(
+            status=self.status,
+            event_types=self.event_types,
+            tag_filters=self.tag_filters,
+        )
 
 
 class CaseTriggerCreate(CaseTriggerConfig):

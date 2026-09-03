@@ -3,7 +3,7 @@ definition:
   title: Remove reaction
   description: Remove a reaction from a message in a Slack channel.
   display_group: Slack
-  doc_url: https://api.slack.com/methods/reactions.remove
+  doc_url: https://docs.slack.dev/reference/methods/reactions.remove/
   namespace: tools.slack
   name: remove_reaction
   expects:

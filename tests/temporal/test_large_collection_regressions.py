@@ -52,6 +52,7 @@ type WorkerFactory = Callable[[Client], Worker]
 ITEM_COUNT = 25
 MASSIVE_ITEM_COUNT = 50
 ITEM_SIZE_BYTES = 2 * 1024 * 1024
+MASSIVE_SCATTER_GATHER_MAX_PENDING_TASKS = 8
 
 
 async def _create_and_commit_workflow(
@@ -414,6 +415,15 @@ async def test_scatter_gather_massive_payload_50x2mb_e2e(
     without hanging and with refs-only collection chunk layout.
     """
     _configure_storage_credentials(monkeypatch)
+    monkeypatch.setenv(
+        "TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS",
+        str(MASSIVE_SCATTER_GATHER_MAX_PENDING_TASKS),
+    )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS",
+        MASSIVE_SCATTER_GATHER_MAX_PENDING_TASKS,
+    )
     sentinel = f"__massive-scatter-gather-sentinel-{uuid.uuid4().hex}__"
     items = _build_large_items(
         item_count=MASSIVE_ITEM_COUNT,

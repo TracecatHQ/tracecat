@@ -21,9 +21,7 @@ export default function VCSSettingsPage() {
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              Workflow sync
-            </h2>
+            <h2 className="text-2xl font-semibold tracking-tight">Git sync</h2>
             <p className="text-md text-muted-foreground">
               Sync workflows to and from your private Git repository.
             </p>
@@ -36,7 +34,7 @@ export default function VCSSettingsPage() {
           <div className="flex flex-1 items-center justify-center pb-8">
             <EntitlementRequiredEmptyState
               title="Upgrade required"
-              description="Workflow sync is unavailable on your current plan."
+              description="Git sync is unavailable on your current plan."
             >
               <Button
                 variant="link"

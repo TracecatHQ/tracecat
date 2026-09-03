@@ -1,0 +1,25 @@
+| Option | Behavior |
+| --- | --- |
+| Audit webhook URL | Receives each event as a JSON `POST` request. |
+| Custom headers | Adds static headers to every request. Header names are case-insensitive. |
+| Custom payload | Merges a JSON object into every event. Custom keys replace matching default keys. |
+| Payload attribute | Wraps the complete payload under the configured key. |
+| Verify SSL certificate | Verifies the endpoint certificate. Disable this only for a trusted endpoint that uses a private or self-signed certificate. |
+
+Tracecat encrypts the webhook URL, custom headers, and custom payload at rest.
+
+Use the payload attribute when your collector expects the event under a specific key. Splunk HTTP Event Collector is the common case: it requires each event wrapped in an `event` field.
+
+Set the payload attribute to `event`, and Tracecat wraps the whole payload:
+
+```json
+{
+  "event": {
+    "actor_label": "avery@example.com",
+    "resource_type": "workflow",
+    "action": "update",
+    "status": "SUCCESS",
+    "created_at": "2026-01-15T14:03:12.123456Z"
+  }
+}
+```

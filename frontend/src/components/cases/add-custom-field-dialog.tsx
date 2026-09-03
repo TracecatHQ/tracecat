@@ -1,15 +1,13 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
-import { ApiError, casesCreateField } from "@/client"
+import { ApiError, type CaseFieldKind, casesCreateField } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
-import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   Dialog,
   DialogContent,
@@ -36,9 +34,41 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import {
+  createCaseFieldReference,
+  createUniqueCaseFieldReference,
+} from "@/lib/case-field-display"
+import { invalidateCaseFieldQueries } from "@/lib/cases/invalidation"
+import { CASE_FIELD_KIND_CONFIG } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
+import { useCaseFields } from "@/lib/hooks"
+import { useQueryClient } from "@/lib/query"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+/** Options for the case field type picker (SQL types + kind-based semantic types). */
+interface CaseFieldTypeOption {
+  value: string
+  type: SqlTypeCreatable
+  kind: CaseFieldKind | null
+}
+
+const CASE_FIELD_TYPE_OPTIONS: CaseFieldTypeOption[] = [
+  { value: "TEXT", type: "TEXT", kind: null },
+  { value: "LONG_TEXT", type: "TEXT", kind: "LONG_TEXT" },
+  { value: "INTEGER", type: "INTEGER", kind: null },
+  { value: "NUMERIC", type: "NUMERIC", kind: null },
+  { value: "BOOLEAN", type: "BOOLEAN", kind: null },
+  { value: "DATE", type: "DATE", kind: null },
+  { value: "TIMESTAMPTZ", type: "TIMESTAMPTZ", kind: null },
+  { value: "URL", type: "JSONB", kind: "URL" },
+  { value: "SELECT", type: "SELECT", kind: null },
+  { value: "MULTI_SELECT", type: "MULTI_SELECT", kind: null },
+]
+
+function findTypeOption(value: string): CaseFieldTypeOption | undefined {
+  return CASE_FIELD_TYPE_OPTIONS.find((opt) => opt.value === value)
+}
 
 const isSelectableColumnType = (type?: string) =>
   type === "SELECT" || type === "MULTI_SELECT"
@@ -60,15 +90,17 @@ const sanitizeColumnOptions = (options?: string[]) => {
 
 const caseFieldFormSchema = z
   .object({
-    name: z
+    displayName: z
       .string()
+      .trim()
       .min(1, "Field name is required")
-      .max(100, "Field name must be less than 100 characters")
+      .max(255, "Field name must be 255 characters or fewer")
       .refine(
-        (value) => /^[a-zA-Z][a-zA-Z0-9_]*$/.test(value),
-        "Field name must start with a letter and contain only letters, numbers, and underscores"
+        (value) => createCaseFieldReference(value).length > 0,
+        "Field name must contain at least one Latin letter or number"
       ),
     type: z.enum(SqlTypeCreatableEnum),
+    kind: z.enum(["LONG_TEXT", "URL"]).nullable().optional(),
     nullable: z.boolean().default(true),
     default: z.string().nullable().optional(),
     defaultMulti: z.array(z.string()).optional(), // For MULTI_SELECT defaults
@@ -126,13 +158,15 @@ export function AddCustomFieldDialog({
 }: AddCustomFieldDialogProps) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
+  const { caseFields } = useCaseFields(workspaceId, open)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const form = useForm<CaseFieldFormValues>({
     resolver: zodResolver(caseFieldFormSchema),
     defaultValues: {
-      name: "",
+      displayName: "",
       type: "TEXT",
+      kind: null,
       nullable: true,
       default: null,
       defaultMulti: [],
@@ -140,7 +174,15 @@ export function AddCustomFieldDialog({
     },
   })
   const selectedType = form.watch("type")
+  const selectedKind = form.watch("kind")
+  const displayName = form.watch("displayName")
+  const existingReferences = new Set(caseFields?.map((field) => field.id))
+  const fieldReference = createUniqueCaseFieldReference(
+    displayName,
+    existingReferences
+  )
   const requiresOptions = isSelectableColumnType(selectedType)
+  const pickerValue = selectedKind ?? selectedType
 
   useEffect(() => {
     form.setValue("default", "")
@@ -152,7 +194,7 @@ export function AddCustomFieldDialog({
       form.setValue("options", [])
       form.clearErrors("options")
     }
-  }, [form, selectedType])
+  }, [form, selectedType, selectedKind])
 
   const onSubmit = async (data: CaseFieldFormValues) => {
     setIsSubmitting(true)
@@ -197,8 +239,18 @@ export function AddCustomFieldDialog({
             break
           }
           case "NUMERIC": {
+            const normalized =
+              typeof rawDefault === "string" ? rawDefault.trim() : rawDefault
+            if (typeof normalized === "string" && normalized.length === 0) {
+              form.setError("default", {
+                type: "manual",
+                message: "Default must be a number",
+              })
+              setIsSubmitting(false)
+              return
+            }
             const parsed =
-              typeof rawDefault === "number" ? rawDefault : Number(rawDefault)
+              typeof normalized === "number" ? normalized : Number(normalized)
             if (Number.isNaN(parsed)) {
               form.setError("default", {
                 type: "manual",
@@ -256,19 +308,22 @@ export function AddCustomFieldDialog({
       await casesCreateField({
         workspaceId,
         requestBody: {
-          name: data.name,
+          name: createUniqueCaseFieldReference(
+            data.displayName,
+            existingReferences
+          ),
+          display_name: data.displayName,
           type: data.type,
           nullable: data.nullable,
           default: defaultValue,
           options: isSelectableColumnType(data.type)
             ? sanitizeColumnOptions(data.options)
             : null,
+          kind: data.kind ?? null,
         },
       })
 
-      queryClient.invalidateQueries({
-        queryKey: ["case-fields", workspaceId],
-      })
+      await invalidateCaseFieldQueries(queryClient, workspaceId)
 
       toast({
         title: "Field created",
@@ -283,7 +338,7 @@ export function AddCustomFieldDialog({
         const apiError = error as TracecatApiError
         if (apiError.status === 409) {
           // Duplicate field error - show inline error only, no toast
-          form.setError("name", {
+          form.setError("displayName", {
             type: "manual",
             message: "A field with this name already exists",
           })
@@ -312,54 +367,64 @@ export function AddCustomFieldDialog({
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
-              name="name"
+              name="displayName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Identifier / Slug</FormLabel>
+                  <FormLabel>Name</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input placeholder="Analyst verdict" {...field} />
                   </FormControl>
                   <FormDescription>
-                    A human readable ID of the field. Use snake_case for best
-                    compatibility.
+                    Reference: {fieldReference || "Enter a name"}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="type"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Data type</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a data type" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {SqlTypeCreatableEnum.filter(
-                        (type) => type !== "JSONB"
-                      ).map((type) => (
-                        <SelectItem key={type} value={type}>
-                          <SqlTypeDisplay
-                            type={type}
-                            labelClassName="text-xs"
-                          />
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    The SQL data type for this field.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <FormItem>
+              <FormLabel>Data type</FormLabel>
+              <Select
+                value={pickerValue}
+                onValueChange={(value) => {
+                  const opt = findTypeOption(value)
+                  if (opt) {
+                    form.setValue("type", opt.type)
+                    form.setValue("kind", opt.kind ?? null)
+                  }
+                }}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a data type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {CASE_FIELD_TYPE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.kind ? (
+                        <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                          {(() => {
+                            const Icon = CASE_FIELD_KIND_CONFIG[opt.kind].icon
+                            return <Icon className="size-4 shrink-0" />
+                          })()}
+                          <span className="text-xs font-normal leading-none whitespace-nowrap">
+                            {CASE_FIELD_KIND_CONFIG[opt.kind].label}
+                          </span>
+                        </span>
+                      ) : (
+                        <SqlTypeDisplay
+                          type={opt.type}
+                          labelClassName="text-xs"
+                        />
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormDescription>The data type for this field.</FormDescription>
+              <FormMessage />
+            </FormItem>
 
             {requiresOptions && (
               <FormField
@@ -388,54 +453,59 @@ export function AddCustomFieldDialog({
               />
             )}
 
-            {selectedType === "MULTI_SELECT" ? (
-              <FormField
-                control={form.control}
-                name="defaultMulti"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Default values (optional)</FormLabel>
-                    <FormControl>
-                      <MultiTagCommandInput
-                        value={field.value || []}
-                        onChange={field.onChange}
-                        placeholder="Select default values..."
-                        suggestions={sanitizeColumnOptions(
-                          form.watch("options")
-                        ).map((opt) => ({ id: opt, label: opt, value: opt }))}
-                        searchKeys={["label"]}
-                        className="w-full"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Select default values from the options above.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            ) : (
-              <FormField
-                control={form.control}
-                name="default"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Default value (optional)</FormLabel>
-                    <FormControl>
-                      <DefaultValueInput
-                        type={selectedType}
-                        field={field}
-                        options={form.watch("options")}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {getDefaultHelperText(selectedType)}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+            {!selectedKind &&
+              (selectedType === "MULTI_SELECT" ? (
+                <FormField
+                  control={form.control}
+                  name="defaultMulti"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Default values (optional)</FormLabel>
+                      <FormControl>
+                        <MultiTagCommandInput
+                          value={field.value || []}
+                          onChange={field.onChange}
+                          placeholder="Select default values..."
+                          suggestions={sanitizeColumnOptions(
+                            form.watch("options")
+                          ).map((opt) => ({
+                            id: opt,
+                            label: opt,
+                            value: opt,
+                          }))}
+                          searchKeys={["label"]}
+                          className="w-full"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Select default values from the options above.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : (
+                <FormField
+                  control={form.control}
+                  name="default"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Default value (optional)</FormLabel>
+                      <FormControl>
+                        <DefaultValueInput
+                          type={selectedType}
+                          field={field}
+                          options={form.watch("options")}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {getDefaultHelperText(selectedType)}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ))}
 
             <DialogFooter>
               <Button type="submit" disabled={isSubmitting}>
@@ -482,8 +552,8 @@ function DefaultValueInput({
     case "INTEGER":
       return (
         <Input
-          type="number"
-          step={1}
+          type="text"
+          inputMode="numeric"
           value={field.value ?? ""}
           onChange={(event) => field.onChange(event.target.value)}
           placeholder="Enter an integer"
@@ -492,8 +562,8 @@ function DefaultValueInput({
     case "NUMERIC":
       return (
         <Input
-          type="number"
-          step="any"
+          type="text"
+          inputMode="decimal"
           value={field.value ?? ""}
           onChange={(event) => field.onChange(event.target.value)}
           placeholder="Enter a number"
@@ -508,25 +578,15 @@ function DefaultValueInput({
           placeholder="true, false, 1, or 0"
         />
       )
-    case "TIMESTAMPTZ": {
-      const stringValue =
-        typeof field.value === "string" && field.value.length > 0
-          ? field.value
-          : undefined
-      const parsedDate =
-        stringValue !== undefined ? new Date(stringValue) : null
-      const dateValue =
-        parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
-
+    case "TIMESTAMPTZ":
       return (
-        <DateTimePicker
-          value={dateValue}
-          onChange={(next) => field.onChange(next ? next.toISOString() : "")}
-          onBlur={field.onBlur}
-          buttonProps={{ className: "w-full" }}
+        <Input
+          type="text"
+          value={field.value ?? ""}
+          onChange={(event) => field.onChange(event.target.value)}
+          placeholder="YYYY-MM-DDTHH:mm:ss.Z"
         />
       )
-    }
     case "SELECT":
       return (
         <Select

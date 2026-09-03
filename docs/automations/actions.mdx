@@ -1,0 +1,230 @@
+---
+title: "Actions"
+description: "Learn how Tracecat actions work and how to configure them: action names and types, the action toolbar, success and error paths, and control flow."
+---
+
+import ActionExpressionsSection from "/snippets/action-expressions-section.mdx";
+import CoreActionsPointer from "/snippets/core-actions-pointer.mdx";
+import CoreActionsList from "/snippets/core-actions-list.mdx";
+
+You can view all available actions in the `/actions` page.
+
+![Actions page](/img/automations/actions/actions-table.png)
+
+## Core actions
+
+<CoreActionsPointer />
+
+<CoreActionsList />
+
+## Action names
+
+Every Tracecat action has a title, namespace, and name.
+Actions IDs are defined as `<namespace>.<name>`. For example, `tools.slack.post_message` uses the `tools.slack` namespace and the `post_message` name.
+
+## Action types
+
+Tracecat actions are defined in either Python UDFs (user-defined functions) or YAML templates (domain-specific language for actions).
+
+See [Custom actions](/custom-actions/custom-registry) for more details.
+
+## Action toolbar
+
+If you're building workflows in the UI, you can quickly find actions by namespace using the actions toolbar:
+
+![Actions toolbar](/img/automations/actions/actions-toolbar.png)
+
+- `core` for built-in utilities such as HTTP requests, Python scripts, email, and gRPC actions
+- `ai` for non-agent AI actions
+- `ai` also powers the separate `Agent` group for actions such as `ai.agent` and `ai.preset_agent`
+- `core.workflow` for workflow actions, plus scatter and gather helpers
+- `core.transform` for transform actions
+- `core.cases` for case actions
+- `core.table` for table actions
+- `core.sql` and `core.duckdb` for SQL actions
+- `tools.*` for installed integrations; this menu also supports search
+
+## Expressions
+
+<ActionExpressionsSection />
+
+## Success and error paths
+
+Every action has a success and error path.
+The success path, which is represented by the green dot, runs when the action succeeds.
+The error path, which is represented by the red dot, runs when the action fails.
+
+![Success error paths](/img/automations/actions/success-error-paths.png)
+
+## Control flow
+
+You can configure how an action runs from the "Control flow" tab in the action panel.
+
+![Action control flow](/img/automations/actions/control-flow.png)
+
+### Mask output
+
+Use `mask_output` to hide an action's result in workflow execution views and execution API responses. Tracecat keeps the object and array shape, but replaces each individual value with `[REDACTED]`.
+
+You can still copy JSONPath references from the displayed structure. `mask_output` only affects display; downstream actions can still use the original result with expressions such as `${{ ACTIONS.lookup_user.result.id }}`.
+
+```yaml
+- ref: lookup_user
+  action: core.http_request
+  mask_output: true
+  args:
+    url: "https://api.example.com/users/${{ TRIGGER.user_id }}"
+    method: GET
+```
+
+### Run if
+
+Use `run_if` to execute an action only when a condition evaluates to a truthy value. If the condition is falsy, Tracecat skips the action.
+
+<CodeGroup>
+```yaml High severity only
+- ref: notify_team
+  action: tools.slack.post_message
+  run_if: ${{ TRIGGER.severity == "high" }}
+  args:
+    channel: ${{ SECRETS.slack.SECURITY_CHANNEL }}
+    text: "High severity alert: ${{ TRIGGER.alert_id }}"
+```
+
+```yaml Status and owner check
+- ref: escalate_case
+  action: core.cases.update_case
+  run_if: ${{ TRIGGER.status == "open" && TRIGGER.owner != None }}
+  args:
+    case_id: ${{ TRIGGER.case_id }}
+    status: in_progress
+```
+
+```yaml Retry on empty result
+- ref: fetch_user
+  action: core.http_request
+  run_if: ${{ ACTIONS.lookup_user.result == None }}
+  args:
+    url: "https://api.example.com/users/${{ TRIGGER.user_id }}"
+    method: GET
+```
+</CodeGroup>
+
+### For each
+
+Use `for_each` to run the same action once per item in a collection. If `items` contains `N` values, Tracecat runs the action `N` times.
+
+Inside the action inputs, reference the current item with `var.<name>`. For example, `for_each: ${{ for var.user in TRIGGER.users }}` runs the action `len(TRIGGER.users)` times, and each run reads the current item from `var.user`.
+
+<CodeGroup>
+```yaml Send one email per user
+- ref: email_user
+  action: core.send_email_smtp
+  for_each: ${{ for var.user in TRIGGER.users }}
+  args:
+    sender: no-reply@example.com
+    recipients:
+      - ${{ var.user.email }}
+    subject: "Tracecat notification"
+    body: "Hello ${{ var.user.name }}"
+```
+
+```yaml Fetch one record per alert
+- ref: fetch_alert
+  action: core.http_request
+  for_each: ${{ for var.alert in TRIGGER.alerts }}
+  args:
+    url: "https://api.example.com/alerts/${{ var.alert.id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer ${{ SECRETS.alerts.API_TOKEN }}"
+```
+
+```yaml Create one case comment per finding
+- ref: comment_on_case
+  action: core.cases.create_comment
+  for_each: ${{ for var.finding in ACTIONS.parse_findings.result }}
+  args:
+    case_id: ${{ TRIGGER.case_id }}
+    comment: "Finding: ${{ var.finding.title }}"
+```
+</CodeGroup>
+
+### Join strategy
+
+`join_strategy` controls how a downstream action waits on multiple upstream branches. Use `all` to wait for every branch, or `any` to continue after the first branch completes.
+
+### Environment
+
+Use `environment` to override which secrets or variables environment an action reads from.
+This is useful to target different secrets or variables for the same pre-built action (e.g. different Slack apps for `tools.slack.post_message`).
+
+### Start delay
+
+Use `start_delay` to wait a fixed number of seconds before an action starts.
+
+### Timeout
+
+Use `timeout` to cap how long Tracecat waits for an action attempt to finish.
+Defaults to 300 seconds.
+
+For `ai.agent`, `ai.action`, and `ai.preset_agent`, `timeout` caps the agent's active runtime in seconds. Unset means 1800 seconds (30 minutes).
+
+Tracecat clamps an explicit value between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds (see [Environment variables](/self-hosting/environment-variables)). Tracecat stores the clamped value instead of rejecting the action. A ceiling below 1800 seconds lowers both the default and the floor to the ceiling.
+
+A pause for a tool approval does not count toward the timeout, and the resumed run gets the full timeout again.
+
+```yaml
+- ref: investigate_alert
+  action: ai.agent
+  retry_policy:
+    timeout: 2700
+  args:
+    model:
+      model_name: gpt-4.1
+      model_provider: openai
+    user_prompt: |
+      Investigate this alert:
+
+      ${{ TRIGGER.alert }}
+```
+
+A run that reaches the timeout fails with `Agent execution timed out after 2700s`. The workflow-level `timeout` still bounds the whole run, including approval waits.
+
+### Max attempts
+
+Use `max_attempts` to control how many times Tracecat retries the action if it fails.
+Defaults to 1 attempt.
+
+## FAQ
+
+<AccordionGroup>
+  <Accordion title="Why does my run_if or for_each expression fail validation?">
+    Most validation errors come from expression shape rather than action behavior:
+
+    - Wrap the whole expression once as `${{ ... }}`. Do not split one condition across multiple expression blocks.
+    - `run_if` must evaluate to a boolean value such as `${{ TRIGGER.severity == "high" }}`.
+    - Use comparison operators such as `==` and `!=`. A single `=` is not a valid comparison.
+    - `for_each` must use the iteration form `${{ for var.item in ... }}` and the value on the right side must be a list.
+
+    <CodeGroup>
+    ```yaml Valid run_if
+    - ref: notify_team
+      action: tools.slack.post_message
+      run_if: ${{ TRIGGER.severity == "high" && TRIGGER.status != "closed" }}
+      args:
+        channel: ${{ SECRETS.slack.SECURITY_CHANNEL }}
+        text: "High-severity alert: ${{ TRIGGER.alert_id }}"
+    ```
+
+    ```yaml Valid for_each
+    - ref: create_comment
+      action: core.cases.create_comment
+      for_each: ${{ for var.item in TRIGGER.findings }}
+      args:
+        case_id: ${{ TRIGGER.case_id }}
+        comment: "Finding: ${{ var.item.title }}"
+    ```
+    </CodeGroup>
+  </Accordion>
+</AccordionGroup>

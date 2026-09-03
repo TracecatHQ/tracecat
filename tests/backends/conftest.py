@@ -3,7 +3,7 @@
 Core fixtures for benchmarking and testing executor backends:
 - `backend_type` - Parametrized fixture running tests across all backends
 - `executor_backend` - Creates/yields/shuts down backend based on type
-- `sandboxed_backend_type` - For isolation-only tests (POOL, EPHEMERAL)
+- `sandboxed_backend_type` - For isolation-only tests (EPHEMERAL)
 - `simple_action_input_factory` - Factory for test RunActionInput objects
 - `resolved_context_factory` - Factory for ResolvedContext objects
 
@@ -12,7 +12,7 @@ Prerequisites for running benchmarks with real action execution:
 2. Sync the registry to build tarball: via UI or API
 3. Run benchmarks inside Docker: `just bench`
 
-Note: Sandboxed backends (pool, ephemeral) require nsjail which only
+Note: The sandboxed backend (ephemeral) requires nsjail which only
 runs on Linux. Use `just bench` to run benchmarks inside Docker on macOS.
 """
 
@@ -90,7 +90,7 @@ async def _check_registry_synced() -> bool:
 # =============================================================================
 
 
-@pytest.fixture(params=["test", "direct", "pool", "ephemeral"])
+@pytest.fixture(params=["test", "direct", "ephemeral"])
 def backend_type(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> str:
@@ -100,7 +100,7 @@ def backend_type(
     sandboxed backends when nsjail is not available.
 
     Yields:
-        The backend type string (test, direct, pool, or ephemeral)
+        The backend type string (test, direct, or ephemeral)
     """
     backend = request.param
 
@@ -108,7 +108,7 @@ def backend_type(
     monkeypatch.setenv("TRACECAT__EXECUTOR_BACKEND", backend)
 
     # Skip sandboxed backends if nsjail not available
-    if backend in ("pool", "ephemeral"):
+    if backend == "ephemeral":
         if not _check_nsjail_available():
             pytest.skip(f"nsjail not available for {backend} backend")
 
@@ -120,7 +120,7 @@ def backend_type(
     return backend
 
 
-@pytest.fixture(params=["pool", "ephemeral"])
+@pytest.fixture(params=["ephemeral"])
 def sandboxed_backend_type(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> str:
@@ -130,7 +130,7 @@ def sandboxed_backend_type(
     Skips if nsjail is not available.
 
     Yields:
-        The backend type string (pool or ephemeral)
+        The backend type string (ephemeral)
     """
     backend = request.param
 
@@ -410,7 +410,7 @@ def setup_benchmark_environment(monkeypatch_session):
     Does NOT enable test mode - benchmarks run with real action execution
     when the registry is synced.
 
-    nsjail is enabled by default for sandboxed backends (pool, ephemeral).
+    nsjail is enabled by default for the sandboxed backend (ephemeral).
     Tests will skip on platforms where nsjail is not available (macOS).
     """
     # Default to test backend if not specified
@@ -425,26 +425,6 @@ def setup_benchmark_environment(monkeypatch_session):
 # =============================================================================
 # Multi-Backend Fixtures (Native)
 # =============================================================================
-
-
-@pytest.fixture
-async def pool_backend() -> AsyncIterator[ExecutorBackend]:
-    """Create a pool backend for benchmarking.
-
-    Requires nsjail to be available (Linux only).
-    Skips on macOS where nsjail is not supported.
-    """
-    if not _check_nsjail_available():
-        pytest.skip("nsjail not available for pool backend (requires Linux)")
-
-    from tracecat.executor.backends.pool import PoolBackend
-
-    backend = PoolBackend()
-    await backend.start()
-    try:
-        yield backend
-    finally:
-        await backend.shutdown()
 
 
 @pytest.fixture

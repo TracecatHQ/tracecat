@@ -7,13 +7,17 @@ to prevent race conditions when multiple API processes start simultaneously.
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
+from uuid import UUID
+
 import tracecat_registry
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.authz.seeding import seed_registry_scopes
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.locks import (
     derive_lock_key_from_parts,
     pg_advisory_unlock,
@@ -29,13 +33,62 @@ from tracecat.registry.versions.service import PlatformRegistryVersionsService
 
 MAX_SYNC_RETRIES = 3
 PLATFORM_SYNC_LOCK_KEY = derive_lock_key_from_parts("platform_registry_sync")
+_RELEASE_TAG_PATTERN = re.compile(
+    r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
+    r"(?:-(?P<stage>alpha|a|beta|b|rc|dev|post)\.(?P<number>\d+)"
+    r"(?:-(?P<sub_stage>alpha|a|beta|b|rc|dev|post)\.(?P<sub_number>\d+))?)?$"
+)
+_STAGE_RANK = {
+    "dev": 0,
+    "alpha": 1,
+    "a": 1,
+    "beta": 2,
+    "b": 2,
+    "rc": 3,
+    "final": 4,
+    "post": 5,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _ArtifactBuildRequest:
+    """Artifact work to run after releasing the startup leader lock."""
+
+    target_version: str
+    promote_version_id: UUID | None = None
+    expected_current_version_id: UUID | None = None
+
+
+def _release_tag_key(version: str) -> tuple[int, int, int, int, int, int, int]:
+    """Return a sortable key for Tracecat release/image tag versions."""
+    match = _RELEASE_TAG_PATTERN.fullmatch(version)
+    if match is None:
+        raise InvalidVersion(f"Invalid Tracecat release tag: {version!r}")
+
+    stage = match.group("stage") or "final"
+    number = int(match.group("number") or 0)
+    sub_stage = match.group("sub_stage") or "final"
+    sub_number = int(match.group("sub_number") or 0)
+
+    return (
+        int(match.group("major")),
+        int(match.group("minor")),
+        int(match.group("patch")),
+        _STAGE_RANK[stage],
+        number,
+        _STAGE_RANK[sub_stage],
+        sub_number,
+    )
 
 
 def _is_downgrade(current_version: PlatformRegistryVersion | None, target: str) -> bool:
     """Check if target version would be a downgrade from current."""
     if current_version is None:
         return False
-    return Version(target) < Version(current_version.version)
+    try:
+        return Version(target) < Version(current_version.version)
+    except InvalidVersion:
+        return _release_tag_key(target) < _release_tag_key(current_version.version)
 
 
 async def sync_platform_registry_on_startup() -> None:
@@ -48,15 +101,18 @@ async def sync_platform_registry_on_startup() -> None:
     1. Try to acquire advisory lock (non-blocking)
     2. If lock acquired (leader):
        a. Check if target version already exists and is current → done
-       b. If version exists but not current → no-downgrade check → promote → done
-       c. If version doesn't exist → run sync with retries
-    3. If lock not acquired (non-leader) → exit immediately
+       b. If target exists with no current version → build artifact then promote
+       c. If version exists but is not current → preserve rollback → done
+       d. If version doesn't exist → run sync with retries
+    3. Release the leader lock and session, then await any artifact build
+    4. If lock not acquired (non-leader) → exit immediately
     """
     target_version = tracecat_registry.__version__
     logger.info("Attempting platform registry sync", target_version=target_version)
 
     try:
-        async with get_async_session_context_manager() as session:
+        artifact_build: _ArtifactBuildRequest | None = None
+        async with get_async_session_bypass_rls_context_manager() as session:
             # Leader election: try to acquire lock (non-blocking)
             acquired = await try_pg_advisory_lock(session, PLATFORM_SYNC_LOCK_KEY)
             if not acquired:
@@ -66,10 +122,22 @@ async def sync_platform_registry_on_startup() -> None:
                 return
 
             try:
-                await _sync_as_leader(session, target_version)
+                artifact_build = await _sync_as_leader(session, target_version)
             finally:
                 # Always release lock
                 await pg_advisory_unlock(session, PLATFORM_SYNC_LOCK_KEY)
+
+        # This coroutine itself is supervised by the API lifespan. Awaiting the
+        # artifact build here keeps it inside that lifecycle while still
+        # releasing the advisory lock and database session before the build.
+        if artifact_build is not None:
+            await _build_platform_registry_artifact(
+                artifact_build.target_version,
+                promote_version_id=artifact_build.promote_version_id,
+                expected_current_version_id=(
+                    artifact_build.expected_current_version_id
+                ),
+            )
 
     except Exception as e:
         logger.warning(
@@ -80,19 +148,24 @@ async def sync_platform_registry_on_startup() -> None:
         # Don't re-raise - API should continue
 
 
-async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
-    """Leader-only sync logic with retries."""
+async def _sync_as_leader(
+    session: AsyncSession, target_version: str
+) -> _ArtifactBuildRequest | None:
+    """Run leader-only sync and return deferred artifact work, if any."""
     repos_service = PlatformRegistryReposService(session)
     versions_service = PlatformRegistryVersionsService(session)
 
     # Get or create platform repository
     repo = await repos_service.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
+    is_fresh_install = not await versions_service.has_versions(repository_id=repo.id)
 
-    # Check if target version already exists
-    existing_version = await versions_service.get_version_by_repo_and_version(
-        repository_id=repo.id,
-        version=target_version,
-    )
+    # Fresh installs have no target version to fetch; keep the first-start path lean.
+    existing_version = None
+    if not is_fresh_install:
+        existing_version = await versions_service.get_version_by_repo_and_version(
+            repository_id=repo.id,
+            version=target_version,
+        )
 
     if existing_version:
         # Version exists - check if it's already current
@@ -101,7 +174,25 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
                 "Platform registry already at target version",
                 version=target_version,
             )
-            return
+            return _ArtifactBuildRequest(
+                target_version=target_version,
+                promote_version_id=existing_version.id,
+                expected_current_version_id=existing_version.id,
+            )
+
+        # If this repo has versions but no current selection, wait until the
+        # referenced artifact is present before repairing the pointer.
+        if repo.current_version_id is None:
+            logger.info(
+                "Target platform registry version exists with no current selection; deferring artifact build before promotion",
+                target_version=target_version,
+                version_id=str(existing_version.id),
+            )
+            return _ArtifactBuildRequest(
+                target_version=target_version,
+                promote_version_id=existing_version.id,
+                expected_current_version_id=None,
+            )
 
         # Version exists but is not current - don't auto-promote
         # There may be a deliberate reason it's not current (e.g., manual rollback)
@@ -146,21 +237,29 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
                 )
                 return
 
+            expected_current_version_id = repo.current_version_id
             result = await sync_service.sync_repository_v2(
                 repo,
                 target_version=target_version,
                 bypass_temporal=True,  # Always use subprocess at startup
+                defer_artifact_build=True,
+                promote=is_fresh_install,
             )
             logger.info(
                 "Platform registry sync completed",
                 version=result.version_string,
                 num_actions=result.num_actions,
                 attempt=attempt,
+                promoted=is_fresh_install,
             )
 
             # Seed registry scopes for the synced actions
             await _seed_registry_scopes(session, result.actions)
-            return
+            return _ArtifactBuildRequest(
+                target_version=result.version_string,
+                promote_version_id=None if is_fresh_install else result.version.id,
+                expected_current_version_id=expected_current_version_id,
+            )
 
         except Exception as e:
             logger.warning(
@@ -202,3 +301,102 @@ async def _seed_registry_scopes(
         logger.warning("Failed to seed registry scopes", error=str(e))
         # Don't fail the sync if scope seeding fails due to DB errors
         await session.rollback()
+
+
+async def _build_platform_registry_artifact(
+    target_version: str,
+    *,
+    promote_version_id: UUID | None = None,
+    expected_current_version_id: UUID | None = None,
+) -> None:
+    async with get_async_session_bypass_rls_context_manager() as session:
+        sync_service = PlatformRegistrySyncService(session)
+        result = await sync_service._build_and_upload_artifacts(
+            origin=DEFAULT_REGISTRY_ORIGIN,
+            version_string=target_version,
+            commit_sha=None,
+        )
+        logger.info(
+            "Platform registry artifact build completed",
+            target_version=target_version,
+            artifact_uri=result.artifact_uri,
+        )
+        if promote_version_id is not None:
+            await _promote_platform_registry_version_after_artifact_build(
+                session,
+                target_version=target_version,
+                version_id=promote_version_id,
+                artifact_uri=result.artifact_uri,
+                expected_current_version_id=expected_current_version_id,
+            )
+
+
+async def _promote_platform_registry_version_after_artifact_build(
+    session: AsyncSession,
+    *,
+    target_version: str,
+    version_id: UUID,
+    artifact_uri: str,
+    expected_current_version_id: UUID | None,
+) -> None:
+    repos_service = PlatformRegistryReposService(session)
+    versions_service = PlatformRegistryVersionsService(session)
+
+    repo = await repos_service.get_repository(DEFAULT_REGISTRY_ORIGIN)
+    if repo is None:
+        logger.warning(
+            "Skipping platform registry promotion after artifact build; repository no longer exists",
+            target_version=target_version,
+            version_id=str(version_id),
+        )
+        return
+
+    version = await versions_service.get_version(version_id)
+    if version is None:
+        logger.warning(
+            "Skipping platform registry promotion after artifact build; version no longer exists",
+            target_version=target_version,
+            version_id=str(version_id),
+        )
+        return
+
+    if version.repository_id != repo.id or version.version != target_version:
+        logger.warning(
+            "Skipping platform registry promotion after artifact build; version mismatch",
+            target_version=target_version,
+            version_id=str(version_id),
+            version=str(version.version),
+        )
+        return
+
+    if repo.current_version_id != expected_current_version_id:
+        logger.info(
+            "Skipping platform registry promotion after artifact build; current version changed",
+            target_version=target_version,
+            version_id=str(version_id),
+            expected_current_version_id=str(expected_current_version_id)
+            if expected_current_version_id
+            else None,
+            current_version_id=str(repo.current_version_id)
+            if repo.current_version_id
+            else None,
+        )
+        return
+
+    if version.tarball_uri != artifact_uri:
+        logger.info(
+            "Updating platform registry version artifact URI before promotion",
+            target_version=target_version,
+            version_id=str(version_id),
+            previous_artifact_uri=version.tarball_uri,
+            artifact_uri=artifact_uri,
+        )
+        version.tarball_uri = artifact_uri
+        session.add(version)
+
+    await repos_service.promote_version(repo, version_id)
+    logger.info(
+        "Promoted platform registry version after artifact build",
+        target_version=target_version,
+        version_id=str(version_id),
+    )

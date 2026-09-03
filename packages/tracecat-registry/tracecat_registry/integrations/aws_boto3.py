@@ -4,11 +4,13 @@ Provides a interface to Boto3's Client and Paginator APIs.
 Supports role-based authentication and session management.
 """
 
+import base64
 from typing import TYPE_CHECKING, Annotated, Any
 from typing_extensions import Doc
 
 import boto3
 import aioboto3
+from aiobotocore.response import StreamingBody
 
 if TYPE_CHECKING:
     from types_aiobotocore_sts.type_defs import (
@@ -21,10 +23,17 @@ else:
 
 from tracecat_registry import (
     RegistrySecret,
-    logger,
-    registry,
+    ctx,
     secrets,
     SecretNotFoundError,
+    logger,
+    registry,
+)
+
+_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
+_AWS_SERVICE_REGION_DOC = (
+    "AWS service region to use for this request. Overrides the AWS_REGION secret "
+    "for the service client."
 )
 
 aws_secret = RegistrySecret(
@@ -32,8 +41,8 @@ aws_secret = RegistrySecret(
     optional_keys=[
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
         "AWS_REGION",
-        "AWS_PROFILE",
         "AWS_ROLE_ARN",
         "AWS_ROLE_SESSION_NAME",
     ],
@@ -44,65 +53,124 @@ aws_secret = RegistrySecret(
 - name: `aws`
 - optional_keys:
     Either:
+        - `AWS_ROLE_ARN` (recommended; Tracecat assumes the role on the host)
+        - `AWS_ROLE_SESSION_NAME` (optional audit session label)
+    Or:
         - `AWS_ACCESS_KEY_ID`
         - `AWS_SECRET_ACCESS_KEY`
-    Or:
-        - `AWS_PROFILE`
-    Or:
-        - `AWS_ROLE_ARN`
-        - `AWS_ROLE_SESSION_NAME`
+        - `AWS_SESSION_TOKEN` (optional)
     And:
         - `AWS_REGION`
+
+Tracecat automatically supplies the workspace-scoped AWS External ID used for
+cross-account AssumeRole requests and uses a default STS session name when
+`AWS_ROLE_SESSION_NAME` is unset.
 """
+
+
+def _get_assume_role_external_id() -> str:
+    if external_id := secrets.get_or_default(_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY):
+        return external_id
+
+    raise SecretNotFoundError(
+        "AWS role assumption requires a Tracecat-provided workspace External ID."
+    )
+
+
+def _get_role_session_name() -> str:
+    if session_name := secrets.get_or_default("AWS_ROLE_SESSION_NAME"):
+        if not isinstance(session_name, str):
+            raise TypeError("AWS_ROLE_SESSION_NAME must be a string when configured.")
+        if session_name := session_name.strip():
+            return session_name
+
+    try:
+        workspace_id = ctx.workspace_id
+        run_id = ctx.run_id
+    except RuntimeError:
+        return "tracecat-session"
+
+    parts = ["tracecat"]
+    if workspace_id:
+        parts.extend(["ws", workspace_id.replace("-", "")[:8]])
+    if run_id:
+        parts.extend(["run", run_id.replace("-", "")[:8]])
+    return "-".join(parts)[:64]
+
+
+def _get_region_name(region_name: str | None = None) -> str | None:
+    """Return the per-call AWS region override or the configured secret region."""
+    if region_name is not None:
+        if not isinstance(region_name, str):
+            raise TypeError("region_name must be a string when configured.")
+        if region_name := region_name.strip():
+            return region_name
+        return None
+
+    aws_region = secrets.get_or_default("AWS_REGION")
+    if aws_region is not None and not isinstance(aws_region, str):
+        raise TypeError("AWS_REGION must be a string when configured.")
+    return aws_region.strip() if aws_region else None
 
 
 async def get_temporary_credentials(
     role_arn: str,
-    role_session_name: str | None = None,
+    region_name: str | None = None,
 ) -> AsyncCredentialsTypeDef:
-    async with aioboto3.Session().client("sts") as sts_client:
-        # Assume the cross-account role
-        kwargs = {}
-        if role_session_name:
-            kwargs["RoleSessionName"] = role_session_name
-        response = await sts_client.assume_role(RoleArn=role_arn, **kwargs)
+    sts_session = (
+        aioboto3.Session(region_name=region_name) if region_name else aioboto3.Session()
+    )
+    async with sts_session.client("sts") as sts_client:
+        response = await sts_client.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName=_get_role_session_name(),
+            ExternalId=_get_assume_role_external_id(),
+        )
         creds = response["Credentials"]
     return creds
 
 
 def get_sync_temporary_credentials(
     role_arn: str,
-    role_session_name: str | None = None,
+    region_name: str | None = None,
 ) -> CredentialsTypeDef:
-    sts_client = boto3.Session().client("sts")
-    kwargs = {}
-    if role_session_name:
-        kwargs["RoleSessionName"] = role_session_name
-    response = sts_client.assume_role(RoleArn=role_arn, **kwargs)
+    sts_session = (
+        boto3.Session(region_name=region_name) if region_name else boto3.Session()
+    )
+    sts_client = sts_session.client("sts")
+    response = sts_client.assume_role(
+        RoleArn=role_arn,
+        RoleSessionName=_get_role_session_name(),
+        ExternalId=_get_assume_role_external_id(),
+    )
     creds = response["Credentials"]
     return creds
 
 
-async def get_session() -> aioboto3.Session:
+async def get_session(region_name: str | None = None) -> aioboto3.Session:
+    """Build an aioboto3 session from secrets.
+
+    Credential precedence:
+    1. ``AWS_ROLE_ARN`` — STS AssumeRole (external ID + session name auto-set)
+    2. ``AWS_ACCESS_KEY_ID`` + ``AWS_SECRET_ACCESS_KEY`` + ``AWS_SESSION_TOKEN``
+    3. ``AWS_ACCESS_KEY_ID`` + ``AWS_SECRET_ACCESS_KEY``
+    4. ``AWS_BEARER_TOKEN_BEDROCK`` (Bedrock-only bearer token)
+    """
     aws_role_arn = secrets.get_or_default("AWS_ROLE_ARN")
-    aws_profile = secrets.get_or_default("AWS_PROFILE")
-    aws_region = secrets.get_or_default("AWS_REGION")
+    aws_region = _get_region_name(region_name)
     aws_access_key_id = secrets.get_or_default("AWS_ACCESS_KEY_ID")
     aws_secret_access_key = secrets.get_or_default("AWS_SECRET_ACCESS_KEY")
     aws_session_token = secrets.get_or_default("AWS_SESSION_TOKEN")
     aws_bearer_token_bedrock = secrets.get_or_default("AWS_BEARER_TOKEN_BEDROCK")
 
     if aws_role_arn:
-        aws_role_session_name = secrets.get_or_default("AWS_ROLE_SESSION_NAME")
-        creds = await get_temporary_credentials(aws_role_arn, aws_role_session_name)
+        creds = await get_temporary_credentials(aws_role_arn, region_name=aws_region)
         session = aioboto3.Session(
             aws_access_key_id=creds["AccessKeyId"],
             aws_secret_access_key=creds["SecretAccessKey"],
             aws_session_token=creds["SessionToken"],
             region_name=aws_region,
         )
-    elif aws_profile:
-        session = aioboto3.Session(profile_name=aws_profile)
     elif aws_access_key_id and aws_secret_access_key and aws_session_token:
         session = aioboto3.Session(
             aws_access_key_id=aws_access_key_id,
@@ -112,7 +180,7 @@ async def get_session() -> aioboto3.Session:
         )
     elif aws_access_key_id and aws_secret_access_key:
         logger.warning(
-            "Role ARN, profile, and session token not found. Defaulting to IAM credentials (not recommended)."
+            "Session token not found. Defaulting to IAM credentials (not recommended)."
         )
         session = aioboto3.Session(
             aws_access_key_id=aws_access_key_id,
@@ -129,26 +197,30 @@ async def get_session() -> aioboto3.Session:
     return session
 
 
-def get_sync_session() -> boto3.Session:
+def get_sync_session(region_name: str | None = None) -> boto3.Session:
+    """Build a boto3 session from secrets.
+
+    Credential precedence:
+    1. ``AWS_ROLE_ARN`` — STS AssumeRole (external ID + session name auto-set)
+    2. ``AWS_ACCESS_KEY_ID`` + ``AWS_SECRET_ACCESS_KEY`` + ``AWS_SESSION_TOKEN``
+    3. ``AWS_ACCESS_KEY_ID`` + ``AWS_SECRET_ACCESS_KEY``
+    4. ``AWS_BEARER_TOKEN_BEDROCK`` (Bedrock-only bearer token)
+    """
     aws_role_arn = secrets.get_or_default("AWS_ROLE_ARN")
-    aws_profile = secrets.get_or_default("AWS_PROFILE")
-    aws_region = secrets.get_or_default("AWS_REGION")
+    aws_region = _get_region_name(region_name)
     aws_access_key_id = secrets.get_or_default("AWS_ACCESS_KEY_ID")
     aws_secret_access_key = secrets.get_or_default("AWS_SECRET_ACCESS_KEY")
     aws_session_token = secrets.get_or_default("AWS_SESSION_TOKEN")
     aws_bearer_token_bedrock = secrets.get_or_default("AWS_BEARER_TOKEN_BEDROCK")
 
     if aws_role_arn:
-        aws_role_session_name = secrets.get_or_default("AWS_ROLE_SESSION_NAME")
-        creds = get_sync_temporary_credentials(aws_role_arn, aws_role_session_name)
+        creds = get_sync_temporary_credentials(aws_role_arn, region_name=aws_region)
         session = boto3.Session(
             aws_access_key_id=creds["AccessKeyId"],
             aws_secret_access_key=creds["SecretAccessKey"],
             aws_session_token=creds["SessionToken"],
             region_name=aws_region,
         )
-    elif aws_profile:
-        session = boto3.Session(profile_name=aws_profile)
     elif aws_access_key_id and aws_secret_access_key and aws_session_token:
         session = boto3.Session(
             aws_access_key_id=aws_access_key_id,
@@ -158,7 +230,7 @@ def get_sync_session() -> boto3.Session:
         )
     elif aws_access_key_id and aws_secret_access_key:
         logger.warning(
-            "Role ARN, profile, and session token not found. Defaulting to IAM credentials (not recommended)."
+            "Session token not found. Defaulting to IAM credentials (not recommended)."
         )
         session = boto3.Session(
             aws_access_key_id=aws_access_key_id,
@@ -175,11 +247,37 @@ def get_sync_session() -> boto3.Session:
     return session
 
 
+_STREAMING_BODY_MAX_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
+async def _read_streaming_values(obj: Any) -> Any:
+    """Recursively read StreamingBody and bytes values in a boto3 response.
+
+    Content is decoded as UTF-8, falling back to base64 for binary data.
+    """
+    if isinstance(obj, StreamingBody):
+        content = await obj.read(_STREAMING_BODY_MAX_BYTES)
+        try:
+            return content.decode("utf-8")
+        except UnicodeDecodeError:
+            return base64.b64encode(content).decode("ascii")
+    if isinstance(obj, bytes):
+        try:
+            return obj.decode("utf-8")
+        except UnicodeDecodeError:
+            return base64.b64encode(obj).decode("ascii")
+    if isinstance(obj, dict):
+        return {k: await _read_streaming_values(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [await _read_streaming_values(item) for item in obj]
+    return obj
+
+
 @registry.register(
     default_title="Call method",
     description="Instantiate a Boto3 client and call an AWS Boto3 API method.",
     display_group="AWS Boto3",
-    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/clients.html",
+    doc_url="https://docs.aws.amazon.com/boto3/latest/guide/clients.html",
     namespace="tools.aws_boto3",
     secrets=[aws_secret],
 )
@@ -196,23 +294,27 @@ async def call_api(
         str | None,
         Doc("Endpoint URL for the AWS service."),
     ] = None,
+    region_name: Annotated[
+        str | None,
+        Doc(_AWS_SERVICE_REGION_DOC),
+    ] = None,
     params: Annotated[
         dict[str, Any] | None,
         Doc("Parameters for the API method."),
     ] = None,
 ) -> dict[str, Any]:
     params = params or {}
-    session = await get_session()
+    session = await get_session(region_name=region_name)
     async with session.client(service_name, endpoint_url=endpoint_url) as client:  # type: ignore
         response = await getattr(client, method_name)(**params)
-        return response
+        return await _read_streaming_values(response)
 
 
 @registry.register(
     default_title="Call paginator",
     description="Instantiate a Boto3 paginator and call a paginated AWS API method.",
     display_group="AWS Boto3",
-    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/paginators.html",
+    doc_url="https://docs.aws.amazon.com/boto3/latest/guide/paginators.html",
     namespace="tools.aws_boto3",
     secrets=[aws_secret],
 )
@@ -229,19 +331,23 @@ async def call_paginated_api(
         str | None,
         Doc("Endpoint URL for the AWS service."),
     ] = None,
+    region_name: Annotated[
+        str | None,
+        Doc(_AWS_SERVICE_REGION_DOC),
+    ] = None,
     params: Annotated[
         dict[str, Any] | None,
         Doc("Parameters for the API paginator."),
     ] = None,
 ) -> list[dict[str, Any]]:
     params = params or {}
-    session = await get_session()
+    session = await get_session(region_name=region_name)
     async with session.client(service_name, endpoint_url=endpoint_url) as client:  # type: ignore
         paginator = client.get_paginator(paginator_name)
         pages = paginator.paginate(**params)
 
-    results = []
-    async for page in pages:
-        results.append(page)
+        results = []
+        async for page in pages:
+            results.append(await _read_streaming_values(page))
 
     return results

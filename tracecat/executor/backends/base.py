@@ -4,7 +4,6 @@ This module defines the abstract base class for executor backends,
 enabling pluggable execution strategies for different deployment scenarios.
 
 Available backends:
-- pool: Warm nsjail workers for single-tenant, high throughput
 - ephemeral: Cold nsjail subprocess per action for multitenant workloads
 - direct: Direct subprocess execution without warm workers
 - test: In-process execution for tests only
@@ -12,10 +11,15 @@ Available backends:
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
+from tracecat import config
 from tracecat.dsl.enums import PlatformAction
+from tracecat.executor.action_gateway.config import action_gateway_socket_path
+from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ExecutorResult,
@@ -77,7 +81,7 @@ class ExecutorBackend(ABC):
 
         # Platform actions with special execution requirements
         if action_name == PlatformAction.RUN_PYTHON:
-            return await self._execute_run_python(resolved_context)
+            return await self._execute_run_python(input, role, resolved_context)
 
         # Normal UDF execution via backend-specific implementation
         return await self._execute(input, role, resolved_context, timeout)
@@ -98,6 +102,8 @@ class ExecutorBackend(ABC):
 
     async def _execute_run_python(
         self,
+        input: RunActionInput,
+        role: Role,
         resolved_context: ResolvedContext,
     ) -> ExecutorResult:
         """Execute run_python action using host sandbox.
@@ -120,8 +126,67 @@ class ExecutorBackend(ABC):
             )
             return ExecutorResultFailure(error=error_info)
 
-        service = SandboxService()
+        env_vars = self._build_run_python_env_vars(
+            input,
+            resolved_context,
+            user_env_vars=args.get("env_vars"),
+        )
 
+        artifact_uris = await self._get_artifact_uris(input, role)
+        if not artifact_uris:
+            # Local-repository mode imports straight from the repo checkout, so
+            # there is no cache entry to lease.
+            local_registry_paths = self._resolve_run_python_local_registry_paths()
+            if isinstance(local_registry_paths, ExecutorActionErrorInfo):
+                return ExecutorResultFailure(error=local_registry_paths)
+            return await self._run_python_in_sandbox(
+                script=script,
+                args=args,
+                env_vars=env_vars,
+                registry_paths=local_registry_paths,
+                resolved_context=resolved_context,
+            )
+
+        # The lease is held for the whole sandbox run so cache eviction cannot
+        # delete a directory the script is still importing from. The sandbox
+        # service can select UnsafePidExecutor, which exposes host paths writable,
+        # so conservatively rescan their footprint after every run.
+        registry_artifacts = get_action_runner().registry_artifacts
+        async with registry_artifacts.lease(
+            artifact_uris,
+            paths_may_be_modified=True,
+        ) as registry_paths:
+            return await self._run_python_in_sandbox(
+                script=script,
+                args=args,
+                env_vars=env_vars,
+                registry_paths=registry_paths,
+                resolved_context=resolved_context,
+            )
+
+    async def _run_python_in_sandbox(
+        self,
+        *,
+        script: str,
+        args: dict[str, Any],
+        env_vars: dict[str, str],
+        registry_paths: list[Path],
+        resolved_context: ResolvedContext,
+    ) -> ExecutorResult:
+        """Run a validated run_python script against resolved registry paths.
+
+        Args:
+            script: Validated run_python script source.
+            args: Evaluated run_python action arguments.
+            env_vars: Environment variables for the sandboxed script.
+            registry_paths: Import roots for the sandboxed script.
+            resolved_context: Pre-resolved execution context.
+
+        Returns:
+            ExecutorResultSuccess on success, ExecutorResultFailure on a
+            sandbox, validation, or dependency-install failure.
+        """
+        service = SandboxService()
         try:
             result = await service.run_python(
                 script=script,
@@ -129,8 +194,10 @@ class ExecutorBackend(ABC):
                 dependencies=args.get("dependencies"),
                 timeout_seconds=args.get("timeout_seconds", 300),
                 allow_network=args.get("allow_network", False),
-                env_vars=args.get("env_vars"),
+                env_vars=env_vars,
+                python_path_dirs=registry_paths,
                 workspace_id=resolved_context.workspace_id,
+                action_gateway_socket=action_gateway_socket_path(),
             )
             return ExecutorResultSuccess(result=result)
         except (
@@ -148,11 +215,98 @@ class ExecutorBackend(ABC):
             )
             return ExecutorResultFailure(error=error_info)
 
+    def _resolve_run_python_local_registry_paths(
+        self,
+    ) -> list[Path] | ExecutorActionErrorInfo:
+        """Resolve run_python import roots when no registry artifact is available."""
+        if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+            if local_registry_paths := self._get_run_python_local_registry_paths():
+                return local_registry_paths
+            message = (
+                "No local registry paths available for run_python execution. "
+                "Check TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH, "
+                "TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH, and PYTHONUSERBASE."
+            )
+        else:
+            message = (
+                "No registry artifacts available for run_python execution. "
+                "Check that the registry is synced and the registry_lock is valid."
+            )
+
+        return ExecutorActionErrorInfo(
+            action_name=PlatformAction.RUN_PYTHON,
+            type="RegistryError",
+            message=message,
+            filename="base.py",
+            function="_execute_run_python",
+        )
+
+    def _get_run_python_local_registry_paths(self) -> list[Path]:
+        """Return local registry import roots for run_python local-repository mode."""
+        repo_root = Path(__file__).resolve().parents[3]
+        builtin_source_path = Path(config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH)
+        candidates = [builtin_source_path]
+        if not builtin_source_path.exists():
+            candidates.append(repo_root / "packages" / "tracecat-registry")
+        custom_registry_target = Path(
+            os.getenv("PYTHONUSERBASE") or Path.home().joinpath(".local")
+        )
+        candidates.extend(
+            [
+                Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH),
+                custom_registry_target,
+            ]
+        )
+
+        paths: list[Path] = []
+        seen: set[Path] = set()
+        for path in candidates:
+            if not path.exists():
+                continue
+            resolved_path = path.resolve()
+            if resolved_path in seen:
+                continue
+            seen.add(resolved_path)
+            paths.append(path)
+        return paths
+
+    @abstractmethod
+    async def _get_artifact_uris(
+        self,
+        input: RunActionInput,
+        role: Role,
+    ) -> list[str]:
+        """Get registry artifact URIs for this backend."""
+        ...
+
+    def _build_run_python_env_vars(
+        self,
+        input: RunActionInput,
+        resolved_context: ResolvedContext,
+        *,
+        user_env_vars: dict[str, str] | None,
+    ) -> dict[str, str]:
+        """Build run_python environment with Tracecat SDK context always enabled."""
+
+        env_vars = dict(user_env_vars or {})
+        env_vars.update(
+            {
+                "TRACECAT__API_URL": config.TRACECAT__API_URL,
+                "TRACECAT__WORKSPACE_ID": resolved_context.workspace_id,
+                "TRACECAT__WORKFLOW_ID": resolved_context.workflow_id,
+                "TRACECAT__RUN_ID": resolved_context.run_id,
+                "TRACECAT__WF_EXEC_ID": str(input.run_context.wf_exec_id),
+                "TRACECAT__ENVIRONMENT": input.run_context.environment,
+                "TRACECAT__EXECUTOR_TOKEN": resolved_context.executor_token,
+            }
+        )
+        return env_vars
+
     async def start(self) -> None:  # noqa: B027
         """Initialize the backend.
 
         Called once at worker startup. Override to perform setup
-        like creating worker pools or establishing connections.
+        like allocating execution resources or establishing connections.
         """
 
     async def shutdown(self) -> None:  # noqa: B027

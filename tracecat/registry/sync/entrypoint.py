@@ -46,30 +46,8 @@ from tracecat.registry.sync.schemas import (
 from tracecat.settings.service import get_setting_cached
 
 
-async def load_and_serialize_actions(
-    origin: str,
-    repository_id: UUID4,
-    commit_sha: str | None = None,
-    validate: bool = False,
-    git_repo_package_name: str | None = None,
-    organization_id: UUID4 | None = None,
-) -> SyncResultSuccess:
-    """Load a repository and serialize its actions to a typed result.
-
-    Args:
-        origin: The repository origin (e.g., "tracecat_registry", "local", or a git URL).
-        repository_id: The UUID of the repository in the database.
-        commit_sha: Optional commit SHA to checkout (for remote repos).
-        validate: Whether to validate template actions.
-        git_repo_package_name: Optional override for the git repository package name.
-        organization_id: Optional organization ID for accessing org-scoped secrets.
-
-    Returns:
-        SyncResultSuccess containing actions, commit_sha, and validation_errors.
-    """
-    # Set up service role for the subprocess
-    # Use "tracecat-service" as the service ID (valid InternalServiceID)
-    # Include organization_id if provided so we can access org-scoped secrets (e.g., SSH keys)
+def _create_service_role(organization_id: UUID4 | None) -> Role:
+    """Create the restricted service role used while discovering actions."""
     role = Role(
         type="service",
         service_id="tracecat-service",
@@ -77,23 +55,19 @@ async def load_and_serialize_actions(
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
     )
     ctx_role.set(role)
+    return role
 
-    # Load the repository (this triggers uv install / reload)
-    logger.info("Loading repository", origin=origin, commit_sha=commit_sha)
-    repo = Repository(
-        origin=origin,
-        role=role,
-        package_name_override=git_repo_package_name,
-    )
-    resolved_commit_sha = await repo.load_from_origin(commit_sha=commit_sha)
-    logger.info(
-        "Repository loaded",
-        origin=origin,
-        resolved_commit_sha=resolved_commit_sha,
-        num_actions=len(repo.store),
-    )
 
-    # Validate template actions if requested
+async def _serialize_loaded_repository(
+    *,
+    repo: Repository,
+    role: Role,
+    origin: str,
+    repository_id: UUID4,
+    resolved_commit_sha: str | None,
+    validate: bool,
+) -> SyncResultSuccess:
+    """Validate and serialize an already-loaded registry repository."""
     validation_errors: dict[str, list[RegistryActionValidationErrorInfo]] = {}
     if validate:
         logger.info("Validating template actions")
@@ -113,7 +87,6 @@ async def load_and_serialize_actions(
                 extra_repos=extra_repos or None,
             ):
                 val_errs[action.action].extend(errs)
-        # Keep typed validation errors
         validation_errors = dict(val_errs)
         if validation_errors:
             logger.warning(
@@ -121,7 +94,6 @@ async def load_and_serialize_actions(
                 num_errors=sum(len(v) for v in validation_errors.values()),
             )
 
-    # Serialize actions to RegistryActionCreate DTOs
     serialized_actions: list[RegistryActionCreate] = []
     for bound_action in repo.store.values():
         try:
@@ -133,7 +105,6 @@ async def load_and_serialize_actions(
                 action=bound_action.action,
                 error=str(e),
             )
-            # Add to validation errors as a serialization error
             if bound_action.action not in validation_errors:
                 validation_errors[bound_action.action] = []
             validation_errors[bound_action.action].append(
@@ -156,6 +127,94 @@ async def load_and_serialize_actions(
         actions=serialized_actions,
         commit_sha=resolved_commit_sha,
         validation_errors=validation_errors,
+    )
+
+
+async def load_and_serialize_actions(
+    origin: str,
+    repository_id: UUID4,
+    commit_sha: str | None = None,
+    validate: bool = False,
+    git_repo_package_name: str | None = None,
+    organization_id: UUID4 | None = None,
+) -> SyncResultSuccess:
+    """Load a repository and serialize its actions to a typed result.
+
+    Args:
+        origin: The repository origin (e.g., "tracecat_registry", "local", or a git URL).
+        repository_id: The UUID of the repository in the database.
+        commit_sha: Optional commit SHA to checkout (for remote repos).
+        validate: Whether to validate template actions.
+        git_repo_package_name: Optional override for the git repository package name.
+        organization_id: Optional organization ID for accessing org-scoped secrets.
+
+    Returns:
+        SyncResultSuccess containing actions, commit_sha, and validation_errors.
+    """
+    role = _create_service_role(organization_id)
+
+    # Load the repository (this triggers uv install / reload)
+    logger.info("Loading repository", origin=origin, commit_sha=commit_sha)
+    repo = Repository(
+        origin=origin,
+        role=role,
+        package_name_override=git_repo_package_name,
+    )
+    resolved_commit_sha = await repo.load_from_origin(commit_sha=commit_sha)
+    logger.info(
+        "Repository loaded",
+        origin=origin,
+        resolved_commit_sha=resolved_commit_sha,
+        num_actions=len(repo.store),
+    )
+
+    return await _serialize_loaded_repository(
+        repo=repo,
+        role=role,
+        origin=origin,
+        repository_id=repository_id,
+        resolved_commit_sha=resolved_commit_sha,
+        validate=validate,
+    )
+
+
+async def load_and_serialize_installed_actions(
+    *,
+    origin: str,
+    package_name: str,
+    repository_id: UUID4,
+    commit_sha: str | None = None,
+    validate: bool = False,
+    organization_id: UUID4 | None = None,
+) -> SyncResultSuccess:
+    """Discover actions from a package installed by a separate sandbox phase."""
+    role = _create_service_role(organization_id)
+    repo = Repository(origin=origin, role=role, package_name_override=package_name)
+
+    logger.info(
+        "Loading installed registry package",
+        origin=origin,
+        package_name=package_name,
+        commit_sha=commit_sha,
+    )
+    if origin == DEFAULT_REGISTRY_ORIGIN:
+        await repo.load_from_origin(commit_sha=commit_sha)
+    else:
+        await repo.load_installed(package_name)
+
+    logger.info(
+        "Installed registry package loaded",
+        origin=origin,
+        package_name=package_name,
+        num_actions=len(repo.store),
+    )
+    return await _serialize_loaded_repository(
+        repo=repo,
+        role=role,
+        origin=origin,
+        repository_id=repository_id,
+        resolved_commit_sha=commit_sha,
+        validate=validate,
     )
 
 
@@ -247,7 +306,7 @@ async def main() -> int:
     except Exception as e:
         logger.exception("Failed to load repository", error=str(e))
         # Output error as typed JSON
-        error_result = SyncResultError(error=str(e))
+        error_result = SyncResultError.from_exception(e)
         print(error_result.model_dump_json(), file=sys.stdout)
         return 1
 

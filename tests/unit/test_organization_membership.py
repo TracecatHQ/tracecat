@@ -323,7 +323,7 @@ class TestGetRoleFromUser:
 
     @pytest.mark.anyio
     async def test_get_role_from_superuser(self, session: AsyncSession):
-        """Test get_role_from_user for superuser sets is_platform_superuser."""
+        """Test tenant roles do not inherit platform superuser privileges."""
         user = User(
             id=uuid.uuid4(),
             email=f"superuser-{uuid.uuid4().hex[:8]}@example.com",
@@ -341,7 +341,7 @@ class TestGetRoleFromUser:
             organization_id=uuid.uuid4(),
         )
 
-        assert role.is_platform_superuser is True
+        assert role.is_platform_superuser is False
 
 
 class TestOrganizationMembershipRelationships:

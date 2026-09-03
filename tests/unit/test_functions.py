@@ -90,6 +90,7 @@ from tracecat.expressions.functions import (
     regex_match,
     regex_not_match,
     seconds_between,
+    serialize,
     serialize_json,
     set_timezone,
     slice_str,
@@ -772,6 +773,25 @@ def test_logical_operations(func, a: bool, b: Any, expected: bool) -> None:
 @pytest.mark.parametrize(
     "input_data,expected",
     [
+        ({"a": 1}, {"a": 1}),
+        ([1, 2, 3], [1, 2, 3]),
+        ("test", "test"),
+        (123, 123),
+    ],
+)
+def test_serialize(input_data: Any, expected: Any) -> None:
+    result = serialize(input_data)
+    assert orjson.loads(result) == expected
+
+
+def test_serialize_unsupported_type_raises() -> None:
+    with pytest.raises(TypeError):
+        serialize({"value": object()})
+
+
+@pytest.mark.parametrize(
+    "input_data,expected",
+    [
         ({"a": 1, "b": 2}, {"a": 1, "b": 2}),
         ([1, 2, 3], [1, 2, 3]),
         ("test", "test"),
@@ -860,10 +880,18 @@ def test_unset_timezone(dt: datetime) -> None:
     [
         ("admin+tracecat1@gmail.com", "admin%2Btracecat1%40gmail.com"),
         ("admin+tracecat1-org@gmail.com", "admin%2Btracecat1-org%40gmail.com"),
+        ("path/segment with space", "path%2Fsegment%20with%20space"),
+        (123, "123"),
     ],
 )
-def test_url_encode(input_str: str, expected: str) -> None:
+def test_url_encode(input_str: str | int, expected: str) -> None:
     assert url_encode(input_str) == expected
+
+
+def test_url_encode_accepts_explicit_safe_characters() -> None:
+    assert url_encode("feature/security report", safe="/") == (
+        "feature/security%20report"
+    )
 
 
 @pytest.mark.parametrize(

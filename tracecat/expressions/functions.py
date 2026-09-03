@@ -80,9 +80,9 @@ def slugify_(x: str) -> str:
     return slugify(x)
 
 
-def url_encode(x: str) -> str:
+def url_encode(x: str | int, safe: str = "") -> str:
     """Converts URL-unsafe characters into percent-encoded characters."""
-    return urllib.parse.quote(x)
+    return urllib.parse.quote(str(x), safe=safe)
 
 
 def url_decode(x: str) -> str:
@@ -524,6 +524,11 @@ def map_dict_keys(x: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
 
 def serialize_json(x: Any) -> str:
     """Convert object to JSON string."""
+    return orjson.dumps(x).decode()
+
+
+def serialize(x: Any) -> str:
+    """Serialize a JSON-compatible value to string."""
     return orjson.dumps(x).decode()
 
 
@@ -1147,6 +1152,7 @@ _FUNCTION_MAPPING = {
     "deserialize_ndjson": deserialize_ndjson,
     "deserialize_yaml": deserialize_yaml,
     "prettify_json": prettify_json,
+    "serialize": serialize,
     "serialize_json": serialize_json,
     "serialize_yaml": serialize_yaml,
     # Time related
@@ -1266,7 +1272,14 @@ def mappable(func: F) -> F:
 
 
 FUNCTION_MAPPING = {k: mappable(v) for k, v in _FUNCTION_MAPPING.items()}
-"""Mapping of function names to decorated mappable versions."""
+"""Mapping of function names to decorated mappable versions.
+
+Function results support normal bracket indexing in expressions, such as
+`FN.range(0, 3)[0]` or `FN.zip_map(["a"], ["x"])["a"]`.
+
+Function results do not support JSONPath wildcards or filters. For example,
+`FN.range(0, 3)[*]` is invalid.
+"""
 
 BUILTIN_TYPE_MAPPING = {
     "int": int,

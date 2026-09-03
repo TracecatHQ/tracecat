@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from tracecat_registry.sdk.agents import AgentsClient
     from tracecat_registry.sdk.cases import CasesClient
     from tracecat_registry.sdk.client import TracecatClient
+    from tracecat_registry.sdk.deduplicate import DeduplicateClient
     from tracecat_registry.sdk.tables import TablesClient
     from tracecat_registry.sdk.variables import VariablesClient
     from tracecat_registry.sdk.workflows import WorkflowsClient
@@ -50,7 +51,6 @@ class RegistryContext:
     api_url: str = "http://api:8000"
     executor_url: str = "http://executor:8000"
     token: str = ""
-
     # Lazily initialized SDK client
     _client: TracecatClient | None = field(default=None, repr=False)
 
@@ -103,11 +103,18 @@ class RegistryContext:
         """Get the SDK client for this context."""
         from tracecat_registry.sdk.client import TracecatClient
 
+        if self._client is not None:
+            return self._client
+
         return TracecatClient(
-            api_url=self.api_url,
             token=self.token,
             workspace_id=self.workspace_id,
         )
+
+    @property
+    def deduplicate(self) -> "DeduplicateClient":
+        """Get the Deduplicate API client."""
+        return self.client.deduplicate
 
     @property
     def cases(self) -> "CasesClient":

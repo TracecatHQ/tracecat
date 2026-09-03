@@ -6,15 +6,17 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from pydantic import UUID4
-from sqlalchemy import select, update
+from sqlalchemy import bindparam, cast, func, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, noload, selectinload
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.authz.service import resolve_grantable_role
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Invitation,
@@ -29,6 +31,7 @@ from tracecat.db.models import (
     Role as DBRole,
 )
 from tracecat.exceptions import (
+    TracecatAuthorizationError,
     TracecatException,
     TracecatManagementError,
     TracecatNotFoundError,
@@ -96,6 +99,30 @@ class WorkspaceService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    async def list_accessible_workspaces(
+        self, limit: int | None = None
+    ) -> Sequence[Workspace]:
+        """List workspaces visible to the current actor."""
+        if self.role.scopes and has_scope(self.role.scopes, "org:workspace:read"):
+            return await self.admin_list_workspaces(limit=limit)
+
+        if self.role.type == "service_account":
+            if (
+                bound_workspace_id := self.role.bound_workspace_id
+                or self.role.workspace_id
+            ) is None:
+                if self.role.scopes and has_scope(self.role.scopes, "org:read"):
+                    return []
+                raise TracecatAuthorizationError(
+                    "Service account does not have access to list workspaces"
+                )
+            workspace = await self.get_workspace(bound_workspace_id)
+            return [workspace] if workspace is not None else []
+
+        if self.role.user_id is None:
+            raise TracecatAuthorizationError("User ID is required to list workspaces")
+        return await self.list_workspaces(self.role.user_id, limit=limit)
+
     @require_scope("workspace:create")
     @audit_log(resource_type="workspace", action="create")
     async def create_workspace(
@@ -162,15 +189,41 @@ class WorkspaceService(BaseOrgService):
         """Update a workspace."""
         set_fields = params.model_dump(exclude_unset=True)
         self.logger.info("Updating workspace", set_fields=set_fields)
-        for field, value in set_fields.items():
-            setattr(workspace, field, value)
-        self.session.add(workspace)
+        missing = object()
+        settings_update = set_fields.pop("settings", missing)
+        if settings_update is missing and not set_fields:
+            return workspace
+
+        statement = update(Workspace).where(
+            Workspace.organization_id == self.organization_id,
+            Workspace.id == workspace.id,
+        )
+
+        statement_params: dict[str, object] = {}
+        if settings_update is not missing:
+            if settings_update is None:
+                statement = statement.values(settings={})
+            else:
+                statement = statement.values(
+                    settings=func.coalesce(Workspace.settings, cast("{}", JSONB)).op(
+                        "||"
+                    )(bindparam("settings_patch", type_=JSONB))
+                )
+                statement_params["settings_patch"] = settings_update
+        if set_fields:
+            statement = statement.values(**set_fields)
+
+        await self.session.execute(statement, statement_params)
         await self.session.commit()
         await self.session.refresh(workspace)
         return workspace
 
     @require_scope("workspace:delete")
-    @audit_log(resource_type="workspace", action="delete")
+    @audit_log(
+        resource_type="workspace",
+        action="delete",
+        resource_id_attr="workspace_id",
+    )
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
         all_workspaces = await self.admin_list_workspaces()
@@ -207,17 +260,32 @@ class WorkspaceService(BaseOrgService):
         await self.session.commit()
 
     async def search_workspaces(self, params: WorkspaceSearch) -> Sequence[Workspace]:
-        """Retrieve a workspace by ID."""
+        """Search workspaces visible to the current actor."""
         statement = select(Workspace).where(
             Workspace.organization_id == self.organization_id
         )
-        # Platform admins and org owners/admins can see all workspaces
+
         if self.role is not None and not self.role.is_privileged:
-            # Only list workspaces where user is a member
-            statement = statement.where(
-                Workspace.id == Membership.workspace_id,
-                Membership.user_id == self.role.user_id,
-            )
+            if self.role.type == "service_account":
+                if (
+                    bound_workspace_id := self.role.bound_workspace_id
+                    or self.role.workspace_id
+                ) is None:
+                    if self.role.scopes and has_scope(self.role.scopes, "org:read"):
+                        return []
+                    raise TracecatAuthorizationError(
+                        "Service account does not have access to search workspaces"
+                    )
+                statement = statement.where(Workspace.id == bound_workspace_id)
+            else:
+                if self.role.user_id is None:
+                    raise TracecatAuthorizationError(
+                        "User ID is required to search workspaces"
+                    )
+                statement = statement.where(
+                    Workspace.id == Membership.workspace_id,
+                    Membership.user_id == self.role.user_id,
+                )
         if params.name:
             statement = statement.where(Workspace.name == params.name)
         result = await self.session.execute(statement)
@@ -256,16 +324,14 @@ class WorkspaceService(BaseOrgService):
         except ValueError as e:
             raise TracecatValidationError("Invalid role ID format") from e
 
-        # Validate role_id exists and belongs to this organization
-        role_result = await self.session.execute(
-            select(DBRole).where(
-                DBRole.id == role_id,
-                DBRole.organization_id == self.organization_id,
+        try:
+            await resolve_grantable_role(
+                self.session, self.role, self.organization_id, role_id
             )
-        )
-        role_obj = role_result.scalar_one_or_none()
-        if role_obj is None:
-            raise TracecatValidationError("Invalid role ID for this organization")
+        except TracecatNotFoundError as e:
+            raise TracecatValidationError(
+                "Invalid role ID for this organization"
+            ) from e
 
         # Check for existing pending invitation that hasn't expired
         now = datetime.now(UTC)
@@ -503,7 +569,11 @@ class WorkspaceService(BaseOrgService):
         return membership
 
     @require_scope("workspace:member:remove")
-    @audit_log(resource_type="workspace_invitation", action="revoke")
+    @audit_log(
+        resource_type="workspace_invitation",
+        action="revoke",
+        resource_id_attr="invitation_id",
+    )
     async def revoke_invitation(
         self,
         workspace_id: WorkspaceID,

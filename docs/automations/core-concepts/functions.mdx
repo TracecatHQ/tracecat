@@ -1,0 +1,53 @@
+---
+title: "Functions"
+description: "Inline utility functions for Tracecat expressions: transform strings, dates, numbers, lists, and JSON inside workflow and agent definitions."
+---
+
+## Overview
+
+Tracecat expressions can call built-in functions with the `FN.<name>(...)` syntax.
+Functions accept positional arguments only: keyword arguments such as `FN.to_isoformat(FN.now(), timespec="seconds")` do not parse; write `FN.to_isoformat(FN.now(), "seconds")`.
+
+Function results support bracket indexing such as `FN.range(0, 3)[0]`.
+Function results do not support JSONPath wildcards or filters such as `FN.range(0, 3)[*]`.
+
+Use in-line functions for one-line data transforms in action inputs.
+For more complex logic, use a Python script or a custom UDF instead.
+
+## Examples
+
+Build a prompt or short string:
+
+<CodeGroup>
+```yaml Expression
+prompt: ${{ FN.format("Investigate alert {0} with severity {1}", TRIGGER.alert_id, TRIGGER.severity) }}
+```
+
+```json Result
+{
+  "prompt": "Investigate alert al-123 with severity high"
+}
+```
+</CodeGroup>
+
+Time manipulation for alert search windows.
+`FN.to_isoformat` keeps microseconds by default; pass `"seconds"` as the second argument to truncate:
+
+<CodeGroup>
+```yaml Expression
+start_time: ${{ FN.to_isoformat(FN.now() - FN.minutes(15)) }}
+end_time: ${{ FN.to_isoformat(FN.now(), "seconds") }}
+```
+
+```json Result
+{
+  "start_time": "2026-03-18T12:45:00.490979",
+  "end_time": "2026-03-18T13:00:00"
+}
+```
+</CodeGroup>
+
+## Related pages
+
+- See the [Functions cheatsheet](/cheatsheets/functions) for the full function reference and more examples.
+- See [Expressions](/automations/core-concepts/expressions) for expression syntax and contexts.

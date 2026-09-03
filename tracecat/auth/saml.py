@@ -58,7 +58,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import bootstrap_role, get_default_organization_id
-from tracecat.auth.dependencies import ServiceRole, require_auth_type_enabled
+from tracecat.auth.dependencies import ServiceRole, verify_auth_type
 from tracecat.auth.enums import AuthType
 from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.users import (
@@ -73,8 +73,6 @@ from tracecat.config import (
     SAML_CA_CERTS,
     SAML_IDP_METADATA_URL,
     SAML_PUBLIC_ACS_URL,
-    SAML_SIGNED_ASSERTIONS,
-    SAML_SIGNED_RESPONSES,
     SAML_VERIFY_SSL_ENTITY,
     SAML_VERIFY_SSL_METADATA,
     TRACECAT__AUTH_ALLOWED_DOMAINS,
@@ -83,7 +81,7 @@ from tracecat.config import (
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
 )
-from tracecat.db.engine import get_async_session
+from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
     OrganizationDomain,
     OrganizationInvitation,
@@ -91,10 +89,12 @@ from tracecat.db.models import (
     SAMLRequestData,
     User,
 )
+from tracecat.db.rls import set_rls_context
 from tracecat.identifiers import OrganizationID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
+from tracecat.organization.service import accept_invitation_for_user
 from tracecat.settings.service import get_setting
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])
@@ -199,6 +199,20 @@ class SAMLParser:
             attributes[saml_attr.name] = asdict(saml_attr)
 
         return attributes
+
+
+async def require_saml_login_organization(
+    request: Request,
+    db_session: AsyncDBSessionBypass,
+) -> OrganizationID:
+    """Resolve the target org and enforce org-scoped SAML enablement."""
+    organization_id = await resolve_auth_organization_id(request, session=db_session)
+    await verify_auth_type(
+        AuthType.SAML,
+        role=bootstrap_role(organization_id),
+        session=db_session,
+    )
+    return organization_id
 
 
 @contextmanager
@@ -501,11 +515,11 @@ def should_allow_saml_org_access(
     is_platform_superuser: bool,
 ) -> bool:
     """Allow org access after SAML auth when at least one trusted path exists."""
+    _ = is_platform_superuser
     return (
         has_existing_membership
         or pending_invitation is not None
         or is_first_superadmin_bootstrap
-        or is_platform_superuser
     )
 
 
@@ -533,8 +547,8 @@ async def create_saml_client(
                 },
                 "allow_unsolicited": SAML_ALLOW_UNSOLICITED,
                 "authn_requests_signed": SAML_AUTHN_REQUESTS_SIGNED,
-                "want_assertions_signed": SAML_SIGNED_ASSERTIONS,
-                "want_response_signed": SAML_SIGNED_RESPONSES,
+                "want_assertions_signed": True,
+                "want_response_signed": True,
                 "only_use_keys_in_metadata": True,
                 "validate_certificate": True,
             },
@@ -630,16 +644,14 @@ async def create_saml_client(
 @router.get(
     "/login",
     name=f"saml:{auth_backend.name}.login",
-    dependencies=[require_auth_type_enabled(AuthType.SAML)],
 )
 async def login(
-    request: Request,
-    db_session: Annotated[AsyncSession, Depends(get_async_session)],
+    organization_id: Annotated[
+        OrganizationID, Depends(require_saml_login_organization)
+    ],
+    db_session: AsyncDBSessionBypass,
 ) -> SAMLDatabaseLoginResponse:
     """Initiate SAML login flow"""
-    # Org resolution is explicit in multi-tenant mode and default-org in
-    # single-tenant mode. This keeps login org-scoped before we contact the IdP.
-    organization_id = await resolve_auth_organization_id(request, session=db_session)
     saml_idp_metadata_url = await get_org_saml_metadata_url(db_session, organization_id)
     client = await create_saml_client(saml_idp_metadata_url)
 
@@ -685,7 +697,7 @@ async def sso_acs(
     relay_state: str = Form(..., alias="RelayState"),
     user_manager: UserManagerDep,
     strategy: AuthBackendStrategyDep,
-    db_session: Annotated[AsyncSession, Depends(get_async_session)],
+    db_session: AsyncDBSession,
     role: ServiceRole,
 ) -> Response:
     """Handle the SAML SSO response from the IdP post-authentication."""
@@ -726,6 +738,16 @@ async def sso_acs(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication failed",
         )
+
+    # Rebind the request session to the validated organization before any
+    # org-scoped settings, domain, or membership queries.
+    await set_rls_context(
+        db_session,
+        org_id=organization_id,
+        workspace_id=None,
+        user_id=None,
+        bypass=False,
+    )
 
     # Load IdP metadata after RelayState validation so ACS config is tied to the
     # validated org context.
@@ -904,6 +926,33 @@ async def sso_acs(
             detail="Authentication failed",
         )
 
+    # Accept a pending org invitation so the user receives the role the inviter
+    # intended. This is idempotent: if single-tenant defaults already created an
+    # organization-member assignment (e.g. SSO auto-provisioning ran first), the
+    # upsert in accept_invitation_for_user upgrades the role to invitation.role_id.
+    if pending_invitation is not None:
+        try:
+            await accept_invitation_for_user(
+                db_session,
+                user_id=user.id,  # pyright: ignore[reportArgumentType]
+                token=pending_invitation.token,
+            )
+            logger.info(
+                "Accepted pending org invitation during SAML login",
+                user_id=str(user.id),
+                email=email,
+                org_id=str(organization_id),
+                role_id=str(pending_invitation.role_id),
+            )
+        except Exception:
+            await db_session.rollback()
+            logger.warning(
+                "Failed to accept org invitation during SAML login",
+                user_id=str(user.id),
+                email=email,
+                exc_info=True,
+            )
+
     # Ensure user can access this organization.
     membership_stmt = select(OrganizationMembership).where(
         OrganizationMembership.user_id == user.id,  # pyright: ignore[reportArgumentType]
@@ -939,5 +988,7 @@ async def sso_acs(
         )
 
     response = await auth_backend.login(strategy, user)
-    await user_manager.on_after_login(user, request, response)
+    await user_manager.on_after_login(
+        user, request, response, organization_id=organization_id
+    )
     return response

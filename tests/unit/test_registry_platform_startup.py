@@ -10,10 +10,13 @@ This test suite validates:
 
 from __future__ import annotations
 
+import asyncio
+import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.models import (
@@ -164,7 +167,7 @@ async def test_startup_sync_skips_when_version_already_current(
     session: AsyncSession,
 ) -> None:
     """Test that startup sync skips when target version is already current."""
-    from tracecat.registry.sync.jobs import _sync_as_leader
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
 
     # Get or create platform repo (may already exist from conftest seeding)
     repo = await _get_or_create_platform_repo(session)
@@ -191,9 +194,14 @@ async def test_startup_sync_skips_when_version_already_current(
         with patch(
             "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
         ) as mock_sync_service:
-            await _sync_as_leader(session, "0.1.0")
+            artifact_build = await _sync_as_leader(session, "0.1.0")
             # Sync service should not be instantiated
             mock_sync_service.assert_not_called()
+            assert artifact_build == _ArtifactBuildRequest(
+                target_version="0.1.0",
+                promote_version_id=version.id,
+                expected_current_version_id=version.id,
+            )
 
 
 @pytest.mark.anyio
@@ -235,14 +243,51 @@ async def test_startup_sync_does_not_promote_existing_non_current_version(
     with patch(
         "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
     ) as mock_sync_service:
-        await _sync_as_leader(session, "2.0.0")
+        artifact_build = await _sync_as_leader(session, "2.0.0")
 
         # Should NOT call sync service (version exists)
         mock_sync_service.assert_not_called()
+        assert artifact_build is None
 
     # Verify current version is still version 1
     await session.refresh(repo)
     assert repo.current_version_id == version1.id
+
+
+@pytest.mark.anyio
+async def test_startup_sync_defers_existing_target_when_no_current_version(
+    session: AsyncSession,
+) -> None:
+    """Test startup sync waits for artifacts before repairing a missing pointer."""
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
+
+    repo = await _get_or_create_platform_repo(session)
+    repo.current_version_id = None
+    session.add(repo)
+    await session.flush()
+
+    version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["test.action"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    session.add(version)
+    await session.commit()
+
+    with patch(
+        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+    ) as mock_sync_service:
+        artifact_build = await _sync_as_leader(session, "1.0.0")
+        mock_sync_service.assert_not_called()
+        assert artifact_build == _ArtifactBuildRequest(
+            target_version="1.0.0",
+            promote_version_id=version.id,
+            expected_current_version_id=None,
+        )
+
+    await session.refresh(repo)
+    assert repo.current_version_id is None
 
 
 @pytest.mark.anyio
@@ -272,10 +317,11 @@ async def test_startup_sync_refuses_downgrade(
     with patch(
         "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
     ) as mock_sync_service:
-        await _sync_as_leader(session, "1.0.0")
+        artifact_build = await _sync_as_leader(session, "1.0.0")
 
         # Should NOT call sync service (downgrade refused)
         mock_sync_service.assert_not_called()
+        assert artifact_build is None
 
     # Verify current version is still 2.0.0
     await session.refresh(repo)
@@ -286,20 +332,26 @@ async def test_startup_sync_refuses_downgrade(
 async def test_startup_sync_calls_sync_for_new_version(
     session: AsyncSession,
 ) -> None:
-    """Test that startup sync calls sync service for new versions."""
-    from tracecat.registry.sync.jobs import _sync_as_leader
+    """Test fresh startup sync promotes immediately for first-install UX."""
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
 
-    # Get or create platform repo (may already exist from conftest seeding)
-    # Set current_version_id to None to simulate no current version
     repo = await _get_or_create_platform_repo(session)
     repo.current_version_id = None
     session.add(repo)
+    await session.flush()
+    await session.execute(
+        delete(PlatformRegistryVersion).where(
+            PlatformRegistryVersion.repository_id == repo.id
+        )
+    )
     await session.commit()
 
-    # Mock the sync service
-    mock_result = AsyncMock()
-    mock_result.version_string = "1.0.0"
-    mock_result.num_actions = 10
+    mock_result = SimpleNamespace(
+        version=SimpleNamespace(id=uuid.uuid4()),
+        version_string="1.0.0",
+        num_actions=0,
+        actions=[],
+    )
 
     with patch(
         "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
@@ -308,13 +360,326 @@ async def test_startup_sync_calls_sync_for_new_version(
         mock_sync_service.sync_repository_v2.return_value = mock_result
         mock_sync_cls.return_value = mock_sync_service
 
-        await _sync_as_leader(session, "1.0.0")
+        artifact_build = await _sync_as_leader(session, "1.0.0")
 
         # Sync service should be called with bypass_temporal=True
         mock_sync_service.sync_repository_v2.assert_called_once()
         call_kwargs = mock_sync_service.sync_repository_v2.call_args.kwargs
         assert call_kwargs["target_version"] == "1.0.0"
         assert call_kwargs["bypass_temporal"] is True
+        assert call_kwargs["defer_artifact_build"] is True
+        assert call_kwargs["promote"] is True
+        assert artifact_build == _ArtifactBuildRequest(
+            target_version="1.0.0",
+            promote_version_id=None,
+            expected_current_version_id=None,
+        )
+
+
+@pytest.mark.anyio
+async def test_startup_sync_defers_promotion_for_new_upgrade_version(
+    session: AsyncSession,
+) -> None:
+    """Test upgrade startup sync promotes only after artifact upload."""
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
+
+    repo = await _get_or_create_platform_repo(session)
+    old_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["test.action_v1"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    session.add(old_version)
+    await session.flush()
+    repo.current_version_id = old_version.id
+    session.add(repo)
+    await session.commit()
+
+    new_version_id = uuid.uuid4()
+    mock_result = SimpleNamespace(
+        version=SimpleNamespace(id=new_version_id),
+        version_string="2.0.0",
+        num_actions=0,
+        actions=[],
+    )
+
+    with patch(
+        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+    ) as mock_sync_cls:
+        mock_sync_service = AsyncMock()
+        mock_sync_service.sync_repository_v2.return_value = mock_result
+        mock_sync_cls.return_value = mock_sync_service
+
+        artifact_build = await _sync_as_leader(session, "2.0.0")
+
+        call_kwargs = mock_sync_service.sync_repository_v2.call_args.kwargs
+        assert call_kwargs["defer_artifact_build"] is True
+        assert call_kwargs["promote"] is False
+        assert artifact_build == _ArtifactBuildRequest(
+            target_version="2.0.0",
+            promote_version_id=new_version_id,
+            expected_current_version_id=old_version.id,
+        )
+
+
+@pytest.mark.anyio
+async def test_startup_sync_returns_artifact_build_for_resolved_version(
+    session: AsyncSession,
+) -> None:
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
+
+    repo = await _get_or_create_platform_repo(session)
+    repo.current_version_id = None
+    session.add(repo)
+    await session.flush()
+    await session.execute(
+        delete(PlatformRegistryVersion).where(
+            PlatformRegistryVersion.repository_id == repo.id
+        )
+    )
+    await session.commit()
+
+    mock_result = SimpleNamespace(
+        version=SimpleNamespace(id=uuid.uuid4()),
+        version_string="1.0.0+collision.20260522140000.123456",
+        num_actions=0,
+        actions=[],
+    )
+
+    with patch(
+        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+    ) as mock_sync_cls:
+        mock_sync_service = AsyncMock()
+        mock_sync_service.sync_repository_v2.return_value = mock_result
+        mock_sync_cls.return_value = mock_sync_service
+
+        artifact_build = await _sync_as_leader(session, "1.0.0")
+
+        assert artifact_build == _ArtifactBuildRequest(
+            target_version="1.0.0+collision.20260522140000.123456",
+            promote_version_id=None,
+            expected_current_version_id=None,
+        )
+
+
+@pytest.mark.anyio
+async def test_promote_after_artifact_build_promotes_when_current_matches_guard(
+    session: AsyncSession,
+) -> None:
+    from tracecat.registry.sync.jobs import (
+        _promote_platform_registry_version_after_artifact_build,
+    )
+
+    repo = await _get_or_create_platform_repo(session)
+    old_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["test.action_v1"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    new_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="2.0.0",
+        manifest=_make_manifest(["test.action_v2"]),
+        tarball_uri="s3://test/v2.tar.gz",
+    )
+    session.add_all([old_version, new_version])
+    await session.flush()
+    repo.current_version_id = old_version.id
+    session.add(repo)
+    await session.commit()
+
+    await _promote_platform_registry_version_after_artifact_build(
+        session,
+        target_version="2.0.0",
+        version_id=new_version.id,
+        artifact_uri="s3://test/v2.tar.gz",
+        expected_current_version_id=old_version.id,
+    )
+
+    await session.refresh(repo)
+    assert repo.current_version_id == new_version.id
+
+
+@pytest.mark.anyio
+async def test_promote_after_artifact_build_updates_stored_artifact_uri(
+    session: AsyncSession,
+) -> None:
+    from tracecat.registry.sync.jobs import (
+        _promote_platform_registry_version_after_artifact_build,
+    )
+
+    repo = await _get_or_create_platform_repo(session)
+    old_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["test.action_v1"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    pending_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="2.0.0",
+        manifest=_make_manifest(["test.action_v2"]),
+        tarball_uri="s3://test/stale.tar.gz",
+    )
+    session.add_all([old_version, pending_version])
+    await session.flush()
+    repo.current_version_id = old_version.id
+    session.add(repo)
+    await session.commit()
+
+    artifact_uri = "s3://test/v2/site-packages.squashfs"
+    await _promote_platform_registry_version_after_artifact_build(
+        session,
+        target_version="2.0.0",
+        version_id=pending_version.id,
+        artifact_uri=artifact_uri,
+        expected_current_version_id=old_version.id,
+    )
+
+    await session.refresh(repo)
+    await session.refresh(pending_version)
+    assert repo.current_version_id == pending_version.id
+    assert pending_version.tarball_uri == artifact_uri
+
+
+@pytest.mark.anyio
+async def test_promote_after_artifact_build_promotes_collision_version(
+    session: AsyncSession,
+) -> None:
+    from tracecat.registry.sync.jobs import (
+        _promote_platform_registry_version_after_artifact_build,
+    )
+
+    repo = await _get_or_create_platform_repo(session)
+    old_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.2.3",
+        manifest=_make_manifest(["test.action_v1"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    collision_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.2.3+collision.20260522140000.123456",
+        manifest=_make_manifest(["test.action_v2"]),
+        tarball_uri="s3://test/collision.tar.gz",
+    )
+    session.add_all([old_version, collision_version])
+    await session.flush()
+    repo.current_version_id = old_version.id
+    session.add(repo)
+    await session.commit()
+
+    await _promote_platform_registry_version_after_artifact_build(
+        session,
+        target_version="1.2.3+collision.20260522140000.123456",
+        version_id=collision_version.id,
+        artifact_uri="s3://test/collision.tar.gz",
+        expected_current_version_id=old_version.id,
+    )
+
+    await session.refresh(repo)
+    assert repo.current_version_id == collision_version.id
+
+
+@pytest.mark.anyio
+async def test_promote_after_artifact_build_skips_when_current_changed(
+    session: AsyncSession,
+) -> None:
+    from tracecat.registry.sync.jobs import (
+        _promote_platform_registry_version_after_artifact_build,
+    )
+
+    repo = await _get_or_create_platform_repo(session)
+    old_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["test.action_v1"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    newer_current = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.5.0",
+        manifest=_make_manifest(["test.action_v1_5"]),
+        tarball_uri="s3://test/v1_5.tar.gz",
+    )
+    pending_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="2.0.0",
+        manifest=_make_manifest(["test.action_v2"]),
+        tarball_uri="s3://test/v2.tar.gz",
+    )
+    session.add_all([old_version, newer_current, pending_version])
+    await session.flush()
+    repo.current_version_id = newer_current.id
+    session.add(repo)
+    await session.commit()
+
+    await _promote_platform_registry_version_after_artifact_build(
+        session,
+        target_version="2.0.0",
+        version_id=pending_version.id,
+        artifact_uri="s3://test/v2.tar.gz",
+        expected_current_version_id=old_version.id,
+    )
+
+    await session.refresh(repo)
+    assert repo.current_version_id == newer_current.id
+
+
+@pytest.mark.anyio
+async def test_startup_sync_awaits_artifact_build_after_releasing_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.registry.sync import jobs
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest
+
+    build_started = asyncio.Event()
+    release_build = asyncio.Event()
+    lock_released = asyncio.Event()
+    artifact_build = _ArtifactBuildRequest(target_version="1.0.0")
+
+    async def fake_sync_as_leader(
+        session: AsyncSession,
+        target_version: str,
+    ) -> _ArtifactBuildRequest:
+        del session
+        assert target_version == "1.0.0"
+        return artifact_build
+
+    async def fake_release_lock(session: AsyncSession, lock_key: int) -> None:
+        del session
+        assert lock_key == jobs.PLATFORM_SYNC_LOCK_KEY
+        lock_released.set()
+
+    async def fake_build(
+        target_version: str,
+        *,
+        promote_version_id: uuid.UUID | None = None,
+        expected_current_version_id: uuid.UUID | None = None,
+    ) -> None:
+        assert target_version == "1.0.0"
+        assert promote_version_id is None
+        assert expected_current_version_id is None
+        assert lock_released.is_set()
+        build_started.set()
+        await release_build.wait()
+
+    monkeypatch.setattr(jobs.tracecat_registry, "__version__", "1.0.0")
+    monkeypatch.setattr(jobs, "try_pg_advisory_lock", AsyncMock(return_value=True))
+    monkeypatch.setattr(jobs, "_sync_as_leader", fake_sync_as_leader)
+    monkeypatch.setattr(jobs, "pg_advisory_unlock", fake_release_lock)
+    monkeypatch.setattr(jobs, "_build_platform_registry_artifact", fake_build)
+
+    startup_task = asyncio.create_task(jobs.sync_platform_registry_on_startup())
+    await build_started.wait()
+
+    assert lock_released.is_set()
+    assert not startup_task.done()
+
+    release_build.set()
+    await startup_task
 
 
 @pytest.mark.anyio

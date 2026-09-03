@@ -4,10 +4,12 @@ const { fontFamily } = require("tailwindcss/defaultTheme")
 module.exports = {
   darkMode: ["class"],
   content: [
-    "src/**/*.{ts,tsx}",
     "src/app/**/*.{ts,tsx}",
     "src/components/**/*.{ts,tsx}",
-    "src/pages/**/*.{ts,tsx}",
+    "src/config/**/*.{ts,tsx}",
+    "src/hooks/**/*.{ts,tsx}",
+    "src/lib/**/*.{ts,tsx}",
+    "src/providers/**/*.{ts,tsx}",
   ],
   theme: {
     container: {
@@ -55,6 +57,26 @@ module.exports = {
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
+        },
+        diff: {
+          added: {
+            DEFAULT: "hsl(var(--diff-added))",
+            emphasis: "hsl(var(--diff-added-emphasis))",
+            foreground: "hsl(var(--diff-added-foreground))",
+          },
+          removed: {
+            DEFAULT: "hsl(var(--diff-removed))",
+            emphasis: "hsl(var(--diff-removed-emphasis))",
+            foreground: "hsl(var(--diff-removed-foreground))",
+          },
+          marker: {
+            added: "hsl(var(--diff-marker-added))",
+            removed: "hsl(var(--diff-marker-removed))",
+          },
+          gutter: {
+            DEFAULT: "hsl(var(--diff-gutter))",
+            foreground: "hsl(var(--diff-gutter-foreground))",
+          },
         },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
@@ -117,5 +139,9 @@ module.exports = {
       },
     },
   },
-  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+  plugins: [
+    require("tailwindcss-animate"),
+    require("@tailwindcss/typography"),
+    require("@tailwindcss/container-queries"),
+  ],
 }

@@ -23,14 +23,14 @@ sql_secret = RegistrySecret(
 """SQL connection secret.
 
 Required keys:
-- `CONNECTION_URL`: SQLAlchemy connection URL (e.g., 'postgresql+psycopg://user:pass@host:port/dbname')
+- `CONNECTION_URL`: SQLAlchemy database URL format described at https://docs.sqlalchemy.org/20/core/engines.html#database-urls
 
 Common driver formats:
-- PostgreSQL: postgresql+psycopg://, postgresql+psycopg2://, postgresql+asyncpg://
+- PostgreSQL: postgresql+psycopg:// (installed psycopg3 driver)
 - MySQL: mysql+pymysql://, mysql+mysqlclient://, mysql+mysql-connector-python://
+- ClickHouse: clickhouse+http://, clickhouse+native://
 - MSSQL: mssql+pyodbc://, mssql+pymssql://
 - Oracle: oracle+cx_oracle://
-- SQLite: sqlite+pysqlite://
 """
 
 

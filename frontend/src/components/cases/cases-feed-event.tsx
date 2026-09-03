@@ -3,20 +3,29 @@ import {
   ClockPlusIcon,
   EyeIcon,
   type LucideIcon,
+  MessageSquareIcon,
   PaperclipIcon,
   PencilIcon,
   PencilLineIcon,
   PlusIcon,
+  TagIcon,
   TrashIcon,
   UserIcon,
   UserXIcon,
 } from "lucide-react"
+import { Fragment } from "react"
 import type {
   AssigneeChangedEventRead,
   AttachmentCreatedEventRead,
   AttachmentDeletedEventRead,
   CaseEventRead,
   ClosedEventRead,
+  CommentCreatedEventRead,
+  CommentDeletedEventRead,
+  CommentReplyCreatedEventRead,
+  CommentReplyDeletedEventRead,
+  CommentReplyUpdatedEventRead,
+  CommentUpdatedEventRead,
   DropdownValueChangedEventRead,
   FieldChangedEventRead,
   PayloadChangedEventRead,
@@ -24,6 +33,8 @@ import type {
   ReopenedEventRead,
   SeverityChangedEventRead,
   StatusChangedEventRead,
+  TagAddedEventRead,
+  TagRemovedEventRead,
   TaskAssigneeChangedEventRead,
   TaskCreatedEventRead,
   TaskDeletedEventRead,
@@ -46,7 +57,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { User } from "@/lib/auth"
-import { cn } from "@/lib/utils"
+import { cn, formatFileSize } from "@/lib/utils"
 
 export function EventIcon({
   icon: Icon,
@@ -59,7 +70,7 @@ export function EventIcon({
     <div className="bg-background py-[2px]">
       <div
         className={cn(
-          "rounded-full border border-muted-foreground/70 bg-white p-px",
+          "rounded-full border border-muted-foreground/70 bg-background p-px",
           className
         )}
       >
@@ -337,9 +348,11 @@ export function CaseUpdatedEvent({
 export function FieldsChangedEvent({
   event,
   actor,
+  caseFieldDisplayNameById,
 }: {
   event: FieldChangedEventRead
   actor: User
+  caseFieldDisplayNameById: ReadonlyMap<string, string>
 }) {
   return (
     <TooltipProvider>
@@ -349,13 +362,13 @@ export function FieldsChangedEvent({
           <span>
             <EventActor user={actor} /> changed fields
           </span>
-          {event.changes.map(({ field, old, new: newVal }) => (
-            <>
+          {event.changes.map(({ field, old, new: newVal }, index) => (
+            <Fragment key={`${field}-${index}`}>
               <InlineDotSeparator />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="max-w-32 truncate text-xs hover:cursor-default hover:underline">
-                    {field}
+                    {caseFieldDisplayNameById.get(field) ?? field}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -370,7 +383,7 @@ export function FieldsChangedEvent({
                   </span>
                 </TooltipContent>
               </Tooltip>
-            </>
+            </Fragment>
           ))}
         </div>
       </div>
@@ -385,16 +398,6 @@ export function AttachmentCreatedEvent({
   event: AttachmentCreatedEventRead
   actor: User
 }) {
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return "0 Bytes"
-    const k = 1024
-    const sizes = ["Bytes", "KB", "MB", "GB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return (
-      Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i]
-    )
-  }
-
   return (
     <div className="flex items-center space-x-2 text-xs">
       <EventIcon icon={PaperclipIcon} />
@@ -450,6 +453,108 @@ export function PayloadChangedEvent({
       <EventIcon icon={PencilIcon} />
       <span>
         <EventActor user={actor} /> updated the payload
+      </span>
+    </div>
+  )
+}
+
+export function CommentCreatedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CommentCreatedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={MessageSquareIcon} />
+      <span>
+        <EventActor user={actor} /> created a comment
+      </span>
+    </div>
+  )
+}
+
+export function CommentReplyCreatedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CommentReplyCreatedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={MessageSquareIcon} />
+      <span>
+        <EventActor user={actor} /> replied to a comment
+      </span>
+    </div>
+  )
+}
+
+export function CommentUpdatedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CommentUpdatedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PencilIcon} />
+      <span>
+        <EventActor user={actor} /> edited a comment
+      </span>
+    </div>
+  )
+}
+
+export function CommentReplyUpdatedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CommentReplyUpdatedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PencilIcon} />
+      <span>
+        <EventActor user={actor} /> edited a reply
+      </span>
+    </div>
+  )
+}
+
+export function CommentDeletedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CommentDeletedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={TrashIcon} />
+      <span>
+        <EventActor user={actor} /> deleted a comment
+      </span>
+    </div>
+  )
+}
+
+export function CommentReplyDeletedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CommentReplyDeletedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={TrashIcon} />
+      <span>
+        <EventActor user={actor} /> deleted a reply
       </span>
     </div>
   )
@@ -681,6 +786,44 @@ export function TaskWorkflowChangedEvent({
         <span className="font-medium max-w-32 inline-block truncate align-bottom">
           {event.title}
         </span>
+      </span>
+    </div>
+  )
+}
+
+// Tag events
+
+export function TagAddedEvent({
+  event,
+  actor,
+}: {
+  event: TagAddedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={TagIcon} />
+      <span>
+        <EventActor user={actor} /> added tag{" "}
+        <span className="font-medium">{event.tag_name}</span>
+      </span>
+    </div>
+  )
+}
+
+export function TagRemovedEvent({
+  event,
+  actor,
+}: {
+  event: TagRemovedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={TagIcon} className="text-red-600 bg-red-50" />
+      <span>
+        <EventActor user={actor} /> removed tag{" "}
+        <span className="font-medium">{event.tag_name}</span>
       </span>
     </div>
   )

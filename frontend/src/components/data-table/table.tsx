@@ -56,6 +56,7 @@ export type TableCol<TData> = {
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
   data?: TData[]
+  getRowId?: (originalRow: TData, index: number, parent?: Row<TData>) => string
   onClickRow?: (row: Row<TData>) => () => void
   getRowHref?: (row: Row<TData>) => string | undefined
   toolbarProps?: DataTableToolbarProps<TData>
@@ -77,6 +78,7 @@ interface DataTableProps<TData, TValue> {
 export function DataTable<TData, TValue>({
   columns,
   data,
+  getRowId,
   onClickRow,
   getRowHref,
   toolbarProps,
@@ -148,6 +150,7 @@ export function DataTable<TData, TValue>({
       },
     },
     enableRowSelection: true,
+    getRowId,
     onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,

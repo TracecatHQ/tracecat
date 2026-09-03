@@ -32,7 +32,7 @@ import {
   type ActionUpdate,
   ApiError,
   type RegistryActionRead,
-  type RegistryOAuthSecret_Output as RegistryOAuthSecret,
+  type RegistryOAuthSecret,
   type RegistrySecret,
   type ValidationResult,
 } from "@/client"
@@ -111,14 +111,34 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
+import {
+  DEFAULT_ACTION_TIMEOUT_SECONDS,
+  isAgentAction,
+} from "@/lib/action-timeout"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
 import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
-import { isTracecatJsonSchema, type TracecatJsonSchema } from "@/lib/schema"
+import {
+  getTracecatComponents,
+  isTracecatJsonSchema,
+  type TracecatJsonSchema,
+} from "@/lib/schema"
 import { cn, slugifyActionRef } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+const EMPTY_TEMPLATE_EXPRESSION_RE = /^\$\{\{\s*\}\}$/
+
+function normalizeOptionalExpression(
+  value: string | null | undefined
+): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed || EMPTY_TEMPLATE_EXPRESSION_RE.test(trimmed)) {
+    return undefined
+  }
+  return trimmed
+}
 
 // These are YAML strings
 const actionFormSchema = z.object({
@@ -142,10 +162,11 @@ const actionFormSchema = z.object({
     .transform((val) => {
       if (Array.isArray(val)) {
         // Trim each expression and drop any that are empty after trimming.
-        return val.map((item) => item.trim()).filter((item) => item !== "")
+        return val
+          .map((item) => normalizeOptionalExpression(item))
+          .filter((item): item is string => item !== undefined)
       } else if (typeof val === "string") {
-        const trimmed = val.trim()
-        return trimmed !== "" ? trimmed : undefined
+        return normalizeOptionalExpression(val)
       }
       return val
     })
@@ -153,29 +174,30 @@ const actionFormSchema = z.object({
   run_if: z
     .string()
     .max(1000, "Run if must be less than 1000 characters")
-    .transform((val) => (val?.trim() ? val.trim() : undefined))
+    .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   // Retry policy fields
-  max_attempts: z.number().int().min(0).optional(),
-  timeout: z.number().int().min(1).optional(),
+  max_attempts: z.number().int().safe().min(0).optional(),
+  timeout: z.number().int().safe().min(1).optional(),
   retry_until: z
     .string()
     .max(1000, "Retry until must be less than 1000 characters")
-    .transform((val) => (val?.trim() ? val.trim() : undefined))
+    .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   // Control flow options fields
-  start_delay: z.number().min(0).optional(),
+  start_delay: z.number().finite().min(0).optional(),
   join_strategy: z.enum($JoinStrategy.enum).optional(),
   wait_until: z
     .string()
     .max(1000, "Wait until must be less than 1000 characters")
-    .transform((val) => (val?.trim() ? val.trim() : undefined))
+    .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   environment: z
     .string()
     .max(1000, "Environment must be less than 1000 characters")
-    .transform((val) => (val?.trim() ? val.trim() : undefined))
+    .transform((val) => normalizeOptionalExpression(val))
     .optional(),
+  mask_output: z.boolean().default(false),
   is_interactive: z.boolean().default(false),
   interaction: z
     .discriminatedUnion("type", [
@@ -255,6 +277,19 @@ const reconstructYamlFromForm = (
 
 type InputMode = "form" | "yaml"
 
+function shouldShowOptionalFieldByDefault(
+  fieldName: string,
+  fieldDefn: unknown
+): boolean {
+  return (
+    fieldName === "model" &&
+    isTracecatJsonSchema(fieldDefn) &&
+    getTracecatComponents(fieldDefn).some(
+      (component) => component.component_id === "agent-model"
+    )
+  )
+}
+
 export type ActionPanelTabs =
   | "inputs"
   | "schema"
@@ -291,6 +326,7 @@ function ActionPanelContent({
 
   // Special-case: disable form mode for reshape actions
   const isReshapeAction = action?.type === "core.transform.reshape"
+  const isAgentBackedAction = isAgentAction(action?.type)
 
   const actionInputsObj = useMemo(
     () => parseYaml(action?.inputs) ?? {},
@@ -308,12 +344,13 @@ function ActionPanelContent({
       for_each: actionControlFlow?.for_each || undefined,
       run_if: actionControlFlow?.run_if || undefined,
       max_attempts: actionControlFlow?.retry_policy?.max_attempts,
-      timeout: actionControlFlow?.retry_policy?.timeout,
+      timeout: actionControlFlow?.retry_policy?.timeout ?? undefined,
       retry_until: actionControlFlow?.retry_policy?.retry_until || undefined,
       start_delay: actionControlFlow?.start_delay,
       join_strategy: actionControlFlow?.join_strategy,
       wait_until: actionControlFlow?.wait_until || undefined,
       environment: actionControlFlow?.environment || undefined,
+      mask_output: actionControlFlow?.mask_output ?? false,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
     }),
@@ -332,11 +369,14 @@ function ActionPanelContent({
       actionControlFlow?.join_strategy,
       actionControlFlow?.wait_until,
       actionControlFlow?.environment,
+      actionControlFlow?.mask_output,
     ]
   )
 
   // Local form state for this action. We always seed it from the latest
   // server-backed baseFormValues; hydration from drafts happens via effects.
+  // Agent timeout bounds are deployment-specific; the server clamps
+  // out-of-range values on save, so the form doesn't duplicate them.
   const methods = useForm<ActionFormSchema>({
     resolver: zodResolver(actionFormSchema),
     defaultValues: baseFormValues,
@@ -449,7 +489,7 @@ function ActionPanelContent({
       requiredFields: requiredFieldEntries,
       optionalFields: optionalFieldEntries,
     }
-  }, [registryAction, required])
+  }, [action?.type, registryAction, required])
 
   // Track manually shown/hidden fields separately from fields with values
   const [manuallyVisibleFields, setManuallyVisibleFields] = useState<
@@ -470,8 +510,11 @@ function ActionPanelContent({
     const currentInputs =
       (watchedValues as ActionFormSchema | undefined)?.inputs ?? {}
     if (optionalFields.length > 0 && currentInputs) {
-      optionalFields.forEach(([fieldName]) => {
+      optionalFields.forEach(([fieldName, fieldDefn]) => {
         if (currentInputs[fieldName] !== undefined) {
+          fieldsWithValues.add(fieldName)
+        }
+        if (shouldShowOptionalFieldByDefault(fieldName, fieldDefn)) {
           fieldsWithValues.add(fieldName)
         }
       })
@@ -566,7 +609,7 @@ function ActionPanelContent({
           inputs: inputsYaml, // Use preserved/raw YAML
           control_flow: {
             for_each: values.for_each,
-            run_if: values.run_if,
+            run_if: values.run_if ?? null,
             retry_policy: {
               max_attempts: values.max_attempts,
               timeout: values.timeout,
@@ -576,6 +619,7 @@ function ActionPanelContent({
             join_strategy: values.join_strategy,
             wait_until: values.wait_until,
             environment: values.environment,
+            mask_output: values.mask_output ?? false,
           },
           is_interactive: values.is_interactive,
           interaction: values.interaction,
@@ -600,8 +644,6 @@ function ActionPanelContent({
             console.error("Validation errors", valErrs)
             valErrs.forEach(({ loc, msg }) => {
               const key: string = loc.slice(1).join(".")
-              // Skip the old combined field mapping since we now have individual fields
-              // Combine errors if they have the same key
               if (errors[key]) {
                 errors[key].message += `\n${msg}`
               } else {
@@ -779,7 +821,7 @@ function ActionPanelContent({
     <div
       ref={panelRef}
       onBlur={onPanelBlur}
-      className="flex h-full flex-col overflow-hidden pb-16"
+      className="flex h-full flex-col overflow-hidden pb-4"
     >
       <Tabs
         defaultValue="inputs"
@@ -904,9 +946,9 @@ function ActionPanelContent({
               </h3>
             </div>
 
-            <div className="w-full min-w-[30rem]">
-              <div className="flex items-center justify-start">
-                <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
+            <div className="w-full">
+              <div className="no-scrollbar flex items-center justify-start overflow-x-auto">
+                <TabsList className="h-8 shrink-0 justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
                     className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="inputs"
@@ -942,10 +984,10 @@ function ActionPanelContent({
               <Separator />
             </div>
             <div className="flex-1 overflow-auto">
-              <div className="w-full min-w-[30rem] overflow-x-auto pb-32">
-                <TabsContent value="inputs" className="pb-8">
+              <div className="w-full min-w-80 overflow-x-auto">
+                <TabsContent value="inputs">
                   <SectionErrorBoundary>
-                    <div className="mt-4 flex flex-col space-y-4 px-4 pb-10">
+                    <div className="mt-4 flex flex-col space-y-4 px-4">
                       {finalValErrors.length > 0 && (
                         <ValidationErrorView
                           validationErrors={finalValErrors}
@@ -1102,6 +1144,11 @@ function ActionPanelContent({
                                       )
                                         ? fieldDefn.description
                                         : null
+                                      const deprecated = isTracecatJsonSchema(
+                                        fieldDefn
+                                      )
+                                        ? fieldDefn.deprecated === true
+                                        : false
                                       return (
                                         <DropdownMenuCheckboxItem
                                           key={fieldName}
@@ -1151,9 +1198,19 @@ function ActionPanelContent({
                                           }}
                                         >
                                           <div className="flex flex-col gap-1">
-                                            <span className="font-medium">
-                                              {label}
-                                            </span>
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-medium">
+                                                {label}
+                                              </span>
+                                              {deprecated && (
+                                                <Badge
+                                                  variant="outline"
+                                                  className="h-5 px-1.5 text-[10px] uppercase text-muted-foreground"
+                                                >
+                                                  Deprecated
+                                                </Badge>
+                                              )}
+                                            </div>
                                             {description && (
                                               <span className="text-xs text-muted-foreground">
                                                 {description.endsWith(".")
@@ -1175,9 +1232,9 @@ function ActionPanelContent({
                     </div>
                   </SectionErrorBoundary>
                 </TabsContent>
-                <TabsContent value="schema" className="pb-8">
+                <TabsContent value="schema">
                   <SectionErrorBoundary>
-                    <div className="mt-4 space-y-6 px-4 pb-10">
+                    <div className="mt-4 space-y-6 px-4">
                       {/* Action secrets */}
                       <div className="space-y-4">
                         <h4 className="text-xs font-bold">Secrets</h4>
@@ -1351,9 +1408,9 @@ function ActionPanelContent({
                     </div>
                   </SectionErrorBoundary>
                 </TabsContent>
-                <TabsContent value="control-flow" className="pb-8">
+                <TabsContent value="control-flow">
                   <SectionErrorBoundary>
-                    <div className="mt-6 space-y-8 px-4">
+                    <div className="mt-4 space-y-8 px-4">
                       {/* Run if */}
                       <ControlFlowField
                         label="Run if"
@@ -1453,6 +1510,32 @@ function ActionPanelContent({
                       </ControlFlowField>
 
                       <ControlFlowField
+                        label="Mask output"
+                        description="Redact this action's result in workflow execution API responses while keeping downstream workflow data unchanged."
+                      >
+                        <FormField
+                          name="mask_output"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <div className="flex items-center gap-2">
+                                <FormControl>
+                                  <Switch
+                                    checked={field.value ?? false}
+                                    onCheckedChange={field.onChange}
+                                  />
+                                </FormControl>
+                                <span className="text-xs text-muted-foreground">
+                                  {field.value ? "Enabled" : "Disabled"}
+                                </span>
+                              </div>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      <ControlFlowField
                         label="Start delay"
                         description="Define a delay before the action starts."
                         tooltip={<StartDelayTooltip />}
@@ -1486,8 +1569,14 @@ function ActionPanelContent({
                       {/* Timeout */}
                       <ControlFlowField
                         label="Timeout"
-                        description="Define the timeout in seconds for the action."
-                        tooltip={<TimeoutTooltip />}
+                        description={
+                          isAgentBackedAction
+                            ? "Define the maximum active runtime in seconds for the agent."
+                            : "Define the timeout in seconds for the action."
+                        }
+                        tooltip={
+                          <TimeoutTooltip isAgent={isAgentBackedAction} />
+                        }
                       >
                         <FormField
                           name="timeout"
@@ -1506,7 +1595,12 @@ function ActionPanelContent({
                                         : undefined
                                     )
                                   }
-                                  placeholder="300"
+                                  min={1}
+                                  placeholder={
+                                    isAgentBackedAction
+                                      ? "Deployment default"
+                                      : String(DEFAULT_ACTION_TIMEOUT_SECONDS)
+                                  }
                                   className="text-xs"
                                 />
                               </FormControl>
@@ -1597,12 +1691,11 @@ function ActionPanelContent({
                 </TabsContent>
                 {/* Template */}
                 {registryAction?.implementation && (
-                  <TabsContent value="template-inputs" className="pb-8">
+                  <TabsContent value="template-inputs">
                     <SectionErrorBoundary>
                       <Accordion
                         type="multiple"
                         defaultValue={["action-template"]}
-                        className="pb-10"
                       >
                         <AccordionItem value="action-template">
                           <AccordionTrigger className="px-4 text-xs font-bold">

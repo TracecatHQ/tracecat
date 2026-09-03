@@ -4,22 +4,10 @@ import { type ComponentPropsWithoutRef, useState } from "react"
 import { authSamlDatabaseLogin } from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
-import {
-  sanitizeReturnUrl,
-  serializeClearPostAuthReturnUrlCookie,
-  serializePostAuthReturnUrlCookie,
-} from "@/lib/auth-return-url"
+import { setPostAuthReturnUrlCookie } from "@/lib/auth-login"
 
 type SamlSSOButtonProps = ComponentPropsWithoutRef<typeof Button> & {
   returnUrl?: string | null
-}
-
-function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
-  const secure = window.location.protocol === "https:"
-  const sanitizedReturnUrl = sanitizeReturnUrl(returnUrl)
-  document.cookie = sanitizedReturnUrl
-    ? serializePostAuthReturnUrlCookie(sanitizedReturnUrl, secure)
-    : serializeClearPostAuthReturnUrlCookie(secure)
 }
 
 export function SamlSSOButton({ returnUrl, ...props }: SamlSSOButtonProps) {

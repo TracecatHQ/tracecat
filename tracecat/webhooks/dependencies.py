@@ -17,7 +17,10 @@ from tracecat.auth.api_keys import verify_api_key
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+    get_async_session_context_manager,
+)
 from tracecat.db.models import Webhook, WorkflowDefinition, Workspace
 from tracecat.dsl.schemas import TriggerInputs
 from tracecat.ee.interactions.connectors import parse_slack_interaction_input
@@ -70,7 +73,7 @@ async def validate_incoming_webhook(
 
     NOte: The webhook ID here is the workflow ID.
     """
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(
             select(Webhook).where(Webhook.workflow_id == workflow_id)
         )
@@ -105,6 +108,12 @@ async def validate_incoming_webhook(
                 status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
                 detail="Request method not allowed",
             ) from None
+
+        # Stash whether the trigger should receive the full request envelope
+        # (headers + body) instead of just the parsed body. Read as a scalar
+        # bool before the session closes so it stays valid once the ORM object
+        # detaches.
+        request.state.webhook_include_headers = webhook.include_headers
 
         updated = False
 

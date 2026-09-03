@@ -16,7 +16,8 @@ from asyncpg.exceptions import (
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
+from sqlalchemy.orm import selectinload
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -40,17 +41,23 @@ from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
+    PageParams,
+    PaginationError,
+    paginate,
 )
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
+    ColumnHasDuplicateValuesError,
+    coerce_integer_value,
     coerce_multi_select_value,
+    coerce_numeric_value,
     coerce_select_value,
     coerce_to_date,
     coerce_to_utc_datetime,
     convert_value,
-    handle_default_value,
     is_valid_sql_type,
     normalize_column_options,
+    prepare_default_value,
     to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
@@ -71,6 +78,39 @@ _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
     InFailedSQLTransactionError,
 )
+_TABLE_ROW_READ_BATCH_SIZE = 5_000
+_TABLE_SYSTEM_COLUMNS = frozenset({"id", "created_at", "updated_at"})
+
+DYNAMIC_WORKSPACE_TENANT_COLUMN = "__tc_workspace_id"
+DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
+RLS_WORKSPACE_VAR = "app.current_workspace_id"
+RLS_BYPASS_VAR = "app.rls_bypass"
+RLS_BYPASS_ON = "on"
+INTERNAL_COLUMN_PREFIX = "__tc_"
+SYSTEM_VISIBLE_COLUMN_NAMES: tuple[str, ...] = ("id", "created_at", "updated_at")
+
+
+def visible_column_names(column_names: Sequence[str]) -> list[str]:
+    """Build the API-facing column order for dynamic table row payloads."""
+    visible_names: list[str] = list(SYSTEM_VISIBLE_COLUMN_NAMES)
+    seen_lower: set[str] = {
+        column_name.lower() for column_name in SYSTEM_VISIBLE_COLUMN_NAMES
+    }
+    for column_name in column_names:
+        if is_internal_column_name(column_name):
+            continue
+        if (normalized_name := column_name.lower()) in seen_lower:
+            continue
+        visible_names.append(column_name)
+        seen_lower.add(normalized_name)
+    return visible_names
+
+
+def visible_column_clauses(column_names: Sequence[str]) -> list[sa.ColumnClause]:
+    """Return SQLAlchemy column clauses for API-facing row payloads."""
+    return [
+        sa.column(column_name) for column_name in visible_column_names(column_names)
+    ]
 
 
 class BaseTablesService(BaseWorkspaceService):
@@ -83,8 +123,22 @@ class BaseTablesService(BaseWorkspaceService):
         self.ws_uuid = WorkspaceUUID.new(self.workspace_id)
 
     def _sanitize_identifier(self, identifier: str) -> str:
-        """Sanitize table/column names to prevent SQL injection."""
+        """Normalize a stored identifier to its physical SQL name."""
         return sanitize_identifier(identifier)
+
+    def _resolve_external_column_name(self, table: Table, column_name: str) -> str:
+        """Resolve an external column name against metadata without aliasing invalid names."""
+        column_names = {column.name for column in table.columns} | _TABLE_SYSTEM_COLUMNS
+        if column_name in column_names:
+            return column_name
+
+        normalized_name = validate_identifier(column_name)
+        if normalized_name in column_names:
+            return normalized_name
+
+        raise ValueError(
+            f"Column '{column_name}' does not exist in table '{table.name}'"
+        )
 
     def _get_schema_name(self, workspace_id: WorkspaceUUID | None = None) -> str:
         """Generate the schema name for a workspace."""
@@ -98,7 +152,50 @@ class BaseTablesService(BaseWorkspaceService):
         """Get the full table name for a table."""
         schema_name = self._get_schema_name(workspace_id)
         sanitized_table_name = self._sanitize_identifier(table_name)
-        return f'"{schema_name}".{sanitized_table_name}'
+        return f'"{schema_name}"."{sanitized_table_name}"'
+
+    def _workspace_tenant_default_sql(self) -> sa.TextClause:
+        """Build the server default expression for the tenant column."""
+        return sa.text(f"'{self.ws_uuid}'::uuid")
+
+    def _visible_columns(self, table: Table) -> list[sa.ColumnClause]:
+        """Column list for API-facing queries, excluding internal columns."""
+        return visible_column_clauses([c.name for c in table.columns])
+
+    def _assert_user_column_name_allowed(self, column_name: str) -> None:
+        """Reject operations on internal/system-managed column names."""
+        if is_internal_column_name(column_name):
+            raise ValueError(f"Column {column_name} is reserved for internal use")
+
+    async def _enable_workspace_rls_for_physical_table(
+        self, conn: AsyncConnection, full_table_name: str
+    ) -> None:
+        """Enable workspace RLS policy on a dynamic physical table."""
+        policy_expr = (
+            f"current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}' "
+            f'OR "{DYNAMIC_WORKSPACE_TENANT_COLUMN}" = '
+            f"NULLIF(current_setting('{RLS_WORKSPACE_VAR}', true), '')::uuid"
+        )
+        await conn.execute(
+            sa.DDL("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", full_table_name)
+        )
+        await conn.execute(
+            sa.DDL(
+                f"DROP POLICY IF EXISTS {DYNAMIC_WORKSPACE_RLS_POLICY} ON %s",
+                full_table_name,
+            )
+        )
+        await conn.execute(
+            sa.DDL(
+                f"""
+                CREATE POLICY {DYNAMIC_WORKSPACE_RLS_POLICY} ON %s
+                    FOR ALL
+                    USING ({policy_expr})
+                    WITH CHECK ({policy_expr})
+                """,
+                full_table_name,
+            )
+        )
 
     async def _find_unique_table_name(self, base_name: str) -> str:
         """Find a unique table name by appending numeric suffixes if required."""
@@ -169,8 +266,12 @@ class BaseTablesService(BaseWorkspaceService):
                 )
                 continue
 
-            if sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}:
+            if sql_type is SqlType.TIMESTAMPTZ:
                 normalised[column_name] = coerce_to_utc_datetime(value)
+            elif sql_type is SqlType.INTEGER:
+                normalised[column_name] = coerce_integer_value(value)
+            elif sql_type is SqlType.NUMERIC:
+                normalised[column_name] = coerce_numeric_value(value)
             elif sql_type is SqlType.DATE and value is not None:
                 normalised[column_name] = coerce_to_date(value)
             else:
@@ -191,12 +292,10 @@ class BaseTablesService(BaseWorkspaceService):
                 return sa.Date()
             case SqlType.BOOLEAN:
                 return sa.Boolean()
-            case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
+            case SqlType.TIMESTAMPTZ:
                 return sa.TIMESTAMP(timezone=True)
             case SqlType.JSONB | SqlType.MULTI_SELECT:
                 return JSONB()
-            case SqlType.UUID:
-                return sa.UUID()
             case _:
                 return sa.String()
 
@@ -216,12 +315,23 @@ class BaseTablesService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
-    async def get_table(self, table_id: TableID) -> Table:
+    async def get_table(
+        self,
+        table_id: TableID,
+        *,
+        populate_existing: bool = False,
+    ) -> Table:
         """Get a lookup table by ID."""
-        statement = select(Table).where(
-            Table.workspace_id == self.ws_uuid,
-            Table.id == table_id,
+        statement = (
+            select(Table)
+            .options(selectinload(Table.columns))
+            .where(
+                Table.workspace_id == self.ws_uuid,
+                Table.id == table_id,
+            )
         )
+        if populate_existing:
+            statement = statement.execution_options(populate_existing=True)
         result = await self.session.execute(statement)
         table = result.scalars().first()
         if table is None:
@@ -262,12 +372,25 @@ class BaseTablesService(BaseWorkspaceService):
             The requested Table
 
         Raises:
+            ValueError: If the provided table name is not a valid external identifier
             TracecatNotFoundError: If the table does not exist
         """
-        sanitized_name = self._sanitize_identifier(table_name)
         statement = select(Table).where(
             Table.workspace_id == self.ws_uuid,
-            Table.name == sanitized_name,
+            Table.name == table_name,
+        )
+        result = await self.session.execute(statement)
+        table = result.scalars().first()
+        if table is not None:
+            return table
+
+        normalized_name = validate_identifier(table_name)
+        if normalized_name == table_name:
+            raise TracecatNotFoundError(f"Table '{table_name}' not found")
+
+        statement = select(Table).where(
+            Table.workspace_id == self.ws_uuid,
+            Table.name == normalized_name,
         )
         result = await self.session.execute(statement)
         table = result.scalars().first()
@@ -290,7 +413,7 @@ class BaseTablesService(BaseWorkspaceService):
             ValueError: If table name is invalid
         """
         schema_name = self._get_schema_name(self.ws_uuid)
-        table_name = self._sanitize_identifier(params.name)
+        table_name = validate_identifier(params.name)
 
         # Create schema if it doesn't exist
         conn = await self.session.connection()
@@ -318,6 +441,12 @@ class BaseTablesService(BaseWorkspaceService):
                 nullable=False,
                 server_default=sa.text("now()"),
             ),
+            sa.Column(
+                DYNAMIC_WORKSPACE_TENANT_COLUMN,
+                sa.UUID,
+                nullable=False,
+                server_default=self._workspace_tenant_default_sql(),
+            ),
             schema=schema_name,
         )
 
@@ -327,6 +456,9 @@ class BaseTablesService(BaseWorkspaceService):
 
         # Create the physical table
         await conn.run_sync(new_table.create)
+        await self._enable_workspace_rls_for_physical_table(
+            conn, self._full_table_name(table_name)
+        )
 
         # Create metadata entry
         table = Table(workspace_id=self.ws_uuid, name=table_name)
@@ -349,7 +481,7 @@ class BaseTablesService(BaseWorkspaceService):
             try:
                 conn = await self.session.connection()
                 old_full_table_name = self._full_table_name(table.name)
-                sanitized_new_name = self._sanitize_identifier(new_name)
+                sanitized_new_name = validate_identifier(new_name)
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s RENAME TO %s",
@@ -364,6 +496,7 @@ class BaseTablesService(BaseWorkspaceService):
                     new_name=params.name,
                 )
                 raise
+            set_fields["name"] = sanitized_new_name
         # Update DB Table
         for key, value in set_fields.items():
             setattr(table, key, value)
@@ -389,9 +522,17 @@ class BaseTablesService(BaseWorkspaceService):
         self, table_id: TableID, column_id: TableColumnID
     ) -> TableColumn:
         """Get a column by ID."""
-        statement = select(TableColumn).where(
-            TableColumn.table_id == table_id,
-            TableColumn.id == column_id,
+        statement = (
+            select(TableColumn)
+            .join(Table, Table.id == TableColumn.table_id)
+            .options(
+                selectinload(TableColumn.table).selectinload(Table.columns),
+            )
+            .where(
+                TableColumn.table_id == table_id,
+                TableColumn.id == column_id,
+                Table.workspace_id == self.workspace_id,
+            )
         )
         result = await self.session.execute(statement)
         column = result.scalars().first()
@@ -415,7 +556,8 @@ class BaseTablesService(BaseWorkspaceService):
         Raises:
             ValueError: If the column type is invalid
         """
-        column_name = self._sanitize_identifier(params.name)
+        self._assert_user_column_name_allowed(params.name)
+        column_name = validate_identifier(params.name)
         full_table_name = self._full_table_name(table.name)
 
         # Validate SQL type first
@@ -426,15 +568,18 @@ class BaseTablesService(BaseWorkspaceService):
 
         # Handle default value based on type
         default_value = params.default
+        rendered_default = None
         if default_value is not None:
-            default_value = handle_default_value(sql_type, default_value)
+            default_value, rendered_default = prepare_default_value(
+                sql_type, default_value
+            )
         # Create the column metadata first
         column = TableColumn(
             table_id=table.id,
             name=column_name,
             type=sql_type.value,
             nullable=params.nullable,
-            default=default_value,  # Store original default in metadata
+            default=default_value,
             options=normalized_options,
         )
         self.session.add(column)
@@ -450,11 +595,11 @@ class BaseTablesService(BaseWorkspaceService):
             column_type_sql = (
                 "BIGINT" if sql_type == SqlType.INTEGER else sql_type.value
             )
-        column_def = [f"{column_name} {column_type_sql}"]
+        column_def = [f"{quote_identifier(column_name)} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
-        if default_value is not None:
-            column_def.append(f"DEFAULT {default_value}")
+        if rendered_default is not None:
+            column_def.append(f"DEFAULT {rendered_default}")
 
         column_def_str = " ".join(column_def)
 
@@ -490,14 +635,21 @@ class BaseTablesService(BaseWorkspaceService):
             ProgrammingError: If the database operation fails
         """
         set_fields = params.model_dump(exclude_unset=True)
+        self._assert_user_column_name_allowed(column.name)
+        if "name" in set_fields:
+            if (requested_name := set_fields["name"]) is None:
+                set_fields.pop("name")
+            else:
+                self._assert_user_column_name_allowed(requested_name)
         full_table_name = self._full_table_name(column.table.name)
         conn = await self.session.connection()
-        is_index = set_fields.pop("is_index", False)
+        is_index = set_fields.pop("is_index", None)
         requested_options = set_fields.pop("options", None)
 
-        # Create index if requested
-        if is_index:
+        if is_index is True:
             await self.create_unique_index(column.table, column.name)
+        elif is_index is False:
+            await self.drop_unique_index(column.table, column.name)
 
         # Handle options for SELECT/MULTI_SELECT columns
         target_type = (
@@ -521,12 +673,14 @@ class BaseTablesService(BaseWorkspaceService):
             elif target_type not in (SqlType.SELECT, SqlType.MULTI_SELECT):
                 set_fields["options"] = None
 
+        old_name = self._sanitize_identifier(column.name)
+        new_name = self._sanitize_identifier(
+            set_fields["name"] if "name" in set_fields else column.name
+        )
+        new_type = set_fields.get("type", column.type)
+
         # Handle physical column changes if name or type is being updated
         if "name" in set_fields or "type" in set_fields:
-            old_name = self._sanitize_identifier(column.name)
-            new_name = self._sanitize_identifier(set_fields.get("name", column.name))
-            new_type = set_fields.get("type", column.type)
-
             if not is_valid_sql_type(new_type):
                 raise ValueError(f"Invalid type: {new_type}")
 
@@ -535,7 +689,11 @@ class BaseTablesService(BaseWorkspaceService):
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s RENAME COLUMN %s TO %s",
-                        (full_table_name, old_name, new_name),
+                        (
+                            full_table_name,
+                            quote_identifier(old_name),
+                            quote_identifier(new_name),
+                        ),
                     )
                 )
             if "type" in set_fields:
@@ -551,51 +709,45 @@ class BaseTablesService(BaseWorkspaceService):
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                        (full_table_name, new_name, physical_type),
+                        (full_table_name, quote_identifier(new_name), physical_type),
                     )
                 )
-            if "nullable" in set_fields:
-                constraint = (
-                    "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
+        if "nullable" in set_fields:
+            constraint = "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
+            await conn.execute(
+                sa.DDL(
+                    # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
+                    # No user input is interpolated here - only predefined SQL keywords
+                    f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                    (full_table_name, quote_identifier(new_name)),
                 )
+            )
+        if "default" in set_fields:
+            updated_default = set_fields["default"]
+            if updated_default is None:
                 await conn.execute(
                     sa.DDL(
-                        # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
-                        # No user input is interpolated here - only predefined SQL keywords
-                        f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
-                        (full_table_name, new_name),
+                        "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
+                        (full_table_name, quote_identifier(new_name)),
                     )
                 )
-            if "default" in set_fields:
-                updated_default = set_fields["default"]
-                if updated_default is None:
-                    await conn.execute(
-                        sa.DDL(
-                            "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
-                            (full_table_name, new_name),
-                        )
+            else:
+                normalized_default, formatted_default = prepare_default_value(
+                    SqlType(new_type if "type" in set_fields else column.type),
+                    updated_default,
+                )
+                set_fields["default"] = normalized_default
+                await conn.execute(
+                    sa.DDL(
+                        # SAFE f-string: formatted_default is compiler-rendered from a typed value.
+                        f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
+                        (full_table_name, quote_identifier(new_name)),
                     )
-                else:
-                    # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
-                    # We must use string interpolation here, but it's SAFE because:
-                    # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
-                    # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
-                    # 3. The function validates the SQL type and rejects invalid inputs
-                    # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
-                    formatted_default = handle_default_value(
-                        SqlType(new_type if "type" in set_fields else column.type),
-                        updated_default,
-                    )
-                    await conn.execute(
-                        sa.DDL(
-                            # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
-                            # Other parameters (table/column names) still use secure parameter binding
-                            f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
-                            (full_table_name, new_name),
-                        )
-                    )
+                )
 
         # Update the column metadata
+        if "name" in set_fields:
+            set_fields["name"] = new_name
         for key, value in set_fields.items():
             setattr(column, key, value)
 
@@ -614,7 +766,8 @@ class BaseTablesService(BaseWorkspaceService):
         full_table_name = self._full_table_name(table.name)
 
         # Sanitize column names to prevent SQL injection
-        sanitized_column = self._sanitize_identifier(column_name)
+        resolved_column_name = self._resolve_external_column_name(table, column_name)
+        sanitized_column = self._sanitize_identifier(resolved_column_name)
 
         # Create a descriptive name for the index
         # Format: uq_[table_name]_[col1]_[col2]_etc
@@ -623,24 +776,65 @@ class BaseTablesService(BaseWorkspaceService):
         # Get database connection
         conn = await self.session.connection()
 
-        # Execute the CREATE UNIQUE INDEX SQL command
-        await conn.execute(
-            sa.DDL(
-                "CREATE UNIQUE INDEX %s ON %s (%s)",
-                (
-                    index_name,  # Name of the index
-                    full_table_name,  # Table to create index on
-                    sanitized_column,  # Column to index
-                ),
+        # Execute the CREATE UNIQUE INDEX SQL command. A unique index can only be
+        # built when the column has no duplicate values, so an IntegrityError here
+        # means the existing data conflicts. Surface it as a typed error (mapped
+        # to a 409) instead of leaking a raw database error as a 500.
+        try:
+            await conn.execute(
+                sa.DDL(
+                    "CREATE UNIQUE INDEX %s ON %s (%s)",
+                    (
+                        index_name,  # Name of the index
+                        full_table_name,  # Table to create index on
+                        quote_identifier(sanitized_column),  # Column to index
+                    ),
+                )
             )
-        )
+            await self.session.flush()
+        except IntegrityError as e:
+            raise ColumnHasDuplicateValuesError(
+                f"Column '{resolved_column_name}' contains duplicate values. "
+                "Remove duplicates before creating a unique index."
+            ) from e
 
-        # Commit the transaction
+    async def drop_unique_index(self, table: Table, column_name: str) -> None:
+        """Drop the unique index on the specified column."""
+
+        schema_name = self._get_schema_name()
+
+        resolved_column_name = self._resolve_external_column_name(table, column_name)
+        sanitized_column = self._sanitize_identifier(resolved_column_name)
+
+        conn = await self.session.connection()
+
+        def find_index_name(sync_conn: sa.Connection) -> str | None:
+            inspector = sa.inspect(sync_conn)
+            for idx in inspector.get_indexes(table.name, schema=schema_name):
+                cols = idx["column_names"]
+                if (
+                    idx.get("unique") is True
+                    and len(cols) == 1
+                    and isinstance(cols[0], str)
+                    and cols[0] == sanitized_column
+                ):
+                    return idx.get("name")
+            return None
+
+        index_name = await conn.run_sync(find_index_name)
+        if index_name is None:
+            raise ValueError(f"No unique index exists on column '{column_name}'")
+
+        qualified_index = f'"{schema_name}"."{index_name}"'
+
+        await conn.execute(sa.DDL("DROP INDEX %s", (qualified_index,)))
+
         await self.session.flush()
 
     @audit_log(resource_type="table_column", action="delete")
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
+        self._assert_user_column_name_allowed(column.name)
         full_table_name = self._full_table_name(column.table.name)
         sanitized_column = self._sanitize_identifier(column.name)
 
@@ -652,7 +846,7 @@ class BaseTablesService(BaseWorkspaceService):
         await conn.execute(
             sa.DDL(
                 "ALTER TABLE %s DROP COLUMN %s",
-                (full_table_name, sanitized_column),
+                (full_table_name, quote_identifier(sanitized_column)),
             )
         )
 
@@ -666,7 +860,7 @@ class BaseTablesService(BaseWorkspaceService):
         sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
         stmt = (
-            sa.select("*")
+            sa.select(*self._visible_columns(table))
             .select_from(sa.table(sanitized_table_name, schema=schema_name))
             .where(sa.column("id") == row_id)
         )
@@ -674,7 +868,38 @@ class BaseTablesService(BaseWorkspaceService):
         row = result.mappings().first()
         if row is None:
             raise TracecatNotFoundError(f"Row {row_id} not found in table {table.name}")
-        return row
+        return dict(row)
+
+    async def get_rows(
+        self, table: Table, row_ids: Sequence[UUID]
+    ) -> dict[UUID, dict[str, Any]]:
+        """Get rows by ID, keyed by row ID."""
+        if not row_ids:
+            return {}
+
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
+        conn = await self.session.connection()
+        rows_by_id: dict[UUID, dict[str, Any]] = {}
+        unique_row_ids = list(dict.fromkeys(row_ids))
+
+        for start in range(0, len(unique_row_ids), _TABLE_ROW_READ_BATCH_SIZE):
+            batch = unique_row_ids[start : start + _TABLE_ROW_READ_BATCH_SIZE]
+            stmt = (
+                sa.select(*self._visible_columns(table))
+                .select_from(table_clause)
+                .where(sa.column("id").in_(batch))
+            )
+            result = await conn.execute(stmt)
+            for row in result.mappings():
+                row_data: dict[str, Any] = dict(row)
+                row_id = row_data.get("id")
+                if not isinstance(row_id, UUID):
+                    raise TypeError("Table row ID must be a UUID")
+                rows_by_id[row_id] = row_data
+
+        return rows_by_id
 
     async def insert_row(
         self,
@@ -717,7 +942,7 @@ class BaseTablesService(BaseWorkspaceService):
             stmt = (
                 sa.insert(sa.table(sanitized_table_name, *cols, schema=schema_name))
                 .values(**value_clauses)
-                .returning(sa.text("*"))
+                .returning(*self._visible_columns(table))
             )
         else:
             # For upsert operations
@@ -752,7 +977,7 @@ class BaseTablesService(BaseWorkspaceService):
                 # Complete the statement with on_conflict_do_update
                 stmt = pg_stmt.on_conflict_do_update(
                     index_elements=index, set_=update_dict
-                ).returning(sa.text("*"))
+                ).returning(*self._visible_columns(table))
 
                 result = await conn.execute(stmt)
                 await self.session.flush()
@@ -842,7 +1067,7 @@ class BaseTablesService(BaseWorkspaceService):
             sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
             .where(sa.column("id") == row_id)
             .values(**value_clauses)
-            .returning(sa.text("*"))
+            .returning(*self._visible_columns(table))
         )
 
         result = await conn.execute(stmt)
@@ -941,12 +1166,21 @@ class BaseTablesService(BaseWorkspaceService):
         if len(values) != len(columns):
             raise ValueError("Values and column names must have the same length")
 
+        table = await self.get_table_by_name(table_name)
         schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table_name)
+        table = await self.get_table_by_name(table_name)
+        sanitized_table_name = self._sanitize_identifier(table.name)
 
-        cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
+        resolved_columns = [
+            self._resolve_external_column_name(table, column_name)
+            for column_name in columns
+        ]
+        cols = [
+            sa.column(self._sanitize_identifier(column_name))
+            for column_name in resolved_columns
+        ]
         stmt = (
-            sa.select(sa.text("*"))
+            sa.select(*self._visible_columns(table))
             .select_from(sa.table(sanitized_table_name, schema=schema_name))
             .where(
                 sa.and_(
@@ -1021,10 +1255,18 @@ class BaseTablesService(BaseWorkspaceService):
             raise ValueError("Values and column names must have the same length")
 
         schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table_name)
+        table = await self.get_table_by_name(table_name)
+        sanitized_table_name = self._sanitize_identifier(table.name)
 
         table_clause = sa.table(sanitized_table_name, schema=schema_name)
-        cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
+        resolved_columns = [
+            self._resolve_external_column_name(table, column_name)
+            for column_name in columns
+        ]
+        cols = [
+            sa.column(self._sanitize_identifier(column_name))
+            for column_name in resolved_columns
+        ]
         condition = sa.and_(
             *[col == value for col, value in zip(cols, values, strict=True)]
         )
@@ -1146,10 +1388,10 @@ class BaseTablesService(BaseWorkspaceService):
         """
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
-        conn = await self.session.connection()
 
         # Build the base query
-        stmt = sa.select(sa.text("*")).select_from(
+        visible_columns = self._visible_columns(table)
+        stmt = sa.select(*visible_columns).select_from(
             sa.table(sanitized_table_name, schema=schema_name)
         )
 
@@ -1235,97 +1477,47 @@ class BaseTablesService(BaseWorkspaceService):
         if sort_column not in valid_columns:
             raise ValueError(f"Invalid order_by column: {sort_column}")
 
-        sort_col = sa.column(self._sanitize_identifier(sort_column))
-
-        # Apply cursor-based pagination with sort-column-aware filtering
-        if params.cursor:
-            try:
-                cursor_data = BaseCursorPaginator.decode_cursor(params.cursor)
-            except Exception as e:
-                raise ValueError(f"Invalid cursor: {e}") from e
-
-            cursor_id = UUID(cursor_data.id)
-
-            # Check if cursor was created with the same sort column
-            cursor_sort_value = cursor_data.sort_value
-            cursor_has_sort_value = (
-                cursor_data.sort_column == sort_column and cursor_sort_value is not None
-            )
-
-            if cursor_has_sort_value:
-                # Use sort column value for cursor filtering
-                sort_cursor_value = cursor_sort_value
-
-                # Composite filtering: (sort_col, id) matches ORDER BY
-                if sort_direction == "asc":
-                    if params.reverse:
-                        # Going backward: get records before cursor in sort order
-                        stmt = stmt.where(
-                            sa.or_(
-                                sort_col < sort_cursor_value,
-                                sa.and_(
-                                    sort_col == sort_cursor_value,
-                                    sa.column("id") < cursor_id,
-                                ),
-                            )
-                        )
-                    else:
-                        # Going forward: get records after cursor in sort order
-                        stmt = stmt.where(
-                            sa.or_(
-                                sort_col > sort_cursor_value,
-                                sa.and_(
-                                    sort_col == sort_cursor_value,
-                                    sa.column("id") > cursor_id,
-                                ),
-                            )
-                        )
-                else:
-                    # Descending order
-                    if params.reverse:
-                        # Going backward: get records after cursor in sort order
-                        stmt = stmt.where(
-                            sa.or_(
-                                sort_col > sort_cursor_value,
-                                sa.and_(
-                                    sort_col == sort_cursor_value,
-                                    sa.column("id") > cursor_id,
-                                ),
-                            )
-                        )
-                    else:
-                        # Going forward: get records before cursor in sort order
-                        stmt = stmt.where(
-                            sa.or_(
-                                sort_col < sort_cursor_value,
-                                sa.and_(
-                                    sort_col == sort_cursor_value,
-                                    sa.column("id") < cursor_id,
-                                ),
-                            )
-                        )
-
-        # Apply sorting: (sort_col, id) for stable pagination
-        # Use id as tie-breaker unless we're already sorting by id
         if sort_column == "id":
-            # No tie-breaker needed when sorting by id (already unique)
-            if sort_direction == "asc":
-                stmt = stmt.order_by(sort_col.asc())
-            else:
-                stmt = stmt.order_by(sort_col.desc())
+            sort_type: sa.types.TypeEngine = sa.Uuid()
+        elif sort_column in {"created_at", "updated_at"}:
+            sort_type = sa.TIMESTAMP(timezone=True)
         else:
-            # Add id as tie-breaker for non-unique columns
-            if sort_direction == "asc":
-                stmt = stmt.order_by(sort_col.asc(), sa.column("id").asc())
-            else:
-                stmt = stmt.order_by(sort_col.desc(), sa.column("id").desc())
+            table_column = next(
+                column for column in table.columns if column.name == sort_column
+            )
+            sort_type = self._sa_type_for_column(SqlType(table_column.type))
 
-        # Fetch limit + 1 to determine if there are more items
-        stmt = stmt.limit(params.limit + 1)
+        sort_col = sa.column(self._sanitize_identifier(sort_column), sort_type)
+        id_col = sa.column("id", sa.Uuid())
+
+        # ``reverse`` remains accepted at the service boundary for compatibility;
+        # the opaque cursor now owns scan direction.
+        if sort_column == "id":
+            if sort_direction == "asc":
+                ordering = (sort_col.asc(),)
+            else:
+                ordering = (sort_col.desc(),)
+        else:
+            if sort_direction == "asc":
+                ordering = (sort_col.asc(), id_col.asc())
+            else:
+                ordering = (sort_col.desc(), id_col.desc())
+
+        visible_names = tuple(column.name for column in visible_columns)
+
+        def build_row(values: tuple[object, ...]) -> dict[str, Any]:
+            return dict(zip(visible_names, values, strict=True))
 
         try:
-            result = await conn.execute(stmt)
-            rows = [dict(row) for row in result.mappings().all()]
+            page = await paginate(
+                self.session,
+                stmt,
+                page=PageParams(limit=params.limit, cursor=params.cursor),
+                order_by=ordering,
+                row_factory=build_row,
+            )
+        except PaginationError:
+            raise
         except ProgrammingError as e:
             while (cause := e.__cause__) is not None:
                 e = cause
@@ -1344,47 +1536,12 @@ class BaseTablesService(BaseWorkspaceService):
             )
             raise
 
-        # Check if there are more items
-        has_more = len(rows) > params.limit
-        if has_more:
-            rows = rows[: params.limit]
-        has_previous = params.cursor is not None
-
-        # Generate cursors with sort column info for proper pagination
-        next_cursor = None
-        prev_cursor = None
-
-        if rows:
-            if has_more:
-                # Generate next cursor from the last item
-                last_item = rows[-1]
-                next_cursor = BaseCursorPaginator.encode_cursor(
-                    last_item["id"],
-                    sort_column=sort_column,
-                    sort_value=last_item.get(sort_column),
-                )
-
-            if params.cursor:
-                # If we used a cursor to get here, we can go back
-                first_item = rows[0]
-                prev_cursor = BaseCursorPaginator.encode_cursor(
-                    first_item["id"],
-                    sort_column=sort_column,
-                    sort_value=first_item.get(sort_column),
-                )
-
-        # If we were doing reverse pagination, swap the cursors and reverse items
-        if params.reverse:
-            rows = list(reversed(rows))
-            next_cursor, prev_cursor = prev_cursor, next_cursor
-            has_more, has_previous = has_previous, has_more
-
         return CursorPaginatedResponse(
-            items=rows,
-            next_cursor=next_cursor,
-            prev_cursor=prev_cursor,
-            has_more=has_more,
-            has_previous=has_previous,
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
         )
 
     async def batch_insert_rows(
@@ -1671,9 +1828,13 @@ class TablesService(BaseTablesService):
         await self.session.commit()
 
     @require_scope("table:create")
-    async def insert_row(self, table: Table, params: TableRowInsert) -> dict[str, Any]:
+    async def insert_row(
+        self, table: Table, params: TableRowInsert, *, commit: bool = True
+    ) -> dict[str, Any]:
+        """Insert a row. ``commit=False`` leaves the row flushed but uncommitted for callers that link it in the same transaction."""
         result = await super().insert_row(table, params)
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
         return result
 
     @require_scope("table:update")
@@ -1765,13 +1926,36 @@ class TableEditorService(BaseWorkspaceService):
         super().__init__(session, role)
         self.table_name = sanitize_identifier(table_name)
         self.schema_name = schema_name
+        self._visible_columns_cache: list[sa.ColumnClause] | None = None
 
     def _full_table_name(self) -> str:
         """Get the full table name for the current role."""
-        return f'"{self.schema_name}".{self.table_name}'
+        return f'"{self.schema_name}"."{self.table_name}"'
 
-    async def get_columns(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
-        """Get all columns for a table."""
+    def _assert_user_column_name_allowed(self, column_name: str) -> None:
+        """Reject operations on internal/system-managed column names."""
+        if is_internal_column_name(column_name):
+            raise ValueError(f"Column {column_name} is reserved for internal use")
+
+    def _invalidate_visible_columns_cache(self) -> None:
+        self._visible_columns_cache = None
+
+    async def _visible_columns(self) -> list[sa.ColumnClause]:
+        if self._visible_columns_cache is None:
+            reflected_columns = await self.get_columns()
+            self._visible_columns_cache = visible_column_clauses(
+                [
+                    column_name
+                    for column in reflected_columns
+                    if isinstance((column_name := column.get("name")), str)
+                ]
+            )
+        return self._visible_columns_cache
+
+    async def _get_physical_columns(
+        self,
+    ) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
+        """Get all physical columns for a table, including internal columns."""
 
         def inspect_columns(
             sync_conn: sa.Connection,
@@ -1782,6 +1966,15 @@ class TableEditorService(BaseWorkspaceService):
         conn = await self.session.connection()
         columns = await conn.run_sync(inspect_columns)
         return columns
+
+    async def get_columns(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
+        """Get user-visible columns for a table."""
+        reflected_columns = await self._get_physical_columns()
+        return [
+            column
+            for column in reflected_columns
+            if not is_internal_column_name(column.get("name"))
+        ]
 
     async def create_column(self, params: TableColumnCreate) -> None:
         """Add a new column to an existing table.
@@ -1796,14 +1989,20 @@ class TableEditorService(BaseWorkspaceService):
             ValueError: If the column type is invalid
         """
 
+        self._assert_user_column_name_allowed(params.name)
+        column_name = validate_identifier(params.name)
+
         # Validate SQL type first
         if not is_valid_sql_type(params.type):
             raise ValueError(f"Invalid type: {params.type}")
 
         # Handle default value based on type
         default_value = params.default
+        rendered_default = None
         if default_value is not None:
-            default_value = handle_default_value(params.type, default_value)
+            default_value, rendered_default = prepare_default_value(
+                params.type, default_value
+            )
 
         # Build the column definition string
         # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
@@ -1813,11 +2012,11 @@ class TableEditorService(BaseWorkspaceService):
             column_type_sql = SqlType.JSONB.value
         else:
             column_type_sql = params.type.value
-        column_def = [f"{params.name} {column_type_sql}"]
+        column_def = [f"{quote_identifier(column_name)} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
-        if default_value is not None:
-            column_def.append(f"DEFAULT {default_value}")
+        if rendered_default is not None:
+            column_def.append(f"DEFAULT {rendered_default}")
 
         column_def_str = " ".join(column_def)
 
@@ -1831,6 +2030,7 @@ class TableEditorService(BaseWorkspaceService):
         )
 
         await self.session.flush()
+        self._invalidate_visible_columns_cache()
 
     async def update_column(self, column_name: str, params: TableColumnUpdate) -> None:
         """Update a column in an existing table.
@@ -1845,21 +2045,31 @@ class TableEditorService(BaseWorkspaceService):
             ValueError: If the column type is invalid
             ProgrammingError: If the database operation fails
         """
+        self._assert_user_column_name_allowed(column_name)
         set_fields = params.model_dump(exclude_unset=True)
         conn = await self.session.connection()
 
-        new_name = column_name
+        sanitized_column_name = validate_identifier(column_name)
+        new_name = sanitized_column_name
         full_table_name = self._full_table_name()
 
         # Execute ALTER statements using safe DDL construction
         if "name" in set_fields:
-            new_name = sanitize_identifier(set_fields["name"])
-            await conn.execute(
-                sa.DDL(
-                    "ALTER TABLE %s RENAME COLUMN %s TO %s",
-                    (full_table_name, column_name, new_name),
+            if (requested_name := set_fields["name"]) is None:
+                set_fields.pop("name")
+            else:
+                self._assert_user_column_name_allowed(requested_name)
+                new_name = validate_identifier(requested_name)
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s RENAME COLUMN %s TO %s",
+                        (
+                            full_table_name,
+                            quote_identifier(sanitized_column_name),
+                            quote_identifier(new_name),
+                        ),
+                    )
                 )
-            )
         if "type" in set_fields:
             new_type = SqlType(set_fields["type"])
             # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
@@ -1874,7 +2084,7 @@ class TableEditorService(BaseWorkspaceService):
             await conn.execute(
                 sa.DDL(
                     "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                    (full_table_name, new_name, column_type_sql),
+                    (full_table_name, quote_identifier(new_name), column_type_sql),
                 )
             )
         if "nullable" in set_fields:
@@ -1884,7 +2094,7 @@ class TableEditorService(BaseWorkspaceService):
                     # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
                     # No user input is interpolated here - only predefined SQL keywords
                     f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
-                    (full_table_name, new_name),
+                    (full_table_name, quote_identifier(new_name)),
                 )
             )
         if "default" in set_fields:
@@ -1893,44 +2103,41 @@ class TableEditorService(BaseWorkspaceService):
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
-                        (full_table_name, new_name),
+                        (full_table_name, quote_identifier(new_name)),
                     )
                 )
             else:
-                # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
-                # We must use string interpolation here, but it's SAFE because:
-                # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
-                # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
-                # 3. The function validates the SQL type and rejects invalid inputs
-                # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
-                formatted_default = handle_default_value(
+                normalized_default, formatted_default = prepare_default_value(
                     SqlType(set_fields.get("type", "TEXT")), updated_default
                 )
+                set_fields["default"] = normalized_default
                 await conn.execute(
                     sa.DDL(
-                        # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
-                        # Other parameters (table/column names) still use secure parameter binding
+                        # SAFE f-string: formatted_default is compiler-rendered from a typed value.
                         f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
-                        (full_table_name, new_name),
+                        (full_table_name, quote_identifier(new_name)),
                     )
                 )
 
         await self.session.flush()
+        self._invalidate_visible_columns_cache()
 
     async def delete_column(self, column_name: str) -> None:
         """Remove a column from an existing table."""
-        sanitized_column = sanitize_identifier(column_name)
+        self._assert_user_column_name_allowed(column_name)
+        sanitized_column = validate_identifier(column_name)
 
         # Drop the column from the physical table using DDL
         conn = await self.session.connection()
         await conn.execute(
             sa.DDL(
                 "ALTER TABLE %s DROP COLUMN %s",
-                (self._full_table_name(), sanitized_column),
+                (self._full_table_name(), quote_identifier(sanitized_column)),
             )
         )
 
         await self.session.flush()
+        self._invalidate_visible_columns_cache()
 
     async def list_rows(
         self,
@@ -1941,7 +2148,7 @@ class TableEditorService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[dict[str, Any]]:
         """List rows with cursor-based pagination ordered by row ID."""
         conn = await self.session.connection()
-        stmt = sa.select("*").select_from(
+        stmt = sa.select(*await self._visible_columns()).select_from(
             sa.table(self.table_name, schema=self.schema_name)
         )
 
@@ -1992,7 +2199,7 @@ class TableEditorService(BaseWorkspaceService):
         """Get a row by ID."""
         conn = await self.session.connection()
         stmt = (
-            sa.select("*")
+            sa.select(*await self._visible_columns())
             .select_from(sa.table(self.table_name, schema=self.schema_name))
             .where(sa.column("id") == row_id)
         )
@@ -2016,7 +2223,11 @@ class TableEditorService(BaseWorkspaceService):
         conn = await self.session.connection()
 
         row_data = params.data
-        col_map = {c["name"]: c for c in await self.get_columns()}
+        for column_name in row_data:
+            self._assert_user_column_name_allowed(column_name)
+        reflected_columns = await self.get_columns()
+        col_map = {c["name"]: c for c in reflected_columns}
+        visible_columns = visible_column_clauses(list(col_map))
 
         value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
@@ -2041,7 +2252,7 @@ class TableEditorService(BaseWorkspaceService):
         stmt = (
             sa.insert(sa.table(self.table_name, *cols, schema=self.schema_name))
             .values(**value_clauses)
-            .returning(sa.text("*"))
+            .returning(*visible_columns)
         )
         result = await conn.execute(stmt)
         await self.session.flush()
@@ -2062,7 +2273,11 @@ class TableEditorService(BaseWorkspaceService):
             TracecatNotFoundError: If the row does not exist
         """
         conn = await self.session.connection()
-        col_map = {c["name"]: c for c in await self.get_columns()}
+        for column_name in data:
+            self._assert_user_column_name_allowed(column_name)
+        reflected_columns = await self.get_columns()
+        col_map = {c["name"]: c for c in reflected_columns}
+        visible_columns = visible_column_clauses(list(col_map))
 
         # Build update statement using SQLAlchemy
         value_clauses: dict[str, sa.BindParameter] = {}
@@ -2091,7 +2306,7 @@ class TableEditorService(BaseWorkspaceService):
             sa.update(sa.table(self.table_name, *cols, schema=self.schema_name))
             .where(sa.column("id") == row_id)
             .values(**value_clauses)
-            .returning(sa.text("*"))
+            .returning(*visible_columns)
         )
 
         result = await conn.execute(stmt)
@@ -2116,9 +2331,39 @@ class TableEditorService(BaseWorkspaceService):
 
 
 def sanitize_identifier(identifier: str) -> str:
-    """Sanitize table/column names to prevent SQL injection."""
-    # Remove any non-alphanumeric characters except underscores
+    """Normalize a stored identifier to its physical SQL name."""
     sanitized = "".join(c for c in identifier if c.isalnum() or c == "_")
-    if not sanitized[0].isalpha():
-        raise ValueError("Identifier must start with a letter")
+    if not sanitized:
+        raise ValueError("Identifier must contain at least one letter")
+    if not (sanitized[0].isalpha() or sanitized[0] == "_"):
+        raise ValueError("Identifier must start with a letter or underscore")
     return sanitized.lower()
+
+
+def quote_identifier(identifier: str) -> str:
+    """Double-quote a SQL identifier for safe use in DDL statements.
+
+    Prevents syntax errors when identifier names collide with SQL reserved
+    keywords (e.g. ``select``, ``order``, ``group``).  Safe to use because
+    all callers pass values already restricted to ``[a-zA-Z0-9_]`` by
+    ``validate_identifier`` / ``sanitize_identifier``.
+    """
+    return f'"{identifier}"'
+
+
+def is_internal_column_name(column_name: str) -> bool:
+    """Check whether a column is internal/system-managed for dynamic schemas."""
+    return column_name.lower().startswith(INTERNAL_COLUMN_PREFIX)
+
+
+def validate_identifier(identifier: str) -> str:
+    """Validate an external identifier before using it in DDL operations."""
+    if not identifier:
+        raise ValueError("Identifier must contain at least one letter")
+    if not all(c.isalnum() or c == "_" for c in identifier):
+        raise ValueError(
+            "Identifier must contain only letters, numbers, and underscores"
+        )
+    if not (identifier[0].isalpha() or identifier[0] == "_"):
+        raise ValueError("Identifier must start with a letter or underscore")
+    return identifier.lower()

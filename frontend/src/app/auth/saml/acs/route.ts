@@ -1,10 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
-
+import { getPostAuthDecisionPath } from "@/lib/auth-redirect"
 import {
   decodeAndSanitizeReturnUrl,
   POST_AUTH_RETURN_URL_COOKIE_NAME,
   serializeClearPostAuthReturnUrlCookie,
 } from "@/lib/auth-return-url"
+import { forwardClientAttributionHeaders } from "@/lib/forwarded-request-headers"
 import { buildUrl } from "@/lib/ss-utils"
 
 /**
@@ -43,12 +44,12 @@ export async function POST(request: NextRequest) {
   }
 
   // Forward the request to the FastAPI backend
-  const headers = {
+  const headers = new Headers({
     "x-tracecat-service-key": process.env.TRACECAT__SERVICE_KEY!,
     "x-tracecat-role-type": "service",
     "x-tracecat-role-service-id": "tracecat-ui",
-  }
-  console.log("Headers", headers)
+  })
+  forwardClientAttributionHeaders(request.headers, headers)
   const backendResponse = await fetch(backendUrl.toString(), {
     method: "POST",
     body: backendFormData,
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(new URL("/auth/error", public_app_url))
   }
 
-  const targetPath = returnUrl ?? "/"
+  const targetPath = getPostAuthDecisionPath(returnUrl)
   console.log(`Redirecting to ${targetPath} with GET`)
   const redirectUrl = new URL(targetPath, public_app_url)
   const redirectResponse = NextResponse.redirect(redirectUrl, {

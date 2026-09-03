@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import tracecat.admin.registry.router as registry_router_module
 from tracecat.admin.registry.schemas import (
+    RegistryArtifactsBackfillStartResponse,
     RegistryStatusResponse,
     RegistrySyncResponse,
     RegistryVersionPromoteResponse,
@@ -18,6 +19,7 @@ from tracecat.admin.registry.schemas import (
     RepositorySyncResult,
 )
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 
 @pytest.mark.anyio
@@ -109,6 +111,81 @@ async def test_list_registry_versions_success(
 
 
 @pytest.mark.anyio
+async def test_start_registry_artifacts_backfill_success(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    version_id = uuid.uuid4()
+    payload = RegistryArtifactsBackfillStartResponse(
+        workflow_id="registry-artifacts-backfill-20240101000000-abcd1234",
+        requested_count=1,
+    )
+
+    with patch.object(registry_router_module, "AdminRegistryService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.start_artifacts_backfill.return_value = payload
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/admin/registry/versions/artifacts/backfill",
+            json={"version_ids": [str(version_id)]},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["workflow_id"] == payload.workflow_id
+    assert data["requested_count"] == 1
+    request = mock_svc.start_artifacts_backfill.call_args.args[0]
+    assert request.version_ids == [version_id]
+
+
+@pytest.mark.anyio
+async def test_start_registry_artifacts_backfill_missing_version(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    version_id = uuid.uuid4()
+
+    with patch.object(registry_router_module, "AdminRegistryService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.start_artifacts_backfill.side_effect = TracecatNotFoundError(
+            f"Registry versions not found: {version_id}"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/admin/registry/versions/artifacts/backfill",
+            json={"version_ids": [str(version_id)]},
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == f"Registry versions not found: {version_id}"
+
+
+@pytest.mark.anyio
+async def test_start_registry_artifacts_backfill_version_without_tarball(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    version_id = uuid.uuid4()
+
+    with patch.object(registry_router_module, "AdminRegistryService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.start_artifacts_backfill.side_effect = TracecatValidationError(
+            f"Registry versions do not have tarballs: {version_id}"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/admin/registry/versions/artifacts/backfill",
+            json={"version_ids": [str(version_id)]},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert (
+        response.json()["detail"]
+        == f"Registry versions do not have tarballs: {version_id}"
+    )
+
+
+@pytest.mark.anyio
 async def test_promote_registry_version_success(
     client: TestClient, test_admin_role: Role
 ) -> None:
@@ -157,6 +234,28 @@ async def test_promote_registry_version_not_found(
         )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_promote_registry_version_artifact_not_ready(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    repo_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+
+    with patch.object(registry_router_module, "AdminRegistryService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.promote_version.side_effect = TracecatValidationError(
+            "Version artifact is not ready"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/admin/registry/{repo_id}/versions/{version_id}/promote"
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Version artifact is not ready"
 
 
 @pytest.mark.anyio

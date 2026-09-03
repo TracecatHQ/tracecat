@@ -13,19 +13,21 @@ configure agent presets through natural language.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
-from typing import Any, TypedDict
+from collections.abc import Awaitable, Callable, Sequence
+from typing import Any, Literal, TypedDict, cast
 
 from pydantic import BaseModel, Field
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat import config
 from tracecat.agent.common.types import MCPToolDefinition
-from tracecat.agent.preset.schemas import AgentPresetRead, AgentPresetUpdate
+from tracecat.agent.preset.schemas import AgentPresetUpdate
 from tracecat.agent.session.schemas import (
     AgentSessionRead,
     AgentSessionReadWithMessages,
 )
+from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -33,6 +35,9 @@ from tracecat.contexts import ctx_role
 from tracecat.exceptions import (
     TracecatValidationError,
 )
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.schemas import ProviderKey
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -53,10 +58,6 @@ BUILDER_BUNDLED_ACTIONS = [
     "core.table.get_table_metadata",
     "core.table.list_tables",
     "core.table.search_rows",
-    "tools.exa.get_contents",
-    "tools.exa.get_research",
-    "tools.exa.list_research",
-    "tools.exa.research",
 ]
 
 
@@ -80,13 +81,35 @@ class InternalToolError(Exception):
     """Raised when an internal tool execution fails."""
 
 
-def _secrets_to_requirements(secrets: list[Any]) -> list[dict[str, Any]]:
+class SecretRequirement(TypedDict):
+    """Configuration requirement for a regular secret."""
+
+    type: Literal["secret"]
+    name: str
+    required_keys: list[str]
+    optional: bool
+
+
+class OAuthRequirement(TypedDict):
+    """Configuration requirement for a workspace OAuth integration."""
+
+    type: Literal["oauth"]
+    provider_id: str
+    grant_type: str
+    optional: bool
+
+
+Requirement = SecretRequirement | OAuthRequirement
+
+
+def _secrets_to_requirements(secrets: list[Any]) -> list[Requirement]:
     """Convert registry secret objects to simple requirement metadata."""
-    requirements: list[dict[str, Any]] = []
+    requirements: list[Requirement] = []
     for secret in secrets:
         if isinstance(secret, RegistrySecret):
             requirements.append(
                 {
+                    "type": "secret",
                     "name": secret.name,
                     "required_keys": list(secret.keys or []),
                     "optional": secret.optional,
@@ -95,8 +118,9 @@ def _secrets_to_requirements(secrets: list[Any]) -> list[dict[str, Any]]:
         elif isinstance(secret, RegistryOAuthSecret):
             requirements.append(
                 {
-                    "name": secret.name,
-                    "required_keys": [secret.token_name],
+                    "type": "oauth",
+                    "provider_id": secret.provider_id,
+                    "grant_type": secret.grant_type,
                     "optional": secret.optional,
                 }
             )
@@ -104,17 +128,33 @@ def _secrets_to_requirements(secrets: list[Any]) -> list[dict[str, Any]]:
 
 
 def _evaluate_configuration(
-    requirements: list[dict[str, Any]],
+    requirements: Sequence[Requirement | dict[str, Any]],
     workspace_inventory: dict[str, set[str]],
     org_inventory: dict[str, set[str]],
+    oauth_inventory: set[ProviderKey],
 ) -> tuple[bool, list[str]]:
     """Evaluate whether required secret names/keys are configured."""
     missing: list[str] = []
     for requirement in requirements:
-        secret_name = requirement["name"]
-        required_keys = set(requirement["required_keys"])
         if requirement.get("optional", False):
             continue
+        requirement_type = requirement.get("type", "secret")
+        if requirement_type == "oauth":
+            oauth_requirement = cast(OAuthRequirement | dict[str, Any], requirement)
+            provider_key = ProviderKey(
+                id=cast(str, oauth_requirement["provider_id"]),
+                grant_type=OAuthGrantType(cast(str, oauth_requirement["grant_type"])),
+            )
+            if provider_key not in oauth_inventory:
+                missing.append(
+                    "missing oauth integration: "
+                    f"{provider_key.id} ({provider_key.grant_type.value})"
+                )
+            continue
+
+        secret_requirement = cast(SecretRequirement | dict[str, Any], requirement)
+        secret_name = cast(str, secret_requirement["name"])
+        required_keys = set(cast(list[str], secret_requirement["required_keys"]))
         keys = workspace_inventory.get(secret_name)
         if keys is None:
             keys = org_inventory.get(secret_name)
@@ -156,6 +196,16 @@ async def _load_secret_inventory(
     return workspace_inventory, org_inventory
 
 
+async def _load_oauth_inventory(role: Role) -> set[ProviderKey]:
+    """Load configured workspace OAuth integrations."""
+    async with IntegrationService.with_session(role=role) as svc:
+        integrations = await svc.list_integrations()
+    return {
+        ProviderKey(id=integration.provider_id, grant_type=integration.grant_type)
+        for integration in integrations
+    }
+
+
 def _get_preset_id(context: InternalToolContext | None) -> uuid.UUID:
     """Extract preset_id from internal tool context."""
     if context is None or context.preset_id is None:
@@ -180,6 +230,7 @@ async def _get_action_configuration(
     action_name: str,
     workspace_inventory: dict[str, set[str]],
     org_inventory: dict[str, set[str]],
+    oauth_inventory: set[ProviderKey],
 ) -> tuple[bool, list[str]]:
     """Return (configured, missing_requirements) for an action."""
     indexed = await svc.get_action_from_index(action_name)
@@ -188,7 +239,12 @@ async def _get_action_configuration(
 
     secrets = svc.aggregate_secrets_from_manifest(indexed.manifest, action_name)
     requirements = _secrets_to_requirements(secrets)
-    return _evaluate_configuration(requirements, workspace_inventory, org_inventory)
+    return _evaluate_configuration(
+        requirements,
+        workspace_inventory,
+        org_inventory,
+        oauth_inventory,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -210,8 +266,9 @@ async def get_preset_summary(
         preset = await service.get_preset(preset_id)
         if not preset:
             raise InternalToolError(f"Agent preset with ID '{preset_id}' not found")
+        preset_read = await service.build_preset_read(preset)
 
-    return AgentPresetRead.model_validate(preset).model_dump(mode="json")
+    return preset_read.model_dump(mode="json")
 
 
 async def list_available_tools(
@@ -230,6 +287,7 @@ async def list_available_tools(
     role = _build_role(claims)
     ctx_role.set(role)
     workspace_inventory, org_inventory = await _load_secret_inventory(role)
+    oauth_inventory = await _load_oauth_inventory(role)
     preset_action_set: set[str] = set()
 
     async with AgentPresetService.with_session(role=role) as preset_service:
@@ -253,6 +311,7 @@ async def list_available_tools(
                 action_name,
                 workspace_inventory,
                 org_inventory,
+                oauth_inventory,
             )
             tools.append(
                 AgentToolSummary(
@@ -302,6 +361,7 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
             added_actions = sorted(proposed_actions - current_actions)
             if added_actions:
                 workspace_inventory, org_inventory = await _load_secret_inventory(role)
+                oauth_inventory = await _load_oauth_inventory(role)
                 async with RegistryActionsService.with_session(
                     role=role
                 ) as registry_svc:
@@ -312,6 +372,7 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
                             action_name,
                             workspace_inventory,
                             org_inventory,
+                            oauth_inventory,
                         )
                         if not configured:
                             unconfigured.append(
@@ -330,14 +391,14 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
         except TracecatValidationError as error:
             # Surface builder validation issues as errors that the agent can retry
             raise InternalToolError(str(error)) from error
+        updated_read = await service.build_preset_read(updated)
 
-    return AgentPresetRead.model_validate(updated).model_dump(mode="json")
+    return updated_read.model_dump(mode="json")
 
 
 async def list_sessions(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str, Any]:
-    """List agent sessions where this agent preset is being used by end users."""
+    """List workspace sessions where this agent preset is used."""
     from tracecat.agent.session.service import AgentSessionService
-    from tracecat.agent.session.types import AgentSessionEntity
 
     preset_id = _get_preset_id(claims.internal_tool_context)
     role = _build_role(claims)
@@ -347,14 +408,24 @@ async def list_sessions(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
     if not isinstance(limit, int) or limit < 1 or limit > 100:
         limit = 50
 
+    created_by: uuid.UUID | None = None
+    if created_by_value := args.get("created_by"):
+        if isinstance(created_by_value, uuid.UUID):
+            created_by = created_by_value
+        elif isinstance(created_by_value, str):
+            try:
+                created_by = uuid.UUID(created_by_value)
+            except ValueError as e:
+                raise InternalToolError(
+                    f"Invalid created_by format: {created_by_value}"
+                ) from e
+        else:
+            raise InternalToolError(f"Invalid created_by format: {created_by_value}")
+
     try:
         async with AgentSessionService.with_session(role=role) as service:
-            if service.role.user_id is None:
-                raise InternalToolError(
-                    "Unable to list sessions: authentication required."
-                )
             sessions = await service.list_sessions(
-                created_by=service.role.user_id,
+                created_by=created_by,
                 entity_type=AgentSessionEntity.AGENT_PRESET,
                 entity_id=preset_id,
                 limit=limit,
@@ -394,20 +465,34 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
     try:
         async with AgentSessionService.with_session(role=role) as service:
             session = await service.get_session(session_id)
-            if not session or str(session.entity_id) != str(preset_id):
+            if (
+                not session
+                or AgentSessionEntity(session.entity_type)
+                is not AgentSessionEntity.AGENT_PRESET
+                or session.entity_id != preset_id
+            ):
                 raise InternalToolError(f"Session {session_id} not found.")
 
             messages = await service.list_messages(session.id)
+            agents_binding = (
+                ResolvedAgentsConfig.model_validate(session.agents_binding)
+                if session.agents_binding is not None
+                else None
+            )
 
             return AgentSessionReadWithMessages(
                 id=session.id,
                 workspace_id=session.workspace_id,
                 title=session.title,
                 created_by=session.created_by,
-                entity_type=session.entity_type,
+                entity_type=AgentSessionEntity(session.entity_type),
                 entity_id=session.entity_id,
+                channel_context=session.channel_context,
                 tools=session.tools,
+                mcp_integrations=session.mcp_integrations,
                 agent_preset_id=session.agent_preset_id,
+                agent_preset_version_id=session.agent_preset_version_id,
+                agents_binding=agents_binding,
                 harness_type=session.harness_type,
                 created_at=session.created_at,
                 updated_at=session.updated_at,
@@ -459,6 +544,10 @@ class _ListSessionsParams(BaseModel):
         ge=config.TRACECAT__LIMIT_MIN,
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
     )
+    created_by: uuid.UUID | None = Field(
+        default=None,
+        description="Filter by session creator. Omit to list the entire workspace.",
+    )
 
 
 class _GetSessionParams(BaseModel):
@@ -506,7 +595,10 @@ def get_builder_internal_tool_definitions() -> dict[str, MCPToolDefinition]:
         ),
         "internal.builder.list_sessions": MCPToolDefinition(
             name="internal.builder.list_sessions",
-            description="List agent sessions where this agent preset is being used by end users.",
+            description=(
+                "List workspace agent sessions where this preset is being used. "
+                "Returns all teammates by default; optionally filter by creator."
+            ),
             parameters_json_schema=_ListSessionsParams.model_json_schema(),
         ),
         "internal.builder.get_session": MCPToolDefinition(

@@ -1,50 +1,69 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   type AdminCreateOrganizationDomainResponse,
+  type AdminCreateOrganizationInvitationResponse,
   type AdminCreateOrganizationResponse,
   type AdminCreateTierResponse,
   type AdminCreateUserResponse,
   type AdminListOrganizationDomainsResponse,
+  type AdminListOrganizationInvitationsResponse,
   type AdminListOrganizationsResponse,
   type AdminListTiersResponse,
   type AdminListUsersResponse,
+  type AdminOrgInvitationCreate,
   type AdminRegistryGetRegistryStatusResponse,
   type AdminRegistryListRegistryVersionsResponse,
+  type AdminTestAuditWebhookData,
   type AdminUserCreate,
   type AdminUserRead,
+  type AgentCatalogListResponse,
+  type AgentCatalogRead,
+  type AuditWebhookTestResult,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
+  adminCreateOrganizationInvitation,
   adminCreateTier,
   adminCreateUser,
+  adminDeleteOrganization,
   adminDeleteOrganizationDomain,
   adminDeleteTier,
+  adminDeleteUser,
   adminDemoteFromSuperuser,
+  adminGetAuditSettings,
   adminGetOrganization,
+  adminGetOrganizationInvitationToken,
   adminGetOrgTier,
   adminGetRegistrySettings,
   adminGetTier,
   adminListOrganizationDomains,
+  adminListOrganizationInvitations,
   adminListOrganizations,
   adminListOrgRepositories,
   adminListOrgRepositoryVersions,
+  adminListOrgTiers,
   adminListTiers,
   adminListUsers,
   adminPromoteOrgRepositoryVersion,
   adminPromoteToSuperuser,
+  adminRegistryDeleteRegistryVersion,
   adminRegistryGetRegistryStatus,
   adminRegistryListRegistryVersions,
   adminRegistryPromoteRegistryVersion,
+  adminRegistryStartRegistryArtifactsBackfill,
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
+  adminRevokeOrganizationInvitation,
   adminSyncOrgRepository,
+  adminTestAuditWebhook,
+  adminUpdateAuditSettings,
   adminUpdateOrganization,
   adminUpdateOrganizationDomain,
   adminUpdateOrgTier,
   adminUpdateRegistrySettings,
   adminUpdateTier,
+  OpenAPI,
   type OrganizationTierRead,
   type OrganizationTierUpdate,
   type OrgCreate,
@@ -53,17 +72,77 @@ import {
   type OrgDomainUpdate,
   type tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead,
   type OrgUpdate,
+  type PlatformAuditSettingsRead,
+  type PlatformAuditSettingsUpdate,
   type PlatformRegistrySettingsUpdate,
+  type RegistryArtifactsBackfillStartRequest,
+  type RegistryArtifactsBackfillStartResponse,
   type TierCreate,
   type TierRead,
   type TierUpdate,
 } from "@/client"
+import { request as apiRequest } from "@/client/core/request"
+import { toast } from "@/components/ui/use-toast"
 import {
-  adminDeleteOrganizationWithConfirmation,
-  adminListOrgTiers,
-} from "@/client/services.custom"
+  getAuditWebhookTestDescription,
+  getAuditWebhookTestTitle,
+} from "@/lib/audit-webhook-test"
+import {
+  getApiErrorDetail,
+  retryHandler,
+  type TracecatApiError,
+} from "@/lib/errors"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
+
+export interface AdminPlatformCatalogEntry {
+  id: string
+  model_provider: string
+  model_name: string
+  model_id: string
+  display_name: string
+  metadata?: Record<string, unknown> | null
+}
+
+export interface AdminPlatformCatalogRead {
+  models: AdminPlatformCatalogEntry[]
+}
+
+function adminListPlatformCatalog({
+  cursor,
+  limit,
+}: {
+  cursor?: string
+  limit?: number
+} = {}) {
+  return apiRequest<AgentCatalogListResponse>(OpenAPI, {
+    method: "GET",
+    url: "/admin/agent/catalog",
+    query: {
+      cursor,
+      limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /* ── ORGANIZATIONS ─────────────────────────────────────────────────────────── */
+
+const ADMIN_ORG_INVITATIONS_PAGE_SIZE = 20
+
+interface AdminOrgInvitationsPaginationState {
+  cursor: string | null
+  reverse: boolean
+  page: number
+}
+
+const DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION: AdminOrgInvitationsPaginationState =
+  {
+    cursor: null,
+    reverse: false,
+    page: 0,
+  }
 
 export function useAdminOrganizations({
   enabled = true,
@@ -100,7 +179,7 @@ export function useAdminOrganizations({
   const { mutateAsync: deleteOrganization, isPending: deletePending } =
     useMutation<void, Error, { orgId: string; confirmation: string }>({
       mutationFn: ({ orgId, confirmation }) =>
-        adminDeleteOrganizationWithConfirmation({
+        adminDeleteOrganization({
           orgId,
           confirm: confirmation,
         }),
@@ -223,6 +302,102 @@ export function useAdminOrgDomains(orgId: string) {
   }
 }
 
+/** Fetch and mutate platform-created organization invitations. */
+export function useAdminOrgInvitations(orgId: string) {
+  const queryClient = useQueryClient()
+  const [pagination, setPagination] =
+    useState<AdminOrgInvitationsPaginationState>(
+      DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION
+    )
+  const queryKey = ["admin", "organizations", orgId, "invitations"]
+
+  useEffect(() => {
+    setPagination(DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION)
+  }, [orgId])
+
+  const {
+    data: invitationsPage,
+    isLoading,
+    error,
+  } = useQuery<AdminListOrganizationInvitationsResponse>({
+    queryKey: [...queryKey, pagination.cursor, pagination.reverse],
+    queryFn: () =>
+      adminListOrganizationInvitations({
+        orgId,
+        limit: ADMIN_ORG_INVITATIONS_PAGE_SIZE,
+        cursor: pagination.cursor,
+        reverse: pagination.reverse,
+      }),
+    enabled: !!orgId,
+  })
+
+  const { mutateAsync: createInvitation, isPending: createPending } =
+    useMutation<
+      AdminCreateOrganizationInvitationResponse,
+      Error,
+      AdminOrgInvitationCreate
+    >({
+      mutationFn: (data) =>
+        adminCreateOrganizationInvitation({ orgId, requestBody: data }),
+      onSuccess: () => {
+        setPagination(DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION)
+        queryClient.invalidateQueries({ queryKey })
+      },
+    })
+
+  const { mutateAsync: getInvitationToken } = useMutation<
+    { token: string },
+    Error,
+    string
+  >({
+    mutationFn: (invitationId) =>
+      adminGetOrganizationInvitationToken({ orgId, invitationId }),
+  })
+
+  const { mutateAsync: revokeInvitation, isPending: revokePending } =
+    useMutation<void, Error, string>({
+      mutationFn: (invitationId) =>
+        adminRevokeOrganizationInvitation({ orgId, invitationId }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey })
+      },
+    })
+
+  function goToNextPage() {
+    if (!invitationsPage?.next_cursor) return
+    setPagination((previous) => ({
+      cursor: invitationsPage.next_cursor ?? null,
+      reverse: false,
+      page: previous.page + 1,
+    }))
+  }
+
+  function goToPreviousPage() {
+    if (!invitationsPage?.prev_cursor) return
+    setPagination((previous) => ({
+      cursor: invitationsPage.prev_cursor ?? null,
+      reverse: true,
+      page: Math.max(previous.page - 1, 0),
+    }))
+  }
+
+  return {
+    invitations: invitationsPage?.items ?? [],
+    isLoading,
+    error,
+    createInvitation,
+    createPending,
+    getInvitationToken,
+    revokeInvitation,
+    revokePending,
+    goToNextPage,
+    goToPreviousPage,
+    hasNextPage: invitationsPage?.has_more ?? false,
+    hasPreviousPage: invitationsPage?.has_previous ?? false,
+    currentPage: pagination.page,
+  }
+}
+
 /* ── USERS ─────────────────────────────────────────────────────────────────── */
 
 export function useAdminUsers() {
@@ -261,6 +436,20 @@ export function useAdminUsers() {
         queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
     })
 
+  const { mutateAsync: deleteUser, isPending: deletePending } = useMutation<
+    void,
+    Error,
+    string
+  >({
+    mutationFn: async (userId) => {
+      await adminDeleteUser({ userId })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+
   return {
     users,
     isLoading,
@@ -271,6 +460,8 @@ export function useAdminUsers() {
     promotePending,
     demoteFromSuperuser,
     demotePending,
+    deleteUser,
+    deletePending,
   }
 }
 
@@ -526,7 +717,7 @@ export function useAdminOrgRepositoryVersions(
 
 /* ── PLATFORM REGISTRY ─────────────────────────────────────────────────────── */
 
-export function useAdminRegistryStatus() {
+export function useAdminRegistryStatus(options?: { enabled?: boolean }) {
   const {
     data: status,
     isLoading,
@@ -535,6 +726,7 @@ export function useAdminRegistryStatus() {
   } = useQuery<AdminRegistryGetRegistryStatusResponse>({
     queryKey: ["admin", "registry", "status"],
     queryFn: adminRegistryGetRegistryStatus,
+    enabled: options?.enabled ?? true,
   })
 
   return {
@@ -577,6 +769,19 @@ export function useAdminRegistrySync() {
       },
     })
 
+  const { mutateAsync: deleteVersion, isPending: deletePending } = useMutation({
+    mutationFn: ({
+      repositoryId,
+      versionId,
+    }: {
+      repositoryId: string
+      versionId: string
+    }) => adminRegistryDeleteRegistryVersion({ repositoryId, versionId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "registry"] })
+    },
+  })
+
   const { mutateAsync: syncRepository, isPending: syncPending } = useMutation({
     mutationFn: ({
       repositoryId,
@@ -604,6 +809,21 @@ export function useAdminRegistrySync() {
       },
     })
 
+  const {
+    mutateAsync: backfillArtifacts,
+    isPending: backfillArtifactsPending,
+  } = useMutation<
+    RegistryArtifactsBackfillStartResponse,
+    Error,
+    RegistryArtifactsBackfillStartRequest
+  >({
+    mutationFn: (data) =>
+      adminRegistryStartRegistryArtifactsBackfill({ requestBody: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "registry"] })
+    },
+  })
+
   return {
     syncAllRepositories,
     syncAllPending,
@@ -611,6 +831,10 @@ export function useAdminRegistrySync() {
     syncPending,
     promoteVersion,
     promotePending,
+    deleteVersion,
+    deletePending,
+    backfillArtifacts,
+    backfillArtifactsPending,
   }
 }
 
@@ -644,5 +868,151 @@ export function useAdminRegistrySettings() {
     error,
     updateSettings,
     updatePending,
+  }
+}
+
+export function useAdminAuditSettings() {
+  const queryClient = useQueryClient()
+
+  const {
+    data: auditSettings,
+    isLoading: auditSettingsIsLoading,
+    error: auditSettingsError,
+  } = useQuery<PlatformAuditSettingsRead, Error>({
+    queryKey: ["admin", "audit", "settings"],
+    queryFn: adminGetAuditSettings,
+  })
+
+  const {
+    mutateAsync: updateAuditSettings,
+    isPending: updateAuditSettingsIsPending,
+    error: updateAuditSettingsError,
+  } = useMutation<
+    PlatformAuditSettingsRead,
+    Error,
+    { requestBody: PlatformAuditSettingsUpdate }
+  >({
+    mutationFn: ({ requestBody }) => adminUpdateAuditSettings({ requestBody }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "audit", "settings"],
+      })
+    },
+  })
+
+  const { mutate: testAuditWebhook, isPending: testAuditWebhookIsPending } =
+    useMutation<
+      AuditWebhookTestResult,
+      TracecatApiError,
+      AdminTestAuditWebhookData
+    >({
+      mutationFn: adminTestAuditWebhook,
+      onSuccess: (result) => {
+        toast({
+          title: getAuditWebhookTestTitle(result),
+          description: getAuditWebhookTestDescription(result),
+          variant: result.ok ? "default" : "destructive",
+        })
+      },
+      onError: (error) => {
+        console.error("Failed to test platform audit webhook", error)
+        toast({
+          title: "Failed to test audit webhook",
+          description: getApiErrorDetail(error) ?? "Unknown error",
+        })
+      },
+    })
+
+  return {
+    auditSettings,
+    auditSettingsIsLoading,
+    auditSettingsError,
+    updateAuditSettings,
+    updateAuditSettingsIsPending,
+    updateAuditSettingsError,
+    testAuditWebhook,
+    testAuditWebhookIsPending,
+  }
+}
+
+/**
+ * Read platform-scoped catalog rows through the admin catalog surface.
+ */
+export function useAdminPlatformCatalog({
+  query = "",
+}: {
+  query?: string
+} = {}) {
+  const {
+    data: catalogItems,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<AgentCatalogRead[], TracecatApiError>({
+    queryKey: ["admin", "agent-platform-catalog"],
+    queryFn: async () => {
+      const items: AgentCatalogRead[] = []
+      let cursor: string | undefined
+
+      do {
+        const response = await adminListPlatformCatalog({
+          cursor,
+          limit: 100,
+        })
+        items.push(...response.items)
+        cursor = response.next_cursor ?? undefined
+      } while (cursor)
+
+      return items
+    },
+    retry: retryHandler,
+  })
+  const catalog = useMemo<AdminPlatformCatalogRead | undefined>(() => {
+    if (!catalogItems) {
+      return undefined
+    }
+
+    const normalizedQuery = query.trim().toLowerCase()
+    const models = catalogItems
+      .filter((item) => {
+        if (!normalizedQuery) {
+          return true
+        }
+        return (
+          item.model_name.toLowerCase().includes(normalizedQuery) ||
+          item.model_provider.toLowerCase().includes(normalizedQuery)
+        )
+      })
+      .sort((left, right) => {
+        const providerComparison = left.model_provider.localeCompare(
+          right.model_provider
+        )
+        if (providerComparison !== 0) {
+          return providerComparison
+        }
+        return left.model_name.localeCompare(right.model_name)
+      })
+      .map((item) => ({
+        id: item.id,
+        model_provider: item.model_provider,
+        model_name: item.model_name,
+        model_id: item.model_name,
+        display_name:
+          (item.model_metadata?.display_name as string | undefined) ??
+          item.model_name,
+        metadata:
+          (item.model_metadata as Record<string, unknown> | null) ?? null,
+      }))
+
+    return {
+      models,
+    }
+  }, [catalogItems, query])
+
+  return {
+    catalog,
+    isLoading,
+    error,
+    refetch,
   }
 }

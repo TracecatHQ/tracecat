@@ -30,11 +30,11 @@ if not TRACECAT__DB_URI:
     sslmode = os.getenv("TRACECAT__DB_SSLMODE", "require")
 
     # Check if in AWS environment
-    if os.getenv("TRACECAT__DB_PASS__ARN"):
+    if arn := os.getenv("TRACECAT__DB_PASS__ARN"):
         logging.info("Fetching database password from AWS Secrets Manager")
         session = boto3.Session()
         client = session.client("secretsmanager")
-        response = client.get_secret_value(SecretId=os.getenv("TRACECAT__DB_PASS__ARN"))
+        response = client.get_secret_value(SecretId=arn)
         secret_string = response["SecretString"]
         try:
             payload = json.loads(secret_string)

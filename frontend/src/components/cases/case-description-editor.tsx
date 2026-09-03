@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
+import { useCaseImageUpload } from "@/lib/cases/use-case-image-upload"
 import { cn } from "@/lib/utils"
 
 import "./editor.css"
@@ -13,6 +14,12 @@ interface CaseDescriptionEditorProps {
   className?: string
   onBlur?: () => void
   toolbarStatus?: React.ReactNode
+  autoFocus?: boolean
+  /** Case and workspace to attach pasted/dropped images to; omit to disable image uploads. */
+  imageTarget?: {
+    caseId: string
+    workspaceId: string
+  }
 }
 
 export function CaseDescriptionEditor({
@@ -21,6 +28,8 @@ export function CaseDescriptionEditor({
   className,
   onBlur,
   toolbarStatus,
+  autoFocus = false,
+  imageTarget,
 }: CaseDescriptionEditorProps) {
   const [value, setValue] = React.useState(initialContent ?? "")
   const [isEditorActive, setIsEditorActive] = React.useState(false)
@@ -57,6 +66,16 @@ export function CaseDescriptionEditor({
     setIsEditorActive(true)
   }, [])
 
+  const imagesEnabled = Boolean(imageTarget)
+  const { uploadImage } = useCaseImageUpload(
+    imageTarget?.caseId ?? "",
+    imageTarget?.workspaceId ?? ""
+  )
+  const handleImageUpload = React.useCallback(
+    async (file: File) => (await uploadImage(file)).src,
+    [uploadImage]
+  )
+
   return (
     <div
       ref={containerRef}
@@ -71,8 +90,13 @@ export function CaseDescriptionEditor({
         showToolbar={isEditorActive}
         preserveToolbarSpace
         toolbarStatus={toolbarStatus}
+        renderMermaidWhenBlurred
         placeholder="Describe the case..."
         className="case-description-editor"
+        autoFocus={autoFocus}
+        enableImages={imagesEnabled}
+        imageWorkspaceId={imageTarget?.workspaceId ?? null}
+        onImageUpload={imagesEnabled ? handleImageUpload : undefined}
       />
     </div>
   )
@@ -81,9 +105,12 @@ export function CaseDescriptionEditor({
 export function CaseCommentViewer({
   content,
   className,
+  workspaceId,
 }: {
   content: string
   className?: string
+  /** Workspace that owns the case; required to render inline attachment images. */
+  workspaceId?: string
 }) {
   return (
     <div className={cn("m-0 p-0 text-base", className)}>
@@ -92,6 +119,8 @@ export function CaseCommentViewer({
         editable={false}
         showToolbar={false}
         className="case-comment-viewer"
+        enableImages={Boolean(workspaceId)}
+        imageWorkspaceId={workspaceId ?? null}
       />
     </div>
   )

@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Add device note
+  description: Add a note to a device record.
+  display_group: Iru (Kandji)
+  doc_url: https://api-docs.iru.com/#fc3a2a64-b772-4145-a216-0b7ba8e0ff90
+  namespace: tools.iru
+  name: add_device_note
+  secrets:
+    - name: iru
+      keys: ["IRU_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Iru (Kandji) API base URL (e.g. https://acme.api.kandji.io).
+      default: null
+    device_id:
+      type: str
+      description: Device UUID.
+    note:
+      type: str
+      description: Note content to add.
+  steps:
+    - ref: add_device_note
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.iru.base_url }}/api/v1/devices/${{ FN.url_encode(inputs.device_id) }}/notes
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.iru.IRU_API_TOKEN }}
+          Content-Type: application/json
+        payload:
+          content: ${{ inputs.note }}
+  returns: ${{ steps.add_device_note.result }}

@@ -8,9 +8,9 @@ definition:
   doc_url: https://wiki.leakcheck.io/en/api
   author: y0no
   secrets:
-    - name: leakcheck_api
+    - name: leakcheck
       keys:
-        - API_KEY
+        - LEAKCHECK_API_KEY
   expects:
     email_address:
       type: str
@@ -22,5 +22,5 @@ definition:
         url: https://leakcheck.io/api/v2/query/${{ FN.url_encode(inputs.email_address) }}
         method: GET
         headers:
-          x-api-key: ${{ SECRETS.leakcheck_api.API_KEY }}
+          x-api-key: ${{ SECRETS.leakcheck.LEAKCHECK_API_KEY }}
   returns: ${{ steps.search_email_leak.result.data }}

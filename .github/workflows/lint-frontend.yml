@@ -7,6 +7,8 @@ on:
       - frontend/**
       - tracecat/**
       - packages/**
+      - pyproject.toml
+      - uv.lock
       - .github/workflows/lint-frontend.yml
   pull_request:
     branches: ["main", "staging"]
@@ -14,6 +16,8 @@ on:
       - frontend/**
       - tracecat/**
       - packages/**
+      - pyproject.toml
+      - uv.lock
       - .github/workflows/lint-frontend.yml
 
 permissions:
@@ -25,18 +29,21 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
       - name: Install Python dependencies
         run: uv sync --no-install-project
 
       - name: Setup Biome
-        uses: biomejs/setup-biome@v2
+        uses: biomejs/setup-biome@4c91541eaada48f67d7dbd7833600ce162b68f51 # v2
         with:
           working-dir: frontend/
           version: 2.0.4
@@ -46,15 +53,29 @@ jobs:
         run: biome ci .
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22'
+          node-version: "22"
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4
         with:
           version: 9
           run_install: false
+
+      - name: Get pnpm store directory
+        working-directory: frontend
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Setup pnpm cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-${{ runner.arch }}-pnpm-store-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-pnpm-store-
 
       - name: Install frontend dependencies
         working-directory: frontend

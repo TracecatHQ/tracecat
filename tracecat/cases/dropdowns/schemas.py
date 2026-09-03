@@ -50,6 +50,7 @@ class CaseDropdownDefinitionCreate(Schema):
     ref: str = Field(..., min_length=1, max_length=255)
     icon_name: str | None = Field(default=None, max_length=100)
     is_ordered: bool = Field(default=False)
+    required_on_closure: bool = Field(default=False)
     position: int = Field(default=0)
     options: list[CaseDropdownOptionCreate] = Field(default_factory=list)
 
@@ -61,6 +62,7 @@ class CaseDropdownDefinitionUpdate(Schema):
     ref: str | None = Field(default=None, min_length=1, max_length=255)
     icon_name: str | None = Field(default=None, max_length=100)
     is_ordered: bool | None = Field(default=None)
+    required_on_closure: bool | None = Field(default=None)
     position: int | None = Field(default=None)
 
 
@@ -72,6 +74,7 @@ class CaseDropdownDefinitionRead(Schema):
     ref: str
     icon_name: str | None = None
     is_ordered: bool
+    required_on_closure: bool
     position: int
     options: list[CaseDropdownOptionRead] = Field(default_factory=list)
 

@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: List responses
+  description: List a form's responses.
+  display_group: Google Forms
+  doc_url: https://developers.google.com/workspace/forms/api/reference/rest/v1/forms.responses/list
+  namespace: tools.google_forms
+  name: list_responses
+  secrets:
+    - type: oauth
+      provider_id: google_forms
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_forms
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    form_id:
+      type: str
+      description: Required. ID of the Form whose responses to list.
+    filter:
+      type: str | None
+      description: >-
+        Which form responses to return. Currently, the only supported filters are:
+        `timestamp > N` which means to get all form responses submitted after (but not
+        at) timestamp N, and `timestamp >= N` which means to get all form responses
+        submitted at and after timestamp N. For both supported filters, timestamp must be
+        formatted in RFC3339 UTC "Zulu" format.
+      default: null
+    page_size:
+      type: int | None
+      description: >-
+        The maximum number of responses to return. The service may return fewer than this
+        value. If unspecified or zero, at most 5000 responses are returned.
+      default: null
+    page_token:
+      type: str | None
+      description: >-
+        A page token returned by a previous list response. If this field is set, the form
+        and the values of the filter must be the same as for the original request.
+      default: null
+  steps:
+    - ref: list_responses
+      action: tools.google_api.call_api
+      args:
+        service_name: forms
+        version: v1
+        resource: forms.responses
+        method_name: list
+        access_token: ${{ SECRETS.google_forms_oauth.GOOGLE_FORMS_USER_TOKEN || SECRETS.google_forms_oauth.GOOGLE_FORMS_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/forms.responses.readonly"]
+        params:
+          formId: ${{ inputs.form_id }}
+          filter: ${{ inputs.filter }}
+          pageSize: ${{ inputs.page_size }}
+          pageToken: ${{ inputs.page_token }}
+  returns: ${{ steps.list_responses.result }}

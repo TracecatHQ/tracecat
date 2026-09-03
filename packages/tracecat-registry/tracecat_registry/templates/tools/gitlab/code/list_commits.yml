@@ -1,0 +1,97 @@
+type: action
+definition:
+  title: List commits
+  description: >-
+    List commits. Calls GET /projects/{project_id}/repository/commits directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: list_commits
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    all:
+      type: bool | None
+      description: Retrieve every commit from the repository. If `true`, the `ref_name` parameter is ignored.
+      default: null
+    author:
+      type: str | None
+      description: Search commits by commit author.
+      default: null
+    first_parent:
+      type: bool | None
+      description: If `true`, follows only the first parent commit upon seeing a merge commit.
+      default: null
+    follow:
+      type: bool | None
+      description: If `true`, follows file renames when filtering commits by `path`, and returns commits for the file even if it was renamed. If `false`, returns only commits where the file existed at its current path. Used only when `path` specifies a single file. Defaults to `true`.
+      default: null
+    order:
+      type: str | None
+      description: "List commits in order. Possible values: `default`, `topo`. Defaults to `default`, the commits are shown in reverse chronological order."
+      default: null
+    path:
+      type: str | None
+      description: The file path.
+      default: null
+    ref_name:
+      type: str | None
+      description: The name of a repository branch, tag, or revision range, or if not given the default branch.
+      default: null
+    since:
+      type: str | None
+      description: Only commits after or on this date are returned in ISO 8601 format `YYYY-MM-DDTHH:MM:SSZ`.
+      default: null
+    trailers:
+      type: bool | None
+      description: If `true`, parses and includes Git trailers for every commit.
+      default: null
+    until:
+      type: str | None
+      description: Only commits before or on this date are returned in ISO 8601 format `YYYY-MM-DDTHH:MM:SSZ`.
+      default: null
+    with_stats:
+      type: bool | None
+      description: If `true`, retrieve stats about each commit.
+      default: null
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of items to list per page (default: `20`, max: `100`)."
+      default: null
+    base_url:
+      type: str
+      description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
+      default: https://gitlab.com/api/v4
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/repository/commits
+        method: GET
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Accept: application/json
+        params:
+          all: ${{ inputs.all }}
+          author: ${{ inputs.author }}
+          first_parent: ${{ inputs.first_parent }}
+          follow: ${{ inputs.follow }}
+          order: ${{ inputs.order }}
+          path: ${{ inputs.path }}
+          ref_name: ${{ inputs.ref_name }}
+          since: ${{ inputs.since }}
+          trailers: ${{ inputs.trailers }}
+          until: ${{ inputs.until }}
+          with_stats: ${{ inputs.with_stats }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+  returns: ${{ steps.request.result }}

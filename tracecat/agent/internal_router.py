@@ -9,7 +9,6 @@ from typing import Any, cast
 from fastapi import APIRouter, HTTPException, status
 from tracecat_registry import secrets as registry_secrets
 
-from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.runtime.pydantic_ai.runtime import run_agent as runtime_run_agent
 from tracecat.agent.schemas import (
@@ -52,20 +51,50 @@ async def _resolve_run_config(
     if params.preset_slug:
         if agent_svc.presets is None:
             raise ValueError("Preset-based runs require workspace context.")
-        return await agent_svc.presets.resolve_agent_preset_config(
-            slug=params.preset_slug
+        config = await agent_svc.presets.resolve_agent_preset_config(
+            slug=params.preset_slug,
+            preset_version=params.preset_version,
         )
+        _reject_unsupported_agents_config(config)
+        return config
 
     if params.config is None:
         raise ValueError("Either 'config' or 'preset_slug' must be provided")
-    return AgentConfig(**params.config.model_dump())
+    config = AgentConfig(**params.config.model_dump())
+    _reject_unsupported_agents_config(config)
+    return config
+
+
+def _reject_unsupported_agents_config(config: AgentConfig) -> None:
+    """Reject subagent config on the legacy internal agent runner."""
+    if config.agents.enabled:
+        raise ValueError(
+            "Subagents are not supported by the internal agent run endpoint yet. "
+            "Use agent sessions for subagent-enabled runs."
+        )
 
 
 @asynccontextmanager
 async def _provider_secrets_context(
-    agent_svc: AgentManagementService, model_provider: str
+    agent_svc: AgentManagementService,
+    model_provider: str,
+    catalog_id: uuid.UUID | None = None,
 ):
     """Set provider credentials in registry secrets context for this request."""
+    if catalog_id is not None:
+        credentials = await agent_svc.get_catalog_credentials(catalog_id)
+        if not credentials:
+            raise ValueError(
+                f"No credentials found for catalog entry '{catalog_id}'. "
+                "Please configure credentials for this model first."
+            )
+        secrets_token = registry_secrets.set_context(credentials)
+        try:
+            yield
+        finally:
+            registry_secrets.reset_context(secrets_token)
+        return
+
     if model_provider in _PROVIDERS_WITH_OPTIONAL_WORKSPACE_CREDENTIALS:
         secrets_token = registry_secrets.set_context({})
         try:
@@ -74,7 +103,7 @@ async def _provider_secrets_context(
             registry_secrets.reset_context(secrets_token)
         return
 
-    credentials = await agent_svc.get_workspace_provider_credentials(model_provider)
+    credentials = await agent_svc.get_runtime_provider_credentials(model_provider)
     if not credentials:
         raise ValueError(
             f"No credentials found for provider '{model_provider}'. "
@@ -120,14 +149,14 @@ async def run_agent_endpoint(
     try:
         agent_svc = AgentManagementService(session, role=role)
         config = await _resolve_run_config(params, agent_svc)
-        mcp_servers: list[MCPServerConfig] | None = None
-        if config.mcp_servers:
-            mcp_servers = [MCPServerConfig(**s) for s in config.mcp_servers]
+        mcp_servers = config.mcp_servers
 
         if config and config.tool_approvals:
             await check_entitlement(session, role, Entitlement.AGENT_ADDONS)
 
-        async with _provider_secrets_context(agent_svc, config.model_provider):
+        async with _provider_secrets_context(
+            agent_svc, config.model_provider, config.catalog_id
+        ):
             result: AgentOutput = await runtime_run_agent(
                 user_prompt=params.user_prompt,
                 model_name=config.model_name,
@@ -171,12 +200,15 @@ async def rank_items_endpoint(
 
     try:
         agent_svc = AgentManagementService(session, role=role)
-        async with _provider_secrets_context(agent_svc, params.model_provider):
+        async with _provider_secrets_context(
+            agent_svc, params.model_provider, params.catalog_id
+        ):
             return await ranker_rank_items(
                 items=params.items,
                 criteria_prompt=params.criteria_prompt,
                 model_name=params.model_name,
                 model_provider=params.model_provider,
+                catalog_id=params.catalog_id,
                 model_settings=params.model_settings,
                 max_requests=params.max_requests,
                 retries=params.retries,
@@ -204,12 +236,15 @@ async def rank_items_pairwise_endpoint(
 
     try:
         agent_svc = AgentManagementService(session, role=role)
-        async with _provider_secrets_context(agent_svc, params.model_provider):
+        async with _provider_secrets_context(
+            agent_svc, params.model_provider, params.catalog_id
+        ):
             return await ranker_rank_items_pairwise(
                 items=params.items,
                 criteria_prompt=params.criteria_prompt,
                 model_name=params.model_name,
                 model_provider=params.model_provider,
+                catalog_id=params.catalog_id,
                 id_field=params.id_field,
                 batch_size=params.batch_size,
                 num_passes=params.num_passes,

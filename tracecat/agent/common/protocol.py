@@ -3,17 +3,27 @@
 These models define the contract between the trusted orchestrator (outside NSJail)
 and the sandboxed runtime (inside NSJail).
 
-Uses pure dataclasses with orjson for minimal import footprint.
+Uses explicit DTO serialization with orjson for the socket boundary.
 """
 
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
-from typing import Any, Literal
+from dataclasses import dataclass, field
+from typing import Any, Literal, TypeGuard, get_args
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
-from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
+from tracecat.agent.common.types import (
+    MCPToolDefinition,
+    SandboxAgentConfig,
+    SandboxSubagentConfig,
+)
+from tracecat.agent.common.wire import (
+    boolean,
+    optional_integer,
+    optional_object,
+    optional_string,
+)
 
 
 @dataclass(kw_only=True, slots=True)
@@ -23,9 +33,8 @@ class RuntimeInitPayload:
     The orchestrator sends this after the runtime connects to the control socket.
     Contains everything the runtime needs to execute an agent turn.
 
-    On resume after approval, the sdk_session_data contains the proper tool_result
-    entry (inserted by execute_approved_tools_activity before reload), so the
-    runtime just resumes normally.
+    On resume after approval, sdk_session_data already includes the approved or
+    denied tool_result entry.
     """
 
     # Runtime selection
@@ -37,20 +46,28 @@ class RuntimeInitPayload:
     mcp_auth_token: str  # JWT for MCP auth
     config: SandboxAgentConfig
     user_prompt: str
-    litellm_auth_token: str
+    llm_gateway_auth_token: str
 
     # Resolved tool definitions (orchestrator resolves action names → full definitions)
     allowed_actions: dict[str, MCPToolDefinition] | None = None
+    subagents: list[SandboxSubagentConfig] = field(default_factory=list)
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None  # JSONL content for resume
     is_approval_continuation: bool = False  # True when resuming after approval decision
     is_fork: bool = False
 
+    # Sandbox-safe Claude OTel env (exporters, protocols, intervals, content
+    # gates, resource attrs, and the OTEL_EXPORTER_OTLP_HEADERS bearer for
+    # the host-side receiver). Tenant collector endpoint and tenant headers are
+    # excluded; the host-side OtelSocketReceiver holds those. The shim sets
+    # OTEL_EXPORTER_OTLP_ENDPOINT after starting its bridge.
+    agent_otel_sandbox_env: dict[str, str] | None = None
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeInitPayload:
         """Construct from dict (orjson parsed)."""
         # Parse config
-        config = SandboxAgentConfig.from_dict(data["config"])
+        config = SandboxAgentConfig.model_validate(data["config"])
 
         # Parse allowed_actions
         allowed_actions = None
@@ -71,12 +88,17 @@ class RuntimeInitPayload:
             mcp_auth_token=data["mcp_auth_token"],
             config=config,
             user_prompt=data["user_prompt"],
-            litellm_auth_token=data["litellm_auth_token"],
+            llm_gateway_auth_token=data["llm_gateway_auth_token"],
             allowed_actions=allowed_actions,
+            subagents=[
+                SandboxSubagentConfig.model_validate(item)
+                for item in data.get("subagents", [])
+            ],
             sdk_session_id=data.get("sdk_session_id"),
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
             is_fork=data.get("is_fork", False),
+            agent_otel_sandbox_env=data.get("agent_otel_sandbox_env"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -85,9 +107,9 @@ class RuntimeInitPayload:
             "runtime_type": self.runtime_type,
             "session_id": str(self.session_id),
             "mcp_auth_token": self.mcp_auth_token,
-            "config": self.config.to_dict(),
+            "config": self.config.model_dump(mode="json", exclude_none=True),
             "user_prompt": self.user_prompt,
-            "litellm_auth_token": self.litellm_auth_token,
+            "llm_gateway_auth_token": self.llm_gateway_auth_token,
             "is_approval_continuation": self.is_approval_continuation,
             "is_fork": self.is_fork,
         }
@@ -95,11 +117,39 @@ class RuntimeInitPayload:
             result["allowed_actions"] = {
                 k: v.to_dict() for k, v in self.allowed_actions.items()
             }
+        if self.subagents:
+            result["subagents"] = [
+                subagent.model_dump(mode="json", exclude_none=True)
+                for subagent in self.subagents
+            ]
         if self.sdk_session_id is not None:
             result["sdk_session_id"] = self.sdk_session_id
         if self.sdk_session_data is not None:
             result["sdk_session_data"] = self.sdk_session_data
+        if self.agent_otel_sandbox_env is not None:
+            result["agent_otel_sandbox_env"] = self.agent_otel_sandbox_env
         return result
+
+
+type RuntimeEventType = Literal[
+    "stream_event",
+    "message",
+    "session_line",
+    "session_update",
+    "result",
+    "error",
+    "done",
+    "log",
+]
+
+_RUNTIME_EVENT_TYPES: frozenset[str] = frozenset(get_args(RuntimeEventType.__value__))
+_RUNTIME_LOG_LEVELS = frozenset({"debug", "info", "warning", "error"})
+_RUNTIME_LOG_EXTRA_RESERVED_KEYS = frozenset({"self", "level", "message", "session_id"})
+
+
+def _is_runtime_event_type(value: object) -> TypeGuard[RuntimeEventType]:
+    """Narrow a wire value using the canonical runtime event type definition."""
+    return isinstance(value, str) and value in _RUNTIME_EVENT_TYPES
 
 
 @dataclass(kw_only=True, slots=True)
@@ -120,16 +170,7 @@ class RuntimeEventEnvelope:
     when persisting messages to ensure proper authorization.
     """
 
-    type: Literal[
-        "stream_event",
-        "message",
-        "session_line",
-        "session_update",
-        "result",
-        "error",
-        "done",
-        "log",
-    ]
+    type: RuntimeEventType
     event: UnifiedStreamEvent | None = None  # For type="stream_event"
     message: dict[str, Any] | None = None  # For type="message" (serialized Message)
     session_line: str | None = None  # For type="session_line" (raw JSONL line)
@@ -152,29 +193,92 @@ class RuntimeEventEnvelope:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeEventEnvelope:
         """Construct from dict (orjson parsed)."""
+        raw_type = data.get("type")
+        if not _is_runtime_event_type(raw_type):
+            raise ValueError("Unknown runtime event envelope type")
+
+        raw_event = data.get("event")
+        if raw_type == "stream_event" and not isinstance(raw_event, dict):
+            raise ValueError("Runtime stream event payload must be a JSON object")
+        if raw_event is not None and not isinstance(raw_event, dict):
+            raise ValueError("Runtime event payload must be a JSON object")
+
         event = None
-        if data.get("event"):
-            event = UnifiedStreamEvent.from_dict(data["event"])
+        if raw_event is not None:
+            event = UnifiedStreamEvent.from_dict(raw_event)
+
+        message = optional_object(data, "message", path="runtime_event")
+        session_line = optional_string(data, "session_line", path="runtime_event")
+        sdk_session_id = optional_string(data, "sdk_session_id", path="runtime_event")
+        sdk_session_data = optional_string(
+            data,
+            "sdk_session_data",
+            path="runtime_event",
+        )
+        error = optional_string(data, "error", path="runtime_event")
+        result_usage = optional_object(data, "result_usage", path="runtime_event")
+        result_num_turns = optional_integer(
+            data,
+            "result_num_turns",
+            path="runtime_event",
+        )
+        result_duration_ms = optional_integer(
+            data,
+            "result_duration_ms",
+            path="runtime_event",
+        )
+        log_level = optional_string(data, "log_level", path="runtime_event")
+        log_message = optional_string(data, "log_message", path="runtime_event")
+        log_extra = optional_object(data, "log_extra", path="runtime_event")
+
+        internal = boolean(data, "internal", path="runtime_event")
+        if log_level is not None and log_level not in _RUNTIME_LOG_LEVELS:
+            raise ValueError("Runtime event log_level has an unknown log level")
+        if (
+            log_extra is not None
+            and _RUNTIME_LOG_EXTRA_RESERVED_KEYS & log_extra.keys()
+        ):
+            raise ValueError("Runtime event log_extra contains a reserved key")
+
+        match raw_type:
+            case "stream_event" if event is None:
+                raise ValueError("Runtime stream event must include event")
+            case "message" if message is None:
+                raise ValueError("Runtime message event must include message")
+            case "session_line" if session_line is None or not sdk_session_id:
+                raise ValueError(
+                    "Runtime session_line event must include session_line and a non-empty sdk_session_id"
+                )
+            case "session_update" if not sdk_session_id or sdk_session_data is None:
+                raise ValueError(
+                    "Runtime session_update event must include a non-empty sdk_session_id and sdk_session_data"
+                )
+            case "error" if error is None:
+                raise ValueError("Runtime error event must include error")
+            case "log" if log_level is None or log_message is None:
+                raise ValueError(
+                    "Runtime log event must include log_level and log_message"
+                )
 
         return cls(
-            type=data["type"],
+            type=raw_type,
             event=event,
-            message=data.get("message"),
-            session_line=data.get("session_line"),
-            internal=data.get("internal", False),
-            sdk_session_id=data.get("sdk_session_id"),
-            sdk_session_data=data.get("sdk_session_data"),
-            error=data.get("error"),
-            result_usage=data.get("result_usage"),
-            result_num_turns=data.get("result_num_turns"),
-            result_duration_ms=data.get("result_duration_ms"),
+            message=message,
+            session_line=session_line,
+            internal=internal,
+            sdk_session_id=sdk_session_id,
+            sdk_session_data=sdk_session_data,
+            error=error,
+            result_usage=result_usage,
+            result_num_turns=result_num_turns,
+            result_duration_ms=result_duration_ms,
             result_output=data.get(
                 "result_output",
                 data.get("result_structured_output", data.get("result_result")),
             ),
-            log_level=data.get("log_level"),
-            log_message=data.get("log_message"),
-            log_extra=data.get("log_extra"),
+            log_level=log_level,
+            log_message=log_message,
+            log_extra=log_extra,
         )
 
     def to_dict(self) -> dict[str, Any]:

@@ -3,7 +3,7 @@ definition:
   title: Abort scan
   description: Abort a running scan on SentinelOne agents.
   display_group: SentinelOne
-  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=post-agents-actions-abort-scan
+  doc_url: https://github.com/Sentinel-One/purple-mcp
   namespace: tools.sentinel_one
   name: abort_scan
   secrets:

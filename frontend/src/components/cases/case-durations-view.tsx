@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowUpRight, Timer } from "lucide-react"
 import { useState } from "react"
 import type { CaseDurationDefinitionUpdate } from "@/client"
@@ -24,6 +23,7 @@ import {
   updateCaseDurationDefinition,
 } from "@/lib/case-durations"
 import { useCaseDurationDefinitions } from "@/lib/hooks"
+import { useMutation, useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function CaseDurationsView() {

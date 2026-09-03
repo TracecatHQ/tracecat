@@ -3,7 +3,7 @@ definition:
   title: Get location data
   description: Get location data from Google Maps.
   display_group: Google Maps
-  doc_url: https://developers.google.com/maps/documentation/geocoding/overview
+  doc_url: https://developers.google.com/maps/documentation/geocoding/guides-v3/overview
   namespace: tools.google_maps
   name: get_location_data
   secrets:

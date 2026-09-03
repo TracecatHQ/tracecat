@@ -8,13 +8,18 @@ These tests verify:
 from __future__ import annotations
 
 import asyncio
+import tarfile
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from tracecat.executor.action_runner import ActionRunner
+from tracecat.executor.registry_artifacts import (
+    RegistryArtifactCache,
+    TarballArtifact,
+    compute_registry_artifact_cache_key,
+)
 
 # =============================================================================
 # Fixtures
@@ -26,6 +31,20 @@ def temp_cache_dir():
     """Create a temporary cache directory for each test."""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield Path(tmpdir)
+
+
+async def _lease_paths(
+    cache: RegistryArtifactCache,
+    artifact_uri: str,
+) -> list[Path]:
+    async with cache.lease([artifact_uri]) as paths:
+        return paths
+
+
+def _write_empty_tarball(path: Path) -> None:
+    """Write a valid archive for tests that mock the extraction contents."""
+    with tarfile.open(path, "w:gz"):
+        pass
 
 
 # =============================================================================
@@ -54,39 +73,32 @@ class TestTarballCacheBehavior:
         extracting the same tarball to the same directory.
 
         Validates:
-        - Exactly one download despite 4 concurrent ensure_tarball_extracted() calls
+        - Exactly one download despite 4 concurrent materialize() calls
         - All calls return the same extracted path
         """
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-        cache_key = "concurrent-test-key"
+        cache = RegistryArtifactCache(temp_cache_dir)
         tarball_uri = "s3://bucket/concurrent-test.tar.gz"
 
         download_count = [0]  # Use list to allow mutation in nested function
 
-        async def mock_download(url: str, path: Path):
+        async def mock_download(self, ctx, path: Path):
             download_count[0] += 1
             await asyncio.sleep(0.1)  # Simulate network delay
-            path.write_bytes(b"fake tarball")
+            _write_empty_tarball(path)
 
-        async def mock_extract(tarball_path: Path, target_dir: Path):
+        async def mock_extract(self, tarball_path: Path, target_dir: Path):
             (target_dir / "extracted.txt").write_text("content")
 
         with (
-            patch.object(runner, "_download_file", mock_download),
-            patch.object(runner, "_extract_tarball", mock_extract),
-            patch.object(
-                runner,
-                "_tarball_uri_to_http_url",
-                new_callable=AsyncMock,
-                return_value="http://presigned-url",
-            ),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
         ):
             # Launch multiple concurrent requests
             results = await asyncio.gather(
-                runner.ensure_tarball_extracted(cache_key, tarball_uri),
-                runner.ensure_tarball_extracted(cache_key, tarball_uri),
-                runner.ensure_tarball_extracted(cache_key, tarball_uri),
-                runner.ensure_tarball_extracted(cache_key, tarball_uri),
+                _lease_paths(cache, tarball_uri),
+                _lease_paths(cache, tarball_uri),
+                _lease_paths(cache, tarball_uri),
+                _lease_paths(cache, tarball_uri),
             )
 
         # All should return same path
@@ -107,7 +119,7 @@ class TestTarballCacheBehavior:
         - Three different URIs result in three separate downloads
         - Each URI gets a unique extraction path
         """
-        runner = ActionRunner(cache_dir=temp_cache_dir)
+        cache = RegistryArtifactCache(temp_cache_dir)
 
         uris = [
             "s3://bucket/v1.tar.gz",
@@ -117,27 +129,20 @@ class TestTarballCacheBehavior:
 
         download_calls: list[str] = []
 
-        async def mock_download(url: str, path: Path):
-            download_calls.append(url)
-            path.write_bytes(b"fake tarball")
+        async def mock_download(self, ctx, path: Path):
+            download_calls.append(self.uri)
+            _write_empty_tarball(path)
 
-        async def mock_extract(tarball_path: Path, target_dir: Path):
+        async def mock_extract(self, tarball_path: Path, target_dir: Path):
             (target_dir / "extracted.txt").write_text("content")
 
         with (
-            patch.object(runner, "_download_file", mock_download),
-            patch.object(runner, "_extract_tarball", mock_extract),
-            patch.object(
-                runner,
-                "_tarball_uri_to_http_url",
-                new_callable=AsyncMock,
-                side_effect=lambda uri: f"http://presigned/{uri}",
-            ),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
         ):
             results = []
             for uri in uris:
-                cache_key = runner.compute_tarball_cache_key(uri)
-                result = await runner.ensure_tarball_extracted(cache_key, uri)
+                result = await _lease_paths(cache, uri)
                 results.append(result)
 
         # All results should be different paths
@@ -162,35 +167,31 @@ class TestTarballCacheBehavior:
         - Target extraction directory does not exist
         - RuntimeError is raised with appropriate message
         """
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-        cache_key = "failed-extraction-test"
+        cache = RegistryArtifactCache(temp_cache_dir)
         tarball_uri = "s3://bucket/bad.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(tarball_uri)
 
-        async def mock_download(url: str, path: Path):
-            path.write_bytes(b"corrupt tarball")
+        async def mock_download(self, ctx, path: Path):
+            _write_empty_tarball(path)
 
-        async def mock_extract(tarball_path: Path, target_dir: Path):
+        async def mock_extract(self, tarball_path: Path, target_dir: Path):
             raise RuntimeError("Extraction failed - corrupt tarball")
 
         with (
-            patch.object(runner, "_download_file", mock_download),
-            patch.object(runner, "_extract_tarball", mock_extract),
-            patch.object(
-                runner,
-                "_tarball_uri_to_http_url",
-                new_callable=AsyncMock,
-                return_value="http://presigned-url",
-            ),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
         ):
             with pytest.raises(RuntimeError, match="Extraction failed"):
-                await runner.ensure_tarball_extracted(cache_key, tarball_uri)
+                await _lease_paths(cache, tarball_uri)
 
         # Verify no temp files remain
-        temp_files = list(temp_cache_dir.glob(f"{cache_key}*"))
+        temp_files = (
+            list(cache.staging_dir.iterdir()) if cache.staging_dir.exists() else []
+        )
         assert len(temp_files) == 0, f"Temp files not cleaned up: {temp_files}"
 
         # Target directory should not exist
-        target_dir = temp_cache_dir / f"tarball-{cache_key}"
+        target_dir = cache._paths_for(cache_key).tarball_target_dir
         assert not target_dir.exists()
 
     @pytest.mark.anyio
@@ -205,35 +206,28 @@ class TestTarballCacheBehavior:
         - Only one download across two sequential requests
         - Both requests return the same path
         """
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-        cache_key = "reuse-test"
+        cache = RegistryArtifactCache(temp_cache_dir)
         tarball_uri = "s3://bucket/reuse.tar.gz"
 
         download_count = [0]
 
-        async def mock_download(url: str, path: Path):
+        async def mock_download(self, ctx, path: Path):
             download_count[0] += 1
-            path.write_bytes(b"tarball")
+            _write_empty_tarball(path)
 
-        async def mock_extract(tarball_path: Path, target_dir: Path):
+        async def mock_extract(self, tarball_path: Path, target_dir: Path):
             (target_dir / "file.txt").write_text("content")
 
         with (
-            patch.object(runner, "_download_file", mock_download),
-            patch.object(runner, "_extract_tarball", mock_extract),
-            patch.object(
-                runner,
-                "_tarball_uri_to_http_url",
-                new_callable=AsyncMock,
-                return_value="http://url",
-            ),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
         ):
             # First request
-            result1 = await runner.ensure_tarball_extracted(cache_key, tarball_uri)
+            result1 = await _lease_paths(cache, tarball_uri)
             assert download_count[0] == 1
 
             # Second request (should use cache)
-            result2 = await runner.ensure_tarball_extracted(cache_key, tarball_uri)
+            result2 = await _lease_paths(cache, tarball_uri)
             assert download_count[0] == 1  # No additional download
 
             assert result1 == result2
@@ -249,15 +243,13 @@ class TestTarballCacheBehavior:
         Validates:
         - Three different URIs produce three unique cache keys
         """
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-
         uri_v1 = "s3://bucket/registry-v1.0.0.tar.gz"
         uri_v2 = "s3://bucket/registry-v2.0.0.tar.gz"
         uri_custom = "s3://bucket/custom-registry-v1.tar.gz"
 
-        key_v1 = runner.compute_tarball_cache_key(uri_v1)
-        key_v2 = runner.compute_tarball_cache_key(uri_v2)
-        key_custom = runner.compute_tarball_cache_key(uri_custom)
+        key_v1 = compute_registry_artifact_cache_key(uri_v1)
+        key_v2 = compute_registry_artifact_cache_key(uri_v2)
+        key_custom = compute_registry_artifact_cache_key(uri_custom)
 
         # All keys should be unique
         assert len({key_v1, key_v2, key_custom}) == 3

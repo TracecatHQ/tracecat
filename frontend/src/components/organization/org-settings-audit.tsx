@@ -6,6 +6,7 @@ import {
   CheckCircle2Icon,
   LogsIcon,
   PlusIcon,
+  SendIcon,
   Trash2Icon,
   UnlinkIcon,
 } from "lucide-react"
@@ -34,7 +35,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { useOrgAuditSettings } from "@/lib/hooks"
 
@@ -126,6 +126,34 @@ const auditDialogFormSchema = z
 
 type AuditDialogFormValues = z.infer<typeof auditDialogFormSchema>
 type HeaderEntry = AuditDialogFormValues["headers"][number]
+type AuditSettingsValues = {
+  audit_webhook_url: string | null
+  audit_webhook_custom_headers?: Record<string, string> | null
+  audit_webhook_custom_payload?: Record<string, unknown> | null
+  audit_webhook_payload_attribute?: string | null
+  audit_webhook_verify_ssl?: boolean
+  decryption_failed_keys?: string[]
+}
+type AuditSettingsUpdateBody = {
+  audit_webhook_url?: string | null
+  audit_webhook_custom_headers?: Record<string, string> | null
+  audit_webhook_custom_payload?: Record<string, unknown> | null
+  audit_webhook_payload_attribute?: string | null
+  audit_webhook_verify_ssl?: boolean
+}
+
+interface AuditSettingsFormProps {
+  auditSettings: AuditSettingsValues | undefined
+  auditSettingsIsLoading: boolean
+  auditSettingsError: Error | null
+  updateAuditSettings: (params: {
+    requestBody: AuditSettingsUpdateBody
+  }) => Promise<unknown>
+  updateAuditSettingsIsPending: boolean
+  testAuditWebhook: (params: { requestBody: AuditSettingsUpdateBody }) => void
+  testAuditWebhookIsPending: boolean
+  decryptFailureTitle?: string
+}
 
 function toHeaderEntries(
   headers: Record<string, string> | null | undefined
@@ -213,14 +241,16 @@ function maskWebhookUrl(url: string): string {
   }
 }
 
-export function OrgSettingsAuditForm() {
-  const {
-    auditSettings,
-    auditSettingsIsLoading,
-    auditSettingsError,
-    updateAuditSettings,
-    updateAuditSettingsIsPending,
-  } = useOrgAuditSettings()
+export function AuditSettingsForm({
+  auditSettings,
+  auditSettingsIsLoading,
+  auditSettingsError,
+  updateAuditSettings,
+  updateAuditSettingsIsPending,
+  testAuditWebhook,
+  testAuditWebhookIsPending,
+  decryptFailureTitle = "Unable to decrypt organization settings",
+}: AuditSettingsFormProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
 
   const form = useForm<AuditDialogFormValues>({
@@ -241,9 +271,23 @@ export function OrgSettingsAuditForm() {
     control: form.control,
     name: "headers",
   })
+  const formUrlIsEmpty = form.watch("audit_webhook_url").trim() === ""
 
-  const onSubmit = async (data: AuditDialogFormValues) => {
+  const buildUpdateBody = (
+    data: AuditDialogFormValues
+  ): AuditSettingsUpdateBody | null => {
     const nextUrl = data.audit_webhook_url.trim()
+    if (nextUrl === "") {
+      // Saving without a URL disconnects: clear the whole configuration so no
+      // stale headers, payload, wrapper, or TLS override outlives the URL.
+      return {
+        audit_webhook_url: null,
+        audit_webhook_custom_headers: null,
+        audit_webhook_payload_attribute: null,
+        audit_webhook_custom_payload: null,
+        audit_webhook_verify_ssl: true,
+      }
+    }
     const nextHeaders = data.headers.reduce<Record<string, string>>(
       (headers, header) => {
         const headerKey = header.key.trim()
@@ -263,27 +307,41 @@ export function OrgSettingsAuditForm() {
         message:
           'Custom payload must be a JSON object, e.g. { "event": "audit" }',
       })
-      return
+      return null
     }
 
+    return {
+      audit_webhook_url: nextUrl,
+      audit_webhook_custom_headers:
+        Object.keys(nextHeaders).length > 0 ? nextHeaders : null,
+      audit_webhook_payload_attribute:
+        data.audit_webhook_payload_attribute.trim() === ""
+          ? null
+          : data.audit_webhook_payload_attribute.trim(),
+      audit_webhook_custom_payload: customPayload,
+      audit_webhook_verify_ssl: data.audit_webhook_verify_ssl,
+    }
+  }
+
+  const onSubmit = async (data: AuditDialogFormValues) => {
+    const requestBody = buildUpdateBody(data)
+    if (!requestBody) {
+      return
+    }
     try {
-      await updateAuditSettings({
-        requestBody: {
-          audit_webhook_url: nextUrl === "" ? null : nextUrl,
-          audit_webhook_custom_headers:
-            Object.keys(nextHeaders).length > 0 ? nextHeaders : null,
-          audit_webhook_payload_attribute:
-            data.audit_webhook_payload_attribute.trim() === ""
-              ? null
-              : data.audit_webhook_payload_attribute.trim(),
-          audit_webhook_custom_payload: customPayload,
-          audit_webhook_verify_ssl: data.audit_webhook_verify_ssl,
-        },
-      })
+      await updateAuditSettings({ requestBody })
       setDialogOpen(false)
     } catch {
       console.error("Failed to update audit settings")
     }
+  }
+
+  const onTestForm = (data: AuditDialogFormValues) => {
+    const requestBody = buildUpdateBody(data)
+    if (!requestBody?.audit_webhook_url) {
+      return
+    }
+    testAuditWebhook({ requestBody })
   }
 
   const handleDisconnect = async () => {
@@ -373,7 +431,7 @@ export function OrgSettingsAuditForm() {
         <Alert>
           <AlertTriangleIcon className="size-4 !text-destructive" />
           <AlertTitle className="text-destructive">
-            Unable to decrypt organization settings
+            {decryptFailureTitle}
           </AlertTitle>
           <AlertDescription>
             Failed to decrypt existing values for {failedKeys.join(", ")}.
@@ -382,8 +440,8 @@ export function OrgSettingsAuditForm() {
         </Alert>
       )}
 
-      <div className="flex items-center justify-between rounded-lg border p-4">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
           {isConnected ? (
             <CheckCircle2Icon className="size-5 text-green-500" />
           ) : (
@@ -397,7 +455,7 @@ export function OrgSettingsAuditForm() {
           </div>
         </div>
         {isConnected ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={() => handleDialogOpenChange(true)}>
               Update
             </Button>
@@ -420,7 +478,7 @@ export function OrgSettingsAuditForm() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
-        <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-xl">
+        <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>
               {isConnected ? "Update audit webhook" : "Connect audit webhook"}
@@ -430,7 +488,7 @@ export function OrgSettingsAuditForm() {
               request options.
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="flex-1 pr-1">
+          <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
             <Form {...form}>
               <form
                 onSubmit={form.handleSubmit(onSubmit)}
@@ -593,14 +651,61 @@ export function OrgSettingsAuditForm() {
                   )}
                 />
 
-                <Button type="submit" disabled={updateAuditSettingsIsPending}>
-                  {updateAuditSettingsIsPending ? "Saving..." : "Save changes"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={form.handleSubmit(onTestForm)}
+                    disabled={
+                      testAuditWebhookIsPending ||
+                      updateAuditSettingsIsPending ||
+                      formUrlIsEmpty
+                    }
+                    className="gap-2"
+                  >
+                    <SendIcon className="size-3.5" />
+                    {testAuditWebhookIsPending ? "Testing..." : "Test"}
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={
+                      updateAuditSettingsIsPending || testAuditWebhookIsPending
+                    }
+                  >
+                    {updateAuditSettingsIsPending
+                      ? "Saving..."
+                      : "Save changes"}
+                  </Button>
+                </div>
               </form>
             </Form>
-          </ScrollArea>
+          </div>
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+export function OrgSettingsAuditForm() {
+  const {
+    auditSettings,
+    auditSettingsIsLoading,
+    auditSettingsError,
+    updateAuditSettings,
+    updateAuditSettingsIsPending,
+    testAuditWebhook,
+    testAuditWebhookIsPending,
+  } = useOrgAuditSettings()
+
+  return (
+    <AuditSettingsForm
+      auditSettings={auditSettings}
+      auditSettingsIsLoading={auditSettingsIsLoading}
+      auditSettingsError={auditSettingsError}
+      updateAuditSettings={updateAuditSettings}
+      updateAuditSettingsIsPending={updateAuditSettingsIsPending}
+      testAuditWebhook={testAuditWebhook}
+      testAuditWebhookIsPending={testAuditWebhookIsPending}
+    />
   )
 }

@@ -71,10 +71,14 @@ export function CollectionObjectResult({
   executionId,
   eventId,
   collection,
+  copyMode = "jsonpath-only",
+  copyPrefix,
 }: {
   executionId: string
   eventId: number
   collection: CollectionObject
+  copyMode?: "jsonpath-only" | "jsonpath-and-payload"
+  copyPrefix?: string
 }) {
   const workspaceId = useWorkspaceId()
   const [offset, setOffset] = useState(0)
@@ -224,6 +228,11 @@ export function CollectionObjectResult({
                       <JsonViewWithControls
                         src={item.stored.data}
                         defaultExpanded={true}
+                        copyMode={copyMode}
+                        copyPrefix={getCollectionItemCopyPrefix(
+                          copyPrefix,
+                          item.index
+                        )}
                       />
                     </div>
                   ) : (
@@ -231,6 +240,11 @@ export function CollectionObjectResult({
                       <JsonViewWithControls
                         src={item.stored}
                         defaultExpanded={true}
+                        copyMode={copyMode}
+                        copyPrefix={getCollectionItemCopyPrefix(
+                          copyPrefix,
+                          item.index
+                        )}
                       />
                     </div>
                   )
@@ -288,4 +302,14 @@ export function CollectionObjectResult({
       </div>
     </div>
   )
+}
+
+function getCollectionItemCopyPrefix(
+  copyPrefix: string | undefined,
+  itemIndex: number
+): string | undefined {
+  if (!copyPrefix) {
+    return undefined
+  }
+  return `${copyPrefix}[${itemIndex}]`
 }

@@ -31,16 +31,17 @@ function createTemplateHighlightDecorations(state: EditorState): DecorationSet {
     const from = match.index
     const to = match.index + match[0].length
 
-    // Create a simple background highlight decoration
+    // Create a simple background highlight decoration. Use theme tokens so
+    // expression text remains readable in both light and dark themes.
     const decoration = Decoration.mark({
       class: "template-expression-highlight",
       attributes: {
         style: `
-          background-color: rgb(59 130 246 / 0.1);
-          color: rgb(55 65 81 / 0.9);
+          background-color: hsl(var(--syntax-action) / 0.15);
+          color: hsl(var(--foreground));
           border-radius: 0.25rem;
           padding: 0.05rem 0.125rem;
-          border: 1px solid rgb(59 130 246 / 0.2);
+          border: 1px solid hsl(var(--syntax-action) / 0.3);
           font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
         `,
       },

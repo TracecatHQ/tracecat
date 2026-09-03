@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: Bulk add case tag
+  description: >-
+    Adds a tag to multiple cases in a single operation. This helps in categorizing large
+    sets of related cases efficiently.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.cases/executeBulkAddTag
+  namespace: tools.google_chronicle
+  name: bulk_add_case_tag
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The instance to execute bulk add tag on. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    casesIds:
+      type: list[int]
+      description: Cases to add tags to.
+    tags:
+      type: list[str]
+      description: The tags to add.
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases:executeBulkAddTag
+        method: POST
+        payload:
+          casesIds: ${{ inputs.casesIds }}
+          tags: ${{ inputs.tags }}
+  returns: ${{ steps.call_api.result }}

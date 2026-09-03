@@ -1,9 +1,3 @@
-import {
-  type Query,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
@@ -12,34 +6,37 @@ import {
   type ActionRead,
   type ActionsDeleteActionData,
   type ActionUpdate,
+  type AgentCatalogRead,
+  type AgentCustomProviderRead,
   type AgentGetProviderCredentialConfigResponse,
   type AgentGetProvidersStatusResponse,
-  type AgentGetWorkspaceProvidersStatusResponse,
-  type AgentListModelsResponse,
-  type AgentListProvidersResponse,
+  type AgentModelAccessRead,
   type AgentSessionsListSessionsData,
   type AgentSessionsListSessionsResponse,
   type AgentSettingsRead,
   ApiError,
   type AppSettingsRead,
   type AuditSettingsRead,
+  type AuditWebhookTestResult,
+  type AwsAssumeRoleAccessRead,
   actionsDeleteAction,
   actionsGetAction,
   actionsUpdateAction,
   agentCreateProviderCredentials,
   agentDeleteProviderCredentials,
   agentGetDefaultModel,
+  agentGetDefaultModelSelection,
   agentGetProviderCredentialConfig,
   agentGetProvidersStatus,
-  agentGetWorkspaceProvidersStatus,
-  agentListModels,
   agentListProviderCredentialConfigs,
-  agentListProviders,
   agentSessionsListSessions,
   agentSetDefaultModel,
   agentUpdateProviderCredentials,
+  type CaseBatchDelete,
+  type CaseBatchUpdate,
   type CaseCommentCreate,
   type CaseCommentRead,
+  type CaseCommentThreadRead,
   type CaseCommentUpdate,
   type CaseCreate,
   type CaseDropdownDefinitionRead,
@@ -58,6 +55,7 @@ import {
   type CaseReadMinimal,
   type CasesGetCaseData,
   type CasesListCommentsData,
+  type CasesListCommentThreadsData,
   type CasesListTagsData,
   type CasesListTasksData,
   type CasesSearchCasesData,
@@ -69,7 +67,10 @@ import {
   type CaseTaskCreate,
   type CaseTaskRead,
   type CaseTaskUpdate,
+  type CaseTriggerCreate,
+  type CaseTriggerRead,
   type CaseUpdate,
+  type CustomOAuthProviderCreate,
   caseDropdownsAddDropdownOption,
   caseDropdownsCreateDropdownDefinition,
   caseDropdownsDeleteDropdownDefinition,
@@ -79,6 +80,8 @@ import {
   caseDropdownsUpdateDropdownDefinition,
   caseDropdownsUpdateDropdownOption,
   casesAddTag,
+  casesBatchDeleteCases,
+  casesBatchUpdateCases,
   casesCreateCase,
   casesCreateComment,
   casesCreateTask,
@@ -86,6 +89,7 @@ import {
   casesDeleteComment,
   casesDeleteTask,
   casesListComments,
+  casesListCommentThreads,
   casesListEventsWithUsers,
   casesListFields,
   casesListTags,
@@ -100,6 +104,7 @@ import {
   caseTagsDeleteCaseTag,
   caseTagsListCaseTags,
   caseTagsUpdateCaseTag,
+  type DefaultModelSelection,
   type FolderDirectoryItem,
   foldersCreateFolder,
   foldersDeleteFolder,
@@ -117,6 +122,7 @@ import {
   type GroupRoleAssignmentReadWithDetails,
   type GroupRoleAssignmentUpdate,
   type GroupUpdate,
+  getWorkspaceModels,
   graphApplyGraphOperations,
   graphGetGraph,
   type IntegrationRead,
@@ -129,16 +135,26 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  listCatalog,
+  listCustomProviders,
+  listEnabledModels,
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
+  type MCPIntegrationTestConnectionRequest,
   type MCPIntegrationUpdate,
+  type MCPToolPolicyUpdate,
+  type McpIntegrationsListMcpIntegrationsData,
   type ModelCredentialCreate,
   type ModelCredentialUpdate,
+  mcpIntegrationsConnectMcpIntegration,
   mcpIntegrationsCreateMcpIntegration,
   mcpIntegrationsDeleteMcpIntegration,
   mcpIntegrationsGetMcpIntegration,
   mcpIntegrationsListMcpIntegrations,
+  mcpIntegrationsTestMcpConnectionConfig,
+  mcpIntegrationsTestMcpIntegrationConnection,
   mcpIntegrationsUpdateMcpIntegration,
+  mcpIntegrationsUpdateMcpIntegrationToolPolicies,
   type OAuthGrantType,
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
@@ -159,13 +175,11 @@ import {
   type ProviderCredentialConfig,
   type ProviderRead,
   type ProviderReadMinimal,
+  providersCreateCustomProvider,
   providersGetProvider,
   providersListProviders,
-  type RegistryActionCreate,
   type RegistryActionRead,
   type RegistryActionReadMinimal,
-  type RegistryActionsDeleteRegistryActionData,
-  type RegistryActionsUpdateRegistryActionData,
   type RegistryRepositoriesDeleteRegistryRepositoryData,
   type RegistryRepositoriesSyncRegistryRepositoryData,
   type RegistryRepositoryErrorDetail,
@@ -196,11 +210,8 @@ import {
   rbacUpdateGroup,
   rbacUpdateRole,
   rbacUpdateUserAssignment,
-  registryActionsCreateRegistryAction,
-  registryActionsDeleteRegistryAction,
   registryActionsGetRegistryAction,
   registryActionsListRegistryActions,
-  registryActionsUpdateRegistryAction,
   registryRepositoriesDeleteRegistryRepository,
   registryRepositoriesListRegistryRepositories,
   registryRepositoriesListRepositoryCommits,
@@ -218,6 +229,7 @@ import {
   type SecretReadMinimal,
   type SecretUpdate,
   type SessionRead,
+  type SettingsTestAuditWebhookData,
   type SettingsUpdateAgentSettingsData,
   type SettingsUpdateAppSettingsData,
   type SettingsUpdateAuditSettingsData,
@@ -229,6 +241,7 @@ import {
   schedulesUpdateSchedule,
   secretsCreateSecret,
   secretsDeleteSecretById,
+  secretsGetAwsAssumeRoleAccess,
   secretsListSecretDefinitions,
   secretsListSecrets,
   secretsUpdateSecretById,
@@ -237,6 +250,7 @@ import {
   settingsGetAuditSettings,
   settingsGetGitSettings,
   settingsGetSamlSettings,
+  settingsTestAuditWebhook,
   settingsUpdateAgentSettings,
   settingsUpdateAppSettings,
   settingsUpdateAuditSettings,
@@ -287,8 +301,10 @@ import {
   tagsDeleteTag,
   tagsListTags,
   tagsUpdateTag,
+  triggersCreateCaseTrigger,
   triggersDeleteWebhookApiKey,
   triggersGenerateWebhookApiKey,
+  triggersGetCaseTrigger,
   triggersRevokeWebhookApiKey,
   triggersUpdateWebhook,
   type UserRoleAssignmentCreate,
@@ -303,16 +319,22 @@ import {
   type VariableUpdate,
   type VcsGetGithubAppCredentialsStatusResponse,
   type VcsGetGithubAppManifestResponse,
+  type VcsGetGitlabTokenCredentialsStatusResponse,
   type VcsSaveGithubAppCredentialsData,
   type VcsSaveGithubAppCredentialsResponse,
+  type VcsSaveGitlabTokenCredentialsData,
+  type VcsSaveGitlabTokenCredentialsResponse,
   variablesCreateVariable,
   variablesDeleteVariableById,
   variablesListVariables,
   variablesUpdateVariableById,
   vcsDeleteGithubAppCredentials,
+  vcsDeleteGitlabTokenCredentials,
   vcsGetGithubAppCredentialsStatus,
   vcsGetGithubAppManifest,
+  vcsGetGitlabTokenCredentialsStatus,
   vcsSaveGithubAppCredentials,
+  vcsSaveGitlabTokenCredentials,
   type WebhookUpdate,
   type WorkflowDirectoryItem,
   type WorkflowExecutionCreate,
@@ -323,8 +345,10 @@ import {
   type WorkflowReadMinimal,
   type WorkflowsAddTagData,
   type WorkflowsCreateWorkflowData,
+  type WorkflowsListWorkflowRepositoriesResponse,
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
+  type WorkflowsUpdateWorkflowData,
   type WorkspaceCreate,
   type WorkspaceReadMinimal,
   type WorkspaceUpdate,
@@ -336,34 +360,80 @@ import {
   workflowsAddTag,
   workflowsCreateWorkflow,
   workflowsDeleteWorkflow,
+  workflowsListWorkflowRepositories,
   workflowsListWorkflows,
   workflowsMoveWorkflowToFolder,
   workflowsRemoveTag,
+  workflowsUpdateWorkflow,
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
 } from "@/client"
-import {
-  type CaseTriggerCreate,
-  type CaseTriggerRead,
-  type CustomOAuthProviderCreateRequest,
-  providersCreateCustomProvider,
-  triggersCreateCaseTrigger,
-  triggersGetCaseTrigger,
-} from "@/client/services.custom"
 import { toast } from "@/components/ui/use-toast"
+import {
+  markStdioMcpVerificationStarted,
+  useStdioMcpVerificationStatus,
+} from "@/hooks/use-stdio-mcp-verification-status"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { client as apiClient, getBaseUrl } from "@/lib/api"
+import {
+  getAuditWebhookTestDescription,
+  getAuditWebhookTestTitle,
+} from "@/lib/audit-webhook-test"
 import {
   listCaseDurationDefinitions,
   listCaseDurations,
 } from "@/lib/case-durations"
+import {
+  CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS,
+  caseCommentQueryKeys,
+  hasActiveCaseCommentInvocations,
+  hasActiveCaseCommentThreadInvocations,
+  invalidateCaseCommentQueries,
+} from "@/lib/cases/comment-queries"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { ModelInfo } from "@/lib/chat"
-import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import {
+  getApiErrorDetail,
+  getMcpOAuthConnectErrorDetail,
+  retryHandler,
+  sanitizeUrlsInText,
+  type TracecatApiError,
+} from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
+import { getPendingStdioMcpVerificationIds } from "@/lib/integrations"
+import {
+  type Query,
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+/**
+ * Build a react-query `onError` handler that surfaces mutation failures as
+ * toasts, mapping 403s to a consistent "Forbidden" message.
+ *
+ * @param activity Human-readable activity description, e.g. "deleting the action".
+ */
+function toastMutationError(activity: string) {
+  return (error: ApiError) => {
+    if (error.status === 403) {
+      toast({
+        title: "Forbidden",
+        description: "You cannot perform this action",
+      })
+      return
+    }
+    console.error(`Error ${activity}`, error)
+    toast({
+      title: `Error ${activity}`,
+      description: `An error occurred while ${activity}: ${getApiErrorDetail(error)}`,
+    })
+  }
+}
 
 interface AppInfo {
   version: string
@@ -428,6 +498,7 @@ export function useAction(
         requestBody: values,
       })
     },
+    meta: { suppressErrorToast: false },
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["action"],
@@ -465,9 +536,7 @@ export function useDeleteAction() {
         queryKey: ["actions", actionId, workspaceId],
       })
     },
-    onError: (error) => {
-      console.error("Failed to delete action:", error)
-    },
+    onError: toastMutationError("deleting the action"),
   })
   return { deleteAction }
 }
@@ -475,6 +544,20 @@ export function useDeleteAction() {
 type GraphOpParams = {
   baseVersion: number
   operations: GraphOperation[]
+}
+
+const structuralGraphOperationTypes = new Set<GraphOperation["type"]>([
+  "add_node",
+  "update_node",
+  "delete_node",
+  "add_edge",
+  "delete_edge",
+])
+
+function shouldSyncGraphCache(operations: GraphOperation[]): boolean {
+  return operations.some((operation) =>
+    structuralGraphOperationTypes.has(operation.type)
+  )
 }
 
 /**
@@ -510,11 +593,12 @@ export function useGraphOperations(workspaceId: string, workflowId: string) {
           operations,
         },
       }),
-    onSuccess: (graph) => {
-      // Update the graph cache with the new version
-      queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
-      // Also invalidate workflow to pick up any action changes
-      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+    onSuccess: (graph, variables) => {
+      if (shouldSyncGraphCache(variables.operations)) {
+        // Update the graph cache with the latest structural state.
+        queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
+        queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+      }
     },
     onError: (error) => {
       console.error("Failed to apply graph operations:", error)
@@ -759,7 +843,7 @@ export function useWorkflowManager(
           console.error("Failed to create workflow:", error)
           toast({
             title: "Error creating workflow",
-            description: error.body.detail + ". Please try again.",
+            description: getApiErrorDetail(error) ?? "Please try again.",
             variant: "destructive",
           })
       }
@@ -786,14 +870,14 @@ export function useWorkflowManager(
         case 400:
           toast({
             title: "Cannot delete workflow",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         default:
           console.error("Failed to delete workflow:", error)
           toast({
             title: "Error deleting workflow",
-            description: error.body.detail + ". Please try again.",
+            description: getApiErrorDetail(error) ?? "Please try again.",
             variant: "destructive",
           })
       }
@@ -805,12 +889,13 @@ export function useWorkflowManager(
       await workflowsAddTag(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to add tag to workflow:", error)
       toast({
         title: "Couldn't add tag to workflow",
-        description: error.body.detail + ". Please try again.",
+        description: getApiErrorDetail(error) ?? "Please try again.",
       })
     },
   })
@@ -820,12 +905,13 @@ export function useWorkflowManager(
       await workflowsRemoveTag(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to remove tag from workflow:", error)
       toast({
         title: "Couldn't remove tag from workflow",
-        description: error.body.detail + ". Please try again.",
+        description: getApiErrorDetail(error) ?? "Please try again.",
       })
     },
   })
@@ -842,10 +928,49 @@ export function useWorkflowManager(
       console.error("Failed to move workflow:", error)
       toast({
         title: "Error moving workflow",
-        description: error.body.detail + ". Please try again.",
+        description: getApiErrorDetail(error) ?? "Please try again.",
       })
     },
   })
+
+  // Update workflow
+  const { mutateAsync: updateWorkflow, isPending: updateWorkflowIsPending } =
+    useMutation({
+      mutationFn: async (params: WorkflowsUpdateWorkflowData) =>
+        await workflowsUpdateWorkflow(params),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["workflows"] })
+        queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+        // Keep an already-loaded builder view in step with a dashboard rename.
+        queryClient.invalidateQueries({ queryKey: ["workflow"] })
+      },
+      onError: (error: TracecatApiError) => {
+        // Transport failures rethrow a raw error with no `body`, so read the
+        // detail defensively; dereferencing it here would throw before the
+        // toast renders and leave the user with no feedback at all.
+        const detail = getApiErrorDetail(error)
+        switch (error.status) {
+          case 409:
+            // The API returns a specific conflict reason (alias collision vs.
+            // a duplicate workflow), so surface it rather than assuming one.
+            toast({
+              title: "Cannot update workflow",
+              description: detail ?? "The workflow was modified elsewhere.",
+              variant: "destructive",
+            })
+            break
+          default:
+            console.error("Failed to update workflow:", error)
+            toast({
+              title: "Error updating workflow",
+              description: detail
+                ? `${detail}. Please try again.`
+                : "Could not reach the server. Please try again.",
+              variant: "destructive",
+            })
+        }
+      },
+    })
 
   return {
     workflows,
@@ -856,6 +981,8 @@ export function useWorkflowManager(
     addWorkflowTag,
     removeWorkflowTag,
     moveWorkflow,
+    updateWorkflow,
+    updateWorkflowIsPending,
   }
 }
 
@@ -906,7 +1033,7 @@ export function useWorkspaceManager() {
           console.error("Failed to create workspace:", error)
           toast({
             title: "Error creating workspace",
-            description: error.body.detail + ". Please try again.",
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
       }
     },
@@ -931,14 +1058,14 @@ export function useWorkspaceManager() {
         case 400:
           toast({
             title: "Cannot delete workspace",
-            description: JSON.stringify(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         default:
           console.error("Failed to delete workspace:", error)
           toast({
             title: "Error deleting workspace",
-            description: error.body.detail + ". Please try again.",
+            description: getApiErrorDetail(error) ?? "Please try again.",
             variant: "destructive",
           })
       }
@@ -1040,7 +1167,6 @@ export function useWorkflowExecution(
 }
 
 export function useCompactWorkflowExecution(workflowExecutionId?: string) {
-  // if execution ID contains non-url-safe characters, decode it
   const workspaceId = useWorkspaceId()
   const {
     data: execution,
@@ -1053,7 +1179,7 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
       if (!workflowExecutionId) return null
       return await workflowExecutionsGetWorkflowExecutionCompact({
         workspaceId,
-        executionId: encodeURIComponent(workflowExecutionId),
+        executionId: workflowExecutionId,
       })
     },
     // Add retry logic for potential 404s when the execution hasn't been fully registered
@@ -1214,9 +1340,17 @@ export function useCreateDraftWorkflowExecution(workflowId: string) {
 export function useLastExecution({
   workflowId,
   triggerTypes,
+  refetchInterval,
 }: {
   workflowId?: string | null
   triggerTypes: TriggerType[]
+  /**
+   * When set, poll the latest-execution list on this interval (ms) so runs
+   * started outside this view -- e.g. by a chat agent's `core.workflow.execute`
+   * -- are discovered without an explicit invalidation. Background polling is
+   * disabled, so the query only refetches while the tab is focused.
+   */
+  refetchInterval?: number
 }) {
   const workspaceId = useWorkspaceId()
   const {
@@ -1237,6 +1371,8 @@ export function useLastExecution({
 
       return executions.length > 0 ? executions[0] : null
     },
+    refetchInterval,
+    refetchIntervalInBackground: false,
   })
 
   return {
@@ -1352,7 +1488,7 @@ export function useWorkspaceSecrets(
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
-        type: ["custom", "ssh-key", "mtls", "ca-cert"],
+        type: ["custom", "ssh_key", "mtls", "ca_cert"],
       }),
     enabled: !!workspaceId && listEnabled,
     staleTime: 5 * 60 * 1000,
@@ -1496,6 +1632,30 @@ export function useSecretDefinitions(workspaceId: string) {
     secretDefinitions,
     secretDefinitionsIsLoading,
     secretDefinitionsError,
+  }
+}
+
+export function useAwsAssumeRoleAccess(
+  workspaceId: string,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
+  const {
+    data: awsAssumeRoleAccess,
+    isLoading: awsAssumeRoleAccessIsLoading,
+    error: awsAssumeRoleAccessError,
+  } = useQuery<AwsAssumeRoleAccessRead, ApiError>({
+    queryKey: ["aws-assume-role-access", workspaceId],
+    queryFn: async () => await secretsGetAwsAssumeRoleAccess({ workspaceId }),
+    enabled: !!workspaceId && enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  return {
+    awsAssumeRoleAccess,
+    awsAssumeRoleAccessIsLoading,
+    awsAssumeRoleAccessError,
   }
 }
 
@@ -1666,7 +1826,7 @@ export function useOrgSecrets() {
     queryKey: ["org-ssh-keys"],
     queryFn: async () =>
       await organizationSecretsListOrgSecrets({
-        type: ["ssh-key"],
+        type: ["ssh_key"],
       }),
   })
 
@@ -1676,7 +1836,7 @@ export function useOrgSecrets() {
       await organizationSecretsCreateOrgSecret({ requestBody: params }),
     onSuccess: (_, variables) => {
       switch (variables.type) {
-        case "ssh-key":
+        case "ssh_key":
           queryClient.invalidateQueries({ queryKey: ["org-ssh-keys"] })
           toast({
             title: "Created secret",
@@ -1708,7 +1868,7 @@ export function useOrgSecrets() {
       }),
     onSuccess: (_, variables) => {
       switch (variables.params.type) {
-        case "ssh-key":
+        case "ssh_key":
           queryClient.invalidateQueries({ queryKey: ["org-ssh-keys"] })
           toast({
             title: "Updated secret",
@@ -1731,7 +1891,7 @@ export function useOrgSecrets() {
       await organizationSecretsDeleteOrgSecretById({ secretId: secret.id }),
     onSuccess: (_, variables) => {
       switch (variables.type) {
-        case "ssh-key":
+        case "ssh_key":
           queryClient.invalidateQueries({ queryKey: ["org-ssh-keys"] })
           toast({
             title: "Deleted secret",
@@ -1806,15 +1966,28 @@ export function useUserManager() {
 
 /* Registry Actions */
 // For selector node
-export function useBuilderRegistryActions(versions?: string[]) {
+interface UseBuilderRegistryActionsOptions {
+  versions?: string[]
+  includeLocked?: boolean
+}
+
+export function useBuilderRegistryActions(
+  options?: UseBuilderRegistryActionsOptions
+) {
   const {
     data: registryActions,
     isLoading: registryActionsIsLoading,
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
-    queryKey: ["builder_registry_actions", versions],
+    queryKey: [
+      "builder_registry_actions",
+      options?.versions,
+      options?.includeLocked,
+    ],
     queryFn: async () => {
-      return await registryActionsListRegistryActions()
+      return await registryActionsListRegistryActions(
+        options?.includeLocked ? { includeLocked: true } : {}
+      )
     },
   })
 
@@ -1855,140 +2028,29 @@ export function useGetRegistryAction(actionName?: string) {
 }
 
 // For selector node
-export function useRegistryActions(versions?: string[]) {
-  const queryClient = useQueryClient()
+interface UseRegistryActionsOptions {
+  versions?: string[]
+  includeLocked?: boolean
+}
+
+export function useRegistryActions(options?: UseRegistryActionsOptions) {
   const {
     data: registryActions,
     isLoading: registryActionsIsLoading,
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
-    queryKey: ["registry_actions", versions],
+    queryKey: ["registry_actions", options?.versions, options?.includeLocked],
     queryFn: async () => {
-      return await registryActionsListRegistryActions()
-    },
-  })
-
-  const {
-    mutateAsync: createRegistryAction,
-    isPending: createRegistryActionIsPending,
-    error: createRegistryActionError,
-  } = useMutation({
-    mutationFn: async (params: RegistryActionCreate) =>
-      await registryActionsCreateRegistryAction({
-        requestBody: params,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
-      toast({
-        title: "Created registry action",
-        description: "Registry action created successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 422:
-          console.error("Failed to create registry action", error)
-          toast({
-            title: "Failed to create registry action",
-            description:
-              "An error occurred while creating the registry action.",
-          })
-          break
-        default:
-          console.error("Failed to create registry action", error)
-          toast({
-            title: "Failed to create registry action",
-            description:
-              "An error occurred while creating the registry action.",
-          })
-      }
-    },
-  })
-
-  const {
-    mutateAsync: updateRegistryAction,
-    isPending: updateRegistryActionIsPending,
-    error: updateRegistryActionError,
-  } = useMutation({
-    mutationFn: async (params: RegistryActionsUpdateRegistryActionData) =>
-      await registryActionsUpdateRegistryAction(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
-      toast({
-        title: "Updated registry action",
-        description: "Registry action updated successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      console.error("Failed to update registry action", error)
-      toast({
-        title: "Failed to update registry action",
-        description: "An error occurred while updating the registry action.",
+      return await registryActionsListRegistryActions({
+        includeLocked: options?.includeLocked,
       })
     },
   })
 
-  const {
-    mutateAsync: deleteRegistryAction,
-    isPending: deleteRegistryActionIsPending,
-    error: deleteRegistryActionError,
-  } = useMutation({
-    mutationFn: async (params: RegistryActionsDeleteRegistryActionData) =>
-      await registryActionsDeleteRegistryAction(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
-      toast({
-        title: "Deleted registry action",
-        description: "Registry action deleted successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      console.error("Failed to delete registry action", error)
-      const apiError = error as TracecatApiError
-      switch (apiError.status) {
-        case 400:
-          toast({
-            title: "Failed to delete registry action",
-            description: apiError.message,
-            variant: "destructive",
-          })
-          break
-        case 403:
-          toast({
-            title: "Failed to delete registry action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
-          })
-          break
-        case 404:
-          toast({
-            title: "Registry action not found",
-            description: `${apiError.message}: ${apiError.body.detail}`,
-            variant: "destructive",
-          })
-          break
-        default:
-          toast({
-            title: "Failed to delete registry action",
-            description:
-              "An unexpected error occurred while deleting the registry action.",
-            variant: "destructive",
-          })
-      }
-    },
-  })
   return {
     registryActions,
     registryActionsIsLoading,
     registryActionsError,
-    createRegistryAction,
-    createRegistryActionIsPending,
-    createRegistryActionError,
-    updateRegistryAction,
-    updateRegistryActionIsPending,
-    updateRegistryActionError,
-    deleteRegistryAction,
-    deleteRegistryActionIsPending,
-    deleteRegistryActionError,
   }
 }
 
@@ -2011,12 +2073,20 @@ export function useRegistryRepositories() {
     mutationFn: async (
       params: RegistryRepositoriesSyncRegistryRepositoryData
     ) => await registryRepositoriesSyncRegistryRepository(params),
-    onSuccess: () => {
+    onSuccess: (_, { repositoryId }) => {
       queryClient.invalidateQueries({
         queryKey: ["registry_repositories"],
       })
       queryClient.invalidateQueries({
         queryKey: ["registry_actions"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["registry_versions", repositoryId],
+      })
+      // Scoped to this repository so workspace-sync commit queries, which
+      // share the prefix, are left alone.
+      queryClient.invalidateQueries({
+        queryKey: ["repository_commits", repositoryId],
       })
     },
     onError: (error: TracecatApiError) => {
@@ -2027,7 +2097,7 @@ export function useRegistryRepositories() {
             description: (
               <div className="flex items-start gap-2">
                 <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
-                <span>{String(error.body.detail)}</span>
+                <span>{getApiErrorDetail(error) ?? "Please try again."}</span>
               </div>
             ),
           })
@@ -2055,7 +2125,7 @@ export function useRegistryRepositories() {
               <div className="flex items-start gap-2">
                 <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
                 <span>{error.message}</span>
-                <span>{String(error.body.detail)}</span>
+                <span>{getApiErrorDetail(error) ?? "Please try again."}</span>
               </div>
             ),
           })
@@ -2084,13 +2154,13 @@ export function useRegistryRepositories() {
         case 403:
           toast({
             title: "You cannot perform this action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
+            description: `${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
           break
         default:
           toast({
             title: "Failed to delete registry repository",
-            description: `An unexpected error occurred while deleting the registry repository. ${apiError.message}: ${apiError.body.detail}`,
+            description: `An unexpected error occurred while deleting the registry repository. ${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
       }
     },
@@ -2139,6 +2209,9 @@ export function useRepositoryCommits(
       })
     },
     enabled: options?.enabled !== false && !!repositoryId,
+    // Listing commits shells out to git; callers render the failure inline.
+    retry: false,
+    meta: { suppressErrorToast: true },
   })
 
   return {
@@ -2175,13 +2248,13 @@ export function useOrgMembers() {
         case 403:
           toast({
             title: "You cannot perform this action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
+            description: `${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
           break
         default:
           toast({
             title: "Failed to update organization member",
-            description: `An unexpected error occurred while updating the organization member. ${apiError.message}: ${apiError.body.detail}`,
+            description: `An unexpected error occurred while updating the organization member. ${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
       }
     },
@@ -2196,9 +2269,10 @@ export function useOrgMembers() {
       await organizationDeleteOrgMember(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
       toast({
-        title: "Deleted organization member",
-        description: "Organization member deleted successfully.",
+        title: "Removed organization member",
+        description: "Organization access removed and sessions revoked.",
       })
     },
     onError: (error: TracecatApiError) => {
@@ -2207,13 +2281,13 @@ export function useOrgMembers() {
         case 403:
           toast({
             title: "You cannot perform this action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
+            description: `${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
           break
         default:
           toast({
             title: "Failed to delete organization member",
-            description: `An unexpected error occurred while deleting the organization member. ${apiError.message}: ${apiError.body.detail}`,
+            description: `An unexpected error occurred while deleting the organization member. ${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
       }
     },
@@ -2363,7 +2437,7 @@ export function useWorkflowTags(
           console.error("Error creating tag", error)
           toast({
             title: "Error creating tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -2376,7 +2450,7 @@ export function useWorkflowTags(
           console.error("Failed to create tag", error)
           toast({
             title: "Failed to create tag",
-            description: `An error occurred while creating the tag: ${error.body.detail}`,
+            description: `An error occurred while creating the tag: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2404,7 +2478,7 @@ export function useWorkflowTags(
           console.error("Error updating tag", error)
           toast({
             title: "Error updating tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
       }
@@ -2504,7 +2578,7 @@ export function useCaseTagCatalog(
         case 400:
           toast({
             title: "Error creating case tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -2517,7 +2591,7 @@ export function useCaseTagCatalog(
           console.error("Failed to create case tag", error)
           toast({
             title: "Failed to create case tag",
-            description: `An error occurred while creating the case tag: ${error.body.detail}`,
+            description: `An error occurred while creating the case tag: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2546,7 +2620,7 @@ export function useCaseTagCatalog(
         case 400:
           toast({
             title: "Error updating case tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -2627,6 +2701,7 @@ export function useOrgGitSettings() {
       await settingsUpdateGitSettings(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-git-settings"] })
+      queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
       toast({
         title: "Updated Git settings",
         description: "Git settings updated successfully.",
@@ -2644,7 +2719,7 @@ export function useOrgGitSettings() {
           console.error("Failed to update Git settings", error)
           toast({
             title: "Failed to update Git settings",
-            description: `An error occurred while updating the Git settings: ${typeof error.body.detail === "object" ? JSON.stringify(error.body.detail) : error.body.detail}`,
+            description: `An error occurred while updating the Git settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2700,6 +2775,41 @@ export function useGitHubAppCredentialsStatus() {
   }
 }
 
+/**
+ * Fetch repositories granted to the configured GitHub App installation.
+ */
+export function useGitHubAppRepositories(
+  workspaceId: string,
+  options?: { enabled?: boolean }
+) {
+  const {
+    data: repositories,
+    isLoading: repositoriesIsLoading,
+    error: repositoriesError,
+    refetch: refetchRepositories,
+  } = useQuery<WorkflowsListWorkflowRepositoriesResponse>({
+    queryKey: ["github-app-repositories", workspaceId],
+    queryFn: async () =>
+      await workflowsListWorkflowRepositories({ workspaceId }),
+    enabled: Boolean(workspaceId) && options?.enabled !== false,
+    retry: false,
+  })
+
+  return {
+    repositories,
+    repositoriesIsLoading,
+    repositoriesError,
+    refetchRepositories,
+  }
+}
+
+function clearGitHubAppRepositoryQueries(queryClient: QueryClient) {
+  queryClient.setQueriesData<WorkflowsListWorkflowRepositoriesResponse>(
+    { queryKey: ["github-app-repositories"] },
+    []
+  )
+}
+
 export function useGitHubAppCredentials() {
   const queryClient = useQueryClient()
 
@@ -2712,10 +2822,15 @@ export function useGitHubAppCredentials() {
     mutationFn: async (data) => {
       return await vcsSaveGithubAppCredentials({ requestBody: data })
     },
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
+      clearGitHubAppRepositoryQueries(queryClient)
       // Invalidate and refetch credentials status
       queryClient.invalidateQueries({
         queryKey: ["github-app-credentials-status"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-repositories"],
       })
     },
   })
@@ -2733,15 +2848,91 @@ export function useDeleteGitHubAppCredentials() {
       await vcsDeleteGithubAppCredentials()
     },
     onSuccess: () => {
+      clearGitHubAppRepositoryQueries(queryClient)
       queryClient.invalidateQueries({
         queryKey: ["github-app-credentials-status"],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-repositories"],
+      })
     },
+    onError: toastMutationError("deleting the GitHub App credentials"),
   })
 
   return {
     deleteCredentials,
   }
+}
+
+export function useGitLabTokenCredentialsStatus() {
+  const {
+    data: credentialsStatus,
+    isLoading: credentialsStatusIsLoading,
+    error: credentialsStatusError,
+    refetch: refetchCredentialsStatus,
+  } = useQuery<VcsGetGitlabTokenCredentialsStatusResponse>({
+    queryKey: ["gitlab-token-credentials-status"],
+    queryFn: async () => await vcsGetGitlabTokenCredentialsStatus(),
+  })
+
+  return {
+    credentialsStatus,
+    credentialsStatusIsLoading,
+    credentialsStatusError,
+    refetchCredentialsStatus,
+  }
+}
+
+export function useGitLabTokenCredentials() {
+  const queryClient = useQueryClient()
+
+  const saveCredentials = useMutation<
+    VcsSaveGitlabTokenCredentialsResponse,
+    ApiError,
+    VcsSaveGitlabTokenCredentialsData["requestBody"]
+  >({
+    mutationFn: async (data) => {
+      return await vcsSaveGitlabTokenCredentials({ requestBody: data })
+    },
+    meta: { suppressErrorToast: true },
+    onSuccess: () => {
+      invalidateGitLabTokenCredentialQueries(queryClient)
+    },
+  })
+
+  return {
+    saveCredentials,
+  }
+}
+
+export function useDeleteGitLabTokenCredentials() {
+  const queryClient = useQueryClient()
+
+  const deleteCredentials = useMutation<void, ApiError>({
+    mutationFn: async () => {
+      await vcsDeleteGitlabTokenCredentials()
+    },
+    onSuccess: () => {
+      invalidateGitLabTokenCredentialQueries(queryClient)
+    },
+    onError: toastMutationError("deleting the GitLab token credentials"),
+  })
+
+  return {
+    deleteCredentials,
+  }
+}
+
+function invalidateGitLabTokenCredentialQueries(queryClient: QueryClient) {
+  queryClient.invalidateQueries({
+    queryKey: ["gitlab-token-credentials-status"],
+  })
+  queryClient.invalidateQueries({
+    queryKey: ["workflow-sync-branches"],
+  })
+  queryClient.invalidateQueries({
+    queryKey: ["repository_commits"],
+  })
 }
 
 export function useOrgAgentSettings() {
@@ -2783,7 +2974,7 @@ export function useOrgAgentSettings() {
           console.error("Failed to update agent settings", error)
           toast({
             title: "Failed to update agent settings",
-            description: `An error occurred while updating the agent settings: ${error.body.detail}`,
+            description: `An error occurred while updating the agent settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2841,7 +3032,7 @@ export function useOrgSamlSettings() {
           console.error("Failed to update SAML settings", error)
           toast({
             title: "Failed to update SAML settings",
-            description: `An error occurred while updating the SAML settings: ${error.body.detail}`,
+            description: `An error occurred while updating the SAML settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2901,7 +3092,7 @@ export function useOrgAppSettings() {
           console.error("Failed to update application settings", error)
           toast({
             title: "Failed to update application settings",
-            description: `An error occurred while updating the application settings: ${error.body.detail}`,
+            description: `An error occurred while updating the application settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2959,11 +3150,43 @@ export function useOrgAuditSettings() {
           console.error("Failed to update audit settings", error)
           toast({
             title: "Failed to update audit settings",
-            description: `An error occurred while updating the audit settings: ${error.body.detail}`,
+            description: `An error occurred while updating the audit settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
   })
+
+  const { mutate: testAuditWebhook, isPending: testAuditWebhookIsPending } =
+    useMutation<
+      AuditWebhookTestResult,
+      TracecatApiError,
+      SettingsTestAuditWebhookData
+    >({
+      mutationFn: settingsTestAuditWebhook,
+      onSuccess: (result) => {
+        toast({
+          title: getAuditWebhookTestTitle(result),
+          description: getAuditWebhookTestDescription(result),
+          variant: result.ok ? "default" : "destructive",
+        })
+      },
+      onError: (error: TracecatApiError) => {
+        switch (error.status) {
+          case 403:
+            toast({
+              title: "Forbidden",
+              description: "You cannot perform this action",
+            })
+            break
+          default:
+            console.error("Failed to test audit webhook", error)
+            toast({
+              title: "Failed to test audit webhook",
+              description: getApiErrorDetail(error) ?? "Unknown error",
+            })
+        }
+      },
+    })
 
   return {
     // Get
@@ -2974,6 +3197,9 @@ export function useOrgAuditSettings() {
     updateAuditSettings,
     updateAuditSettingsIsPending,
     updateAuditSettingsError,
+    // Test
+    testAuditWebhook,
+    testAuditWebhookIsPending,
   }
 }
 
@@ -3001,21 +3227,40 @@ export function useListTables(
   }
 }
 
-export function useGetTable({ tableId, workspaceId }: TablesGetTableData) {
+export function useGetTable(
+  { tableId, workspaceId }: TablesGetTableData,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
   const {
     data: table,
     isLoading: tableIsLoading,
     error: tableError,
+    refetch: refetchTable,
   } = useQuery<TableRead, ApiError>({
-    queryKey: ["table", tableId],
+    queryKey: ["table", workspaceId, tableId],
     queryFn: async () => await tablesGetTable({ tableId, workspaceId }),
+    enabled: enabled && Boolean(workspaceId) && Boolean(tableId),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
     table,
     tableIsLoading,
     tableError,
+    refetchTable,
   }
+}
+
+function invalidateTableDetailQuery(
+  queryClient: ReturnType<typeof useQueryClient>,
+  workspaceId: string,
+  tableId: string
+) {
+  queryClient.invalidateQueries({
+    queryKey: ["table", workspaceId, tableId],
+  })
 }
 
 export function useCreateTable() {
@@ -3061,9 +3306,11 @@ export function useUpdateTable() {
       queryClient.invalidateQueries({
         queryKey: ["tables", variables.workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
   })
 
@@ -3087,9 +3334,11 @@ export function useDeleteTable() {
       queryClient.invalidateQueries({
         queryKey: ["tables", variables.workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -3101,13 +3350,13 @@ export function useDeleteTable() {
         case 400:
           return toast({
             title: "Bad Request",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
         default:
           console.error("Error deleting table", error)
           return toast({
             title: "Error deleting table",
-            description: `An error occurred while deleting the table: ${error.body.detail}`,
+            description: `An error occurred while deleting the table: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -3133,9 +3382,11 @@ export function useInsertColumn() {
       queryClient.invalidateQueries({
         queryKey: ["tables", variables.workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
@@ -3175,30 +3426,36 @@ export function useUpdateColumn() {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
     onError: (error: TracecatApiError, variables) => {
-      // Check if this was a unique index operation
-      const isIndexOperation = !!variables.requestBody?.is_index
+      const requestedIsIndex = variables.requestBody?.is_index
+      const isIndexOperation = typeof requestedIsIndex === "boolean"
+      const indexErrorTitle =
+        requestedIsIndex === false
+          ? "Error dropping unique index"
+          : "Error creating unique index"
 
       if (isIndexOperation) {
         // Handle unique index specific errors
         if (error.status === 409) {
           toast({
-            title: "Error creating unique index",
+            title: indexErrorTitle,
             description:
               "Column contains duplicate values. All values must be unique.",
           })
         } else if (error.status === 400) {
           toast({
-            title: "Error creating unique index",
-            description: String(error.body.detail),
+            title: indexErrorTitle,
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
         } else {
           toast({
-            title: "Error creating unique index",
+            title: indexErrorTitle,
             description: error.message || "An unexpected error occurred",
           })
         }
@@ -3243,10 +3500,13 @@ export function useDeleteColumn() {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
+    onError: toastMutationError("deleting the column"),
   })
 
   return {
@@ -3407,10 +3667,13 @@ export function useDeleteRow() {
           variables.workspaceId,
         ],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
+    onError: toastMutationError("deleting the row"),
   })
 
   return {
@@ -3441,10 +3704,13 @@ export function useBatchDeleteRows() {
           variables.workspaceId,
         ],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
+    onError: toastMutationError("deleting the selected rows"),
   })
 
   return {
@@ -3475,9 +3741,11 @@ export function useBatchUpdateRows() {
           variables.workspaceId,
         ],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
   })
 
@@ -3581,6 +3849,7 @@ export function useSearchCases(params: CasesSearchCasesData) {
 interface UseGetCaseOptions {
   enabled?: boolean
 }
+
 export function useGetCase(
   { caseId, workspaceId }: CasesGetCaseData,
   options?: UseGetCaseOptions
@@ -3593,7 +3862,7 @@ export function useGetCase(
     queryKey: ["case", caseId],
     queryFn: async () => {
       const response = await apiClient.get<CaseRead>(`/cases/${caseId}`, {
-        params: { workspace_id: workspaceId, include_rows: true },
+        params: { workspace_id: workspaceId },
       })
       return response.data
     },
@@ -3632,7 +3901,7 @@ export function useCreateCase(workspaceId: string) {
     onError: (error: TracecatApiError) => {
       toast({
         title: "Error creating case",
-        description: `An error occurred while creating the case: ${error.body.detail}`,
+        description: `An error occurred while creating the case: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -3660,7 +3929,7 @@ export function useUpdateCase({
     mutationFn: async (params: CaseUpdate) =>
       await casesUpdateCase({ caseId, workspaceId, requestBody: params }),
 
-    onSuccess: () => {
+    onSuccess: (_, params) => {
       queryClient.invalidateQueries({
         queryKey: ["cases", workspaceId],
       })
@@ -3670,6 +3939,11 @@ export function useUpdateCase({
         exact: false,
       })
       invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
+      if (params.summary !== undefined || params.description !== undefined) {
+        queryClient.invalidateQueries({
+          queryKey: ["case-versions", workspaceId, caseId],
+        })
+      }
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -3682,7 +3956,7 @@ export function useUpdateCase({
           console.error("Error updating case", error)
           return toast({
             title: "Error updating case",
-            description: `An error occurred while updating the case: ${error.body.detail}`,
+            description: `An error occurred while updating the case: ${getApiErrorDetail(error) ?? "Please try again."}`,
             variant: "destructive",
           })
       }
@@ -3727,7 +4001,7 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
           console.error("Error deleting case", error)
           return toast({
             title: "Error deleting case",
-            description: `An error occurred while deleting the case: ${error.body.detail}`,
+            description: `An error occurred while deleting the case: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -3737,6 +4011,48 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
     deleteCase,
     deleteCaseIsPending,
     deleteCaseError,
+  }
+}
+
+/** Update a collection of cases in one server-side batch. */
+export function useBatchUpdateCases({ workspaceId }: { workspaceId: string }) {
+  const {
+    mutateAsync: batchUpdateCases,
+    isPending: batchUpdateCasesIsPending,
+    error: batchUpdateCasesError,
+  } = useMutation({
+    mutationFn: async (params: CaseBatchUpdate) =>
+      await casesBatchUpdateCases({ workspaceId, requestBody: params }),
+    // Cache invalidation is the caller's responsibility: bulk operations issue
+    // one request per 1000-ID chunk, and invalidating per chunk would refetch
+    // the case list repeatedly mid-operation.
+  })
+
+  return {
+    batchUpdateCases,
+    batchUpdateCasesIsPending,
+    batchUpdateCasesError,
+  }
+}
+
+/** Delete a collection of cases in one server-side batch. */
+export function useBatchDeleteCases({ workspaceId }: { workspaceId: string }) {
+  const {
+    mutateAsync: batchDeleteCases,
+    isPending: batchDeleteCasesIsPending,
+    error: batchDeleteCasesError,
+  } = useMutation({
+    mutationFn: async (params: CaseBatchDelete) =>
+      await casesBatchDeleteCases({ workspaceId, requestBody: params }),
+    // Cache invalidation is the caller's responsibility: bulk operations issue
+    // one request per 1000-ID chunk, and invalidating per chunk would refetch
+    // the case list repeatedly mid-operation.
+  })
+
+  return {
+    batchDeleteCases,
+    batchDeleteCasesIsPending,
+    batchDeleteCasesError,
   }
 }
 
@@ -3757,6 +4073,10 @@ export function useCaseDurations({
     queryKey: ["case-durations", caseId, workspaceId],
     queryFn: async () => await listCaseDurations(workspaceId, caseId),
     enabled: Boolean(caseId && workspaceId) && enabled,
+    // Durations materialize asynchronously (Redis consumer), so a mutation's
+    // one-shot invalidation can read before the worker finishes. Poll while
+    // the case is open so the recomputed values eventually appear.
+    refetchInterval: 5000,
   })
 
   return {
@@ -3773,6 +4093,7 @@ export function useCaseDurationDefinitions(
   const {
     data: caseDurationDefinitions,
     isLoading: caseDurationDefinitionsIsLoading,
+    isFetching: caseDurationDefinitionsIsFetching,
     error: caseDurationDefinitionsError,
   } = useQuery<CaseDurationDefinitionRead[], Error>({
     queryKey: ["case-duration-definitions", workspaceId],
@@ -3783,43 +4104,79 @@ export function useCaseDurationDefinitions(
   return {
     caseDurationDefinitions,
     caseDurationDefinitionsIsLoading,
+    caseDurationDefinitionsIsFetching,
     caseDurationDefinitionsError,
   }
 }
 
-export function useCaseFields(workspaceId: string) {
+export function useCaseFields(workspaceId: string, enabled = true) {
   const {
     data: caseFields,
     isLoading: caseFieldsIsLoading,
+    isFetching: caseFieldsIsFetching,
     error: caseFieldsError,
   } = useQuery<CaseFieldReadMinimal[], TracecatApiError>({
     queryKey: ["case-fields", workspaceId],
     queryFn: async () => await casesListFields({ workspaceId }),
+    enabled: Boolean(workspaceId) && enabled,
   })
 
   return {
     caseFields,
     caseFieldsIsLoading,
+    caseFieldsIsFetching,
     caseFieldsError,
   }
 }
 export function useCaseComments({
   caseId,
   workspaceId,
-}: CasesListCommentsData) {
+  enabled = true,
+}: CasesListCommentsData & { enabled?: boolean }) {
   const {
     data: caseComments,
     isLoading: caseCommentsIsLoading,
     error: caseCommentsError,
   } = useQuery<CaseCommentRead[], TracecatApiError>({
-    queryKey: ["case-comments", caseId, workspaceId],
+    queryKey: caseCommentQueryKeys.comments(caseId, workspaceId),
     queryFn: async () => await casesListComments({ caseId, workspaceId }),
+    enabled,
+    refetchInterval: (query) =>
+      hasActiveCaseCommentInvocations(query.state.data)
+        ? CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS
+        : false,
   })
 
   return {
     caseComments,
     caseCommentsIsLoading,
     caseCommentsError,
+  }
+}
+
+export function useCaseCommentThreads({
+  caseId,
+  workspaceId,
+  enabled = true,
+}: CasesListCommentThreadsData & { enabled?: boolean }) {
+  const {
+    data: caseCommentThreads,
+    isLoading: caseCommentThreadsIsLoading,
+    error: caseCommentThreadsError,
+  } = useQuery<CaseCommentThreadRead[], TracecatApiError>({
+    queryKey: caseCommentQueryKeys.threads(caseId, workspaceId),
+    queryFn: async () => await casesListCommentThreads({ caseId, workspaceId }),
+    enabled,
+    refetchInterval: (query) =>
+      hasActiveCaseCommentThreadInvocations(query.state.data)
+        ? CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS
+        : false,
+  })
+
+  return {
+    caseCommentThreads,
+    caseCommentThreadsIsLoading,
+    caseCommentThreadsError,
   }
 }
 
@@ -3830,7 +4187,7 @@ export function useCreateCaseComment({
   const queryClient = useQueryClient()
 
   const {
-    mutate: createComment,
+    mutateAsync: createComment,
     isPending: createCommentIsPending,
     error: createCommentError,
   } = useMutation({
@@ -3841,15 +4198,13 @@ export function useCreateCaseComment({
         requestBody: params,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-comments", caseId, workspaceId],
-      })
+      invalidateCaseCommentQueries(queryClient, caseId, workspaceId)
     },
     onError: (error: TracecatApiError) => {
       console.error("Error creating comment", error)
       toast({
         title: "Error creating comment",
-        description: `An error occurred while creating the comment: ${error.body.detail}`,
+        description: `An error occurred while creating the comment: ${getApiErrorDetail(error) ?? "Please try again."}`,
         variant: "destructive",
       })
     },
@@ -3874,7 +4229,7 @@ export function useUpdateCaseComment({
   const queryClient = useQueryClient()
 
   const {
-    mutate: updateComment,
+    mutateAsync: updateComment,
     isPending: updateCommentIsPending,
     error: updateCommentError,
   } = useMutation({
@@ -3886,15 +4241,13 @@ export function useUpdateCaseComment({
         requestBody: params,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-comments", caseId, workspaceId],
-      })
+      invalidateCaseCommentQueries(queryClient, caseId, workspaceId)
     },
     onError: (error: TracecatApiError) => {
       console.error("Error updating comment", error)
       toast({
         title: "Error updating comment",
-        description: `An error occurred while updating the comment: ${error.body.detail}`,
+        description: `An error occurred while updating the comment: ${getApiErrorDetail(error) ?? "Please try again."}`,
         variant: "destructive",
       })
     },
@@ -3919,7 +4272,7 @@ export function useDeleteCaseComment({
   const queryClient = useQueryClient()
 
   const {
-    mutate: deleteComment,
+    mutateAsync: deleteComment,
     isPending: deleteCommentIsPending,
     error: deleteCommentError,
   } = useMutation({
@@ -3930,15 +4283,13 @@ export function useDeleteCaseComment({
         commentId,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-comments", caseId, workspaceId],
-      })
+      invalidateCaseCommentQueries(queryClient, caseId, workspaceId)
     },
     onError: (error: TracecatApiError) => {
       console.error("Error deleting comment", error)
       toast({
         title: "Error deleting comment",
-        description: `An error occurred while deleting the comment: ${error.body.detail}`,
+        description: `An error occurred while deleting the comment: ${getApiErrorDetail(error) ?? "Please try again."}`,
         variant: "destructive",
       })
     },
@@ -3951,7 +4302,11 @@ export function useDeleteCaseComment({
   }
 }
 
-export function useCaseTasks({ caseId, workspaceId }: CasesListTasksData) {
+export function useCaseTasks({
+  caseId,
+  workspaceId,
+  enabled = true,
+}: CasesListTasksData & { enabled?: boolean }) {
   const {
     data: caseTasks,
     isLoading: caseTasksIsLoading,
@@ -3960,6 +4315,10 @@ export function useCaseTasks({ caseId, workspaceId }: CasesListTasksData) {
   } = useQuery<CaseTaskRead[], TracecatApiError>({
     queryKey: ["case-tasks", caseId, workspaceId],
     queryFn: async () => await casesListTasks({ caseId, workspaceId }),
+    // Tasks are gated behind the `case_addons` entitlement; callers outside
+    // the gate (the switcher's progress ring) must pass `enabled` so
+    // non-entitled orgs never fire the request.
+    enabled: Boolean(caseId && workspaceId) && enabled,
   })
 
   return {
@@ -3994,7 +4353,7 @@ export function useCreateCaseTask({ caseId, workspaceId }: CasesListTasksData) {
       console.error("Error creating task", error)
       toast({
         title: "Error creating task",
-        description: `An error occurred while creating the task: ${error.body.detail}`,
+        description: `An error occurred while creating the task: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -4039,7 +4398,7 @@ export function useUpdateCaseTask({
       console.error("Error updating task", error)
       toast({
         title: "Error updating task",
-        description: `An error occurred while updating the task: ${error.body.detail}`,
+        description: `An error occurred while updating the task: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -4083,7 +4442,7 @@ export function useDeleteCaseTask({
       console.error("Error deleting task", error)
       toast({
         title: "Error deleting task",
-        description: `An error occurred while deleting the task: ${error.body.detail}`,
+        description: `An error occurred while deleting the task: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -4169,7 +4528,7 @@ export function useFolders(
           console.error("Failed to create folder", error)
           return toast({
             title: "Failed to create folder",
-            description: `An error occurred while creating the folder: ${error.body.detail}`,
+            description: `An error occurred while creating the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -4215,7 +4574,7 @@ export function useFolders(
           console.error("Error updating folder", error)
           toast({
             title: "Error updating folder",
-            description: `An error occurred while updating the folder: ${error.body.detail}`,
+            description: `An error occurred while updating the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
           break
       }
@@ -4252,7 +4611,7 @@ export function useFolders(
       console.error("Error moving folder", error)
       toast({
         title: "Error moving folder",
-        description: `An error occurred while moving the folder: ${error.body.detail}`,
+        description: `An error occurred while moving the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -4288,7 +4647,7 @@ export function useFolders(
         case 400:
           toast({
             title: "Cannot delete folder",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -4301,7 +4660,7 @@ export function useFolders(
           console.error("Error deleting folder", error)
           toast({
             title: "Failed to delete folder",
-            description: `An error occurred while deleting the folder: ${error.body.detail}`,
+            description: `An error occurred while deleting the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
           break
       }
@@ -4455,6 +4814,7 @@ export function useRemoveCaseTag({
       })
       invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
     },
+    onError: toastMutationError("removing the case tag"),
   })
   return {
     removeCaseTag,
@@ -4502,7 +4862,7 @@ export function useIntegrations(workspaceId: string) {
 }
 
 type CreateCustomProviderParams = Omit<
-  CustomOAuthProviderCreateRequest,
+  CustomOAuthProviderCreate,
   "provider_id"
 > & {
   provider_id?: string | null
@@ -4520,7 +4880,7 @@ export function useCreateCustomProvider(workspaceId: string) {
       const cleanScopes = params.scopes
         ?.map((scope) => scope.trim())
         .filter(Boolean)
-      const payload: CustomOAuthProviderCreateRequest = {
+      const payload: CustomOAuthProviderCreate = {
         ...params,
         name: params.name.trim(),
         description: params.description?.trim() || undefined,
@@ -4561,6 +4921,63 @@ export function useCreateCustomProvider(workspaceId: string) {
   }
 }
 
+export function useConnectMcpIntegration(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: connectMcpIntegration,
+    isPending: connectMcpIntegrationIsPending,
+    error: connectMcpIntegrationError,
+  } = useMutation({
+    mutationFn: async (params: MCPIntegrationCreate) => {
+      return await mcpIntegrationsConnectMcpIntegration({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+      if (result.auth_url) {
+        return
+      }
+      if (result.mcp_integration) {
+        const verifying = result.mcp_integration.state !== "connected"
+        if (verifying && result.mcp_integration.server_type === "stdio") {
+          markStdioMcpVerificationStarted(
+            queryClient,
+            workspaceId,
+            result.mcp_integration.id
+          )
+        }
+        toast({
+          title: verifying
+            ? "MCP integration verification started"
+            : "MCP integration connected",
+          description: verifying
+            ? `Added ${result.mcp_integration.name}; tools will appear after verification succeeds.`
+            : `Added ${result.mcp_integration.name}`,
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to connect MCP integration:", error)
+      toast({
+        title: "Failed to connect MCP integration",
+        description: getMcpOAuthConnectErrorDetail(error),
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    connectMcpIntegration,
+    connectMcpIntegrationIsPending,
+    connectMcpIntegrationError,
+  }
+}
+
 export function useCreateMcpIntegration(workspaceId: string) {
   const queryClient = useQueryClient()
 
@@ -4579,9 +4996,22 @@ export function useCreateMcpIntegration(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["mcp-integrations", workspaceId],
       })
+      const verifying =
+        integration.server_type === "stdio" && integration.state !== "connected"
+      if (verifying) {
+        markStdioMcpVerificationStarted(
+          queryClient,
+          workspaceId,
+          integration.id
+        )
+      }
       toast({
-        title: "MCP integration created",
-        description: `Added ${integration.name}`,
+        title: verifying
+          ? "MCP integration verification started"
+          : "MCP integration created",
+        description: verifying
+          ? `Added ${integration.name}; tools will appear after verification succeeds.`
+          : `Added ${integration.name}`,
       })
     },
     onError: (error: TracecatApiError) => {
@@ -4601,18 +5031,41 @@ export function useCreateMcpIntegration(workspaceId: string) {
   }
 }
 
-export function useListMcpIntegrations(workspaceId: string) {
+/**
+ * List MCP integrations for a workspace.
+ *
+ * Pass `source` to restrict results to either platform-managed rows
+ * (auto-created by an MCP OAuth provider) or workspace-authored rows. Omit
+ * `source` to get every row, which is what agent presets and runtime
+ * resolution need to look up an MCP integration by ID.
+ */
+export function useListMcpIntegrations(
+  workspaceId: string,
+  source?: McpIntegrationsListMcpIntegrationsData["source"],
+  options?: { enabled?: boolean }
+) {
+  const enabled = Boolean(workspaceId) && (options?.enabled ?? true)
   const {
     data: mcpIntegrations,
     isLoading: mcpIntegrationsIsLoading,
     error: mcpIntegrationsError,
   } = useQuery<MCPIntegrationRead[], TracecatApiError>({
-    queryKey: ["mcp-integrations", workspaceId],
+    queryKey: ["mcp-integrations", workspaceId, source],
     queryFn: async () =>
-      await mcpIntegrationsListMcpIntegrations({ workspaceId }),
-    enabled: Boolean(workspaceId),
+      await mcpIntegrationsListMcpIntegrations({ workspaceId, source }),
+    enabled,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+  })
+
+  // When the list query is disabled, React Query still returns cached data, so
+  // gate verification polling on the same enabled flag to avoid polling and
+  // failure toasts on surfaces that opted out of MCP.
+  useStdioMcpVerificationStatus({
+    workspaceId,
+    pendingIntegrationIds: enabled
+      ? getPendingStdioMcpVerificationIds(mcpIntegrations)
+      : [],
   })
 
   return {
@@ -4640,6 +5093,13 @@ export function useGetMcpIntegration(
     enabled: Boolean(workspaceId && mcpIntegrationId),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+  })
+
+  useStdioMcpVerificationStatus({
+    workspaceId,
+    pendingIntegrationIds: getPendingStdioMcpVerificationIds(
+      mcpIntegration ? [mcpIntegration] : undefined
+    ),
   })
 
   return {
@@ -4696,6 +5156,212 @@ export function useUpdateMcpIntegration(workspaceId: string) {
     updateMcpIntegration,
     updateMcpIntegrationIsPending,
     updateMcpIntegrationError,
+  }
+}
+
+export function useUpdateMcpIntegrationToolPolicies(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: updateMcpIntegrationToolPolicies,
+    isPending: updateMcpIntegrationToolPoliciesIsPending,
+    error: updateMcpIntegrationToolPoliciesError,
+  } = useMutation({
+    mutationKey: ["update-mcp-integration-tool-policies", workspaceId],
+    mutationFn: async ({
+      mcpIntegrationId,
+      tools,
+    }: {
+      mcpIntegrationId: string
+      tools: MCPToolPolicyUpdate[]
+    }) => {
+      return await mcpIntegrationsUpdateMcpIntegrationToolPolicies({
+        workspaceId,
+        mcpIntegrationId,
+        requestBody: { tools },
+      })
+    },
+    // Optimistically patch the cached integration so policy switches flip
+    // immediately instead of waiting for the round-trip and refetch.
+    onMutate: async ({ mcpIntegrationId, tools }) => {
+      const queryKey = ["mcp-integration", workspaceId, mcpIntegrationId]
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<MCPIntegrationRead>(queryKey)
+      if (previous?.tools) {
+        const patches = new Map(tools.map((tool) => [tool.name, tool]))
+        queryClient.setQueryData<MCPIntegrationRead>(queryKey, {
+          ...previous,
+          tools: previous.tools.map((tool) => {
+            const patch = patches.get(tool.name)
+            if (!patch) {
+              return tool
+            }
+            return {
+              ...tool,
+              enabled: patch.enabled ?? tool.enabled,
+              requires_approval:
+                patch.requires_approval ?? tool.requires_approval,
+            }
+          }),
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to update MCP tool policy:", error)
+      toast({
+        title: "Failed to update tool policy",
+        description: `${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+    // Reconcile against the server once toggles settle instead of restoring a
+    // per-mutation snapshot. Toggles run concurrently (no disable-all gating),
+    // so restoring a stale snapshot on error would clobber a sibling toggle
+    // that already succeeded. Refetching re-syncs to server truth — a failed
+    // tool reverts, succeeded siblings stay. Only invalidate once this is the
+    // last in-flight toggle (isMutating counts the current one as 1), so a
+    // refetch can't overwrite siblings' still-pending optimistic patches.
+    onSettled: (_data, _error, { mcpIntegrationId }) => {
+      const stillInFlight = queryClient.isMutating({
+        mutationKey: ["update-mcp-integration-tool-policies", workspaceId],
+      })
+      if (stillInFlight > 1) {
+        return
+      }
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integration", workspaceId, mcpIntegrationId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+    },
+  })
+
+  return {
+    updateMcpIntegrationToolPolicies,
+    updateMcpIntegrationToolPoliciesIsPending,
+    updateMcpIntegrationToolPoliciesError,
+  }
+}
+
+/**
+ * Test connectivity to an HTTP MCP integration config.
+ *
+ * This hits the HTTP config-test endpoint and never persists discovered tools.
+ * Stdio tests use {@link useTestMcpIntegrationConnection} because they must run
+ * against saved integration rows.
+ */
+export function useTestMcpConnectionConfig(workspaceId: string) {
+  const {
+    mutateAsync: testMcpConnectionConfig,
+    isPending: testMcpConnectionConfigIsPending,
+    error: testMcpConnectionConfigError,
+  } = useMutation({
+    mutationFn: async (params: MCPIntegrationTestConnectionRequest) => {
+      return await mcpIntegrationsTestMcpConnectionConfig({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: (result) => {
+      if (result.success) {
+        const toolCount = result.tools?.length ?? 0
+        toast({
+          title: "Connection verified",
+          description: `${toolCount} ${toolCount === 1 ? "tool" : "tools"} available`,
+        })
+      } else {
+        toast({
+          title: "Connection failed",
+          description: sanitizeUrlsInText(result.error || result.message),
+          variant: "destructive",
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      // The server URI is caller-controlled and may carry credentials in its
+      // userinfo/query; strip those from any URLs before logging or surfacing.
+      const detail = sanitizeUrlsInText(
+        getApiErrorDetail(error) ?? error.message
+      )
+      console.error("Failed to test MCP connection:", detail)
+      toast({
+        title: "Test failed",
+        description: `Could not test connection: ${detail}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    testMcpConnectionConfig,
+    testMcpConnectionConfigIsPending,
+    testMcpConnectionConfigError,
+  }
+}
+
+/**
+ * Test connectivity to a saved MCP integration and persist its tool listing.
+ *
+ * Unlike {@link useTestMcpConnectionConfig} (which hits the HTTP config-test
+ * endpoint and never persists), this calls the integration-scoped endpoint
+ * that refreshes and stores the discovered tools. On success it invalidates the
+ * integration query so the Tools list reflects the new verification result.
+ */
+export function useTestMcpIntegrationConnection(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: testMcpIntegrationConnection,
+    isPending: testMcpIntegrationConnectionIsPending,
+    error: testMcpIntegrationConnectionError,
+  } = useMutation({
+    mutationFn: async (mcpIntegrationId: string) => {
+      return await mcpIntegrationsTestMcpIntegrationConnection({
+        workspaceId,
+        mcpIntegrationId,
+      })
+    },
+    onSuccess: (result, mcpIntegrationId) => {
+      // Tools are refreshed on success and preserved on failure, so refresh the
+      // integration regardless of outcome.
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integration", workspaceId, mcpIntegrationId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+      if (result.success) {
+        const toolCount = result.tools?.length ?? 0
+        toast({
+          title: "Connection verified",
+          description: `${toolCount} ${toolCount === 1 ? "tool" : "tools"} available`,
+        })
+      } else {
+        toast({
+          title: "Connection failed",
+          description: sanitizeUrlsInText(result.error || result.message),
+          variant: "destructive",
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      const detail = sanitizeUrlsInText(
+        getApiErrorDetail(error) ?? error.message
+      )
+      console.error("Failed to test MCP connection:", detail)
+      toast({
+        title: "Test failed",
+        description: `Could not test connection: ${detail}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    testMcpIntegrationConnection,
+    testMcpIntegrationConnectionIsPending,
+    testMcpIntegrationConnectionError,
   }
 }
 
@@ -5077,37 +5743,158 @@ export function useAgentSessions(
   }
 }
 
-export function useAgentModels() {
+const AGENT_MODEL_PAGE_SIZE = 100
+
+async function fetchAllProvidersPaginated(): Promise<
+  AgentCustomProviderRead[]
+> {
+  const items: AgentCustomProviderRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await listCustomProviders({
+      cursor,
+      limit: AGENT_MODEL_PAGE_SIZE,
+    })
+    items.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return items
+}
+
+async function fetchAllWorkspaceAgentModels(
+  workspaceId: string
+): Promise<AgentCatalogRead[]> {
+  // The workspace-models endpoint returns the full effective set (no
+  // pagination); org enablement caps the list naturally.
+  const response = await getWorkspaceModels({ workspaceId })
+  return response.items
+}
+
+async function fetchAllOrgCatalogEntries(): Promise<AgentCatalogRead[]> {
+  const items: AgentCatalogRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await listCatalog({
+      cursor,
+      limit: AGENT_MODEL_PAGE_SIZE,
+    })
+    items.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return items
+}
+
+async function fetchAllOrgEnabledAccessRows(): Promise<AgentModelAccessRead[]> {
+  const items: AgentModelAccessRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await listEnabledModels({
+      cursor,
+      limit: AGENT_MODEL_PAGE_SIZE,
+    })
+    items.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return items
+}
+
+/**
+ * Fetch the AI models that are enabled for the given workspace via
+ * AgentModelAccess. Use this anywhere a workspace-scoped picker should
+ * only show models the workspace is allowed to use.
+ */
+export function useWorkspaceAgentModels(
+  workspaceId: string | null | undefined
+) {
+  const enabled = Boolean(workspaceId)
+
   const {
     data: models,
     isLoading: modelsLoading,
     error: modelsError,
-  } = useQuery<AgentListModelsResponse, ApiError>({
-    queryKey: ["agent-models"],
-    queryFn: async () => await agentListModels(),
+  } = useQuery<AgentCatalogRead[], ApiError>({
+    queryKey: ["workspace", workspaceId, "agent-models"],
+    queryFn: async () => fetchAllWorkspaceAgentModels(workspaceId as string),
+    enabled,
+    retry: retryHandler,
+  })
+
+  const {
+    data: providers,
+    isLoading: providersLoading,
+    error: providersError,
+  } = useQuery<AgentCustomProviderRead[], ApiError>({
+    queryKey: ["organization", "agent-providers"],
+    queryFn: fetchAllProvidersPaginated,
+    enabled,
+    retry: retryHandler,
   })
 
   return {
     models,
-    modelsLoading,
-    modelsError,
+    providers,
+    modelsLoading: modelsLoading || providersLoading,
+    modelsError: modelsError ?? providersError,
   }
 }
 
-export function useModelProviders() {
+/**
+ * Fetch the AI models that are enabled at the organization level (i.e.
+ * AgentModelAccess rows with workspace_id === null), joined against the
+ * full catalog. Use this for org-wide pickers like the default model
+ * setting.
+ */
+export function useOrgAgentModels() {
   const {
-    data: providers,
-    isLoading,
-    error,
-  } = useQuery<AgentListProvidersResponse>({
-    queryKey: ["agent-providers"],
-    queryFn: async () => await agentListProviders(),
+    data: catalogEntries,
+    isLoading: catalogLoading,
+    error: catalogError,
+  } = useQuery<AgentCatalogRead[], ApiError>({
+    queryKey: ["organization", "agent-catalog"],
+    queryFn: fetchAllOrgCatalogEntries,
+    retry: retryHandler,
   })
 
+  const {
+    data: accessRows,
+    isLoading: accessLoading,
+    error: accessError,
+  } = useQuery<AgentModelAccessRead[], ApiError>({
+    queryKey: ["organization", "agent-model-access"],
+    queryFn: fetchAllOrgEnabledAccessRows,
+    retry: retryHandler,
+  })
+
+  const {
+    data: providers,
+    isLoading: providersLoading,
+    error: providersError,
+  } = useQuery<AgentCustomProviderRead[], ApiError>({
+    queryKey: ["organization", "agent-providers"],
+    queryFn: fetchAllProvidersPaginated,
+    retry: retryHandler,
+  })
+
+  const orgEnabledCatalogIds = new Set(
+    (accessRows ?? [])
+      .filter((row) => row.workspace_id === null)
+      .map((row) => row.catalog_id)
+  )
+  const models = (catalogEntries ?? []).filter((entry) =>
+    orgEnabledCatalogIds.has(entry.id)
+  )
+
   return {
+    models,
     providers,
-    isLoading,
-    error,
+    modelsLoading: catalogLoading || accessLoading || providersLoading,
+    modelsError: catalogError ?? accessError ?? providersError,
   }
 }
 
@@ -5130,30 +5917,9 @@ export function useModelProvidersStatus() {
   }
 }
 
-export function useWorkspaceModelProvidersStatus(workspaceId: string) {
-  const {
-    data: providersStatus,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery<AgentGetWorkspaceProvidersStatusResponse>({
-    queryKey: ["workspace-agent-providers-status", workspaceId],
-    queryFn: async () =>
-      await agentGetWorkspaceProvidersStatus({ workspaceId }),
-  })
-
-  return {
-    providersStatus,
-    isLoading,
-    error,
-    refetch,
-  }
-}
-
 export function useAgentDefaultModel() {
   const queryClient = useQueryClient()
 
-  // Get default model
   const {
     data: defaultModel,
     isLoading: defaultModelLoading,
@@ -5163,24 +5929,36 @@ export function useAgentDefaultModel() {
     queryFn: async () => await agentGetDefaultModel(),
   })
 
-  // Update default model
+  const {
+    data: defaultModelSelection,
+    isLoading: defaultModelSelectionLoading,
+  } = useQuery<DefaultModelSelection | null>({
+    queryKey: ["agent-default-model-selection"],
+    queryFn: async () => await agentGetDefaultModelSelection(),
+  })
+
   const {
     mutateAsync: updateDefaultModel,
     isPending: isUpdating,
     error: updateError,
   } = useMutation({
-    mutationFn: async (modelName: string) =>
+    mutationFn: async (catalogId: string) =>
       await agentSetDefaultModel({
-        modelName,
+        requestBody: { catalog_id: catalogId },
       }),
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agent-default-model"] })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-default-model-selection"],
+      })
     },
   })
 
   return {
     defaultModel,
-    defaultModelLoading,
+    defaultModelSelection,
+    defaultModelLoading: defaultModelLoading || defaultModelSelectionLoading,
     defaultModelError,
     updateDefaultModel,
     isUpdating,
@@ -5309,6 +6087,7 @@ export function useDeleteProviderCredentials() {
         queryKey: ["agent-providers-status"],
       })
     },
+    onError: toastMutationError("deleting the provider credentials"),
   })
 
   return {
@@ -5322,8 +6101,12 @@ export function useDeleteProviderCredentials() {
  * Are we ready to chat?
  * Returns { ready, reason, modelInfo }
  *  ready   – boolean
- *  reason  – "no_model" | "no_credentials" | null
+ *  reason  – "no_model" | null
  *  modelInfo – model info (if any)
+ *
+ * Catalog entries are server-validated, so the frontend does not gate on
+ * provider credentials. Runtime invocation errors surface through the normal
+ * send-error path.
  */
 
 interface ChatReadinessOptions {
@@ -5335,13 +6118,12 @@ interface ChatReadinessOptions {
 }
 
 export function useChatReadiness(options?: ChatReadinessOptions) {
-  const { defaultModel, defaultModelLoading } = useAgentDefaultModel()
-  const { models, modelsLoading } = useAgentModels()
-  const { providersStatus, isLoading: statusLoading } =
-    useModelProvidersStatus()
+  const { defaultModel, defaultModelSelection, defaultModelLoading } =
+    useAgentDefaultModel()
+  const { models, providers, modelsLoading } = useOrgAgentModels()
   const modelOverride = options?.modelOverride
 
-  const loading = defaultModelLoading || modelsLoading || statusLoading
+  const loading = defaultModelLoading || modelsLoading
 
   if (loading) {
     return {
@@ -5356,16 +6138,6 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
       provider: modelOverride.provider,
       baseUrl: modelOverride.baseUrl ?? null,
     }
-    const hasOverrideCreds = providersStatus?.[modelOverride.provider] ?? false
-    if (!hasOverrideCreds) {
-      return {
-        ready: false,
-        loading: false,
-        reason: "no_credentials",
-        modelInfo,
-      }
-    }
-
     return {
       ready: true,
       loading: false,
@@ -5374,7 +6146,7 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
   }
 
   /* no default model set */
-  if (!defaultModel) {
+  if (!defaultModelSelection && !defaultModel) {
     return {
       ready: false,
       loading: false,
@@ -5382,8 +6154,11 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
     }
   }
 
-  /* unknown model name → treat as no model */
-  const modelCfg = models?.[defaultModel]
+  /* unknown model selection -> treat as no model */
+  const modelCfg = defaultModelSelection
+    ? (models?.find((model) => model.id === defaultModelSelection.catalog_id) ??
+      null)
+    : (models?.find((model) => model.model_name === defaultModel) ?? null)
   if (!modelCfg) {
     return {
       ready: false,
@@ -5392,23 +6167,14 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
     }
   }
 
-  /* check provider creds */
-  const providerId = modelCfg.provider
-  const hasCreds = providersStatus?.[providerId] ?? false
+  const baseUrl =
+    providers?.find((provider) => provider.id === modelCfg.custom_provider_id)
+      ?.base_url ?? null
   const modelInfo: ModelInfo = {
-    name: defaultModel,
-    provider: providerId,
-    baseUrl: null,
+    name: modelCfg.model_name,
+    provider: modelCfg.model_provider,
+    baseUrl,
   }
-  if (!hasCreds) {
-    return {
-      ready: false,
-      loading: false,
-      reason: "no_credentials",
-      modelInfo,
-    }
-  }
-
   return {
     ready: true,
     loading: false,
@@ -5586,7 +6352,12 @@ export function useWorkspaceSettings(
  * When `workspaceId` is provided, workspace-specific role assignments are
  * included in effective scope computation.
  */
-export function useUserScopes(workspaceId?: string) {
+export function useUserScopes(
+  workspaceId?: string,
+  options?: {
+    enabled?: boolean
+  }
+) {
   const {
     data: userScopes,
     isLoading,
@@ -5603,6 +6374,7 @@ export function useUserScopes(workspaceId?: string) {
       })
       return response.data
     },
+    enabled: options?.enabled ?? true,
   })
 
   return {
@@ -6417,6 +7189,14 @@ export function useRbacUserAssignments(options?: {
   const queryClient = useQueryClient()
   const enabled = options?.enabled ?? true
 
+  const invalidateAssignmentQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] }),
+      queryClient.invalidateQueries({ queryKey: ["user-scopes"] }),
+      queryClient.invalidateQueries({ queryKey: ["org-members"] }),
+    ])
+  }
+
   // List user assignments
   const {
     data: userAssignments,
@@ -6444,9 +7224,8 @@ export function useRbacUserAssignments(options?: {
   } = useMutation({
     mutationFn: async (params: UserRoleAssignmentCreate) =>
       await rbacCreateUserAssignment({ requestBody: params }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
-      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    onSuccess: async () => {
+      await invalidateAssignmentQueries()
       toast({
         title: "User assignment created",
         description: "Role assigned to user successfully.",
@@ -6504,9 +7283,8 @@ export function useRbacUserAssignments(options?: {
       ...params
     }: UserRoleAssignmentUpdate & { assignmentId: string }) =>
       await rbacUpdateUserAssignment({ assignmentId, requestBody: params }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
-      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    onSuccess: async () => {
+      await invalidateAssignmentQueries()
       toast({
         title: "User assignment updated",
         description: "User assignment updated successfully.",
@@ -6547,9 +7325,8 @@ export function useRbacUserAssignments(options?: {
   } = useMutation({
     mutationFn: async (assignmentId: string) =>
       await rbacDeleteUserAssignment({ assignmentId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
-      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    onSuccess: async () => {
+      await invalidateAssignmentQueries()
       toast({
         title: "User assignment deleted",
         description: "User assignment removed successfully.",
@@ -6607,6 +7384,7 @@ export function useCaseDropdownDefinitions(
   const {
     data: dropdownDefinitions,
     isLoading: dropdownDefinitionsIsLoading,
+    isFetching: dropdownDefinitionsIsFetching,
     error: dropdownDefinitionsError,
   } = useQuery<CaseDropdownDefinitionRead[], Error>({
     queryKey: ["case-dropdown-definitions", workspaceId],
@@ -6671,6 +7449,7 @@ export function useCaseDropdownDefinitions(
   return {
     dropdownDefinitions,
     dropdownDefinitionsIsLoading,
+    dropdownDefinitionsIsFetching,
     dropdownDefinitionsError,
     createDropdownDefinition,
     deleteDropdownDefinition,

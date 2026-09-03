@@ -7,6 +7,8 @@ import type { CaseRead, CaseUpdate } from "@/client"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
 import { Button } from "@/components/tiptap-ui-primitive/button"
 import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
+import { cn } from "@/lib/utils"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const descriptionFormSchema = z.object({
   description: z.string().optional(),
@@ -16,13 +18,16 @@ type DescriptionFormSchema = z.infer<typeof descriptionFormSchema>
 interface CasePanelDescriptionProps {
   caseData: CaseRead
   updateCase: (caseData: CaseUpdate) => Promise<void>
+  compact?: boolean
 }
 
 export function CasePanelDescription({
   caseData,
   updateCase,
+  compact = false,
 }: CasePanelDescriptionProps) {
   const [isMacPlatform, setIsMacPlatform] = useState(false)
+  const workspaceId = useWorkspaceId()
 
   const form = useForm<DescriptionFormSchema>({
     resolver: zodResolver(descriptionFormSchema),
@@ -156,13 +161,19 @@ export function CasePanelDescription({
               <FormItem className="relative">
                 <FormControl>
                   <CaseDescriptionEditor
-                    className="min-h-[250px]"
+                    className={cn(
+                      "case-description-editor--panel",
+                      compact
+                        ? "case-description-editor--compact min-h-[160px]"
+                        : "case-description-editor--page min-h-[250px]"
+                    )}
                     initialContent={caseData.description}
                     onChange={(content) => {
                       field.onChange(content)
                     }}
                     onBlur={handleBlur}
                     toolbarStatus={toolbarStatus}
+                    imageTarget={{ caseId: caseData.id, workspaceId }}
                   />
                 </FormControl>
               </FormItem>

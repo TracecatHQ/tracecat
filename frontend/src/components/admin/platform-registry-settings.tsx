@@ -17,18 +17,12 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useAdminRegistrySettings } from "@/hooks/use-admin"
-
-// Matches backend GIT_SSH_URL_REGEX pattern
-const GIT_SSH_URL_REGEX =
-  /^git\+ssh:\/\/git@[^/:]+(?::\d+)?\/[^/@]+?(?:\/[^/@]+?)+?(?:\.git)?(?:@[^/@]+)?$/
+import { validateGitSshUrl } from "@/lib/git"
 
 const formSchema = z.object({
   git_repo_url: z
     .string()
-    .refine((val) => val === "" || GIT_SSH_URL_REGEX.test(val), {
-      message:
-        "Must be a Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)",
-    })
+    .superRefine((val, ctx) => validateGitSshUrl(val || null, ctx))
     .optional()
     .nullable()
     .or(z.literal("")),
@@ -102,7 +96,7 @@ export function PlatformRegistrySettings() {
               <FormLabel>Git repository URL</FormLabel>
               <FormControl>
                 <Input
-                  placeholder="git+ssh://git@github.com/org/repo.git"
+                  placeholder="git+ssh://someuser@git.example.com/org/repo.git"
                   {...field}
                   value={field.value ?? ""}
                 />

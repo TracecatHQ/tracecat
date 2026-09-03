@@ -1,0 +1,53 @@
+type: action
+definition:
+  title: List issue comments
+  description: 'List issue comments. Calls GET /repos/{owner}/{repo}/issues/{issue_number}/comments directly. Accepted OAuth scopes: repo (default; omit only for public repository data).'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: list_issue_comments
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    owner:
+      type: str
+      description: GitHub API path value for owner.
+    repo:
+      type: str
+      description: GitHub API path value for repo.
+    issue_number:
+      type: int
+      description: GitHub API path value for issue_number.
+    since:
+      type: str | None
+      description: 'Only show results that were last updated after the given time. This is a timestamp in [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) format: `YYYY-MM-DDTHH:MM:SSZ`.'
+      default: null
+    per_page:
+      type: int | None
+      description: The number of results per page (max 100).
+      default: null
+    page:
+      type: int | None
+      description: The page number of the results to fetch.
+      default: null
+    base_url:
+      type: str
+      description: GitHub.com REST API base URL.
+      default: https://api.github.com
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode(inputs.owner) }}/${{ FN.url_encode(inputs.repo) }}/issues/${{ FN.url_encode(inputs.issue_number) }}/comments
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      params:
+        since: ${{ inputs.since }}
+        per_page: ${{ inputs.per_page }}
+        page: ${{ inputs.page }}
+  returns: ${{ steps.request.result }}

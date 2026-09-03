@@ -11,10 +11,10 @@ import json
 import logging
 import os
 import shutil
-import subprocess
+import sys
 import tempfile
 import time
-from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -31,15 +31,134 @@ from tracecat.sandbox.exceptions import (
     SandboxTimeoutError,
 )
 from tracecat.sandbox.types import SandboxResult
+from tracecat.sandbox.utils import (
+    communicate_process_group,
+    pid_namespace_available,
+    pid_namespace_probe_error,
+    terminate_supervised_process,
+)
 
 module_logger = logging.getLogger(__name__)
 
 SAFE_WRAPPER_SCRIPT = '''
+import asyncio
+import dataclasses
+import datetime
+import decimal
+import enum
+import importlib
 import inspect
 import json
+import os
 import sys
 import traceback
+import uuid
 from pathlib import Path
+
+def _install_action_gateway_sdk_transport():
+    socket_path = os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET")
+    if not socket_path:
+        return
+
+    try:
+        import httpx
+
+        sdk_client = importlib.import_module("tracecat_registry.sdk.client")
+    except ImportError:
+        return
+
+    tracecat_client_cls = getattr(sdk_client, "TracecatClient", None)
+    if tracecat_client_cls is None:
+        return
+
+    if hasattr(tracecat_client_cls, "_request_url_and_transport"):
+        return
+
+    if getattr(tracecat_client_cls, "_tracecat_action_gateway_transport", False):
+        return
+
+    async def request(
+        self,
+        method,
+        path,
+        *,
+        params=None,
+        json=None,
+        headers=None,
+    ):
+        request_headers = self._get_headers()
+        if headers:
+            request_headers.update(headers)
+
+        async with httpx.AsyncClient(
+            transport=httpx.AsyncHTTPTransport(uds=socket_path),
+            timeout=getattr(self, "_timeout", 120.0),
+        ) as client:
+            response = await client.request(
+                method,
+                "http://tracecat-action-gateway/internal" + path,
+                params=params,
+                json=json,
+                headers=request_headers,
+            )
+
+        if not response.is_success:
+            self._handle_error_response(response)
+
+        if not response.content:
+            return None
+
+        return response.json()
+
+    tracecat_client_cls.request = request
+    tracecat_client_cls._tracecat_action_gateway_transport = True
+
+def _init_tracecat_context():
+    _install_action_gateway_sdk_transport()
+    try:
+        from tracecat_registry.context import init_context_from_env
+    except ImportError:
+        return
+    try:
+        init_context_from_env()
+    except ValueError:
+        return
+
+def _resolve_output(value):
+    if not inspect.isawaitable(value):
+        return value
+
+    async def await_value():
+        return await value
+
+    return asyncio.run(await_value())
+
+def to_json_safe(value):
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, set | frozenset):
+        try:
+            return sorted(value)
+        except TypeError:
+            return sorted(value, key=repr)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        try:
+            return dataclasses.asdict(value)
+        except RecursionError as e:
+            raise TypeError("Recursive dataclass values are not JSON-serializable") from e
+    if isinstance(value, datetime.datetime | datetime.date | datetime.time):
+        return value.isoformat()
+    if isinstance(value, datetime.timedelta):
+        return value.total_seconds()
+    if isinstance(value, decimal.Decimal):
+        return str(value)
+    if isinstance(value, enum.Enum):
+        return to_json_safe(value.value)
+    if isinstance(value, uuid.UUID | Path):
+        return str(value)
+    if isinstance(value, bytes | bytearray):
+        return value.decode("utf-8", errors="replace")
+    return repr(value)
 
 def main():
     """Execute user script and capture results."""
@@ -72,6 +191,7 @@ def main():
         # Read and execute the user script
         script_path = Path(work_dir) / "script.py"
         script_code = script_path.read_text()
+        _init_tracecat_context()
         script_globals = {{"__name__": "__main__", "__file__": str(script_path)}}
         exec(script_code, script_globals)
 
@@ -88,9 +208,10 @@ def main():
 
         # Call the function with inputs
         if inputs:
-            output = main_func(**inputs)
+            call = main_func(**inputs)
         else:
-            output = main_func()
+            call = main_func()
+        output = _resolve_output(call)
 
         result["success"] = True
         result["output"] = output
@@ -108,23 +229,26 @@ def main():
     # Write result to file
     result_path = Path(work_dir) / "result.json"
     try:
-        result_path.write_text(json.dumps(result))
-    except (TypeError, ValueError):
-        # Output not JSON-serializable, convert to repr
+        result_path.write_text(json.dumps(result, default=to_json_safe))
+    except (TypeError, ValueError, RecursionError) as e:
         result["output"] = repr(result["output"])
-        try:
-            result_path.write_text(json.dumps(result))
-        except Exception as e:
-            result["output"] = None
-            result["error"] = f"Output not JSON-serializable: {{type(e).__name__}}: {{e}}"
-            result["success"] = False
-            result_path.write_text(json.dumps(result))
+        result["error"] = f"Output not JSON-serializable: {{type(e).__name__}}: {{e}}"
+        result["success"] = False
+        result_path.write_text(json.dumps(result))
 
     sys.exit(0 if result["success"] else 1)
 
 if __name__ == "__main__":
     main()
 '''
+
+
+@dataclass(frozen=True, slots=True)
+class _ExecutionCommand:
+    """Command metadata for one unsafe executor subprocess."""
+
+    argv: list[str]
+    supervised: bool
 
 
 class UnsafePidExecutor:
@@ -137,8 +261,6 @@ class UnsafePidExecutor:
         self.cache_dir = Path(cache_dir)
         self.package_cache = self.cache_dir / "unsafe-pid-packages"
         self.uv_cache = self.cache_dir / "uv-cache"
-        self._pid_namespace_available: bool | None = None
-        self._pid_namespace_probe_error: str | None = None
         self._pid_isolation_warning_emitted = False
         self._network_isolation_warning_emitted = False
 
@@ -157,57 +279,66 @@ class UnsafePidExecutor:
             hash_input = "\n".join(normalized)
         return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
 
-    async def _is_pid_namespace_available(self) -> bool:
-        if self._pid_namespace_available is not None:
-            return self._pid_namespace_available
+    @staticmethod
+    def _venv_site_packages(venv_path: Path) -> Path | None:
+        for candidate in sorted((venv_path / "lib").glob("python*/site-packages")):
+            if candidate.exists():
+                return candidate
+        return None
 
-        if shutil.which("unshare") is None:
-            self._pid_namespace_probe_error = "unshare binary not found"
-            self._pid_namespace_available = False
-            return False
+    def _with_venv_site_packages_pythonpath(
+        self,
+        env_vars: dict[str, str] | None,
+        venv_path: Path,
+    ) -> dict[str, str]:
+        merged = dict(env_vars or {})
+        site_packages = self._venv_site_packages(venv_path)
+        if site_packages is None:
+            return merged
 
-        probe: asyncio.subprocess.Process | None = None
-        try:
-            probe = await asyncio.create_subprocess_exec(
-                "unshare",
-                "--pid",
-                "--fork",
-                "--kill-child",
-                "true",
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            await asyncio.wait_for(probe.wait(), timeout=2)
-            self._pid_namespace_available = probe.returncode == 0
-            if not self._pid_namespace_available:
-                self._pid_namespace_probe_error = (
-                    f"unshare probe exited with status {probe.returncode}"
-                )
-        except TimeoutError:
-            if probe is not None:
-                with suppress(ProcessLookupError):
-                    probe.kill()
-                await probe.wait()
-            self._pid_namespace_probe_error = "unshare probe timed out"
-            self._pid_namespace_available = False
-        except Exception as e:
-            self._pid_namespace_probe_error = f"unshare probe failed: {e}"
-            self._pid_namespace_available = False
-        return self._pid_namespace_available
+        pythonpath_parts = [str(site_packages)]
+        if existing_pythonpath := merged.get("PYTHONPATH"):
+            pythonpath_parts.append(existing_pythonpath)
+        merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+        return merged
+
+    def _with_python_paths(
+        self,
+        env_vars: dict[str, str] | None,
+        python_path_dirs: list[Path],
+    ) -> dict[str, str]:
+        merged = dict(env_vars or {})
+        pythonpath_parts = [str(path) for path in python_path_dirs if path.exists()]
+        if not pythonpath_parts:
+            return merged
+        if existing_pythonpath := merged.get("PYTHONPATH"):
+            pythonpath_parts.append(existing_pythonpath)
+        merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+        return merged
 
     async def _build_execution_cmd(
         self, python_path: str, wrapper_path: Path
-    ) -> list[str]:
+    ) -> _ExecutionCommand:
         base_cmd = [python_path, str(wrapper_path)]
-        if await self._is_pid_namespace_available():
-            return ["unshare", "--pid", "--fork", "--kill-child", *base_cmd]
+        if await pid_namespace_available():
+            return _ExecutionCommand(
+                argv=["unshare", "--pid", "--fork", "--kill-child", *base_cmd],
+                supervised=False,
+            )
 
         if not self._pid_isolation_warning_emitted:
             message = "PID namespace isolation unavailable; running script without PID isolation"
-            logger.warning(message, reason=self._pid_namespace_probe_error)
+            logger.warning(message, reason=pid_namespace_probe_error())
             module_logger.warning(message)
             self._pid_isolation_warning_emitted = True
-        return base_cmd
+
+        supervisor_path = (
+            Path(__file__).resolve().parents[1] / "executor" / "process_supervisor.py"
+        )
+        return _ExecutionCommand(
+            argv=[sys.executable, "-I", str(supervisor_path), *base_cmd],
+            supervised=True,
+        )
 
     async def _create_venv(self, venv_path: Path) -> None:
         create_cmd = ["uv", "venv", str(venv_path), "--python", "3.12"]
@@ -220,12 +351,11 @@ class UnsafePidExecutor:
                 "HOME": os.environ.get("HOME", "/tmp"),
                 "UV_CACHE_DIR": str(self.uv_cache),
             },
+            start_new_session=True,
         )
         try:
-            _, stderr = await asyncio.wait_for(process.communicate(), timeout=60)
+            _, stderr = await communicate_process_group(process, timeout=60)
         except TimeoutError as e:
-            process.kill()
-            await process.wait()
             raise PackageInstallError("Virtual environment creation timed out") from e
         if process.returncode != 0:
             raise PackageInstallError(
@@ -261,16 +391,15 @@ class UnsafePidExecutor:
                 "HOME": os.environ.get("HOME", "/tmp"),
                 "UV_CACHE_DIR": str(self.uv_cache),
             },
+            start_new_session=True,
         )
 
         try:
-            _, stderr = await asyncio.wait_for(
-                process.communicate(),
+            _, stderr = await communicate_process_group(
+                process,
                 timeout=timeout_seconds,
             )
         except TimeoutError as e:
-            process.kill()
-            await process.wait()
             raise PackageInstallError(
                 f"Package installation timed out after {timeout_seconds}s"
             ) from e
@@ -286,6 +415,7 @@ class UnsafePidExecutor:
         timeout_seconds: int | None = None,
         allow_network: bool = False,
         env_vars: dict[str, str] | None = None,
+        python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
     ) -> SandboxResult:
         if timeout_seconds is None:
@@ -302,6 +432,10 @@ class UnsafePidExecutor:
 
         try:
             python_path = shutil.which("python3") or "python3"
+            execution_env_vars = self._with_python_paths(
+                env_vars,
+                python_path_dirs or [],
+            )
             if dependencies:
                 cache_key = self._compute_cache_key(dependencies, workspace_id)
                 cached_venv = self.package_cache / cache_key
@@ -330,6 +464,10 @@ class UnsafePidExecutor:
                             shutil.rmtree(temp_venv, ignore_errors=True)
 
                 python_path = str(cached_venv / "bin" / "python")
+                execution_env_vars = self._with_venv_site_packages_pythonpath(
+                    execution_env_vars,
+                    cached_venv,
+                )
 
             (work_dir / "script.py").write_text(script)
             (work_dir / "inputs.json").write_text(json.dumps(inputs or {}))
@@ -344,29 +482,35 @@ class UnsafePidExecutor:
                 "LANG": "C.UTF-8",
                 "LC_ALL": "C.UTF-8",
             }
-            if env_vars:
-                exec_env.update(env_vars)
+            if execution_env_vars:
+                exec_env.update(execution_env_vars)
 
-            cmd = await self._build_execution_cmd(python_path, wrapper_path)
+            execution_command = await self._build_execution_cmd(
+                python_path,
+                wrapper_path,
+            )
             process = await asyncio.create_subprocess_exec(
-                *cmd,
+                *execution_command.argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(work_dir),
                 env=exec_env,
+                start_new_session=True,
             )
             try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    process.communicate(),
+                stdout_bytes, stderr_bytes = await communicate_process_group(
+                    process,
                     timeout=timeout_seconds,
+                    terminate=(
+                        terminate_supervised_process
+                        if execution_command.supervised
+                        else None
+                    ),
                 )
             except TimeoutError as e:
-                process.kill()
-                await process.wait()
                 raise SandboxTimeoutError(
                     f"Script execution timed out after {timeout_seconds}s"
                 ) from e
-
             execution_time_ms = (time.time() - start_time) * 1000
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")

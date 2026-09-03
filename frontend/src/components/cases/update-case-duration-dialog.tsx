@@ -4,15 +4,22 @@ import { useCallback, useMemo } from "react"
 import type {
   CaseDurationDefinitionRead,
   CaseDurationDefinitionUpdate,
+  CaseDurationEventAnchor,
+  CaseDurationEventFilters,
 } from "@/client"
 import {
-  buildFieldFilters,
+  buildDurationFilters,
   CaseDurationDialog,
   type CaseDurationFormValues,
   createEmptyCaseDurationFormValues,
-  getFilterFieldKey,
   normalizeFilterValues,
 } from "@/components/cases/case-duration-dialog"
+import {
+  isCaseDropdownEventType,
+  isCaseEventFilterType,
+  isCaseFieldEventType,
+  isCaseTagEventType,
+} from "@/components/cases/case-duration-options"
 
 interface UpdateCaseDurationDialogProps {
   open: boolean
@@ -25,6 +32,48 @@ interface UpdateCaseDurationDialogProps {
   isUpdating?: boolean
 }
 
+function extractAnchorFormValues(
+  anchor: CaseDurationDefinitionRead["start_anchor"]
+): CaseDurationFormValues["start"] {
+  const eventType = anchor.event_type
+
+  if (isCaseDropdownEventType(eventType)) {
+    const defId = anchor.filters?.dropdown_definition_id
+    const optionIds = normalizeFilterValues(anchor.filters?.dropdown_option_ids)
+    return {
+      selection: anchor.selection ?? "first",
+      eventType,
+      filterValues: [],
+      dropdownDefinitionId: typeof defId === "string" ? defId : undefined,
+      dropdownOptionIds: optionIds,
+    }
+  }
+
+  const filterValues = normalizeFilterValues(getAnchorFilterValues(anchor))
+  return {
+    selection: anchor.selection ?? "first",
+    eventType,
+    filterValues,
+    dropdownDefinitionId: undefined,
+    dropdownOptionIds: [],
+  }
+}
+
+function getAnchorFilterValues(
+  anchor: CaseDurationDefinitionRead["start_anchor"]
+): unknown {
+  if (isCaseEventFilterType(anchor.event_type)) {
+    return anchor.filters?.new_values
+  }
+  if (isCaseTagEventType(anchor.event_type)) {
+    return anchor.filters?.tag_refs
+  }
+  if (isCaseFieldEventType(anchor.event_type)) {
+    return anchor.filters?.field_ids
+  }
+  return undefined
+}
+
 const getInitialValues = (
   duration: CaseDurationDefinitionRead | null
 ): CaseDurationFormValues | undefined => {
@@ -32,31 +81,22 @@ const getInitialValues = (
     return undefined
   }
 
-  const startFieldKey = getFilterFieldKey(duration.start_anchor.event_type)
-  const endFieldKey = getFilterFieldKey(duration.end_anchor.event_type)
-
-  const startFilters = normalizeFilterValues(
-    startFieldKey
-      ? duration.start_anchor.field_filters?.[startFieldKey]
-      : undefined
-  )
-  const endFilters = normalizeFilterValues(
-    endFieldKey ? duration.end_anchor.field_filters?.[endFieldKey] : undefined
-  )
-
   return {
     name: duration.name,
     description: duration.description ?? "",
-    start: {
-      selection: duration.start_anchor.selection ?? "first",
-      eventType: duration.start_anchor.event_type,
-      filterValues: startFilters,
-    },
-    end: {
-      selection: duration.end_anchor.selection ?? "first",
-      eventType: duration.end_anchor.event_type,
-      filterValues: endFilters,
-    },
+    start: extractAnchorFormValues(duration.start_anchor),
+    end: extractAnchorFormValues(duration.end_anchor),
+  }
+}
+
+function buildAnchorPayload(
+  anchor: CaseDurationFormValues["start"],
+  filters?: CaseDurationEventFilters | null
+): CaseDurationEventAnchor {
+  return {
+    event_type: anchor.eventType,
+    selection: anchor.selection,
+    ...(filters ? { filters } : {}),
   }
 }
 
@@ -78,30 +118,22 @@ export function UpdateCaseDurationDialog({
         return
       }
 
-      const startFieldFilters = buildFieldFilters(
+      const startFilters = buildDurationFilters(
         values.start.eventType,
-        values.start.filterValues
+        values.start.filterValues,
+        values.start
       )
-      const endFieldFilters = buildFieldFilters(
+      const endFilters = buildDurationFilters(
         values.end.eventType,
-        values.end.filterValues
+        values.end.filterValues,
+        values.end
       )
 
       const payload: CaseDurationDefinitionUpdate = {
         name: values.name.trim(),
         description: values.description?.trim() || null,
-        start_anchor: {
-          event_type: values.start.eventType,
-          selection: values.start.selection,
-          timestamp_path: "created_at",
-          ...(startFieldFilters ? { field_filters: startFieldFilters } : {}),
-        },
-        end_anchor: {
-          event_type: values.end.eventType,
-          selection: values.end.selection,
-          timestamp_path: "created_at",
-          ...(endFieldFilters ? { field_filters: endFieldFilters } : {}),
-        },
+        start_anchor: buildAnchorPayload(values.start, startFilters),
+        end_anchor: buildAnchorPayload(values.end, endFilters),
       }
 
       try {

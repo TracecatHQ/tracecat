@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: List pipeline jobs
+  description: >-
+    List pipeline jobs. Calls GET /projects/{project_id}/pipelines/{pipeline_id}/jobs directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: list_pipeline_jobs
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    pipeline_id:
+      type: int
+      description: GitLab API path value for pipeline_id.
+    include_retried:
+      type: bool | None
+      description: Include retried jobs in the response. Defaults to `false`.
+      default: null
+    scope:
+      type: list[str] | None
+      description: "Scope of jobs to show, as one of the job status values: `created`, `waiting_for_resource`, `preparing`, `waiting_for_callback`, `pending`, `running`, `success`, `failed`, `canceling`, `canceled`, `skipped`, `manual`, or `scheduled`. All jobs are returned if `scope` is not provided."
+      default: null
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of items to list per page (default: `20`, max: `100`)."
+      default: null
+    base_url:
+      type: str
+      description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
+      default: https://gitlab.com/api/v4
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/pipelines/${{ FN.url_encode(inputs.pipeline_id) }}/jobs
+        method: GET
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Accept: application/json
+        params:
+          include_retried: ${{ inputs.include_retried }}
+          scope[]: ${{ inputs.scope }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+  returns: ${{ steps.request.result }}

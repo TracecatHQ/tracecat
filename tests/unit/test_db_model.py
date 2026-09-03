@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.db.models import (
     Action,
+    AgentSession,
     Case,
     Secret,
     Webhook,
@@ -157,6 +158,7 @@ class TestToDict:
         # Create a case with enum fields
         case = Case(
             workspace_id=svc_workspace.id,
+            case_number=1,
             summary="Test Case",
             description="Test description",
             priority=CasePriority.HIGH,
@@ -420,3 +422,22 @@ class TestToDict:
         # Null tags should be included
         assert "tags" in result
         assert result["tags"] is None
+
+
+@pytest.mark.anyio
+class TestAgentSessionArtifacts:
+    async def test_artifacts_list_mutation_marks_session_dirty(
+        self, session: AsyncSession, svc_workspace: Workspace
+    ) -> None:
+        agent_session = AgentSession(
+            workspace_id=svc_workspace.id,
+            entity_type="workflow",
+            entity_id=uuid.uuid4(),
+            artifacts=[],
+        )
+        session.add(agent_session)
+        await session.flush()
+
+        agent_session.artifacts.append({"id": "artifact-1", "name": "report.md"})
+
+        assert session.is_modified(agent_session, include_collections=True)

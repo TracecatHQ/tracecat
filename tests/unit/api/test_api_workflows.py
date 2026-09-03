@@ -1,7 +1,9 @@
 """HTTP-level tests for workflow management API endpoints."""
 
+import json
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -19,8 +21,15 @@ from tracecat.db.models import (
     WorkflowTag,
     Workspace,
 )
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.validation.schemas import (
+    ValidationDetail,
+    ValidationResult,
+    ValidationResultType,
+)
 from tracecat.workflow.management import router as workflow_management_router
+from tracecat.workflow.management.management import WorkflowPublishResult
 from tracecat.workflow.management.types import (
     WorkflowDefinitionMinimal,
     WorkflowTriggerSummaryMinimal,
@@ -128,6 +137,33 @@ async def test_list_workflows_success(
 
 
 @pytest.mark.anyio
+async def test_list_workflows_accepts_workspace_scoped_path(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test GET /workspaces/{workspace_id}/workflows resolves workspace context from the path."""
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
+    ) as MockService:
+        mock_svc = AsyncMock()
+        mock_response = CursorPaginatedResponse(
+            items=[(mock_workflow, None)],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        mock_svc.list_workflows.return_value = mock_response
+        MockService.return_value = mock_svc
+
+        response = client.get(f"/workspaces/{test_admin_role.workspace_id}/workflows")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["items"][0]["title"] == "Test Workflow"
+
+
+@pytest.mark.anyio
 async def test_list_workflows_with_pagination(
     client: TestClient,
     test_admin_role: Role,
@@ -213,6 +249,97 @@ async def test_list_workflows_with_tag_filter(
         data = response.json()
         assert len(data["items"]) == 1
         assert data["items"][0]["tags"][0]["name"] == "test-tag"
+
+
+@pytest.mark.anyio
+async def test_commit_workflow_builtin_registry_not_ready_returns_validation_failure(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Commit should return a validation-style failure while builtin sync is pending."""
+    # The build/validate/lock/commit orchestration lives in
+    # WorkflowsManagementService.publish_workflow; the commit route just renders
+    # its WorkflowPublishResult. Simulate the builtin-sync-pending failure.
+    failure = WorkflowPublishResult(
+        version=None,
+        errors=[
+            ValidationResult.new(
+                type=ValidationResultType.DSL,
+                status="error",
+                msg="Builtin registry sync is still in progress. Please retry shortly.",
+                detail=[
+                    ValidationDetail(
+                        type="registry.builtin_sync_pending",
+                        msg="Builtin registry sync is still in progress. Please retry shortly.",
+                        loc=("registry_lock",),
+                    )
+                ],
+            )
+        ],
+    )
+
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
+    ) as mock_mgmt_cls:
+        mock_mgmt = AsyncMock()
+        mock_mgmt.publish_workflow.return_value = failure
+        mock_mgmt_cls.return_value = mock_mgmt
+
+        response = client.post(
+            f"/workflows/{mock_workflow.id}/commit",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload["status"] == "failure"
+    assert payload["message"] == "1 validation error(s)"
+    assert len(payload["errors"]) == 1
+    error = payload["errors"][0]
+    assert error["type"] == "dsl"
+    assert "retry shortly" in error["msg"]
+    assert error["detail"][0]["type"] == "registry.builtin_sync_pending"
+
+
+@pytest.mark.anyio
+async def test_create_workflow_import_builtin_registry_not_ready_returns_validation_failure(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Workflow import should return a validation-style failure while builtin sync is pending."""
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
+    ) as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_workflow_from_external_definition.side_effect = (
+            BuiltinRegistryHasNoSelectionError(
+                "Builtin registry sync is still in progress. Please retry shortly.",
+                detail={"origin": "tracecat_registry"},
+            )
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/workflows",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            files={
+                "file": (
+                    "workflow.yaml",
+                    b"definition:\n  title: Imported workflow\n",
+                    "application/yaml",
+                )
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    payload = response.json()["detail"]
+    assert payload["status"] == "failure"
+    assert payload["message"] == "1 validation error(s)"
+    error = payload["errors"][0]
+    assert error["type"] == "dsl"
+    assert "retry shortly" in error["msg"]
+    assert error["detail"][0]["type"] == "registry.builtin_sync_pending"
 
 
 @pytest.mark.anyio
@@ -392,6 +519,91 @@ async def test_get_workflow_not_found(
 
 
 @pytest.mark.anyio
+async def test_export_workflow_includes_layout(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    mock_workflow.trigger_position_x = 12.0
+    mock_workflow.trigger_position_y = 24.0
+    mock_workflow.viewport_x = 30.0
+    mock_workflow.viewport_y = 40.0
+    mock_workflow.viewport_zoom = 1.5
+    mock_workflow.actions = [
+        Action(
+            id=uuid.uuid4(),
+            workflow_id=mock_workflow.id,
+            workspace_id=mock_workflow.workspace_id,
+            type="core.transform.reshape",
+            title="entrypoint_1",
+            description="",
+            status="offline",
+            inputs="{}",
+            control_flow={},
+            is_interactive=False,
+            interaction=None,
+            position_x=100.0,
+            position_y=200.0,
+            upstream_edges=[],
+        )
+    ]
+
+    with (
+        patch(
+            "tracecat.workflow.management.router.get_setting",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "tracecat.workflow.management.router.WorkflowDefinitionsService"
+        ) as MockDefinitionsService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_definition_by_workflow_id.return_value = SimpleNamespace(
+            workspace_id=mock_workflow.workspace_id,
+            workflow_id=mock_workflow.id,
+            created_at=datetime(2024, 1, 1, tzinfo=UTC),
+            updated_at=datetime(2024, 1, 1, tzinfo=UTC),
+            version=1,
+            content={
+                "title": "Test Workflow",
+                "description": "Test workflow description",
+                "entrypoint": {"expects": {}, "ref": None},
+                "actions": [
+                    {
+                        "ref": "entrypoint_1",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "ENTRYPOINT_1"},
+                    }
+                ],
+            },
+            workflow=mock_workflow,
+        )
+        MockDefinitionsService.return_value = mock_svc
+
+        response = client.get(
+            f"/workflows/{mock_workflow.id}/export",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "format": "json",
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = json.loads(response.text)
+    assert payload["layout"] == {
+        "trigger": {"x": 12.0, "y": 24.0},
+        "viewport": {"x": 30.0, "y": 40.0, "zoom": 1.5},
+        "actions": [
+            {
+                "ref": "entrypoint_1",
+                "x": 100.0,
+                "y": 200.0,
+            }
+        ],
+    }
+
+
+@pytest.mark.anyio
 async def test_update_workflow_success(
     client: TestClient,
     test_admin_role: Role,
@@ -481,6 +693,65 @@ async def test_update_workflow_duplicate_alias(
 
         # Should return 409 conflict
         assert response.status_code == status.HTTP_409_CONFLICT
+
+
+@pytest.mark.anyio
+async def test_restore_workflow_definition_duplicate_alias_returns_conflict(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test restore maps duplicate alias constraint violations to 409."""
+    with (
+        patch(
+            "tracecat.workflow.management.router.WorkflowsManagementService"
+        ) as MockManagementService,
+        patch(
+            "tracecat.workflow.management.router.WorkflowDefinitionsService"
+        ) as MockDefinitionsService,
+    ):
+        definition = SimpleNamespace(
+            workflow_id=mock_workflow.id,
+            version=1,
+        )
+        unique_error = AsyncpgUniqueViolationError("uq_workflow_alias_workspace_id")
+        integrity_error = IntegrityError("", {}, unique_error)
+        integrity_error.__cause__ = unique_error
+
+        mock_mgmt = AsyncMock()
+        mock_mgmt.get_workflow.return_value = mock_workflow
+        mock_mgmt.restore_workflow_definition.side_effect = integrity_error
+        MockManagementService.return_value = mock_mgmt
+
+        mock_definitions = AsyncMock()
+        mock_definitions.get_definition_by_workflow_id.return_value = definition
+        MockDefinitionsService.return_value = mock_definitions
+
+        response = client.post(
+            f"/workflows/{mock_workflow.id}/definitions/1/restore",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert (
+        response.json()["detail"]
+        == "Workflow alias must be unique within the workspace."
+    )
+
+
+@pytest.mark.anyio
+async def test_restore_workflow_definition_rejects_non_positive_version(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test restore rejects invalid definition versions before service lookup."""
+    response = client.post(
+        f"/workflows/{mock_workflow.id}/definitions/0/restore",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 @pytest.mark.anyio

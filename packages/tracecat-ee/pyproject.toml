@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling >= 1.27.0"]
+requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,7 +7,7 @@ name = "tracecat-ee"
 description = "Enterprise Edition features for Tracecat"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { file = "tracecat_ee/LICENSE.md" }
+license = { file = "LICENSE.md" }
 authors = [{ name = "Tracecat", email = "founders@tracecat.com" }]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -33,5 +33,11 @@ ee_impl = "tracecat_ee.store.git_sync:sync_repo_workflows"
 [project.entry-points."tracecat.workflows.git_store"]
 ee_impl = "tracecat_ee.store.git_store:GitWorkflowStore"
 
+[project.entry-points."tracecat.agent_artifact_provider"]
+workspace_chat = "tracecat_ee.agent.artifacts.mount_only_provider:build_provider"
+
 [tool.hatch.version]
 path = "tracecat_ee/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tracecat_ee"]

@@ -48,13 +48,31 @@ const createInsertTableRowSchema = (table: TableRead) => {
         break
       case "INTEGER":
         columnValidations[column.name] = z
-          .number()
-          .int(`${column.name} must be an integer`)
+          .string()
+          .trim()
+          .min(1, `${column.name} is required`)
+          .refine(
+            (val) => {
+              const n = Number(val)
+              return Number.isInteger(n)
+            },
+            { message: `${column.name} must be an integer` }
+          )
+          .transform((val) => Number(val))
         break
       case "NUMERIC":
         columnValidations[column.name] = z
-          .number()
-          .min(-Infinity, `${column.name} must be a number`)
+          .string()
+          .trim()
+          .min(1, `${column.name} is required`)
+          .refine(
+            (val) => {
+              const n = Number(val)
+              return Number.isFinite(n)
+            },
+            { message: `${column.name} must be a number` }
+          )
+          .transform((val) => Number(val))
         break
       case "BOOLEAN":
         // Accept string inputs and transform to boolean
@@ -169,6 +187,13 @@ export function TableInsertRowDialog({
     defaultValues: {},
   })
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      form.reset()
+    }
+    onOpenChange(nextOpen)
+  }
+
   const onSubmit = async (data: DynamicFormData) => {
     try {
       if (!tableId) {
@@ -182,8 +207,7 @@ export function TableInsertRowDialog({
         tableId,
         workspaceId,
       })
-      onOpenChange(false)
-      form.reset()
+      handleOpenChange(false)
     } catch (error) {
       console.error(error)
     }
@@ -194,7 +218,7 @@ export function TableInsertRowDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Add new row</DialogTitle>
@@ -223,7 +247,7 @@ export function TableInsertRowDialog({
                         <FormControl>
                           <DynamicInput column={column} field={field} />
                         </FormControl>
-                        <FormMessage />
+                        <FormMessage className="text-xs" />
                       </FormItem>
                     )}
                   />

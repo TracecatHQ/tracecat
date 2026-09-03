@@ -11,22 +11,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
+from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     Membership,
     Organization,
     OrganizationMembership,
+    RoleScope,
+    Scope,
     User,
     Workspace,
 )
 from tracecat.db.models import (
     Role as DBRole,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspaces.schemas import (
     WorkspaceInvitationCreate,
+    WorkspaceSearch,
     WorkspaceSettings,
     WorkspaceSettingsUpdate,
+    WorkspaceUpdate,
 )
 from tracecat.workspaces.service import WorkspaceService
 
@@ -94,6 +104,390 @@ class TestWorkspaceService:
         # Verify settings are preserved through validation
         assert workspace.settings is not None
 
+    async def test_delete_workspace_removes_memberships(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        """Deleting a workspace should cascade to membership rows."""
+        workspace = Workspace(
+            name="test-workspace",
+            organization_id=svc_organization.id,
+        )
+        other_workspace = Workspace(
+            name="other-workspace",
+            organization_id=svc_organization.id,
+        )
+        member = User(
+            id=uuid.uuid4(),
+            email=f"member-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add_all([workspace, other_workspace, member])
+        await session.flush()
+
+        session.add(
+            Membership(
+                user_id=member.id,
+                workspace_id=workspace.id,
+            )
+        )
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="user",
+                workspace_id=workspace.id,
+                organization_id=svc_organization.id,
+                user_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=ADMIN_SCOPES,
+            ),
+        )
+        await service.delete_workspace(workspace.id)
+
+        membership = await session.scalar(
+            select(Membership).where(
+                Membership.workspace_id == workspace.id,
+                Membership.user_id == member.id,
+            )
+        )
+        deleted_workspace = await session.scalar(
+            select(Workspace).where(Workspace.id == workspace.id)
+        )
+
+        assert membership is None
+        assert deleted_workspace is None
+
+    async def test_list_accessible_workspaces_returns_bound_workspace_for_service_account(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        workspace = Workspace(
+            name="bound-workspace",
+            organization_id=svc_organization.id,
+        )
+        other_workspace = Workspace(
+            name="other-workspace",
+            organization_id=svc_organization.id,
+        )
+        session.add_all([workspace, other_workspace])
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                workspace_id=workspace.id,
+                bound_workspace_id=workspace.id,
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"workspace:read"}),
+            ),
+        )
+
+        workspaces = await service.list_accessible_workspaces()
+
+        assert [item.id for item in workspaces] == [workspace.id]
+
+    async def test_list_accessible_workspaces_returns_all_for_org_service_account(
+        self,
+        session: AsyncSession,
+    ) -> None:
+        organization = Organization(
+            id=uuid.uuid4(),
+            name="Workspace access org",
+            slug=f"workspace-access-{uuid.uuid4().hex}",
+            is_active=True,
+        )
+        workspace_ids = [uuid.uuid4(), uuid.uuid4()]
+        session.add_all(
+            [
+                organization,
+                Workspace(
+                    id=workspace_ids[0],
+                    name="alpha",
+                    organization_id=organization.id,
+                ),
+                Workspace(
+                    id=workspace_ids[1],
+                    name="beta",
+                    organization_id=organization.id,
+                ),
+            ]
+        )
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                organization_id=organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"org:workspace:read"}),
+            ),
+        )
+
+        workspaces = await service.list_accessible_workspaces()
+
+        assert {item.id for item in workspaces} == set(workspace_ids)
+
+    async def test_list_accessible_workspaces_rejects_org_service_account_without_scope(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"workspace:read"}),
+            ),
+        )
+
+        with pytest.raises(TracecatAuthorizationError):
+            await service.list_accessible_workspaces()
+
+    async def test_list_accessible_workspaces_returns_empty_for_org_read_service_account(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        workspace = Workspace(
+            name="org-workspace",
+            organization_id=svc_organization.id,
+        )
+        session.add(workspace)
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"org:read"}),
+            ),
+        )
+
+        workspaces = await service.list_accessible_workspaces()
+
+        assert workspaces == []
+
+    async def test_search_workspaces_returns_bound_workspace_for_service_account(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        workspace = Workspace(
+            name="bound-workspace",
+            organization_id=svc_organization.id,
+        )
+        other_workspace = Workspace(
+            name="other-workspace",
+            organization_id=svc_organization.id,
+        )
+        session.add_all([workspace, other_workspace])
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                workspace_id=workspace.id,
+                bound_workspace_id=workspace.id,
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"workspace:read"}),
+            ),
+        )
+
+        results = await service.search_workspaces(
+            WorkspaceSearch(name="bound-workspace")
+        )
+
+        assert [item.id for item in results] == [workspace.id]
+
+    async def test_search_workspaces_returns_org_matches_for_org_service_account(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        alpha = Workspace(
+            name="alpha",
+            organization_id=svc_organization.id,
+        )
+        beta = Workspace(
+            name="beta",
+            organization_id=svc_organization.id,
+        )
+        session.add_all([alpha, beta])
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"org:workspace:read"}),
+            ),
+        )
+
+        results = await service.search_workspaces(WorkspaceSearch(name="alpha"))
+
+        assert [item.id for item in results] == [alpha.id]
+
+    async def test_search_workspaces_returns_empty_for_org_read_service_account(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        workspace = Workspace(
+            name="alpha",
+            organization_id=svc_organization.id,
+        )
+        session.add(workspace)
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"org:read"}),
+            ),
+        )
+
+        results = await service.search_workspaces(WorkspaceSearch(name="alpha"))
+
+        assert results == []
+
+    async def test_update_workspace_merges_partial_settings(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Partial settings updates should preserve unrelated keys."""
+        svc_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "validate_attachment_magic_number": True,
+        }
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(
+                settings=WorkspaceSettingsUpdate(
+                    workflow_unlimited_timeout_enabled=True
+                )
+            ),
+        )
+
+        assert updated.settings == {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "validate_attachment_magic_number": True,
+            "workflow_unlimited_timeout_enabled": True,
+        }
+
+    async def test_update_workspace_preserves_other_settings_when_clearing_one_key(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Explicit null updates should only clear the targeted setting key."""
+        svc_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "workflow_default_timeout_seconds": 300,
+        }
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(settings=WorkspaceSettingsUpdate(git_repo_url=None)),
+        )
+
+        assert updated.settings == {
+            "git_repo_url": None,
+            "workflow_default_timeout_seconds": 300,
+        }
+
+    async def test_update_workspace_replaces_list_settings_and_preserves_other_keys(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """A settings patch should replace list values and preserve unrelated keys."""
+        svc_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "workflow_default_timeout_seconds": 300,
+            "allowed_attachment_extensions": [".png"],
+            "validate_attachment_magic_number": True,
+        }
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(
+                settings=WorkspaceSettingsUpdate(
+                    git_repo_url=None,
+                    workflow_unlimited_timeout_enabled=True,
+                    allowed_attachment_extensions=[".pdf"],
+                )
+            ),
+        )
+
+        assert updated.settings == {
+            "git_repo_url": None,
+            "workflow_default_timeout_seconds": 300,
+            "allowed_attachment_extensions": [".pdf"],
+            "validate_attachment_magic_number": True,
+            "workflow_unlimited_timeout_enabled": True,
+        }
+
+    async def test_update_workspace_allows_explicit_null_to_clear_settings(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Explicit null settings updates should clear to an empty settings object."""
+        svc_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "workflow_default_timeout_seconds": 300,
+        }
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(settings=None),
+        )
+
+        assert updated.settings == {}
+
 
 @pytest.mark.parametrize(
     "valid_url",
@@ -102,6 +496,8 @@ class TestWorkspaceService:
         "git+ssh://git@gitlab.company.com:2222/team/project.git",
         "git+ssh://git@gitlab.com/group/subgroup/repo.git",
         "git+ssh://git@example.com/org/repo",
+        "git+ssh://someuser@git.example.com/org/repo.git",
+        "git+ssh://git@github.com/org/repo.git@feature/custom-branch",
     ],
 )
 def test_workspace_settings_update_accepts_valid_git_urls(valid_url: str) -> None:
@@ -115,7 +511,7 @@ def test_workspace_settings_update_accepts_valid_git_urls(valid_url: str) -> Non
     "invalid_url",
     [
         "https://github.com/org/repo.git",
-        "git+ssh://user@github.com/org/repo.git",
+        "git+ssh://github.com/org/repo.git",
         "git+ssh://git@github.com",
         "git+ssh://git@github.com:not_a_port/org/repo.git",
         "git+ssh://git@github.com:/org/repo.git",
@@ -128,6 +524,14 @@ def test_workspace_settings_update_rejects_invalid_git_urls(invalid_url: str) ->
         WorkspaceSettingsUpdate(git_repo_url=invalid_url)
 
     assert "Must be a valid Git SSH URL" in str(exc_info.value)
+
+
+def test_workspace_settings_update_rejects_unsupported_git_provider() -> None:
+    """Workspace settings should reject providers without sync transport support."""
+    with pytest.raises(ValueError) as exc_info:
+        WorkspaceSettingsUpdate(git_provider=VcsProvider.BITBUCKET)
+
+    assert "bitbucket workspace sync is not implemented yet" in str(exc_info.value)
 
 
 # =============================================================================
@@ -299,6 +703,44 @@ class TestCreateInvitation:
         assert len(invitation.token) == 64
         assert invitation.expires_at > datetime.now(UTC)
         assert invitation.accepted_at is None
+
+    async def test_create_invitation_rejects_unheld_scopes(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+    ):
+        """Test a workspace invitation cannot grant scopes the inviter lacks."""
+        await seed_system_scopes(session)
+        scope_result = await session.execute(
+            select(Scope).where(Scope.name == "org:owner:assign")
+        )
+        scope = scope_result.scalars().one()
+        privileged_role = DBRole(
+            id=uuid.uuid4(),
+            name="Privileged Role",
+            slug=None,
+            description="Custom role with an owner-only scope",
+            organization_id=inv_org.id,
+        )
+        session.add(privileged_role)
+        await session.flush()
+        session.add(RoleScope(role_id=privileged_role.id, scope_id=scope.id))
+        await session.commit()
+
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = WorkspaceService(session, role=role)
+
+        params = WorkspaceInvitationCreate(
+            email="escalated@example.com",
+            role_id=str(privileged_role.id),
+        )
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Cannot grant scopes not held by the caller",
+        ):
+            await service.create_invitation(inv_workspace.id, params)
 
     async def test_create_invitation_duplicate_pending_fails(
         self,

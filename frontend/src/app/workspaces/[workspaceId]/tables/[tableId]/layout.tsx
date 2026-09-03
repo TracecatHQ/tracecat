@@ -2,7 +2,6 @@
 
 import { XIcon } from "lucide-react"
 import type React from "react"
-import { useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
@@ -15,8 +14,9 @@ import { TableSidePanelContent } from "@/components/tables/table-side-panel"
 import { Button } from "@/components/ui/button"
 import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import { WorkspaceCopilotSidebar } from "@/components/workspaces/workspace-copilot-sidebar"
+import { WorkspaceChatSidebar } from "@/components/workspaces/workspace-chat-sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useWorkspaceChatOpen } from "@/hooks/use-workspace-chat-open"
 
 const PANEL_TITLES: Record<string, string> = {
   "view-json": "View JSON",
@@ -31,9 +31,9 @@ export default function TableDetailLayout({
 }) {
   const canExecuteAgents = useScopeCheck("agent:execute")
   const { hasEntitlement } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
-  const [chatOpen, setChatOpen] = useState(true)
-  const canShowChat = canExecuteAgents === true && agentAddonsEnabled
+  const workspaceChatEnabled = hasEntitlement("workspace_chat")
+  const [chatOpen, setChatOpen] = useWorkspaceChatOpen()
+  const canShowChat = canExecuteAgents === true && workspaceChatEnabled
 
   return (
     <TableSelectionProvider>
@@ -51,7 +51,7 @@ export default function TableDetailLayout({
             </div>
           </SidebarInset>
           <TableSidePanel />
-          {canShowChat && chatOpen && <WorkspaceCopilotSidebar />}
+          {canShowChat && chatOpen && <WorkspaceChatSidebar />}
         </SidebarProvider>
       </TablePanelProvider>
     </TableSelectionProvider>

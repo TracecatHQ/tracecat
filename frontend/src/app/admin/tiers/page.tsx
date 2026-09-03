@@ -1,33 +1,17 @@
 "use client"
 
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { AlertTriangleIcon } from "lucide-react"
 import { AdminTiersTable } from "@/components/admin/admin-tiers-table"
 import { CreateTierDialog } from "@/components/admin/create-tier-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useAdminTiers } from "@/hooks/use-admin"
-import { useAppInfo } from "@/lib/hooks"
 
 export default function AdminTiersPage() {
-  const router = useRouter()
-  const { appInfo, appInfoIsLoading } = useAppInfo()
-  const shouldRedirectToRegistry =
-    !appInfoIsLoading && appInfo?.ee_multi_tenant === false
-  const shouldLoadTiers = !appInfoIsLoading && !shouldRedirectToRegistry
-  const { isLoading, error } = useAdminTiers(true, shouldLoadTiers)
+  const { isLoading, error } = useAdminTiers(true)
 
-  useEffect(() => {
-    if (shouldRedirectToRegistry) {
-      router.replace("/admin/registry")
-    }
-  }, [router, shouldRedirectToRegistry])
-
-  if (appInfoIsLoading || isLoading) {
+  if (isLoading) {
     return <CenteredSpinner />
-  }
-
-  if (shouldRedirectToRegistry) {
-    return null
   }
 
   if (error) {
@@ -52,6 +36,14 @@ export default function AdminTiersPage() {
             <CreateTierDialog />
           </div>
         </div>
+        <Alert variant="warning">
+          <AlertTriangleIcon className="size-4" />
+          <AlertTitle>Enterprise license required</AlertTitle>
+          <AlertDescription>
+            All tier settings on this page are Enterprise-only and will be gated
+            behind a license key in a future release.
+          </AlertDescription>
+        </Alert>
         <AdminTiersTable />
       </div>
     </div>

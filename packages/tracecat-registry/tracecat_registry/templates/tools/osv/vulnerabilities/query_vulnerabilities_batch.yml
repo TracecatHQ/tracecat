@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Query vulnerabilities batch
+  description: >-
+    Query vulnerabilities in a batch. Calls POST /v1/querybatch directly and passes each OSV
+    query through untouched.
+  display_group: OSV.dev
+  doc_url: https://google.github.io/osv.dev/post-v1-querybatch/
+  namespace: tools.osv
+  name: query_vulnerabilities_batch
+  expects:
+    queries:
+      type: list[dict[str, Any]]
+      description: OSV API-native query objects.
+    base_url:
+      type: str | None
+      description: Base URL of the OSV.dev API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.osv.base_url || "https://api.osv.dev" }}/v1/querybatch
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          queries: ${{ inputs.queries }}
+  returns: ${{ steps.request.result }}

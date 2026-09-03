@@ -1,0 +1,87 @@
+type: action
+definition:
+  title: List exception list items
+  description: List exception conditions within exception-list containers.
+  display_group: Elastic Security
+  doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-findexceptionlistitems
+  namespace: tools.elastic_security
+  name: list_exception_list_items
+  secrets:
+    - name: elastic_security
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    list_id:
+      type: list[str]
+      description: The `list_id`s of the items to fetch.
+    filter:
+      type: list[str] | None
+      description: Filters the returned results according to the value of the specified field, using the `<field name>:<field value>` syntax.
+      default: null
+    namespace_type:
+      type: list[str] | None
+      description: "Determines whether the returned containers are Kibana associated with a Kibana space or available in all spaces. Possible values: agnostic, single."
+      default: null
+    search:
+      type: str | None
+      description: Free-text search term applied to exception list item fields (for example a hostname or file path fragment).
+      default: null
+    page:
+      type: int | None
+      description: The page number to return.
+      default: null
+    per_page:
+      type: int | None
+      description: The number of exception list items to return per page.
+      default: null
+    sort_field:
+      type: str | None
+      description: Determines which field is used to sort the results.
+      default: null
+    sort_order:
+      type: str | None
+      description: Determines the sort order, which can be `desc` or `asc`.
+      default: null
+    base_url:
+      type: str | None
+      description: Kibana base URL (e.g. https://localhost:5601).
+      default: null
+    space_id:
+      type: str | None
+      description: Optional Kibana space ID. Omit for the default space.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          space_id: ${{ inputs.space_id }}
+        script: |
+          from urllib.parse import quote
+
+          def main(space_id):
+              path = "/api/exception_lists/items/_find"
+              if space_id:
+                  return f"/s/{quote(space_id, safe='')}{path}"
+              return path
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
+        method: GET
+        params:
+          list_id: ${{ inputs.list_id }}
+          filter: ${{ inputs.filter }}
+          namespace_type: ${{ inputs.namespace_type }}
+          search: ${{ inputs.search }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+          sort_field: ${{ inputs.sort_field }}
+          sort_order: ${{ inputs.sort_order }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
+  returns: ${{ steps.request.result.data }}

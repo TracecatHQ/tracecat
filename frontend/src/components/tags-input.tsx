@@ -6,6 +6,7 @@ import fuzzysort from "fuzzysort"
 import { ChevronDown, X } from "lucide-react"
 import type React from "react"
 import { useCallback, useMemo, useRef, useState } from "react"
+import { LockedFeatureChip } from "@/components/locked-feature-modal"
 import { Badge } from "@/components/ui/badge"
 import {
   Command,
@@ -13,6 +14,11 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
@@ -56,7 +62,26 @@ export interface Suggestion {
   value: string
   description?: string
   group?: string
+  /**
+   * When true, the selected chip shows a hover card with the provider,
+   * display name, and description. Omit for values that don't warrant a
+   * hover card (raw UUIDs, slugs).
+   */
+  showHoverCard?: boolean
+  /**
+   * Optional display name for the selected chip when the dropdown `label`
+   * isn't chip-friendly (e.g. a full dotted action id). Falls back to `label`.
+   */
+  tagLabel?: string
+  /**
+   * Optional provider/vendor display name for the selected chip's prefix
+   * (e.g. "PagerDuty") when the dropdown `group` is a raw namespace. Falls
+   * back to `group`.
+   */
+  tagGroup?: string
   icon?: React.ReactNode
+  locked?: boolean
+  onSelect?: () => void
 }
 
 export interface MultiTagCommandInputProps {
@@ -95,6 +120,9 @@ export function MultiTagCommandInput({
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
+  // Enter only selects once the user has typed or navigated, so tabbing into
+  // the field and pressing Enter doesn't add an arbitrary tag
+  const hasNavigatedRef = useRef(false)
   const value = useMemo(() => {
     if (typeof valueProp === "string") {
       return [valueProp]
@@ -110,9 +138,12 @@ export function MultiTagCommandInput({
         const suggestion = suggestions.find((s) => s.value === val)
         return {
           id: `${index}`,
-          text: suggestion?.label || val,
+          text: suggestion?.tagLabel || suggestion?.label || val,
           value: val,
           icon: suggestion?.icon,
+          group: suggestion?.tagGroup || suggestion?.group,
+          description: suggestion?.description,
+          showHoverCard: suggestion?.showHoverCard ?? false,
         }
       }) || []
     )
@@ -138,15 +169,43 @@ export function MultiTagCommandInput({
     return filterActions(filtered, inputValue).map((result) => result.obj)
   }, [suggestions, inputValue, valueSet, filterActions])
 
-  const handleSelect = (suggestionValue: string) => {
+  // Offer an explicit "Add <text>" row so custom tags stay reachable even
+  // when the typed text fuzzy-matches existing suggestions
+  const customTagText = allowCustomTags ? inputValue.trim() : ""
+  const showCustomRow =
+    customTagText.length > 0 &&
+    !valueSet.has(customTagText) &&
+    !filteredSuggestions.some((s) => s.value === customTagText)
+  const rowCount = filteredSuggestions.length + (showCustomRow ? 1 : 0)
+
+  const handleSelect = (suggestion: Suggestion) => {
+    if (suggestion.locked) {
+      suggestion.onSelect?.()
+      return
+    }
+
     if (maxTags && value.length >= maxTags) return
 
-    const newValue = [...value, suggestionValue]
+    const newValue = [...value, suggestion.value]
     onChange?.(newValue)
     setInputValue("")
-    setHighlightedIndex(-1)
+    setHighlightedIndex(0)
+    hasNavigatedRef.current = false
 
     // Keep dropdown open and focused for multiple selections
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }
+
+  const handleAddCustomTag = () => {
+    if (!customTagText || valueSet.has(customTagText)) return
+    if (maxTags && value.length >= maxTags) return
+
+    const newValue = [...value, customTagText]
+    onChange?.(newValue)
+    setInputValue("")
+    setHighlightedIndex(0)
+    hasNavigatedRef.current = false
+
     setTimeout(() => inputRef.current?.focus(), 0)
   }
 
@@ -157,37 +216,58 @@ export function MultiTagCommandInput({
 
   const handleInputChange = (val: string) => {
     setInputValue(val)
-    setHighlightedIndex(-1) // Reset highlight when typing
+    setHighlightedIndex(0) // Highlight the top match when typing
+    if (!disableSuggestions) {
+      setOpen(true) // Reopen the dropdown if it was dismissed
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" && open && rowCount > 0) {
+      e.preventDefault()
+      hasNavigatedRef.current = true
+      setHighlightedIndex((index) => Math.min(index + 1, rowCount - 1))
+      return
+    }
+
+    if (e.key === "ArrowUp" && open && rowCount > 0) {
+      e.preventDefault()
+      hasNavigatedRef.current = true
+      setHighlightedIndex((index) => Math.max(index - 1, 0))
+      return
+    }
+
     if (e.key === "Enter") {
       // Always prevent default form submission when Enter is pressed
       e.preventDefault()
       e.stopPropagation()
 
-      if (allowCustomTags && inputValue.trim()) {
-        // Don't add if it already exists or if we've hit the max
-        if (
-          valueSet.has(inputValue.trim()) ||
-          (maxTags && value.length >= maxTags)
-        ) {
-          return
+      const canSelectHighlighted =
+        inputValue.trim().length > 0 || hasNavigatedRef.current
+      if (
+        open &&
+        canSelectHighlighted &&
+        highlightedIndex >= 0 &&
+        highlightedIndex < rowCount
+      ) {
+        const suggestion = filteredSuggestions[highlightedIndex]
+        if (suggestion) {
+          handleSelect(suggestion)
+        } else {
+          handleAddCustomTag()
         }
-
-        const newValue = [...value, inputValue.trim()]
-        onChange?.(newValue)
-        setInputValue("")
-        setHighlightedIndex(-1)
+        return
       }
+
+      handleAddCustomTag()
     }
   }
 
   const handleFocus = () => {
     if (!disableSuggestions) {
       setOpen(true) // Only show dropdown when suggestions are enabled
-      // Set to first item if there are suggestions, otherwise -1
-      setHighlightedIndex(filteredSuggestions.length > 0 ? 0 : -1)
+      setHighlightedIndex(0)
+      hasNavigatedRef.current = false
     }
   }
 
@@ -202,43 +282,86 @@ export function MultiTagCommandInput({
           <div
             className={cn(
               "flex min-h-10 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background",
-              "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+              "focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring",
               disabled && "cursor-not-allowed opacity-50",
               className
             )}
             onClick={() => inputRef.current?.focus()}
           >
             {/* Render tags */}
-            {tags.map((tag) => (
-              <Badge
-                key={tag.id}
-                variant="secondary"
-                className="gap-1 pr-1 text-xs"
-              >
-                {tag.icon ? (
-                  <span className="flex items-center gap-1">
-                    <span className="flex items-center justify-center rounded-sm bg-transparent">
-                      {tag.icon}
+            {tags.map((tag) => {
+              const label = tag.group ? (
+                <span>
+                  <span className="text-muted-foreground">{tag.group}</span> ·{" "}
+                  {tag.text}
+                </span>
+              ) : (
+                <span>{tag.text}</span>
+              )
+              const badge = (
+                <Badge
+                  key={tag.id}
+                  variant="secondary"
+                  className="gap-1 pr-1 text-xs"
+                >
+                  {tag.icon ? (
+                    <span className="flex items-center gap-1">
+                      <span className="flex items-center justify-center rounded-sm bg-transparent">
+                        {tag.icon}
+                      </span>
+                      {label}
                     </span>
-                    <span>{tag.text}</span>
-                  </span>
-                ) : (
-                  tag.text
-                )}
-                {!disabled && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleRemoveTag(tag.value)
-                    }}
-                    className="ml-1 rounded-full hover:bg-muted-foreground/20"
-                  >
-                    <X className="size-3" />
-                  </button>
-                )}
-              </Badge>
-            ))}
+                  ) : (
+                    label
+                  )}
+                  {!disabled && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRemoveTag(tag.value)
+                      }}
+                      className="ml-1 rounded-full hover:bg-muted-foreground/20"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  )}
+                </Badge>
+              )
+              // The remove button lives inside the hover card trigger; its
+              // click handler still fires and removes the tag.
+              if (tag.showHoverCard) {
+                return (
+                  <HoverCard key={tag.id} openDelay={200}>
+                    <HoverCardTrigger asChild>{badge}</HoverCardTrigger>
+                    <HoverCardContent
+                      className="w-[300px] p-4 text-xs"
+                      align="start"
+                    >
+                      <div className="flex items-center gap-2">
+                        {tag.icon}
+                        <div className="flex flex-col">
+                          {tag.group && (
+                            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                              {tag.group}
+                            </span>
+                          )}
+                          <span className="text-sm font-medium">
+                            {tag.text}
+                          </span>
+                        </div>
+                      </div>
+                      {tag.description && (
+                        <p className="mt-2 text-muted-foreground">
+                          {tag.description}
+                        </p>
+                      )}
+                    </HoverCardContent>
+                  </HoverCard>
+                )
+              }
+              return badge
+            })}
 
             {/* Input */}
             <input
@@ -263,9 +386,26 @@ export function MultiTagCommandInput({
           className="mt-1 w-[var(--radix-popover-trigger-width)] p-0"
           align="start"
           onOpenAutoFocus={(e) => e.preventDefault()}
+          onInteractOutside={(e) => {
+            // Clicks inside the input container (e.g. repositioning the
+            // cursor) must not dismiss the dropdown
+            if (
+              e.target instanceof Node &&
+              containerRef.current?.contains(e.target)
+            ) {
+              e.preventDefault()
+            }
+          }}
         >
           <Command
             shouldFilter={false}
+            value={`${highlightedIndex}`}
+            onValueChange={(nextValue) => {
+              const index = Number.parseInt(nextValue, 10)
+              if (!Number.isNaN(index)) {
+                setHighlightedIndex(index)
+              }
+            }}
             onKeyDown={(e) => {
               // Prevent Command from handling arrow keys and enter
               if (["ArrowDown", "ArrowUp", "Enter"].includes(e.key)) {
@@ -281,13 +421,13 @@ export function MultiTagCommandInput({
                   return (
                     <CommandItem
                       key={suggestion.id}
-                      value={suggestion.value}
-                      onSelect={() => handleSelect(suggestion.value)}
+                      value={`${index}`}
+                      onSelect={() => handleSelect(suggestion)}
+                      onMouseDown={(e) => e.preventDefault()}
                       data-suggestion-index={index}
                       className={cn(
                         "flex cursor-pointer gap-2",
-                        index === highlightedIndex &&
-                          "bg-accent text-accent-foreground"
+                        suggestion.locked && "text-muted-foreground"
                       )}
                     >
                       {suggestion.icon && (
@@ -296,14 +436,19 @@ export function MultiTagCommandInput({
                         </div>
                       )}
                       <div className="flex flex-col gap-1">
-                        <span className="font-medium">
-                          {suggestion.label}{" "}
-                          {suggestion.group && (
-                            <span className="text-xs text-muted-foreground">
-                              {suggestion.group}
-                            </span>
-                          )}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">
+                            {suggestion.label}{" "}
+                            {suggestion.group && (
+                              <span className="text-xs text-muted-foreground">
+                                {suggestion.group}
+                              </span>
+                            )}
+                          </span>
+                          {suggestion.locked ? (
+                            <LockedFeatureChip className="shrink-0" />
+                          ) : null}
+                        </div>
                         {suggestion.description && (
                           <span className="text-xs text-muted-foreground">
                             {suggestion.description}
@@ -313,6 +458,19 @@ export function MultiTagCommandInput({
                     </CommandItem>
                   )
                 })}
+                {showCustomRow && (
+                  <CommandItem
+                    key="__custom-tag__"
+                    value={`${filteredSuggestions.length}`}
+                    onSelect={handleAddCustomTag}
+                    onMouseDown={(e) => e.preventDefault()}
+                    className="flex cursor-pointer gap-2"
+                  >
+                    <span className="text-xs text-muted-foreground">
+                      Add &quot;{customTagText}&quot;
+                    </span>
+                  </CommandItem>
+                )}
               </CommandList>
             </ScrollArea>
           </Command>

@@ -8,9 +8,9 @@ export function CasePayloadSection({ caseData }: { caseData: CaseRead }) {
       {caseData.payload && Object.keys(caseData.payload).length > 0 ? (
         <JsonViewWithControls
           src={caseData.payload}
-          defaultTab="nested"
           defaultExpanded={true}
           showControls={true}
+          copyMode="jsonpath-and-payload"
         />
       ) : (
         <NoPaylod />

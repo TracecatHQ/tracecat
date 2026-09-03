@@ -4,8 +4,8 @@ import type { Metadata } from "next"
 import dynamic from "next/dynamic"
 import { PublicEnvScript } from "next-runtime-env"
 import React, { Suspense } from "react"
-import { SettingsModal } from "@/components/settings/settings-modal"
 import { SettingsModalProvider } from "@/components/settings/settings-modal-context"
+import { SettingsModalHost } from "@/components/settings/settings-modal-host"
 import { Toaster } from "@/components/ui/toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { siteConfig } from "@/config/site"
@@ -13,6 +13,7 @@ import { fontSans } from "@/lib/fonts"
 import { cn } from "@/lib/utils"
 import type { PHProviderType } from "@/providers/posthog"
 import { DefaultQueryClientProvider } from "@/providers/query"
+import { ThemeProvider } from "@/providers/theme"
 
 let PostHogPageView: React.ComponentType | undefined = undefined
 let PHProvider: PHProviderType | undefined = undefined
@@ -55,19 +56,26 @@ export default async function RootLayout({ children }: RootLayoutProps) {
             fontSans.variable
           )}
         >
-          <DefaultQueryClientProvider>
-            <SettingsModalProvider>
-              <TooltipProvider>
-                {PostHogPageView && (
-                  <Suspense fallback={null}>
-                    <PostHogPageView />
-                  </Suspense>
-                )}
-                {children}
-              </TooltipProvider>
-              <SettingsModal />
-            </SettingsModalProvider>
-          </DefaultQueryClientProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            <DefaultQueryClientProvider>
+              <SettingsModalProvider>
+                <TooltipProvider>
+                  {PostHogPageView && (
+                    <Suspense fallback={null}>
+                      <PostHogPageView />
+                    </Suspense>
+                  )}
+                  {children}
+                </TooltipProvider>
+                <SettingsModalHost />
+              </SettingsModalProvider>
+            </DefaultQueryClientProvider>
+          </ThemeProvider>
           <Toaster />
         </body>
       </MaybeAnalytics>

@@ -400,13 +400,13 @@ export function CsvPreview({ csvData }: CsvPreviewProps) {
         <table className="w-full min-w-max table-auto border-separate border-spacing-0 text-xs">
           <thead>
             <tr>
-              <th className="sticky left-0 top-0 z-20 min-w-[40px] border-b border-r border-border/30 bg-muted/30 px-3 py-2 text-left font-medium text-muted-foreground">
+              <th className="sticky left-0 top-0 z-20 min-w-[40px] border-b border-r border-border/30 bg-muted px-3 py-2 text-left font-medium text-muted-foreground">
                 #
               </th>
               {csvData.headers.map((header) => (
                 <th
                   key={header}
-                  className="sticky top-0 z-10 min-w-[120px] max-w-[200px] whitespace-nowrap border-b border-border/30 bg-muted/30 px-3 py-2 text-left font-medium"
+                  className="sticky top-0 z-10 min-w-[120px] max-w-[200px] whitespace-nowrap border-b border-border/30 bg-muted px-3 py-2 text-left font-medium"
                 >
                   <div className="truncate" title={header}>
                     {header}

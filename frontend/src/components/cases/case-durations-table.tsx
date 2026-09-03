@@ -8,14 +8,13 @@ import type {
   CaseDurationDefinitionRead,
   CaseDurationDefinitionUpdate,
 } from "@/client"
-import {
-  getFilterFieldKey,
-  normalizeFilterValues,
-} from "@/components/cases/case-duration-dialog"
+import { normalizeFilterValues } from "@/components/cases/case-duration-dialog"
 import {
   CASE_EVENT_FILTER_OPTIONS,
   getCaseEventOption,
+  isCaseDropdownEventType,
   isCaseEventFilterType,
+  isCaseFieldEventType,
   isCaseTagEventType,
 } from "@/components/cases/case-duration-options"
 import { UpdateCaseDurationDialog } from "@/components/cases/update-case-duration-dialog"
@@ -49,7 +48,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useCaseTagCatalog } from "@/lib/hooks"
+import { createCaseFieldDisplayNameMap } from "@/lib/case-field-display"
+import { useCaseFields, useCaseTagCatalog } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface CaseDurationsTableProps {
@@ -76,6 +76,24 @@ const defaultToolbarProps: DataTableToolbarProps<CaseDurationDefinitionRead> = {
   },
 }
 
+function getAnchorFilterValues(
+  anchor: CaseDurationDefinitionRead["start_anchor"]
+): unknown {
+  if (isCaseEventFilterType(anchor.event_type)) {
+    return anchor.filters?.new_values
+  }
+  if (isCaseTagEventType(anchor.event_type)) {
+    return anchor.filters?.tag_refs
+  }
+  if (isCaseFieldEventType(anchor.event_type)) {
+    return anchor.filters?.field_ids
+  }
+  if (isCaseDropdownEventType(anchor.event_type)) {
+    return anchor.filters?.dropdown_option_ids
+  }
+  return undefined
+}
+
 export function CaseDurationsTable({
   durations,
   onDeleteDuration,
@@ -94,6 +112,7 @@ export function CaseDurationsTable({
   const { caseTags } = useCaseTagCatalog(workspaceId ?? "", {
     enabled: Boolean(workspaceId),
   })
+  const { caseFields } = useCaseFields(workspaceId ?? "", Boolean(workspaceId))
 
   const tagLabelByRef = useMemo(() => {
     const map = new Map<string, string>()
@@ -107,6 +126,10 @@ export function CaseDurationsTable({
 
     return map
   }, [caseTags])
+  const caseFieldDisplayNameById = useMemo(
+    () => createCaseFieldDisplayNameMap(caseFields),
+    [caseFields]
+  )
 
   const handleUpdateDialogChange = (open: boolean) => {
     setIsUpdateDialogOpen(open)
@@ -137,9 +160,8 @@ export function CaseDurationsTable({
     const selection = anchor.selection ?? "first"
     const valueLabels: string[] = []
 
-    const filterFieldKey = getFilterFieldKey(anchor.event_type)
-    if (filterFieldKey) {
-      const rawFilterValue = anchor.field_filters?.[filterFieldKey]
+    const rawFilterValue = getAnchorFilterValues(anchor)
+    if (rawFilterValue) {
       const values = normalizeFilterValues(rawFilterValue)
 
       for (const value of values) {
@@ -151,10 +173,18 @@ export function CaseDurationsTable({
           valueLabels.push(option?.label ?? value)
         } else if (isCaseTagEventType(anchor.event_type)) {
           valueLabels.push(tagLabelByRef.get(value) ?? value)
+        } else if (isCaseFieldEventType(anchor.event_type)) {
+          valueLabels.push(caseFieldDisplayNameById.get(value) ?? value)
         } else {
           valueLabels.push(value)
         }
       }
+    }
+    if (
+      isCaseDropdownEventType(anchor.event_type) &&
+      anchor.filters?.dropdown_definition_id
+    ) {
+      valueLabels.unshift(anchor.filters.dropdown_definition_id)
     }
 
     return (

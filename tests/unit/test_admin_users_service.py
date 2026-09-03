@@ -4,17 +4,30 @@ from __future__ import annotations
 
 import uuid
 from typing import cast
+from unittest.mock import patch
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
 from tracecat_ee.admin.users.schemas import AdminUserCreate
 from tracecat_ee.admin.users.service import AdminUserService
 
+from tracecat import config
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import PlatformRole
-from tracecat.db.models import Membership, OrganizationMembership, User
+from tracecat.db.models import (
+    AccessToken,
+    Membership,
+    Organization,
+    OrganizationMembership,
+    User,
+    UserRoleAssignment,
+    Workspace,
+)
+from tracecat.db.models import Role as DBRole
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -32,7 +45,9 @@ def platform_role() -> PlatformRole:
 async def test_create_user_creates_platform_user_without_memberships(
     session: AsyncSession,
     platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
     service = AdminUserService(session, role=platform_role)
     params = AdminUserCreate(
         email="platform-user@example.com",
@@ -96,6 +111,128 @@ async def test_create_user_respects_superuser_flag(
 
 
 @pytest.mark.anyio
+async def test_admin_user_audit_logs_target_user_ids(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminUserService(session, role=platform_role)
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args, **kwargs):
+        create_event_calls.append(kwargs)
+
+    with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+        created = await service.create_user(
+            AdminUserCreate(
+                email="audit-created-user@example.com",
+                password="this-is-a-strong-password",
+                is_superuser=False,
+            )
+        )
+        promoted = await service.create_user(
+            AdminUserCreate(
+                email="audit-promoted-user@example.com",
+                password="this-is-a-strong-password",
+                is_superuser=False,
+            )
+        )
+        await service.promote_superuser(promoted.id)
+        current_superuser = await service.create_user(
+            AdminUserCreate(
+                email="audit-current-superuser@example.com",
+                password="this-is-a-strong-password",
+                is_superuser=True,
+            )
+        )
+        demoted = await service.create_user(
+            AdminUserCreate(
+                email="audit-demoted-user@example.com",
+                password="this-is-a-strong-password",
+                is_superuser=True,
+            )
+        )
+        await service.demote_superuser(demoted.id, current_superuser.id)
+
+    success_events = {
+        (call["action"], call["resource_id"])
+        for call in create_event_calls
+        if call["status"] == AuditEventStatus.SUCCESS
+    }
+    assert ("create", created.id) in success_events
+    assert ("promote", promoted.id) in success_events
+    assert ("demote", demoted.id) in success_events
+
+
+@pytest.mark.anyio
+async def test_create_user_provisions_default_org_in_single_tenant(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    service = AdminUserService(session, role=platform_role)
+    params = AdminUserCreate(
+        email="single-tenant-user@example.com",
+        password="this-is-a-strong-password",
+        is_superuser=False,
+    )
+
+    created = await service.create_user(params)
+
+    membership_count = await session.scalar(
+        select(func.count())
+        .select_from(OrganizationMembership)
+        .where(OrganizationMembership.user_id == created.id)
+    )
+    role_slug = await session.scalar(
+        select(DBRole.slug)
+        .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
+        .where(
+            UserRoleAssignment.user_id == created.id,
+            UserRoleAssignment.workspace_id.is_(None),
+        )
+    )
+    workspace_membership_count = await session.scalar(
+        select(func.count())
+        .select_from(Membership)
+        .where(Membership.user_id == created.id)
+    )
+
+    assert membership_count == 1
+    assert role_slug == "organization-member"
+    assert workspace_membership_count == 0
+
+
+@pytest.mark.anyio
+async def test_promote_superuser_provisions_owner_in_single_tenant(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    service = AdminUserService(session, role=platform_role)
+    created = await service.create_user(
+        AdminUserCreate(
+            email="promoted-single-tenant-user@example.com",
+            password="this-is-a-strong-password",
+            is_superuser=False,
+        )
+    )
+
+    await service.promote_superuser(created.id)
+
+    role_slug = await session.scalar(
+        select(DBRole.slug)
+        .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
+        .where(
+            UserRoleAssignment.user_id == created.id,
+            UserRoleAssignment.workspace_id.is_(None),
+        )
+    )
+    assert role_slug == "organization-owner"
+
+
+@pytest.mark.anyio
 async def test_create_user_rejects_duplicate_email(
     session: AsyncSession,
     platform_role: PlatformRole,
@@ -110,3 +247,108 @@ async def test_create_user_rejects_duplicate_email(
 
     with pytest.raises(ValueError, match="already exists"):
         await service.create_user(params)
+
+
+@pytest.mark.anyio
+async def test_delete_user_clears_sessions_and_memberships(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminUserService(session, role=platform_role)
+    org = Organization(
+        id=uuid.uuid4(),
+        name="Delete User Org",
+        slug=f"delete-user-org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email="delete-me@example.com",
+        hashed_password="hashed",
+        role=UserRole.BASIC,
+        is_active=True,
+        is_superuser=False,
+        is_verified=True,
+    )
+    session.add_all([org, user])
+    await session.flush()
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Delete User Workspace",
+        organization_id=org.id,
+    )
+    session.add(workspace)
+    await session.flush()
+    token = AccessToken(token=f"token-{uuid.uuid4().hex}", user_id=user.id)
+    session.add_all(
+        [
+            token,
+            OrganizationMembership(user_id=user.id, organization_id=org.id),
+            Membership(user_id=user.id, workspace_id=workspace.id),
+        ]
+    )
+    await session.commit()
+
+    token_id = token.id
+    user_id = user.id
+
+    await service.delete_user(user_id, current_user_id=platform_role.user_id)
+
+    assert (
+        await session.scalar(
+            select(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
+        )
+        is None
+    )
+    assert (
+        await session.scalar(select(AccessToken).where(AccessToken.id == token_id))
+        is None
+    )
+    assert (
+        await session.scalar(select(Membership).where(Membership.user_id == user_id))
+        is None
+    )
+    assert (
+        await session.scalar(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user_id
+            )
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+async def test_delete_user_rejects_self(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminUserService(session, role=platform_role)
+
+    with pytest.raises(ValueError, match="Cannot delete yourself"):
+        await service.delete_user(
+            platform_role.user_id, current_user_id=platform_role.user_id
+        )
+
+
+@pytest.mark.anyio
+async def test_delete_user_rejects_last_superuser(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminUserService(session, role=platform_role)
+    await session.execute(update(User).values(is_superuser=False))
+    user = User(
+        id=uuid.uuid4(),
+        email="last-superuser@example.com",
+        hashed_password="hashed",
+        role=UserRole.ADMIN,
+        is_active=True,
+        is_superuser=True,
+        is_verified=True,
+    )
+    session.add(user)
+    await session.commit()
+
+    with pytest.raises(ValueError, match="Cannot delete the last superuser"):
+        await service.delete_user(user.id, current_user_id=platform_role.user_id)

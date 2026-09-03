@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
+from tracecat.authz.controls import require_scope
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownDefinitionCreate,
     CaseDropdownDefinitionUpdate,
@@ -34,6 +35,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
 
     service_name = "case_dropdown_definitions"
 
+    @require_scope("case:read")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_definitions(self) -> Sequence[CaseDropdownDefinition]:
         """List all dropdown definitions for the workspace, ordered by position."""
@@ -41,11 +43,24 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             select(CaseDropdownDefinition)
             .where(CaseDropdownDefinition.workspace_id == self.workspace_id)
             .options(selectinload(CaseDropdownDefinition.options))
-            .order_by(CaseDropdownDefinition.position)
+            # Deterministic insertion-order tiebreaker: position defaults to 0,
+            # and offset pagination over an unstable order can duplicate or
+            # drop items. created_at is unsuitable because now() is pinned
+            # within a transaction.
+            .order_by(
+                CaseDropdownDefinition.position,
+                CaseDropdownDefinition.surrogate_id,
+            )
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
+    # Any case scope may fetch a definition: mutation flows (REST handlers and
+    # MCP tools) look up the definition first, so requiring case:read alone
+    # would block write-only roles.
+    @require_scope(
+        "case:read", "case:create", "case:update", "case:delete", require_all=False
+    )
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_definition(self, definition_id: uuid.UUID) -> CaseDropdownDefinition:
         """Get a single dropdown definition by ID."""
@@ -65,6 +80,9 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             )
         return definition
 
+    @require_scope(
+        "case:read", "case:create", "case:update", "case:delete", require_all=False
+    )
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_definition_by_ref(self, ref: str) -> CaseDropdownDefinition:
         """Get a single dropdown definition by its slug ref."""
@@ -84,6 +102,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             )
         return definition
 
+    @require_scope("case:create")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def create_definition(
         self, params: CaseDropdownDefinitionCreate
@@ -94,6 +113,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             name=params.name,
             ref=params.ref,
             is_ordered=params.is_ordered,
+            required_on_closure=params.required_on_closure,
             icon_name=params.icon_name,
             position=params.position,
         )
@@ -121,6 +141,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.refresh(definition)
         return definition
 
+    @require_scope("case:update")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_definition(
         self,
@@ -164,6 +185,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.refresh(definition)
         return definition
 
+    @require_scope("case:delete")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def delete_definition(self, definition: CaseDropdownDefinition) -> None:
         """Delete a dropdown definition and all associated options/values."""
@@ -172,8 +194,10 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
 
     # --- Option CRUD ---
 
-    async def _get_option(self, option_id: uuid.UUID) -> CaseDropdownOption:
-        """Get an option by ID, scoped to the current workspace."""
+    async def _get_option(
+        self, definition_id: uuid.UUID, option_id: uuid.UUID
+    ) -> CaseDropdownOption:
+        """Get an option by ID, scoped to the definition and current workspace."""
         stmt = (
             select(CaseDropdownOption)
             .join(
@@ -182,15 +206,19 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             )
             .where(
                 CaseDropdownOption.id == option_id,
+                CaseDropdownOption.definition_id == definition_id,
                 CaseDropdownDefinition.workspace_id == self.workspace_id,
             )
         )
         result = await self.session.execute(stmt)
         option = result.scalar_one_or_none()
         if option is None:
-            raise TracecatNotFoundError(f"Dropdown option {option_id} not found")
+            raise TracecatNotFoundError(
+                f"Dropdown option {option_id} not found for definition {definition_id}"
+            )
         return option
 
+    @require_scope("case:create")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def add_option(
         self,
@@ -217,14 +245,16 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.refresh(option)
         return option
 
+    @require_scope("case:update")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_option(
         self,
+        definition_id: uuid.UUID,
         option_id: uuid.UUID,
         params: CaseDropdownOptionUpdate,
     ) -> CaseDropdownOption:
-        """Update a dropdown option."""
-        option = await self._get_option(option_id)
+        """Update a dropdown option belonging to the given definition."""
+        option = await self._get_option(definition_id, option_id)
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(option, key, value)
         try:
@@ -237,13 +267,17 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.refresh(option)
         return option
 
+    @require_scope("case:delete")
     @requires_entitlement(Entitlement.CASE_ADDONS)
-    async def delete_option(self, option_id: uuid.UUID) -> None:
-        """Delete a dropdown option."""
-        option = await self._get_option(option_id)
+    async def delete_option(
+        self, definition_id: uuid.UUID, option_id: uuid.UUID
+    ) -> None:
+        """Delete a dropdown option belonging to the given definition."""
+        option = await self._get_option(definition_id, option_id)
         await self.session.delete(option)
         await self.session.commit()
 
+    @require_scope("case:update")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def reorder_options(
         self, definition_id: uuid.UUID, option_ids: list[uuid.UUID]
@@ -385,6 +419,7 @@ class CaseDropdownValuesService(BaseWorkspaceService):
         case: Case,
         definition_id: uuid.UUID,
         params: CaseDropdownValueSet,
+        record_agent_interaction: bool = True,
     ) -> CaseDropdownValueRead:
         case_id = case.id
         # Resolve old value
@@ -461,7 +496,11 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             wf_exec_id=wf_exec_id,
         )
         events_service = CaseEventsService(session=self.session, role=self.role)
-        await events_service.create_event(case=case, event=event)
+        await events_service.create_event(
+            case=case,
+            event=event,
+            record_agent_interaction=record_agent_interaction,
+        )
 
         return CaseDropdownValueRead(
             id=row.id,
@@ -475,6 +514,7 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             option_color=new_option.color if new_option else None,
         )
 
+    @require_scope("case:update")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def set_value(
         self,
@@ -497,16 +537,56 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             await self.session.flush()
         return result
 
+    @require_scope("case:update")
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def set_value_from_input(
+        self,
+        case_id: uuid.UUID,
+        value: CaseDropdownValueInput,
+        *,
+        commit: bool = True,
+    ) -> CaseDropdownValueRead:
+        """Resolve identifiers and set or clear a single dropdown value on a case."""
+        case = await self._get_case(case_id)
+        definition_id = await self._resolve_definition_id(
+            definition_id=value.definition_id,
+            definition_ref=value.definition_ref,
+        )
+        option_id = await self._resolve_option_id(
+            definition_id=definition_id,
+            option_id=value.option_id,
+            option_ref=value.option_ref,
+        )
+        result = await self._set_value(
+            case=case,
+            definition_id=definition_id,
+            params=CaseDropdownValueSet(option_id=option_id),
+        )
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+        return result
+
+    # Note: dual create/update scope because this serves both the case-create
+    # and case-update paths, whose CasesService callers enforce the specific
+    # scope. Direct value updates must use set_value or set_value_from_input.
+    @require_scope("case:create", "case:update", require_all=False)
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def apply_values(
         self,
-        case_id: uuid.UUID,
+        case: Case | uuid.UUID,
         values: Sequence[CaseDropdownValueInput],
         *,
         commit: bool = True,
+        record_agent_interaction: bool = True,
     ) -> list[CaseDropdownValueRead]:
         """Apply multiple dropdown selections to a case in a single transaction."""
-        case = await self._get_case(case_id)
+        if isinstance(case, uuid.UUID):
+            case = await self._get_case(case)
+        elif case.workspace_id != self.workspace_id:
+            # Preserve the same tenant scoping _get_case enforces for UUIDs.
+            raise TracecatNotFoundError(f"Case {case.id} not found")
         seen_definition_ids: set[uuid.UUID] = set()
         results: list[CaseDropdownValueRead] = []
 
@@ -531,6 +611,7 @@ class CaseDropdownValuesService(BaseWorkspaceService):
                 case=case,
                 definition_id=definition_id,
                 params=CaseDropdownValueSet(option_id=option_id),
+                record_agent_interaction=record_agent_interaction,
             )
             results.append(result)
 

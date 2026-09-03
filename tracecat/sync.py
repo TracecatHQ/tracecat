@@ -2,46 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from enum import StrEnum
-from pathlib import Path
-from typing import Any, Literal, Protocol
-
-from pydantic import BaseModel
-
-from tracecat.git.types import GitUrl
-
-
-@dataclass(frozen=True)
-class Author:
-    """Author identity used for commits."""
-
-    name: str
-    email: str
-
-
-@dataclass(frozen=True)
-class PushObject[T: BaseModel]:
-    """A single object to push to a repository."""
-
-    data: T
-    """The model data to serialize and write"""
-
-    path: Path | str
-    """Target path in repository"""
-
-    @property
-    def path_str(self) -> str:
-        """Get path as string."""
-        return str(self.path)
-
-
-class ConflictStrategy(StrEnum):
-    """Strategy for handling workflow conflicts during import."""
-
-    OVERWRITE = "overwrite"
-    """Overwrite existing workflows with new definitions"""
+from typing import Any, Literal
+from uuid import UUID
 
 
 class PushStatus(StrEnum):
@@ -70,26 +35,11 @@ class PullOptions:
     dry_run: bool = False
     """Validate only, don't perform actual import"""
 
+    catalog_mappings: Mapping[UUID, UUID] = field(default_factory=dict)
+    """Explicit source-to-target catalog choices for ambiguous model references."""
 
-@dataclass(frozen=True)
-class PushOptions:
-    """Options controlling push/commit behavior."""
-
-    message: str
-    author: Author
-    """Author of the commit"""
-
-    create_pr: bool = False
-    """Create a pull request if supported"""
-
-    branch: str | None = None
-    """Target branch for branch-target publish mode; None enables legacy temp-branch flow."""
-
-    pr_base_branch: str | None = None
-    """Optional PR base branch override; defaults to repository default branch."""
-
-    sign: bool = False
-    """GPG signing if configured"""
+    mcp_integration_mappings: Mapping[UUID, UUID] = field(default_factory=dict)
+    """Explicit source-to-target MCP integration choices for unresolved references."""
 
 
 @dataclass(frozen=True)
@@ -150,6 +100,198 @@ class PullDiagnostic:
 
 
 @dataclass(frozen=True)
+class CatalogMappingCandidate:
+    """Target catalog model the user can choose for an imported source model."""
+
+    catalog_id: UUID
+    model_provider: str
+    model_name: str
+    provider_name: str
+    model_display_name: str | None
+    endpoint_hostname: str | None
+    origin: Literal["platform", "organization", "custom_provider"]
+
+
+@dataclass(frozen=True)
+class CatalogMappingAffectedPreset:
+    """Preset version whose source catalog id needs the same target choice."""
+
+    preset_slug: str
+    preset_name: str
+    version: int
+    path: str
+
+
+@dataclass(frozen=True)
+class CatalogMappingAffectedWorkflow:
+    """Workflow action whose source catalog id needs the same target choice."""
+
+    workflow_source_id: str
+    workflow_path: str
+    workflow_title: str
+    action_ref: str
+
+
+type CatalogMappingRequirementReason = Literal[
+    "ambiguous",
+    "invalid_selection",
+]
+
+
+@dataclass(frozen=True)
+class CatalogMappingRequirement:
+    """Explicit catalog choice required before a workspace pull can proceed."""
+
+    source_catalog_id: UUID
+    model_provider: str
+    model_name: str
+    reason: CatalogMappingRequirementReason
+    message: str
+    candidates: list[CatalogMappingCandidate]
+    affected_presets: list[CatalogMappingAffectedPreset]
+    affected_workflows: list[CatalogMappingAffectedWorkflow]
+
+
+@dataclass(frozen=True)
+class McpIntegrationMappingCandidate:
+    """Local MCP integration the user can choose for an imported source reference."""
+
+    mcp_integration_id: UUID
+    slug: str
+    name: str
+    server_type: str
+    auth_type: str
+
+
+@dataclass(frozen=True)
+class McpIntegrationMappingAffectedPreset:
+    """Preset version whose source MCP integration id needs a target choice."""
+
+    preset_slug: str
+    preset_name: str
+    version: int
+    path: str
+
+
+@dataclass(frozen=True)
+class McpIntegrationMappingAffectedWorkflow:
+    """Workflow action whose source MCP integration id needs a target choice."""
+
+    workflow_source_id: str
+    workflow_path: str
+    workflow_title: str
+    action_ref: str
+
+
+type McpIntegrationMappingRequirementReason = Literal[
+    "unresolved",
+    "invalid_selection",
+    "conflicting_metadata",
+]
+
+
+@dataclass(frozen=True)
+class McpIntegrationMappingRequirement:
+    """Explicit MCP integration choice required before a workspace pull proceeds."""
+
+    source_mcp_integration_id: UUID
+    slug: str | None
+    name: str | None
+    server_type: str | None
+    auth_type: str | None
+    reason: McpIntegrationMappingRequirementReason
+    message: str
+    candidates: list[McpIntegrationMappingCandidate]
+    affected_presets: list[McpIntegrationMappingAffectedPreset]
+    affected_workflows: list[McpIntegrationMappingAffectedWorkflow]
+
+
+def serializable_validation_errors(
+    errors: Sequence[Any],
+) -> list[dict[str, Any]]:
+    """Return Pydantic validation errors with non-serializable values stringified."""
+    normalized: list[dict[str, Any]] = []
+    for error in errors:
+        safe_error = _json_safe(error)
+        if isinstance(safe_error, dict):
+            normalized.append(safe_error)
+        else:
+            normalized.append({"error": safe_error})
+    return normalized
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert nested diagnostic values to JSON-serializable primitives."""
+    if isinstance(value, dict):
+        return {str(key): _json_safe(inner) for key, inner in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(inner) for inner in value]
+    if isinstance(value, tuple):
+        return [_json_safe(inner) for inner in value]
+    if isinstance(value, str | int | float | bool) or value is None:
+        return value
+    return str(value)
+
+
+@dataclass(frozen=True)
+class ResourcePullCount:
+    """Per-resource pull counts for workspace sync imports."""
+
+    found: int
+    """Number of resources found in the repository snapshot."""
+
+    imported: int
+    """Number of resources imported into the workspace."""
+
+
+@dataclass(frozen=True)
+class SyncPreviewResource:
+    """Displayable workspace sync resource included in a preview."""
+
+    resource_type: str
+    """Workspace sync resource type."""
+
+    source_id: str
+    """Stable Git source identifier for the resource."""
+
+    name: str
+    """Human-readable resource name."""
+
+    path: str
+    """Primary repository path for the resource."""
+
+
+@dataclass(frozen=True)
+class PullResourceDiff:
+    """Text diff for one workspace-sync resource file."""
+
+    resource_type: str
+    """Workspace sync resource type."""
+
+    source_id: str
+    """Stable source identifier from the repository."""
+
+    source_path: str
+    """Repository path for the changed resource file."""
+
+    change_type: Literal["added", "modified", "deleted"]
+    """Whether sync would create, update, or delete a resource file.
+
+    Pull is currently upsert-only: local resources absent from the incoming Git
+    snapshot are left untouched, so dry-run diffs do not report deletions.
+    """
+
+    title: str | None
+    """Human-readable resource label when available."""
+
+    diff: str
+    """Unified text diff between current and target resource file content."""
+
+    truncated: bool = False
+    """Whether the diff was shortened for response size."""
+
+
+@dataclass(frozen=True)
 class PullResult:
     """Result of a pull operation with atomic guarantees."""
 
@@ -171,55 +313,22 @@ class PullResult:
     message: str
     """Summary message about the operation"""
 
+    resource_counts: dict[str, ResourcePullCount] | None = None
+    """Optional per-resource counts for workspace-level sync operations."""
 
-class SyncService[T: BaseModel](Protocol):
-    """Provider-agnostic Git/VCS sync interface.
+    resource_diffs: list[PullResourceDiff] | None = None
+    """Optional changed resource file diffs for dry-run pull previews."""
 
-    This abstracts transport (Git over SSH/HTTPS). Domain layers (e.g. Workflows)
-    translate to/from TModel and call these methods.
-    """
+    files: list[str] | None = None
+    """Optional repository-relative files included in a pull preview."""
 
-    async def pull(
-        self,
-        *,
-        url: GitUrl,
-        options: PullOptions | None = None,
-    ) -> PullResult:
-        """Pull objects from a repository at the given ref.
+    resources: list[SyncPreviewResource] | None = None
+    """Optional displayable resources included in a pull preview."""
 
-        Args:
-            target: Repository and ref to read from (ref=None resolves HEAD).
-            options: Optional pull options (paths, depth, LFS).
+    catalog_mapping_requirements: list[CatalogMappingRequirement] | None = None
+    """Target model choices required before this pull can be previewed or applied."""
 
-        Returns:
-            A list of domain models reconstructed from repository contents.
-
-        Raises:
-            RuntimeError: Transport or checkout errors.
-            ValueError: Invalid arguments (e.g., malformed URL).
-        """
-        ...
-
-    async def push(
-        self,
-        *,
-        objects: Sequence[PushObject[T]],
-        url: GitUrl,
-        options: PushOptions,
-    ) -> CommitInfo:
-        """Commit and push objects to a repository/branch.
-
-        Args:
-            objects: Domain models to serialize and write.
-            url: Repository and branch/tag/SHA to write to (branch recommended).
-            options: Commit metadata and optional provider hints.
-
-        Returns:
-            CommitInfo containing push outcome details (status, commit SHA, branch,
-            PR metadata).
-
-        Raises:
-            RuntimeError: Transport or push errors (conflicts, auth).
-            ValueError: Invalid arguments (e.g., empty commit message).
-        """
-        ...
+    mcp_integration_mapping_requirements: (
+        list[McpIntegrationMappingRequirement] | None
+    ) = None
+    """MCP integration choices required before this pull can be previewed or applied."""

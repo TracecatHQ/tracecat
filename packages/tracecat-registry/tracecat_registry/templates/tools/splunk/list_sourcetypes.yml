@@ -3,7 +3,7 @@ definition:
   title: List sourcetypes
   description: List all defined sourcetypes on the Splunk server.
   display_group: Splunk
-  doc_url: https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTsearch
+  doc_url: https://help.splunk.com/en?resourceId=Splunk_RESTREF_RESTsearch&version=splunk-9_4
   namespace: tools.splunk
   name: list_sourcetypes
   secrets:

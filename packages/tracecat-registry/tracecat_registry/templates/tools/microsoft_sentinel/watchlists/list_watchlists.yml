@@ -3,7 +3,7 @@ definition:
   title: List watchlists
   description: Get all watchlists in Microsoft Sentinel workspace.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/watchlists/list
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/watchlists/list?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: list_watchlists
   secrets:

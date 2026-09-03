@@ -42,9 +42,13 @@ def resolve_oss_default_entitlements(
 ) -> EffectiveEntitlements:
     """Resolve OSS default entitlements from legacy feature flags.
 
-    Fresh OSS installs should start with only custom registry enabled.
+    Fresh OSS installs start with custom registry and workspace chat enabled.
     Existing OSS deployments can preserve prior behavior by mapping enabled
     feature flags to their corresponding entitlement groups.
+
+    Workspace chat is open source, but agent presets are not: ``agent_addons``
+    stays off in both branches, which keeps preset management tools and ``@``
+    agent mentions behind the enterprise entitlement.
     """
     # Fresh install path.
     if not feature_flags_env:
@@ -54,6 +58,9 @@ def resolve_oss_default_entitlements(
             agent_addons=False,
             case_addons=False,
             rbac_addons=False,
+            service_accounts=False,
+            workspace_chat=True,
+            watchtower=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -84,6 +91,9 @@ def resolve_oss_default_entitlements(
         agent_addons=agent_addons_enabled,
         case_addons=case_addons_enabled,
         rbac_addons=rbac_enabled,
+        service_accounts=False,
+        workspace_chat=True,
+        watchtower=False,
     )
 
 

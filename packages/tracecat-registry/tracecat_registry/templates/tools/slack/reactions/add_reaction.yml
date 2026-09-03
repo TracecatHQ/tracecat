@@ -3,7 +3,7 @@ definition:
   title: Add reaction
   description: Add a reaction to a message in a Slack channel.
   display_group: Slack
-  doc_url: https://api.slack.com/methods/reactions.add
+  doc_url: https://docs.slack.dev/reference/methods/reactions.add/
   namespace: tools.slack
   name: add_reaction
   expects:

@@ -16,6 +16,7 @@ class ComponentID(StrEnum):
     CODE = "code"
     SELECT = "select"
     AGENT_PRESET = "agent-preset"
+    AGENT_MODEL = "agent-model"
     TEXT_AREA = "text-area"
     TOGGLE = "toggle"
     TEXT = "text"
@@ -25,6 +26,7 @@ class ComponentID(StrEnum):
     YAML = "yaml"
     ACTION_TYPE = "action-type"
     WORKFLOW_ALIAS = "workflow-alias"
+    MCP_INTEGRATION = "mcp-integration"
 
 
 @dataclass(slots=True)
@@ -60,6 +62,13 @@ class AgentPreset(Component):
     """Render field as agent preset dropdown in UI"""
 
     component_id: Literal[ComponentID.AGENT_PRESET] = ComponentID.AGENT_PRESET
+
+
+@dataclass(slots=True)
+class AgentModel(Component):
+    """Render field as org-scoped model picker in UI"""
+
+    component_id: Literal[ComponentID.AGENT_MODEL] = ComponentID.AGENT_MODEL
 
 
 @dataclass(slots=True)
@@ -127,6 +136,14 @@ class WorkflowAlias(Component):
     """Render field as workflow alias dropdown in UI"""
 
     component_id: Literal[ComponentID.WORKFLOW_ALIAS] = ComponentID.WORKFLOW_ALIAS
+
+
+@dataclass(slots=True)
+class MCPIntegration(Component):
+    """Render field as saved MCP integration picker in UI"""
+
+    component_id: Literal[ComponentID.MCP_INTEGRATION] = ComponentID.MCP_INTEGRATION
+    multiple: bool = True
 
 
 def _safe_issubclass(cls: type, base: type) -> bool:
@@ -291,6 +308,8 @@ class EditorComponent(RootModel):
         | TagInput
         | ActionType
         | WorkflowAlias
-        | AgentPreset,
+        | AgentPreset
+        | AgentModel
+        | MCPIntegration,
         Field(discriminator="component_id"),
     ]

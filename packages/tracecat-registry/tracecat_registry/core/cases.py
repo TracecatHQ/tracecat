@@ -8,8 +8,7 @@ from uuid import UUID
 import httpx
 from typing_extensions import Doc
 
-from tracecat_registry import config, registry, types
-from tracecat_registry.context import get_context
+from tracecat_registry import config, ctx, registry, types
 from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
@@ -96,6 +95,10 @@ async def create_case(
         list[str] | None,
         Doc("List of tag identifiers (IDs or refs) to add to the case."),
     ] = None,
+    create_missing_tags: Annotated[
+        bool,
+        Doc("If true, create any tags that do not already exist."),
+    ] = False,
 ) -> types.Case:
     params: dict[str, Any] = {}
     if summary is not None:
@@ -116,7 +119,9 @@ async def create_case(
         params["dropdown_values"] = dropdown_values
     if tags is not None:
         params["tags"] = tags
-    return await get_context().cases.create_case_simple(**params)
+    if create_missing_tags:
+        params["create_missing_tags"] = create_missing_tags
+    return await ctx.cases.aio.create_case_simple(**params)
 
 
 @registry.register(
@@ -171,6 +176,10 @@ async def update_case(
             "List of tag identifiers (IDs or refs) to set on the case. This will replace all existing tags."
         ),
     ] = None,
+    create_missing_tags: Annotated[
+        bool,
+        Doc("If true, create any tags that do not already exist."),
+    ] = False,
     append: Annotated[
         bool,
         Doc(
@@ -200,9 +209,11 @@ async def update_case(
         client_params["dropdown_values"] = dropdown_values
     if tags is not None:
         client_params["tags"] = tags
+    if create_missing_tags:
+        client_params["create_missing_tags"] = create_missing_tags
     if append and description is not None:
         client_params["append_description"] = True
-    return await get_context().cases.update_case_simple(case_id, **client_params)
+    return await ctx.cases.aio.update_case_simple(case_id, **client_params)
 
 
 @registry.register(
@@ -224,11 +235,44 @@ async def create_comment(
         str | None,
         Doc("The ID of the parent comment if this is a reply."),
     ] = None,
+    workflow_id: Annotated[
+        str | None,
+        Doc("The ID of the workflow to run when the comment is created."),
+    ] = None,
 ) -> types.CaseComment:
     params: dict[str, Any] = {"content": content}
     if parent_id is not None:
         params["parent_id"] = parent_id
-    return await get_context().cases.create_comment_simple(case_id, **params)
+    if workflow_id is not None:
+        params["workflow_id"] = workflow_id
+    return await ctx.cases.aio.create_comment_simple(case_id, **params)
+
+
+@registry.register(
+    default_title="Reply to comment",
+    display_group="Cases",
+    description="Reply to a top-level case comment.",
+    namespace="core.cases",
+)
+async def reply_to_comment(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case containing the parent comment."),
+    ],
+    parent_comment_id: Annotated[
+        str,
+        Doc("The ID of the top-level comment to reply to."),
+    ],
+    content: Annotated[
+        str,
+        Doc("The reply content."),
+    ],
+) -> types.CaseComment:
+    return await ctx.cases.aio.reply_to_comment(
+        case_id,
+        parent_comment_id=parent_comment_id,
+        content=content,
+    )
 
 
 @registry.register(
@@ -243,20 +287,14 @@ async def update_comment(
         Doc("The ID of the comment to update."),
     ],
     content: Annotated[
-        str | None,
+        str,
         Doc("The updated comment content."),
-    ] = None,
-    parent_id: Annotated[
-        str | None,
-        Doc("The updated parent comment ID."),
-    ] = None,
+    ],
 ) -> types.CaseComment:
-    client_params: dict[str, Any] = {}
-    if content is not None:
-        client_params["content"] = content
-    if parent_id is not None:
-        client_params["parent_id"] = parent_id
-    return await get_context().cases.update_comment_simple(comment_id, **client_params)
+    return await ctx.cases.aio.update_comment_simple(
+        comment_id,
+        content=content,
+    )
 
 
 @registry.register(
@@ -271,7 +309,23 @@ async def get_case(
         Doc("The ID of the case to retrieve."),
     ],
 ) -> types.CaseRead:
-    return await get_context().cases.get_case(case_id)
+    return await ctx.cases.aio.get_case(case_id)
+
+
+@registry.register(
+    default_title="Get linked case rows",
+    display_group="Cases",
+    description="Get linked rows for a specific case by ID.",
+    namespace="core.cases",
+)
+async def get_linked_case_rows(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to retrieve."),
+    ],
+) -> list[types.CaseTableRowRead]:
+    case = await ctx.cases.aio.get_case(case_id, include_rows=True)
+    return case["rows"]
 
 
 @registry.register(
@@ -321,7 +375,7 @@ async def list_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
-    response = await get_context().cases.list_cases(**params)
+    response = await ctx.cases.aio.list_cases(**params)
     if paginate:
         return response
     return response["items"]
@@ -337,6 +391,10 @@ async def search_cases(
     search_term: Annotated[
         str | None,
         Doc("Text to search for in case summary and description."),
+    ] = None,
+    short_id: Annotated[
+        str | None,
+        Doc("Filter by case short_id."),
     ] = None,
     status: Annotated[
         StatusType | list[StatusType] | None,
@@ -417,6 +475,8 @@ async def search_cases(
         params["reverse"] = reverse
     if search_term is not None:
         params["search_term"] = search_term
+    if short_id is not None:
+        params["short_id"] = short_id
     if status is not None:
         params["status"] = _as_list_filter(status)
     if priority is not None:
@@ -441,7 +501,7 @@ async def search_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
-    response = await get_context().cases.search_cases(**params)
+    response = await ctx.cases.aio.search_cases(**params)
     if paginate:
         return response
     return response["items"]
@@ -459,7 +519,7 @@ async def delete_case(
         Doc("The ID of the case to delete."),
     ],
 ) -> None:
-    await get_context().cases.delete_case(case_id)
+    await ctx.cases.aio.delete_case(case_id)
 
 
 @registry.register(
@@ -474,7 +534,7 @@ async def list_case_events(
         Doc("The ID of the case to get events for."),
     ],
 ) -> types.CaseEventsWithUsers:
-    return await get_context().cases.list_events(case_id)
+    return await ctx.cases.aio.list_events(case_id)
 
 
 @registry.register(
@@ -489,7 +549,37 @@ async def list_comments(
         Doc("The ID of the case to get comments for."),
     ],
 ) -> list[types.CaseCommentRead]:
-    return await get_context().cases.list_comments(case_id)
+    return await ctx.cases.aio.list_comments(case_id)
+
+
+@registry.register(
+    default_title="List comment threads",
+    display_group="Cases",
+    description="List comment threads for a case.",
+    namespace="core.cases",
+)
+async def list_comment_threads(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to get comment threads for."),
+    ],
+) -> list[types.CaseCommentThreadRead]:
+    return await ctx.cases.aio.list_comment_threads(case_id)
+
+
+@registry.register(
+    default_title="Get comment thread",
+    display_group="Cases",
+    description="Get the full thread for a comment ID.",
+    namespace="core.cases",
+)
+async def get_comment_thread(
+    comment_id: Annotated[
+        str,
+        Doc("The ID of a comment within the thread."),
+    ],
+) -> types.CaseCommentThreadRead:
+    return await ctx.cases.aio.get_comment_thread(comment_id)
 
 
 @registry.register(
@@ -508,7 +598,7 @@ async def assign_user(
         Doc("The ID of the user to assign to the case."),
     ],
 ) -> types.Case:
-    return await get_context().cases.assign_user_simple(
+    return await ctx.cases.aio.assign_user_simple(
         case_id,
         assignee_id=assignee_id,
     )
@@ -530,7 +620,7 @@ async def assign_user_by_email(
         Doc("The email of the user to assign to the case."),
     ],
 ) -> types.Case:
-    return await get_context().cases.assign_user_by_email(
+    return await ctx.cases.aio.assign_user_by_email(
         case_id,
         email=assignee_email,
     )
@@ -556,7 +646,7 @@ async def add_case_tag(
         Doc("If true, create the tag if it does not exist."),
     ] = False,
 ) -> types.TagRead:
-    return await get_context().cases.add_tag(
+    return await ctx.cases.aio.add_tag(
         case_id,
         tag_id=tag,
         create_if_missing=create_if_missing,
@@ -579,7 +669,7 @@ async def remove_case_tag(
         Doc("The tag identifier (ID or ref) to remove from the case."),
     ],
 ) -> None:
-    await get_context().cases.remove_tag(case_id, tag_id=tag)
+    await ctx.cases.aio.remove_tag(case_id, tag_id=tag)
 
 
 async def _upload_attachment(
@@ -597,7 +687,7 @@ async def _upload_attachment(
         ) from e
 
     content_base64 = base64.b64encode(content).decode("utf-8")
-    return await get_context().cases.create_attachment(
+    return await ctx.cases.aio.create_attachment(
         str(case_uuid),
         filename=file_name,
         content_base64=content_base64,
@@ -723,7 +813,7 @@ async def list_attachments(
             detail=f"Invalid case ID format: {case_id}"
         ) from e
 
-    return await get_context().cases.list_attachments(str(case_uuid))
+    return await ctx.cases.aio.list_attachments(str(case_uuid))
 
 
 @registry.register(
@@ -754,7 +844,7 @@ async def download_attachment(
     except ValueError as e:
         raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
 
-    return await get_context().cases.download_attachment(
+    return await ctx.cases.aio.download_attachment(
         case_uuid,
         attachment_uuid,
     )
@@ -784,7 +874,7 @@ async def get_attachment(
     except ValueError as e:
         raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
 
-    return await get_context().cases.get_attachment_metadata(
+    return await ctx.cases.aio.get_attachment_metadata(
         case_uuid,
         attachment_uuid,
     )
@@ -817,7 +907,7 @@ async def delete_attachment(
     except ValueError as e:
         raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
 
-    await get_context().cases.delete_attachment(
+    await ctx.cases.aio.delete_attachment(
         case_uuid,
         attachment_uuid,
     )
@@ -864,7 +954,7 @@ async def get_attachment_download_url(
                 detail="Expiry cannot exceed 24 hours (86400 seconds)"
             )
 
-    return await get_context().cases.get_attachment_presigned_url(
+    return await ctx.cases.aio.get_attachment_presigned_url(
         case_uuid,
         attachment_uuid,
         expiry=expiry,
@@ -882,7 +972,7 @@ async def link_row(
     table_id: Annotated[str, Doc("Table ID")],
     row_id: Annotated[str, Doc("Row ID")],
 ) -> types.CaseTableRowRead:
-    return await get_context().cases.link_case_row(
+    return await ctx.cases.aio.link_case_row(
         case_id,
         table_id=table_id,
         row_id=row_id,
@@ -900,7 +990,7 @@ async def unlink_row(
     table_id: Annotated[str, Doc("Table ID")],
     row_id: Annotated[str, Doc("Row ID")],
 ) -> None:
-    await get_context().cases.unlink_case_row(
+    await ctx.cases.aio.unlink_case_row(
         case_id,
         table_id=table_id,
         row_id=row_id,
@@ -918,7 +1008,7 @@ async def insert_row(
     table_id: Annotated[str, Doc("Table ID")],
     row: Annotated[dict[str, Any], Doc("Row values")],
 ) -> types.CaseTableRowRead:
-    return await get_context().cases.insert_case_row(
+    return await ctx.cases.aio.insert_case_row(
         case_id,
         table_id=table_id,
         row=row,

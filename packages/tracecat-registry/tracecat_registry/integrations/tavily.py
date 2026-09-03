@@ -16,13 +16,13 @@ tavily_secret = RegistrySecret(name="tavily", keys=["TAVILY_API_KEY"])
     default_title="Search the web",
     description="Search the web with Tavily for a given search query.",
     display_group="Tavily",
-    doc_url="https://docs.tavily.com/api-reference/endpoint/search",
+    doc_url="https://docs.tavily.com/documentation/api-reference/endpoint/search",
     namespace="tools.tavily",
     secrets=[tavily_secret],
 )
 async def web_search(
     query: Annotated[str, Doc("Search query to execute with Tavily.")],
-    search_deep: Annotated[Literal["basic", "advanced"], Doc("Depth of the search.")],
+    search_depth: Annotated[Literal["basic", "advanced"], Doc("Depth of the search.")],
     topic: Annotated[Literal["general", "news"], Doc("Category of the search.")],
     time_range: Annotated[
         Literal["day", "week", "month", "year"],
@@ -32,7 +32,7 @@ async def web_search(
     client = AsyncTavilyClient(api_key=secrets.get("TAVILY_API_KEY"))
     result = await client.search(
         query,
-        search_deep=search_deep,
+        search_depth=search_depth,
         topic=topic,
         time_range=time_range,
     )

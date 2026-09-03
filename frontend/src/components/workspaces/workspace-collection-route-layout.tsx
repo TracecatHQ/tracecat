@@ -2,13 +2,14 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import type React from "react"
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import { WorkspaceCopilotSidebar } from "@/components/workspaces/workspace-copilot-sidebar"
+import { WorkspaceChatSidebar } from "@/components/workspaces/workspace-chat-sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useWorkspaceChatOpen } from "@/hooks/use-workspace-chat-open"
 
 interface WorkspaceCollectionRouteLayoutProps {
   children: React.ReactNode
@@ -23,11 +24,11 @@ export function WorkspaceCollectionRouteLayout({
 }: WorkspaceCollectionRouteLayoutProps) {
   const canExecuteAgents = useScopeCheck("agent:execute")
   const { hasEntitlement } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [chatOpen, setChatOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useWorkspaceChatOpen()
 
   useEffect(() => {
     if (searchParams?.get("chat") !== "open") {
@@ -40,7 +41,7 @@ export function WorkspaceCollectionRouteLayout({
     router.replace(query ? `${pathname}?${query}` : pathname)
   }, [pathname, searchParams, router])
 
-  const canShowChat = canExecuteAgents === true && agentAddonsEnabled
+  const canShowChat = canExecuteAgents === true && workspaceChatEnabled
 
   if (detailId) {
     return <>{children}</>
@@ -64,7 +65,7 @@ export function WorkspaceCollectionRouteLayout({
         {wrapMainContent ? wrapMainContent(mainContent) : mainContent}
       </SidebarInset>
 
-      {canShowChat && chatOpen && <WorkspaceCopilotSidebar />}
+      {canShowChat && chatOpen && <WorkspaceChatSidebar />}
     </SidebarProvider>
   )
 }

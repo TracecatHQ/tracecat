@@ -1,24 +1,25 @@
-"""Google Drive OAuth provider using authorization code flow.
+"""Google Drive OAuth providers."""
 
-This provider enables secure Google Drive API access through OAuth 2.0 authorization code flow.
-Users can connect their Google account through Tracecat's integration UI.
-"""
+from typing import ClassVar
 
-from typing import Any, ClassVar
-
-from tracecat.integrations.providers.base import AuthorizationCodeOAuthProvider
+from tracecat.integrations.providers.google.common import (
+    GoogleAuthorizationCodeOAuthProvider,
+    get_google_ac_metadata,
+    get_google_cc_metadata,
+)
+from tracecat.integrations.providers.google.service_account import (
+    GoogleServiceAccountOAuthProvider,
+)
 from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
+DRIVE_API_DOCS_URL = (
+    "https://developers.google.com/workspace/drive/api/reference/rest/v3"
+)
+DRIVE_TROUBLESHOOT_URL = "https://developers.google.com/drive/api/guides/handle-errors"
 
-class GoogleDriveACProvider(AuthorizationCodeOAuthProvider):
-    """Google Drive OAuth provider using authorization code flow for user access.
 
-    This provider enables Drive API access for security automation workflows including:
-    - File and folder management
-    - Permission auditing and enforcement
-    - Data loss prevention
-    - Compliance automation
-    """
+class GoogleDriveACProvider(GoogleAuthorizationCodeOAuthProvider):
+    """Google Drive provider using the authorization code flow for user access."""
 
     id: ClassVar[str] = "google_drive"
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
@@ -27,34 +28,30 @@ class GoogleDriveACProvider(AuthorizationCodeOAuthProvider):
             "https://www.googleapis.com/auth/drive.metadata",
             "https://www.googleapis.com/auth/drive.readonly",
             "https://www.googleapis.com/auth/drive",
+            "https://www.googleapis.com/auth/drive.activity.readonly",
         ],
     )
-    metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
+    metadata: ClassVar[ProviderMetadata] = get_google_ac_metadata(
         id="google_drive",
         name="Google Drive",
-        description="Google Drive API access for file management, permissions, and security automation",
-        requires_config=True,
-        enabled=True,
-        api_docs_url="https://developers.google.com/drive/api/reference/rest/v3",
-        setup_guide_url="https://developers.google.com/drive/api/quickstart/python",
-        troubleshooting_url="https://developers.google.com/drive/api/guides/handle-errors",
+        api_docs_url=DRIVE_API_DOCS_URL,
+        troubleshooting_url=DRIVE_TROUBLESHOOT_URL,
     )
 
-    # Google OAuth endpoints (keep optional to mirror BaseOAuthProvider defaults)
-    default_authorization_endpoint: ClassVar[str | None]
-    default_authorization_endpoint = "https://accounts.google.com/o/oauth2/v2/auth"
-    default_token_endpoint: ClassVar[str | None]
-    default_token_endpoint = "https://oauth2.googleapis.com/token"
 
-    def _use_pkce(self) -> bool:
-        """Enable PKCE for enhanced security (recommended by Google)."""
-        return True
+class GoogleDriveCCProvider(GoogleServiceAccountOAuthProvider):
+    """Google Drive provider using service account credentials."""
 
-    def _get_additional_authorize_params(self) -> dict[str, Any]:
-        """Add Google-specific authorization parameters."""
-        params = super()._get_additional_authorize_params()
-        # Request offline access to get refresh token
-        params["access_type"] = "offline"
-        # Force consent screen to ensure we get a refresh token
-        params["prompt"] = "consent"
-        return params
+    id: ClassVar[str] = "google_drive"
+    scopes: ClassVar[ProviderScopes] = ProviderScopes(
+        default=[
+            "https://www.googleapis.com/auth/drive",
+            "https://www.googleapis.com/auth/drive.activity.readonly",
+        ],
+    )
+    metadata: ClassVar[ProviderMetadata] = get_google_cc_metadata(
+        id="google_drive",
+        name="Google Drive",
+        api_docs_url=DRIVE_API_DOCS_URL,
+        troubleshooting_url=DRIVE_TROUBLESHOOT_URL,
+    )

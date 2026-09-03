@@ -6,19 +6,47 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import "@radix-ui/react-dialog"
 
-import { FileTextIcon, Info, LayoutListIcon } from "lucide-react"
-import { useForm } from "react-hook-form"
+import {
+  FileTextIcon,
+  History,
+  Info,
+  LayoutListIcon,
+  RotateCcw,
+} from "lucide-react"
+import { type DefaultValues, useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   ApiError,
   type ExpectedField_Input,
+  type RegistryLockEntryRead,
+  type WorkflowDefinitionRead,
   type WorkflowRead,
   type WorkflowUpdate,
   workflowsValidateWorkflowEntrypoint,
 } from "@/client"
 import { ControlledYamlField } from "@/components/builder/panel/action-panel-fields"
 import { CopyButton } from "@/components/copy-button"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import {
   Form,
   FormControl,
@@ -33,12 +61,24 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
+  useRestoreWorkflowDefinition,
+  useWorkflowDefinitions,
+} from "@/hooks/use-workflow-definitions"
 import {
   isRequestValidationErrorArray,
   type TracecatApiError,
 } from "@/lib/errors"
+import { getRelativeTime } from "@/lib/event-history"
 import { useWorkflow } from "@/providers/workflow"
 
 const createWorkflowUpdateFormSchema = (workspaceId: string) =>
@@ -134,7 +174,7 @@ const workflowReadmeSchema = z
   .string()
   .max(1000, { message: "README cannot exceed 1000 characters" })
 
-type WorkflowPanelTab = "workflow" | "readme"
+type WorkflowPanelTab = "workflow" | "readme" | "versions"
 
 export function WorkflowPanel({
   workflow,
@@ -151,9 +191,9 @@ export function WorkflowPanel({
         onValueChange={(value) => setActiveTab(value as WorkflowPanelTab)}
         className="flex h-full w-full flex-col"
       >
-        <div className="w-full min-w-[30rem] shrink-0">
-          <div className="flex items-center justify-start">
-            <TabsList className="h-9 justify-start rounded-none bg-transparent p-0">
+        <div className="w-full shrink-0">
+          <div className="no-scrollbar flex items-center justify-start overflow-x-auto">
+            <TabsList className="h-9 shrink-0 justify-start rounded-none bg-transparent p-0">
               <TabsTrigger
                 className="flex h-full min-w-24 items-center justify-center rounded-none px-5 py text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 value="workflow"
@@ -168,6 +208,13 @@ export function WorkflowPanel({
                 <FileTextIcon className="mr-2 size-4" />
                 <span>README</span>
               </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none px-5 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="versions"
+              >
+                <History className="mr-2 size-4" />
+                <span>Versions</span>
+              </TabsTrigger>
             </TabsList>
           </div>
           <Separator />
@@ -179,10 +226,261 @@ export function WorkflowPanel({
           <TabsContent value="readme" className="mt-0 h-full">
             <WorkflowReadmePanel workflow={workflow} />
           </TabsContent>
+          <TabsContent value="versions" className="mt-0 h-full">
+            <WorkflowVersionsPanel workflow={workflow} />
+          </TabsContent>
         </div>
       </Tabs>
     </div>
   )
+}
+
+function WorkflowVersionsPanel({
+  workflow,
+}: {
+  workflow: WorkflowRead
+}): React.JSX.Element {
+  const { workspaceId, workflowId } = useWorkflow()
+  const { definitions, definitionsIsLoading, definitionsError } =
+    useWorkflowDefinitions(workspaceId, workflowId)
+  const { restoreWorkflowDefinition, restoreWorkflowDefinitionIsPending } =
+    useRestoreWorkflowDefinition(workspaceId, workflowId)
+  const [confirmVersion, setConfirmVersion] = useState<number | null>(null)
+
+  function handleRestore(version: number) {
+    setConfirmVersion(version)
+  }
+
+  async function handleConfirmRestore() {
+    if (confirmVersion === null) {
+      return
+    }
+    const version = confirmVersion
+    setConfirmVersion(null)
+    await restoreWorkflowDefinition({ version })
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex h-10 items-center justify-between border-b px-3">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <History className="size-3.5" />
+          <span>Workflow history</span>
+        </div>
+        {workflow.version ? (
+          <Badge variant="secondary">{`Current v${workflow.version}`}</Badge>
+        ) : null}
+      </div>
+      <ScrollArea className="flex-1">
+        <WorkflowVersionsHistory
+          definitions={definitions}
+          definitionsIsLoading={definitionsIsLoading}
+          definitionsError={definitionsError}
+          currentVersion={workflow.version ?? null}
+          restorePending={restoreWorkflowDefinitionIsPending}
+          onRestore={handleRestore}
+        />
+      </ScrollArea>
+      <AlertDialog
+        open={confirmVersion !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmVersion(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore workflow version?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmVersion !== null
+                ? `Restoring v${confirmVersion} will overwrite your current draft. Any uncommitted changes will be discarded.`
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void handleConfirmRestore()}>
+              Restore
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
+
+function WorkflowVersionsHistory({
+  definitions,
+  definitionsIsLoading,
+  definitionsError,
+  currentVersion,
+  restorePending,
+  onRestore,
+}: {
+  definitions?: WorkflowDefinitionRead[]
+  definitionsIsLoading: boolean
+  definitionsError: unknown
+  currentVersion: number | null
+  restorePending: boolean
+  onRestore: (version: number) => void
+}): React.JSX.Element {
+  if (definitionsIsLoading) {
+    return (
+      <div className="flex items-center justify-center py-10">
+        <CenteredSpinner />
+      </div>
+    )
+  }
+
+  if (definitionsError) {
+    return (
+      <div className="px-4 py-6 text-sm text-destructive">
+        Failed to load workflow versions.
+      </div>
+    )
+  }
+
+  if (!definitions?.length) {
+    return (
+      <div className="flex h-full items-center justify-center px-4">
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <History />
+            </EmptyMedia>
+            <EmptyTitle>Versions</EmptyTitle>
+            <EmptyDescription>
+              Save the workflow to start tracking versions.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </div>
+    )
+  }
+
+  const latestVersion = definitions[0]?.version ?? null
+
+  return (
+    <TooltipProvider>
+      <div className="flex flex-col">
+        {definitions.map((definition, index) => {
+          const isCurrent = definition.version === currentVersion
+          const isLatest = definition.version === latestVersion
+          const registryLockEntries = getRegistryLockEntries(definition)
+          const registryLockSummary =
+            formatRegistryLockSummary(registryLockEntries)
+          return (
+            <div key={definition.id}>
+              <div className="flex items-start gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{`v${definition.version}`}</span>
+                    {isCurrent ? (
+                      <Badge variant="secondary">Current</Badge>
+                    ) : null}
+                    {isLatest ? <Badge variant="outline">Latest</Badge> : null}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {getRelativeTime(new Date(definition.created_at))}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    {registryLockSummary ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="outline"
+                            className="max-w-full overflow-hidden truncate whitespace-nowrap font-mono font-normal"
+                            tabIndex={0}
+                            aria-label={`Registry lock: ${registryLockSummary}`}
+                          >
+                            {registryLockSummary}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-sm">
+                          <div className="space-y-1">
+                            <div className="font-medium">Registry lock</div>
+                            {registryLockEntries.map((entry) => (
+                              <div
+                                key={entry.origin}
+                                className="break-all font-mono text-xs"
+                              >
+                                {`${entry.origin}@${entry.version}`}
+                              </div>
+                            ))}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        No registry lock
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {!isCurrent ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        disabled={restorePending}
+                        onClick={() => onRestore(definition.version)}
+                        aria-label={`Restore v${definition.version}`}
+                      >
+                        <RotateCcw className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Restore</TooltipContent>
+                  </Tooltip>
+                ) : null}
+              </div>
+              {index < definitions.length - 1 ? <Separator /> : null}
+            </div>
+          )
+        })}
+      </div>
+    </TooltipProvider>
+  )
+}
+
+function getRegistryLockEntries(
+  definition: WorkflowDefinitionRead
+): RegistryLockEntryRead[] {
+  return definition.registry_lock_entries
+}
+
+function formatRegistryLockSummary(
+  entries: RegistryLockEntryRead[]
+): string | null {
+  if (entries.length === 0) {
+    return null
+  }
+  const [{ label }] = entries
+  if (entries.length === 1) {
+    return label
+  }
+  return `${label} +${entries.length - 1}`
+}
+
+function getWorkflowFormValues(
+  workflow: WorkflowRead
+): DefaultValues<WorkflowUpdateForm> {
+  return {
+    title: workflow.title,
+    alias: workflow.alias,
+    environment: workflow.config?.environment || "default",
+    timeout: workflow.config?.timeout || 0,
+    // Use undefined for empty objects so the YAML editor shows empty instead of {}
+    expects:
+      workflow.expects && Object.keys(workflow.expects).length > 0
+        ? workflow.expects
+        : undefined,
+    returns: workflow.returns,
+    error_handler: workflow.error_handler || "",
+  }
 }
 
 function WorkflowSettingsPanel({
@@ -199,20 +497,18 @@ function WorkflowSettingsPanel({
     resolver: zodResolver(workflowUpdateFormSchema, undefined, {
       mode: "async",
     }),
-    defaultValues: {
-      title: workflow.title,
-      alias: workflow.alias,
-      environment: workflow.config?.environment || "default",
-      timeout: workflow.config?.timeout || 0,
-      // Use undefined for empty objects so the YAML editor shows empty instead of {}
-      expects:
-        workflow.expects && Object.keys(workflow.expects).length > 0
-          ? workflow.expects
-          : undefined,
-      returns: workflow.returns,
-      error_handler: workflow.error_handler || "",
-    },
+    defaultValues: getWorkflowFormValues(workflow),
   })
+
+  useEffect(() => {
+    // Resync when the workflow changes outside this form (e.g. a breadcrumb
+    // rename) so a later blur-save doesn't submit stale cached values.
+    // keepDirtyValues preserves edits the user is still making here.
+    methods.reset(getWorkflowFormValues(workflow), {
+      keepDirtyValues: true,
+      keepErrors: true,
+    })
+  }, [methods, workflow])
 
   const onSubmit = useCallback(
     async (values: WorkflowUpdateForm) => {
@@ -382,7 +678,7 @@ function WorkflowSettingsPanel({
                       placeholder="Unique identifier for this workflow"
                       {...field}
                       value={field.value || ""}
-                      onChange={field.onChange}
+                      onChange={(e) => field.onChange(e.target.value || null)}
                     />
                   </FormControl>
                   <FormMessage />

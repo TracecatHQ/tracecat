@@ -2,8 +2,20 @@ from __future__ import annotations
 
 from enum import StrEnum
 from functools import cached_property
+from typing import Literal
 
 from temporalio.common import SearchAttributeKey, SearchAttributePair
+
+WorkflowExecutionStatusLiteral = Literal[
+    "RUNNING",
+    "COMPLETED",
+    "FAILED",
+    "CANCELED",
+    "TERMINATED",
+    "CONTINUED_AS_NEW",
+    "TIMED_OUT",
+]
+"""Mapped literal types for workflow execution statuses."""
 
 
 class WorkflowExecutionEventStatus(StrEnum):
@@ -120,6 +132,18 @@ class ExecutionType(StrEnum):
         return TemporalSearchAttr.EXECUTION_TYPE.create_pair(self.value)
 
 
+class WorkflowRunExcludedWorkflowType(StrEnum):
+    """Workflow types that should not appear in the workflow runs UI."""
+
+    DURABLE_AGENT = "DurableAgentWorkflow"
+    EXECUTE_REGISTRY_TOOL = "ExecuteRegistryToolWorkflow"
+
+
+WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES = frozenset(
+    workflow_type.value for workflow_type in WorkflowRunExcludedWorkflowType
+)
+
+
 class TemporalSearchAttr(StrEnum):
     """Temporal search attribute keys."""
 
@@ -135,8 +159,14 @@ class TemporalSearchAttr(StrEnum):
     ALIAS = "TracecatAlias"
     """The `Keyword` Search Attribute for a human-friendly workflow alias (e.g., workflow or agent slugs)."""
 
+    CORRELATION_ID = "TracecatCorrelationId"
+    """The `Keyword` Search Attribute for grouping related workflow executions."""
+
     EXECUTION_TYPE = "TracecatExecutionType"
     """The `Keyword` Search Attribute for the execution type (draft or published)."""
+
+    ERROR_OWNER = "TracecatErrorOwner"
+    """The `Keyword` Search Attribute for terminal runtime error ownership."""
 
     @cached_property
     def key(self) -> SearchAttributeKey[str]:

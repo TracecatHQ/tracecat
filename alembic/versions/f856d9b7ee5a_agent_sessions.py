@@ -134,6 +134,47 @@ def upgrade() -> None:
         ["session_id"],
         unique=False,
     )
+    # Backfill placeholder sessions for pre-existing approval rows so the FK can
+    # be added safely on databases that created approvals before agent_session.
+    op.execute(
+        sa.text(
+            """
+            INSERT INTO agent_session (
+                id,
+                title,
+                created_by,
+                entity_type,
+                entity_id,
+                tools,
+                agent_preset_id,
+                harness_type,
+                curr_run_id,
+                last_stream_id,
+                workspace_id
+            )
+            SELECT
+                missing.session_id,
+                'Migrated approval session',
+                NULL,
+                'workflow',
+                missing.session_id,
+                NULL::jsonb,
+                NULL,
+                NULL,
+                missing.session_id,
+                NULL,
+                missing.workspace_id
+            FROM (
+                SELECT DISTINCT a.session_id, a.workspace_id
+                FROM approval AS a
+                LEFT JOIN agent_session AS s
+                    ON s.id = a.session_id
+                WHERE a.session_id IS NOT NULL
+                  AND s.id IS NULL
+            ) AS missing
+            """
+        )
+    )
     op.alter_column("approval", "session_id", existing_type=sa.UUID(), nullable=True)
     op.create_foreign_key(
         op.f("fk_approval_session_id_agent_session"),

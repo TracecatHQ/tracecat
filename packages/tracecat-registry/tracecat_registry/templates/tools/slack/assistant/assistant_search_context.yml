@@ -1,0 +1,114 @@
+type: action
+definition:
+  title: Assistant search context
+  description: Search Slack messages, files, channels, and users for AI assistant context.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/assistant.search.context/
+  namespace: tools.slack
+  name: assistant_search_context
+  expects:
+    query:
+      type: str
+      description: User prompt or search query.
+    action_token:
+      type: str
+      description: Action token from a Slack assistant message event.
+    channel_types:
+      type: list[str]
+      description: Slack channel types to search.
+      default: ["public_channel"]
+    content_types:
+      type: list[str]
+      description: Slack content types to include in search results.
+      default: ["messages"]
+    include_bots:
+      type: bool
+      description: Whether to include bot-authored results.
+      default: false
+    include_deleted_users:
+      type: bool
+      description: Whether to include deleted users in user search results.
+      default: false
+    before:
+      type: int | None
+      description: UNIX timestamp filter for results before this time.
+      default: null
+    after:
+      type: int | None
+      description: UNIX timestamp filter for results after this time.
+      default: null
+    include_context_messages:
+      type: bool
+      description: Whether to include context messages around message results.
+      default: false
+    context_channel_id:
+      type: str | None
+      description: Context channel ID to scope the search when applicable.
+      default: null
+    cursor:
+      type: str | None
+      description: Cursor returned by Slack for the next page of results.
+      default: null
+    limit:
+      type: int
+      description: Number of results to return, up to a maximum of 20.
+      default: 20
+    sort:
+      type: str
+      description: Field to sort results by. Supported values are score and timestamp.
+      default: score
+    sort_dir:
+      type: str
+      description: Direction to sort results by. Supported values are asc and desc.
+      default: desc
+    include_message_blocks:
+      type: bool
+      description: Whether to include message blocks in the response.
+      default: false
+    highlight:
+      type: bool
+      description: Whether to highlight the search query in results.
+      default: false
+    term_clauses:
+      type: list[str]
+      description: Term clauses that every returned search result should match.
+      default: []
+    modifiers:
+      type: str | None
+      description: Slack search modifiers, such as has:pin before:yesterday.
+      default: null
+    include_archived_channels:
+      type: bool
+      description: Whether to include archived channels in search results.
+      default: false
+    disable_semantic_search:
+      type: bool
+      description: Whether to disable semantic search and use keyword search only.
+      default: false
+  steps:
+    - ref: assistant_search_context
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: assistant.search.context
+        params:
+          query: ${{ inputs.query }}
+          action_token: ${{ inputs.action_token }}
+          channel_types: ${{ inputs.channel_types }}
+          content_types: ${{ inputs.content_types }}
+          include_bots: ${{ inputs.include_bots }}
+          include_deleted_users: ${{ inputs.include_deleted_users }}
+          before: ${{ inputs.before }}
+          after: ${{ inputs.after }}
+          include_context_messages: ${{ inputs.include_context_messages }}
+          context_channel_id: ${{ inputs.context_channel_id }}
+          cursor: ${{ inputs.cursor }}
+          limit: ${{ inputs.limit }}
+          sort: ${{ inputs.sort }}
+          sort_dir: ${{ inputs.sort_dir }}
+          include_message_blocks: ${{ inputs.include_message_blocks }}
+          highlight: ${{ inputs.highlight }}
+          term_clauses: ${{ inputs.term_clauses }}
+          modifiers: ${{ inputs.modifiers }}
+          include_archived_channels: ${{ inputs.include_archived_channels }}
+          disable_semantic_search: ${{ inputs.disable_semantic_search }}
+  returns: ${{ steps.assistant_search_context.result }}

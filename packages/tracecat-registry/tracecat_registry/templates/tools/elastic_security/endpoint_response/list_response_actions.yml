@@ -1,0 +1,98 @@
+type: action
+definition:
+  title: List response actions
+  description: List Elastic Endpoint response actions.
+  display_group: Elastic Security
+  doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointgetactionslist
+  namespace: tools.elastic_security
+  name: list_response_actions
+  secrets:
+    - name: elastic_security
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    page:
+      type: int | None
+      description: The page number to return.
+      default: null
+    pageSize:
+      type: int | None
+      description: The number of response actions to return per page.
+      default: null
+    commands:
+      type: list[str] | None
+      description: A list of response action command names to filter by. Allowed values are `isolate`, `unisolate`, `kill-process`, `suspend-process`, `running-processes`, `get-file`, `execute`, `upload`, `scan`, `runscript`, `cancel`, `memory-dump`.
+      default: null
+    agentIds:
+      type: list[str] | None
+      description: A list of Elastic Agent IDs to filter the response actions by.
+      default: null
+    userIds:
+      type: list[str] | None
+      description: A list of user IDs that submitted the response actions.
+      default: null
+    startDate:
+      type: str | None
+      description: A start date in ISO 8601 format or Date Math format (for example, `now-24h`).
+      default: null
+    endDate:
+      type: str | None
+      description: An end date in ISO 8601 format or Date Math format (for example, `now`).
+      default: null
+    agentTypes:
+      type: str | None
+      description: The agent type to filter response actions by. Defaults to `endpoint`. Allowed values are `endpoint`, `sentinel_one`, `crowdstrike`, `microsoft_defender_endpoint`.
+      default: null
+    withOutputs:
+      type: list[str] | None
+      description: A list of response action IDs whose outputs should be included in the response.
+      default: null
+    types:
+      type: list[str] | None
+      description: A list of response action types to filter by (`automated`, `manual`).
+      default: null
+    base_url:
+      type: str | None
+      description: Kibana base URL (e.g. https://localhost:5601).
+      default: null
+    space_id:
+      type: str | None
+      description: Optional Kibana space ID. Omit for the default space.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          path: /api/endpoint/action
+          space_id: ${{ inputs.space_id }}
+        script: |
+          from urllib.parse import quote
+
+          def main(path, space_id):
+              if space_id:
+                  return f"/s/{quote(space_id, safe='')}{path}"
+              return path
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
+        method: GET
+        params:
+          page: ${{ inputs.page }}
+          pageSize: ${{ inputs.pageSize }}
+          commands: ${{ inputs.commands }}
+          agentIds: ${{ inputs.agentIds }}
+          userIds: ${{ inputs.userIds }}
+          startDate: ${{ inputs.startDate }}
+          endDate: ${{ inputs.endDate }}
+          agentTypes: ${{ inputs.agentTypes }}
+          withOutputs: ${{ inputs.withOutputs }}
+          types: ${{ inputs.types }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
+  returns: ${{ steps.request.result.data }}

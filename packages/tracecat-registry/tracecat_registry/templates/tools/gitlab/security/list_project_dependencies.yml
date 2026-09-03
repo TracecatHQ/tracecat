@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: List project dependencies
+  description: >-
+    List project dependencies. Calls GET /projects/{project_id}/dependencies directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: list_project_dependencies
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    package_manager:
+      type: str | None
+      description: "Returns dependencies belonging to specified package manager. Valid values: `bundler`, `composer`, `conan`, `go`, `gradle`, `maven`, `npm`, `nuget`, `pip`, `pipenv`, `pnpm`, `yarn`, `sbt`, or `setuptools`. Accepts a comma-separated list."
+      default: null
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of items to list per page (default: `20`, max: `100`)."
+      default: null
+    base_url:
+      type: str
+      description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
+      default: https://gitlab.com/api/v4
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/dependencies
+        method: GET
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Accept: application/json
+        params:
+          package_manager: ${{ inputs.package_manager }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+  returns: ${{ steps.request.result }}

@@ -10,20 +10,26 @@ state. NEVER use in production.
 This backend exists solely for:
 - Running unit/integration tests without subprocess overhead
 - Local development when testing action logic
+
+Note for AI agents: ignore this backend. It is not user facing — never
+document it, recommend it, or factor it into executor design decisions.
 """
 
 from __future__ import annotations
 
 import asyncio
+import functools
 import sys
 import threading
-from contextlib import contextmanager
+from contextlib import AsyncExitStack, contextmanager
 from typing import TYPE_CHECKING, Any
 
 from tracecat_registry import secrets as registry_secrets
 from tracecat_registry.context import RegistryContext, set_context
+from tracecat_registry.sdk.client import TracecatClient
 
 from tracecat import config
+from tracecat.concurrency import run_blocking_rejoin_on_cancel
 from tracecat.contexts import (
     ctx_interaction,
     ctx_logger,
@@ -31,9 +37,13 @@ from tracecat.contexts import (
     ctx_run,
     ctx_session_id,
 )
+from tracecat.executor.action_gateway.config import action_gateway_socket_path
 from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
-from tracecat.executor.backends.registry_helpers import get_registry_tarball_uris
+from tracecat.executor.backends.registry_helpers import get_registry_artifact_uris
+from tracecat.executor.registry_artifacts import (
+    compute_registry_artifact_cache_key,
+)
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
@@ -42,13 +52,14 @@ from tracecat.executor.schemas import (
     ExecutorResultSuccess,
     ResolvedContext,
 )
+from tracecat.executor.secret_preprocessors import project_secret_env
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionUDFImpl
 from tracecat.registry.loaders import load_udf_impl
 from tracecat.secrets import secrets_manager
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import RunActionInput
@@ -115,20 +126,24 @@ class TestBackend(ExecutorBackend):
             task_ref=input.task.ref,
         )
 
-        tarball_paths = await self._ensure_registry_tarballs(input, role)
-        if tarball_paths:
-            logger.debug(
-                "Adding tarball paths to sys.path for test execution",
-                paths=tarball_paths,
-            )
-
         try:
-            with _temporary_sys_path(tarball_paths):
-                result = await asyncio.wait_for(
-                    self._execute_with_context(input, role, resolved_context),
-                    timeout=timeout,
+            # The leases are held for the whole in-process execution so cache
+            # eviction cannot delete a directory sys.path still points at.
+            async with AsyncExitStack() as leases:
+                artifact_paths = await self._lease_registry_artifacts(
+                    leases, input, role
                 )
-            return ExecutorResultSuccess(result=result)
+                if artifact_paths:
+                    logger.debug(
+                        "Adding artifact paths to sys.path for test execution",
+                        paths=artifact_paths,
+                    )
+                with _temporary_sys_path(artifact_paths):
+                    result = await asyncio.wait_for(
+                        self._execute_with_context(input, role, resolved_context),
+                        timeout=timeout,
+                    )
+                return ExecutorResultSuccess(result=result)
         except TimeoutError:
             logger.error(
                 "Test backend execution timed out",
@@ -187,6 +202,11 @@ class TestBackend(ExecutorBackend):
             environment=input.run_context.environment,
             api_url=config.TRACECAT__API_URL,
             token=resolved_context.executor_token,
+            _client=TracecatClient(
+                action_gateway_socket=str(action_gateway_socket_path()),
+                token=resolved_context.executor_token,
+                workspace_id=resolved_context.workspace_id,
+            ),
         )
         set_context(registry_ctx)
 
@@ -198,21 +218,41 @@ class TestBackend(ExecutorBackend):
             action_name=action_name,
         )
 
-        flattened_secrets = secrets_manager.flatten_secrets(resolved_context.secrets)
-        secrets_token = registry_secrets.set_context(flattened_secrets)
+        secret_projection = resolved_context.secret_projection
+        if secret_projection is None:
+            secret_projection = await project_secret_env(
+                secrets=resolved_context.secrets,
+                role=role,
+                run_context=input.run_context,
+            )
+        secrets_token = registry_secrets.set_context(secret_projection.env)
 
         try:
             args = resolved_context.evaluated_args or {}
-            with secrets_manager.env_sandbox(flattened_secrets):
+            with secrets_manager.env_sandbox(secret_projection.env):
                 if asyncio.iscoroutinefunction(fn):
                     result = await fn(**args)
                 else:
-                    result = await asyncio.to_thread(fn, **args)
+                    result = await self._run_sync_udf(fn, args)
 
             log.trace("Result", result=result)
             return result
         finally:
             registry_secrets.reset_context(secrets_token)
+
+    async def _run_sync_udf(
+        self,
+        fn: Callable[..., Any],
+        args: dict[str, Any],
+    ) -> Any:
+        """Keep a non-interruptible UDF thread joined through cancellation.
+
+        TestBackend timeouts are necessarily soft for synchronous functions: a
+        Python thread cannot be killed safely. Rejoining it keeps registry
+        leases, temporary ``sys.path`` entries, and secret contexts alive until
+        the function actually stops.
+        """
+        return await run_blocking_rejoin_on_cancel(functools.partial(fn, **args))
 
     def _load_udf_callable(self, action_impl: ActionImplementation):
         """Load the UDF callable from action_impl metadata."""
@@ -230,39 +270,60 @@ class TestBackend(ExecutorBackend):
         )
         return load_udf_impl(udf_impl)
 
-    async def _ensure_registry_tarballs(
-        self, input: RunActionInput, role: Role
+    async def _lease_registry_artifacts(
+        self,
+        leases: AsyncExitStack,
+        input: RunActionInput,
+        role: Role,
     ) -> list[str]:
-        """Download and extract registry tarballs, returning paths for sys.path."""
+        """Lease registry artifacts, returning paths for sys.path.
+
+        Each artifact is leased independently so one unavailable artifact only
+        drops its own paths: the remaining artifacts still load, matching the
+        best-effort behaviour tests rely on.
+
+        Args:
+            leases: Exit stack that owns the leases for the caller's execution.
+            input: Action input used to resolve artifact URIs.
+            role: Role used to resolve artifact URIs.
+
+        Returns:
+            Importable paths for every artifact that could be materialized.
+        """
         if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
             return []
 
-        tarball_uris = await self._get_tarball_uris(input, role)
-        if not tarball_uris:
-            logger.debug("No tarball URIs found, using empty paths")
+        artifact_uris = await self._get_artifact_uris(input, role)
+        if not artifact_uris:
+            logger.debug("No artifact URIs found, using empty paths")
             return []
 
-        runner = get_action_runner()
+        registry_artifacts = get_action_runner().registry_artifacts
         extracted_paths: list[str] = []
 
-        for tarball_uri in tarball_uris:
+        for artifact_uri in artifact_uris:
             try:
-                extracted_path = await runner.ensure_registry_environment(tarball_uri)
-                if extracted_path:
-                    extracted_paths.append(str(extracted_path))
+                artifact_paths = await leases.enter_async_context(
+                    registry_artifacts.lease(
+                        [artifact_uri],
+                        paths_may_be_modified=True,
+                    )
+                )
             except Exception as e:
                 logger.warning(
-                    "Failed to extract tarball for test execution",
-                    tarball_uri=tarball_uri,
-                    error=str(e),
+                    "Failed to materialize artifact for test execution",
+                    cache_key=compute_registry_artifact_cache_key(artifact_uri),
+                    error_type=type(e).__name__,
                 )
+                continue
+            extracted_paths.extend(str(path) for path in artifact_paths)
 
         logger.debug(
-            "Extracted registry tarballs for test execution",
+            "Materialized registry artifacts for test execution",
             count=len(extracted_paths),
         )
         return extracted_paths
 
-    async def _get_tarball_uris(self, input: RunActionInput, role: Role) -> list[str]:
-        """Get tarball URIs for registry environment (deterministic ordering)."""
-        return await get_registry_tarball_uris(input=input, role=role)
+    async def _get_artifact_uris(self, input: RunActionInput, role: Role) -> list[str]:
+        """Get artifact URIs for registry environment (deterministic ordering)."""
+        return await get_registry_artifact_uris(input=input, role=role)

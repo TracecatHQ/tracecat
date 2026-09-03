@@ -3,7 +3,7 @@ definition:
   title: Get groups assigned to user
   description: List all groups that a user is a member of.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/UserResources/#tag/UserResources/operation/listUserGroups
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tags/userresources/#tag/UserResources/operation/listUserGroups
   namespace: tools.okta
   name: get_groups_assigned_to_user
   secrets:
@@ -12,7 +12,7 @@ definition:
   expects:
     base_url:
       type: str | None
-      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      description: Okta domain base URL (e.g., 'https://your-org.okta.com')
       default: null
     user_id:
       type: str

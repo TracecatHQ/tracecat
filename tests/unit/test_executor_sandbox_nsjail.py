@@ -1,0 +1,1201 @@
+"""Docker-backed smoke tests for regular executor nsjail execution."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+import os
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tarfile
+import tempfile
+import uuid
+from datetime import UTC, datetime
+from enum import StrEnum
+from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
+from pathlib import Path
+from typing import NoReturn
+from unittest.mock import patch
+
+import pytest
+import tracecat_registry
+
+from tracecat import config
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.dsl.common import create_default_execution_context
+from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.executor.action_gateway.config import ACTION_GATEWAY_SANDBOX_SOCKET
+from tracecat.executor.action_gateway.server import ActionGateway
+from tracecat.executor.action_runner import ActionRunner
+from tracecat.executor.backends.direct import DirectBackend
+from tracecat.executor.backends.ephemeral import EphemeralBackend
+from tracecat.executor.registry_artifacts import (
+    SQUASHFS_MOUNT_OPTIONS,
+    RegistryArtifactFormat,
+    SquashfsArtifact,
+    TarballArtifact,
+    compute_registry_artifact_cache_key,
+)
+from tracecat.executor.schemas import (
+    ActionImplementation,
+    ExecutorActionErrorInfo,
+    ResolvedContext,
+)
+from tracecat.executor.secret_preprocessors import SecretEnvProjection
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.lock.types import RegistryLock
+from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
+from tracecat.sandbox.networking import NSTUN_GATEWAY_IP4, write_sandbox_network_files
+from tracecat.sandbox.types import (
+    ResourceLimits,
+    SandboxConfig,
+    SandboxEgressRule,
+    SandboxNetworkPolicy,
+    SandboxNetworkProtocol,
+    SandboxNetworkPurpose,
+    SandboxNetworkRequest,
+)
+
+_DOCKER_CHILD_ENV = "TRACECAT__EXECUTOR_ACTION_SMOKE_DOCKER_CHILD"
+_SKIP_SENTINEL = "TRACE_CAT_EXECUTOR_ACTION_SMOKE_SKIP:"
+_SMOKE_URI = "s3://tracecat-test-registry/smoke/site-packages.tar.gz"
+_NSTUN_UDP_SOCKET_BUDGET = 2048
+_NSTUN_UDP_SOCKET_PROBE_OVERFLOW = 16
+_NSTUN_PARENT_NOFILE_LIMIT = 4096
+_RFC1918_NETWORKS = (
+    IPv4Network("10.0.0.0/8"),
+    IPv4Network("172.16.0.0/12"),
+    IPv4Network("192.168.0.0/16"),
+)
+
+
+class SmokeCase(StrEnum):
+    DIRECT = "direct"
+    DIRECT_SQUASHFS = "direct-squashfs"
+    DIRECT_CURRENT_BUILTIN = "direct-current-builtin"
+    NSJAIL_GZ = "nsjail-gz"
+    NSJAIL_SQUASHFS = "nsjail-squashfs"
+    NSJAIL_GATEWAY = "nsjail-gateway"
+    NSJAIL_NETWORK_POLICY = "nsjail-network-policy"
+    NSJAIL_SOCKET_BUDGET = "nsjail-socket-budget"
+    NSJAIL_CURRENT_BUILTIN = "nsjail-current-builtin"
+
+    @property
+    def force_sandbox(self) -> bool:
+        return self not in {
+            SmokeCase.DIRECT,
+            SmokeCase.DIRECT_SQUASHFS,
+            SmokeCase.DIRECT_CURRENT_BUILTIN,
+        }
+
+    @property
+    def preferred_format(self) -> RegistryArtifactFormat:
+        if self in {SmokeCase.NSJAIL_SQUASHFS, SmokeCase.DIRECT_SQUASHFS}:
+            return RegistryArtifactFormat.SQUASHFS
+        return RegistryArtifactFormat.TAR_GZ
+
+
+class CancelledNsjailOperation(StrEnum):
+    """NsJail entry points whose cancellation must terminate descendants."""
+
+    EXECUTE = "execute"
+    INSTALL = "install"
+    ACTION = "action"
+
+
+def _executor_nsjail_available() -> bool:
+    return (
+        Path(config.TRACECAT__SANDBOX_NSJAIL_PATH).is_file()
+        and Path(config.TRACECAT__SANDBOX_ROOTFS_PATH).is_dir()
+    )
+
+
+def _kernel_supports_squashfs() -> bool:
+    filesystems = Path("/proc/filesystems")
+    if not filesystems.exists():
+        return True
+    return any(
+        split_line[-1] == "squashfs"
+        for line in filesystems.read_text().splitlines()
+        if (split_line := line.split())
+    )
+
+
+def _skip_smoke(reason: str) -> NoReturn:
+    if os.environ.get(_DOCKER_CHILD_ENV) == "1":
+        print(f"{_SKIP_SENTINEL} {reason}")
+        raise SystemExit(0)
+    pytest.skip(reason)
+
+
+def _missing_prerequisite(smoke_case: SmokeCase) -> str | None:
+    if not smoke_case.force_sandbox:
+        if sys.platform != "linux":
+            return (
+                "direct action subprocesses require Linux (setpriv + subreaper "
+                "process supervisor)"
+            )
+        if shutil.which("setpriv") is None:
+            return "setpriv is unavailable"
+    if smoke_case.force_sandbox and not _executor_nsjail_available():
+        return "executor nsjail unavailable"
+    if smoke_case.force_sandbox and not Path("/dev/net/tun").exists():
+        return "/dev/net/tun is unavailable for nsjail NSTUN networking"
+    if smoke_case == SmokeCase.NSJAIL_SQUASHFS:
+        if shutil.which("mksquashfs") is None:
+            return "mksquashfs is unavailable"
+        if shutil.which("mount") is None:
+            return "mount is unavailable"
+        if not _kernel_supports_squashfs():
+            return "kernel does not advertise SquashFS support"
+    if smoke_case == SmokeCase.DIRECT_SQUASHFS:
+        if shutil.which("mksquashfs") is None:
+            return "mksquashfs is unavailable"
+        if shutil.which("unsquashfs") is None:
+            return "unsquashfs is unavailable"
+    return None
+
+
+def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
+    if os.environ.get(_DOCKER_CHILD_ENV) == "1":
+        pytest.skip("executor nsjail unavailable inside Docker fallback child")
+    if shutil.which("docker") is None:
+        pytest.skip("Docker CLI unavailable for executor nsjail fallback")
+
+    docker_info = subprocess.run(
+        ["docker", "info"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if docker_info.returncode != 0:
+        pytest.skip("Docker daemon unavailable for executor nsjail fallback")
+
+    repo_root = Path(__file__).resolve().parents[2]
+    compose_env = os.environ.copy()
+    compose_env.setdefault(
+        "TRACECAT__LOCAL_REPOSITORY_PATH",
+        str(repo_root / "packages"),
+    )
+    compose_env.setdefault("TRACECAT__LOCAL_REPOSITORY_ENABLED", "false")
+    compose_env.setdefault("PUBLIC_APP_PORT", "80")
+    compose_env.setdefault("BASE_DOMAIN", ":80")
+    compose_env.setdefault("ADDRESS", "0.0.0.0")
+    compose_env.setdefault("LOG_LEVEL", "INFO")
+    compose_env.setdefault("TRACECAT__APP_ENV", "development")
+    compose_env.setdefault("TRACECAT__SERVICE_KEY", "test-service-key")
+
+    tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
+    device_lines = (
+        [
+            "    devices:",
+            "      - /dev/net/tun:/dev/net/tun",
+        ]
+        if Path("/dev/net/tun").exists()
+        else []
+    )
+    ulimit_lines = (
+        [
+            "    ulimits:",
+            "      nofile:",
+            f"        soft: {_NSTUN_PARENT_NOFILE_LIMIT}",
+            f"        hard: {_NSTUN_PARENT_NOFILE_LIMIT}",
+        ]
+        if smoke_case is SmokeCase.NSJAIL_SOCKET_BUDGET
+        else []
+    )
+    override_path = Path(
+        tempfile.mkstemp(prefix="tracecat-executor-action-smoke-", suffix=".yml")[1]
+    )
+    override_path.write_text(
+        "\n".join(
+            [
+                "services:",
+                "  executor:",
+                "    build:",
+                "      target: test",
+                "    privileged: true",
+                "    security_opt:",
+                "      - seccomp:unconfined",
+                "      - systempaths=unconfined",
+                *ulimit_lines,
+                *device_lines,
+                "    volumes:",
+                f"      - {json.dumps(tests_mount)}",
+                "    environment:",
+                f'      {_DOCKER_CHILD_ENV}: "1"',
+                '      TRACECAT__DISABLE_NSJAIL: "false"',
+                '      TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED: "true"',
+                '      TRACECAT__SANDBOX_NSJAIL_PATH: "/usr/local/bin/nsjail"',
+                '      TRACECAT__SANDBOX_ROOTFS_PATH: "/var/lib/tracecat/sandbox-rootfs"',
+                '      PYTHONDONTWRITEBYTECODE: "1"',
+                "",
+            ]
+        )
+    )
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(repo_root / "docker-compose.dev.yml"),
+                "-f",
+                str(override_path),
+                "run",
+                "--rm",
+                "--no-deps",
+                "--build",
+                "-T",
+                "--entrypoint",
+                "sh",
+                "executor",
+                "-lc",
+                "uv run python -m tests.unit.test_executor_sandbox_nsjail "
+                f"--run-smoke {smoke_case.value}",
+            ],
+            cwd=repo_root,
+            env=compose_env,
+            capture_output=True,
+            text=True,
+            timeout=240,
+            check=False,
+        )
+    finally:
+        override_path.unlink(missing_ok=True)
+
+    output = f"{result.stdout}\n{result.stderr}"
+    if _SKIP_SENTINEL in output:
+        reason = output.split(_SKIP_SENTINEL, maxsplit=1)[1].splitlines()[0].strip()
+        pytest.skip(reason)
+
+    if result.returncode != 0:
+        pytest.fail(
+            f"Dockerized executor action smoke failed for {smoke_case.value}."
+            f"\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+        )
+
+
+def _make_role() -> Role:
+    return Role(
+        type="service",
+        service_id="tracecat-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-executor"],
+    )
+
+
+def _make_action_input(
+    action_name: str,
+    *,
+    value: object = "from-registry-artifact",
+) -> RunActionInput:
+    wf_id = WorkflowUUID.new_uuid4()
+    return RunActionInput(
+        task=ActionStatement(
+            action=action_name,
+            args={"value": value},
+            ref="registry_artifact_smoke",
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=RunContext(
+            wf_id=wf_id,
+            wf_exec_id=f"{wf_id.short()}/exec_squashfs_smoke",
+            wf_run_id=uuid.uuid4(),
+            environment="test",
+            logical_time=datetime.now(UTC),
+        ),
+        registry_lock=RegistryLock(
+            origins={"test_registry": "smoke"},
+            actions={action_name: "test_registry"},
+        ),
+    )
+
+
+def _make_builtin_action_input(action_name: str) -> RunActionInput:
+    wf_id = WorkflowUUID.new_uuid4()
+    return RunActionInput(
+        task=ActionStatement(
+            action=action_name,
+            args={"value": {"source": "current-builtin"}},
+            ref="current_builtin_smoke",
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=RunContext(
+            wf_id=wf_id,
+            wf_exec_id=f"{wf_id.short()}/exec_current_builtin_smoke",
+            wf_run_id=uuid.uuid4(),
+            environment="test",
+            logical_time=datetime.now(UTC),
+        ),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": tracecat_registry.__version__},
+            actions={action_name: "tracecat_registry"},
+        ),
+    )
+
+
+def _make_resolved_context(
+    *,
+    action_name: str,
+    input: RunActionInput,
+    role: Role,
+    value: object = "from-registry-artifact",
+) -> ResolvedContext:
+    return ResolvedContext(
+        secrets={},
+        variables={},
+        action_impl=ActionImplementation(
+            type="udf",
+            action_name=action_name,
+            module="registry_artifact_smoke_action",
+            name="run",
+        ),
+        evaluated_args={"value": value},
+        workspace_id=str(role.workspace_id),
+        workflow_id=str(input.run_context.wf_id),
+        run_id=str(input.run_context.wf_run_id),
+        executor_token="test-executor-token",
+        secret_projection=SecretEnvProjection(env={}, mask_values=set()),
+    )
+
+
+def _make_builtin_resolved_context(
+    *,
+    action_name: str,
+    input: RunActionInput,
+    role: Role,
+) -> ResolvedContext:
+    return ResolvedContext(
+        secrets={},
+        variables={},
+        action_impl=ActionImplementation(
+            type="udf",
+            action_name=action_name,
+            module="tracecat_registry.core.transform",
+            name="reshape",
+            origin="tracecat_registry",
+        ),
+        evaluated_args={"value": {"source": "current-builtin"}},
+        workspace_id=str(role.workspace_id),
+        workflow_id=str(input.run_context.wf_id),
+        run_id=str(input.run_context.wf_run_id),
+        executor_token="test-executor-token",
+        secret_projection=SecretEnvProjection(env={}, mask_values=set()),
+    )
+
+
+def _write_registry_artifact_source(source_dir: Path) -> None:
+    source_dir.mkdir(parents=True)
+    (source_dir / "artifact_marker.txt").write_text("registry-artifact\n")
+    (source_dir / "registry_artifact_smoke_action.py").write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "",
+                "def run(value: str) -> dict[str, str]:",
+                "    marker = Path(__file__).with_name('artifact_marker.txt').read_text().strip()",
+                "    return {'value': value, 'marker': marker, 'source': __file__}",
+                "",
+            ]
+        )
+    )
+
+
+def _write_gateway_artifact_source(source_dir: Path) -> None:
+    source_dir.mkdir(parents=True)
+    (source_dir / "registry_artifact_smoke_action.py").write_text(
+        "\n".join(
+            [
+                "import json",
+                "import os",
+                "import socket",
+                "",
+                "",
+                "def _gateway_health() -> dict:",
+                '    socket_path = os.environ["TRACECAT__ACTION_GATEWAY_SOCKET"]',
+                "    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)",
+                "    client.settimeout(5)",
+                "    try:",
+                "        client.connect(socket_path)",
+                "        request = (",
+                '            b"GET /internal/health HTTP/1.1\\r\\n"',
+                '            b"Host: tracecat-action-gateway\\r\\n"',
+                '            b"Connection: close\\r\\n\\r\\n"',
+                "        )",
+                "        client.sendall(request)",
+                "        chunks = []",
+                "        while True:",
+                "            chunk = client.recv(4096)",
+                "            if not chunk:",
+                "                break",
+                "            chunks.append(chunk)",
+                "    finally:",
+                "        client.close()",
+                "",
+                '    raw = b"".join(chunks).decode("utf-8")',
+                '    headers, body = raw.split("\\r\\n\\r\\n", 1)',
+                '    status_line = headers.split("\\r\\n", 1)[0]',
+                '    status_code = int(status_line.split(" ", 2)[1])',
+                "    return {",
+                '        "status_code": status_code,',
+                '        "body": json.loads(body),',
+                '        "socket_path": socket_path,',
+                "    }",
+                "",
+                "",
+                "def run(value: str) -> dict:",
+                "    return {",
+                '        "value": value,',
+                '        "gateway": _gateway_health(),',
+                "    }",
+                "",
+            ]
+        )
+    )
+
+
+def _write_network_policy_artifact_source(source_dir: Path) -> None:
+    source_dir.mkdir(parents=True)
+    (source_dir / "registry_artifact_smoke_action.py").write_text(
+        "\n".join(
+            [
+                "import socket",
+                "",
+                "",
+                "def _can_connect(host: str, port: int) -> bool:",
+                "    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)",
+                "    client.settimeout(2)",
+                "    try:",
+                "        client.connect((host, port))",
+                "    except OSError:",
+                "        return False",
+                "    finally:",
+                "        client.close()",
+                "    return True",
+                "",
+                "",
+                "def run(value: dict[str, object]) -> dict[str, object]:",
+                "    host = value['host']",
+                "    port = value['port']",
+                "    dns_host = value['dns_host']",
+                "    dns_port = value['dns_port']",
+                "    loopback_host = value['loopback_host']",
+                "    loopback_port = value['loopback_port']",
+                "    if not all(",
+                "        isinstance(item, str)",
+                "        for item in (host, dns_host, loopback_host)",
+                "    ):",
+                "        raise TypeError('hosts have invalid types')",
+                "    if not all(",
+                "        isinstance(item, int)",
+                "        for item in (port, dns_port, loopback_port)",
+                "    ):",
+                "        raise TypeError('ports have invalid types')",
+                "    return {",
+                "        'private_connected': _can_connect(host, port),",
+                "        'dns_redirect_connected': _can_connect(dns_host, dns_port),",
+                "        'loopback_non_dns_connected': _can_connect(",
+                "            loopback_host, loopback_port",
+                "        ),",
+                "    }",
+                "",
+            ]
+        )
+    )
+
+
+def _private_parent_ipv4_address() -> IPv4Address:
+    parent_address = ip_address(socket.gethostbyname(socket.gethostname()))
+    if not isinstance(parent_address, IPv4Address) or not any(
+        parent_address in network for network in _RFC1918_NETWORKS
+    ):
+        _skip_smoke(f"executor address {parent_address} is not a private IPv4 address")
+    return parent_address
+
+
+def _open_private_parent_listener() -> tuple[socket.socket, IPv4Address, int]:
+    """Open a listener on the executor container's RFC 1918 address."""
+    parent_address = _private_parent_ipv4_address()
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind((str(parent_address), 0))
+    listener.listen(4)
+    return listener, parent_address, listener.getsockname()[1]
+
+
+def _open_private_parent_udp_sinks(
+    count: int,
+) -> tuple[tuple[socket.socket, ...], IPv4Address]:
+    """Keep deterministic UDP destinations open in the executor namespace."""
+    parent_address = _private_parent_ipv4_address()
+    sinks: list[socket.socket] = []
+    try:
+        for _ in range(count):
+            sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sinks.append(sink)
+            sink.bind((str(parent_address), 0))
+    except OSError as exc:
+        for sink in sinks:
+            sink.close()
+        _skip_smoke(f"could not open {count} parent UDP sinks: {exc}")
+    return tuple(sinks), parent_address
+
+
+def _open_parent_loopback_dns_listener() -> socket.socket:
+    """Open the deterministic parent-side target for NSTUN DNS redirects."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        listener.bind(("127.0.0.1", 53))
+    except OSError as exc:
+        listener.close()
+        _skip_smoke(f"parent loopback TCP port 53 is unavailable: {exc}")
+    listener.listen(4)
+    return listener
+
+
+def _open_parent_loopback_listener() -> tuple[socket.socket, int]:
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(4)
+    return listener, listener.getsockname()[1]
+
+
+def _add_source_dir_to_tar(tar: tarfile.TarFile, source_dir: Path) -> None:
+    for path in sorted(source_dir.iterdir()):
+        tar.add(path, arcname=path.name)
+
+
+def _build_tar_gz(source_dir: Path, tarball_path: Path) -> None:
+    with tarfile.open(tarball_path, "w:gz") as tar:
+        _add_source_dir_to_tar(tar, source_dir)
+
+
+def _build_squashfs_image(source_dir: Path, image_path: Path) -> None:
+    result = subprocess.run(
+        [
+            "mksquashfs",
+            str(source_dir),
+            str(image_path),
+            "-noappend",
+            "-comp",
+            "gzip",
+            "-no-xattrs",
+            "-all-root",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"mksquashfs failed\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+        )
+
+
+def _unmount_if_needed(path: Path) -> None:
+    if not path.is_mount():
+        return
+    subprocess.run(
+        ["umount", str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+
+
+def _squashfs_mount_probe_failure(image_path: Path, mount_dir: Path) -> str | None:
+    mount_dir.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        [
+            "mount",
+            "-t",
+            "squashfs",
+            "-o",
+            SQUASHFS_MOUNT_OPTIONS,
+            str(image_path),
+            str(mount_dir),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    try:
+        if result.returncode == 0 or mount_dir.is_mount():
+            return None
+
+        output = result.stderr.strip() or result.stdout.strip() or "mount failed"
+        return f"SquashFS loop mount unavailable: {output}"
+    finally:
+        _unmount_if_needed(mount_dir)
+
+
+async def _run_executor_action_smoke_case(
+    smoke_case: SmokeCase,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if reason := _missing_prerequisite(smoke_case):
+        _skip_smoke(reason)
+
+    action_gateway_socket = Path("/tmp") / f"tc-action-gateway-{uuid.uuid4().hex}.sock"
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    monkeypatch.setattr(config, "TRACECAT__API_URL", "http://127.0.0.1:8000")
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", True)
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED", True)
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(action_gateway_socket),
+    )
+
+    source_dir = tmp_path / "site-packages"
+    tar_gz_path = tmp_path / "site-packages.tar.gz"
+    squashfs_path = tmp_path / "site-packages.squashfs"
+    cache_dir = tmp_path / "registry-cache"
+    network_listener: socket.socket | None = None
+    dns_listener: socket.socket | None = None
+    loopback_listener: socket.socket | None = None
+    parent_resolv_path: Path | None = None
+    action_value: object = "from-registry-artifact"
+    if smoke_case is SmokeCase.NSJAIL_GATEWAY:
+        _write_gateway_artifact_source(source_dir)
+    elif smoke_case is SmokeCase.NSJAIL_NETWORK_POLICY:
+        network_listener, parent_address, parent_port = _open_private_parent_listener()
+        dns_listener = _open_parent_loopback_dns_listener()
+        loopback_listener, loopback_port = _open_parent_loopback_listener()
+        parent_resolv_path = tmp_path / "parent-resolv.conf"
+        parent_resolv_path.write_text("nameserver 127.0.0.1\n")
+        action_value = {
+            "host": str(parent_address),
+            "port": parent_port,
+            "dns_host": NSTUN_GATEWAY_IP4,
+            "dns_port": 53,
+            "loopback_host": NSTUN_GATEWAY_IP4,
+            "loopback_port": loopback_port,
+        }
+        _write_network_policy_artifact_source(source_dir)
+    else:
+        _write_registry_artifact_source(source_dir)
+    _build_tar_gz(source_dir, tar_gz_path)
+    if smoke_case in {SmokeCase.NSJAIL_SQUASHFS, SmokeCase.DIRECT_SQUASHFS}:
+        _build_squashfs_image(source_dir, squashfs_path)
+        if reason := _squashfs_mount_probe_failure(
+            squashfs_path,
+            tmp_path / "squashfs-mount-probe",
+        ):
+            _skip_smoke(reason)
+
+    runner = ActionRunner(cache_dir=cache_dir)
+    cache_key = compute_registry_artifact_cache_key(_SMOKE_URI)
+    cache_paths = runner.registry_artifacts._paths_for(cache_key)
+    mount_dir = cache_paths.squashfs_mount_dir
+    extract_dir = cache_paths.squashfs_extract_dir
+    tarball_dir = cache_paths.tarball_target_dir
+
+    async def sidecar_exists(
+        *,
+        base_uri: str,
+        sidecar_uri: str,
+        artifact_format: RegistryArtifactFormat,
+    ) -> bool:
+        return base_uri == _SMOKE_URI and artifact_format == smoke_case.preferred_format
+
+    async def download_artifact(self, ctx, output_path: Path) -> float:
+        if self.uri.endswith(".squashfs"):
+            shutil.copy2(squashfs_path, output_path)
+        else:
+            shutil.copy2(tar_gz_path, output_path)
+        return 0.0
+
+    action_name = "test.registry_artifact_smoke"
+    role = _make_role()
+    action_input = _make_action_input(action_name, value=action_value)
+    resolved_context = _make_resolved_context(
+        action_name=action_name,
+        input=action_input,
+        role=role,
+        value=action_value,
+    )
+    action_gateway = ActionGateway()
+
+    try:
+        await action_gateway.start()
+
+        patches = [
+            patch.object(runner.registry_artifacts, "_sidecar_exists", sidecar_exists),
+            patch.object(SquashfsArtifact, "download", download_artifact),
+            patch.object(TarballArtifact, "download", download_artifact),
+        ]
+        if smoke_case is SmokeCase.DIRECT_SQUASHFS:
+            # Direct mode runs unprivileged; force the unsquashfs extraction
+            # path instead of attempting a loopback mount.
+            patches.append(
+                patch(
+                    "tracecat.executor.registry_artifacts.shutil.which",
+                    return_value=None,
+                )
+            )
+        if parent_resolv_path is not None:
+
+            def write_test_network_files(
+                target_dir: Path,
+                host_resolv_path: Path | None = None,
+            ):
+                return write_sandbox_network_files(target_dir, parent_resolv_path)
+
+            patches.append(
+                patch(
+                    "tracecat.sandbox.networking.write_sandbox_network_files",
+                    side_effect=write_test_network_files,
+                )
+            )
+
+        with contextlib.ExitStack() as stack:
+            for ctx_manager in patches:
+                stack.enter_context(ctx_manager)
+            result = await runner.execute_action(
+                input=action_input,
+                role=role,
+                resolved_context=resolved_context,
+                artifact_uris=[_SMOKE_URI],
+                timeout=30,
+                force_sandbox=smoke_case.force_sandbox,
+            )
+
+            allowed_result: object | None = None
+            if smoke_case is SmokeCase.NSJAIL_NETWORK_POLICY:
+                assert network_listener is not None
+                listener_address = ip_address(network_listener.getsockname()[0])
+                assert isinstance(listener_address, IPv4Address)
+                monkeypatch.setattr(
+                    config,
+                    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS",
+                    (ip_network(f"{listener_address}/32"),),
+                )
+                monkeypatch.setattr(
+                    config,
+                    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS",
+                    (network_listener.getsockname()[1],),
+                )
+                allowed_result = await runner.execute_action(
+                    input=action_input,
+                    role=role,
+                    resolved_context=resolved_context,
+                    artifact_uris=[_SMOKE_URI],
+                    timeout=30,
+                    force_sandbox=True,
+                )
+
+        if isinstance(result, ExecutorActionErrorInfo):
+            raise AssertionError(f"Sandboxed action failed: {result}")
+
+        assert isinstance(result, dict)
+        if smoke_case is SmokeCase.NSJAIL_NETWORK_POLICY:
+            assert result == {
+                "private_connected": False,
+                "dns_redirect_connected": True,
+                "loopback_non_dns_connected": False,
+            }
+            assert isinstance(allowed_result, dict)
+            assert allowed_result == {
+                "private_connected": True,
+                "dns_redirect_connected": True,
+                "loopback_non_dns_connected": False,
+            }
+            assert tarball_dir.exists()
+            return
+
+        assert result["value"] == "from-registry-artifact"
+        if smoke_case is SmokeCase.NSJAIL_GATEWAY:
+            assert result["gateway"] == {
+                "status_code": 200,
+                "body": {"status": "ok"},
+                "socket_path": str(ACTION_GATEWAY_SANDBOX_SOCKET),
+            }
+            assert tarball_dir.exists()
+            return
+
+        assert result["marker"] == "registry-artifact"
+        if smoke_case == SmokeCase.DIRECT:
+            assert tarball_dir.exists()
+            assert str(tarball_dir) in result["source"]
+            assert result["source"].endswith("/registry_artifact_smoke_action.py")
+        elif smoke_case == SmokeCase.DIRECT_SQUASHFS:
+            assert extract_dir.exists()
+            assert str(extract_dir) in result["source"]
+            assert result["source"].endswith("/registry_artifact_smoke_action.py")
+        else:
+            assert result["source"] == "/packages/0/registry_artifact_smoke_action.py"
+            if smoke_case == SmokeCase.NSJAIL_SQUASHFS:
+                assert not mount_dir.is_mount()
+                assert cache_paths.squashfs_image_path.is_file()
+            else:
+                assert tarball_dir.exists()
+    finally:
+        await action_gateway.stop()
+        if network_listener is not None:
+            network_listener.close()
+        if dns_listener is not None:
+            dns_listener.close()
+        if loopback_listener is not None:
+            loopback_listener.close()
+        _unmount_if_needed(mount_dir)
+
+
+async def _run_current_builtin_smoke_case(
+    *,
+    smoke_case: SmokeCase,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if reason := _missing_prerequisite(smoke_case):
+        _skip_smoke(reason)
+
+    action_gateway_socket = Path("/tmp") / f"tc-action-gateway-{uuid.uuid4().hex}.sock"
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    monkeypatch.setattr(config, "TRACECAT__API_URL", "http://127.0.0.1:8000")
+    monkeypatch.setattr(
+        config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", smoke_case.force_sandbox
+    )
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(action_gateway_socket),
+    )
+    # EphemeralBackend executes in a child process, so export the socket path in
+    # addition to patching this process's config module.
+    monkeypatch.setenv(
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(action_gateway_socket),
+    )
+
+    action_name = "core.transform.reshape"
+    role = _make_role()
+    action_input = _make_builtin_action_input(action_name)
+    resolved_context = _make_builtin_resolved_context(
+        action_name=action_name,
+        input=action_input,
+        role=role,
+    )
+
+    runner = ActionRunner(cache_dir=tmp_path / "registry-cache")
+    backend = EphemeralBackend() if smoke_case.force_sandbox else DirectBackend()
+    get_action_runner_path = (
+        "tracecat.executor.backends.ephemeral.get_action_runner"
+        if smoke_case.force_sandbox
+        else "tracecat.executor.backends.direct.get_action_runner"
+    )
+    action_gateway = ActionGateway()
+    try:
+        await action_gateway.start()
+        with patch(get_action_runner_path, return_value=runner):
+            result = await backend.execute(
+                input=action_input,
+                role=role,
+                resolved_context=resolved_context,
+                timeout=30,
+            )
+    finally:
+        await action_gateway.stop()
+
+    assert result.type == "success"
+    assert result.result == {"source": "current-builtin"}
+
+
+async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
+    """A low-FD guest cannot amplify one socket beyond the parent budget."""
+    smoke_case = SmokeCase.NSJAIL_SOCKET_BUDGET
+    if reason := _missing_prerequisite(smoke_case):
+        _skip_smoke(reason)
+
+    udp_sinks, parent_address = _open_private_parent_udp_sinks(
+        _NSTUN_UDP_SOCKET_BUDGET + _NSTUN_UDP_SOCKET_PROBE_OVERFLOW
+    )
+    destination_ports = [sink.getsockname()[1] for sink in udp_sinks]
+    script_name = "udp_socket_budget.py"
+    (tmp_path / script_name).write_text(
+        "\n".join(
+            [
+                "import socket",
+                "import time",
+                "",
+                f"destination_ports = {destination_ports!r}",
+                "udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)",
+                "for port in destination_ports:",
+                f'    udp_socket.sendto(b"x", ("{parent_address}", port))',
+                "    time.sleep(0.002)",
+                "time.sleep(2)",
+                "",
+            ]
+        )
+    )
+
+    try:
+        result = await NsjailExecutor().execute(
+            tmp_path,
+            SandboxConfig(
+                network=SandboxNetworkRequest(
+                    SandboxNetworkPurpose.SCRIPT,
+                    policy=SandboxNetworkPolicy(
+                        allowed_rules=(
+                            SandboxEgressRule(
+                                destination=ip_network(f"{parent_address}/32"),
+                                protocol=SandboxNetworkProtocol.UDP,
+                            ),
+                        ),
+                    ),
+                ),
+                resources=ResourceLimits(
+                    memory_mb=128,
+                    cpu_seconds=10,
+                    max_open_files=16,
+                    max_processes=16,
+                    timeout_seconds=20,
+                ),
+            ),
+            script_name=script_name,
+        )
+        received_packets = 0
+        for sink in udp_sinks:
+            sink.setblocking(False)
+            try:
+                data, _ = sink.recvfrom(1)
+            except BlockingIOError:
+                continue
+            if data == b"x":
+                received_packets += 1
+    finally:
+        for sink in udp_sinks:
+            sink.close()
+
+    assert result.success, result.error
+    assert received_packets == _NSTUN_UDP_SOCKET_BUDGET, (
+        received_packets,
+        result.stderr,
+    )
+    assert "Too many FD handlers in monitor" not in result.stderr, result.stderr
+    assert "Maximum number of UDP flows reached" in result.stderr, result.stderr
+    assert "UDP/ICMP parent socket budget exhausted" not in result.stderr
+    assert "UDP/ICMP parent socket accounting underflow" not in result.stderr
+
+
+_CURRENT_BUILTIN_CASES = {
+    SmokeCase.DIRECT_CURRENT_BUILTIN,
+    SmokeCase.NSJAIL_CURRENT_BUILTIN,
+}
+
+
+@pytest.mark.parametrize("operation", list(CancelledNsjailOperation))
+@pytest.mark.anyio
+async def test_cancelled_nsjail_operation_kills_process_group(
+    tmp_path: Path,
+    operation: CancelledNsjailOperation,
+) -> None:
+    """Cancellation propagates only after nsjail and its child are gone."""
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    rootfs_dir = tmp_path / "rootfs"
+    rootfs_dir.mkdir()
+    runner = NsjailExecutor(
+        nsjail_path=str(tmp_path / "nsjail"),
+        rootfs_path=str(rootfs_dir),
+        cache_dir=str(tmp_path / "cache"),
+    )
+    sandbox_config = ActionSandboxConfig(
+        registry_paths=[],
+        tracecat_app_dir=tmp_path,
+        timeout_seconds=30,
+    )
+    real_create_subprocess_exec = asyncio.create_subprocess_exec
+    process_started = asyncio.Event()
+    process: asyncio.subprocess.Process | None = None
+    descendant_pid_path = tmp_path / "descendant.pid"
+    descendant_pid: int | None = None
+
+    async def capture_subprocess(*args, **kwargs):
+        nonlocal process
+        assert kwargs["start_new_session"] is True
+        process = await real_create_subprocess_exec(
+            sys.executable,
+            "-c",
+            (
+                "import subprocess, sys, time; "
+                "child = subprocess.Popen([sys.executable, '-c', "
+                "'import time; time.sleep(30)']); "
+                "open(sys.argv[1], 'w').write(str(child.pid)); "
+                "time.sleep(30)"
+            ),
+            str(descendant_pid_path),
+            **kwargs,
+        )
+        process_started.set()
+        return process
+
+    with patch(
+        "tracecat.sandbox.nsjail_protocol.asyncio.create_subprocess_exec",
+        side_effect=capture_subprocess,
+    ):
+        match operation:
+            case CancelledNsjailOperation.EXECUTE:
+                execution = asyncio.create_task(
+                    runner.execute(job_dir, SandboxConfig())
+                )
+            case CancelledNsjailOperation.INSTALL:
+                execution = asyncio.create_task(
+                    runner.execute_install(job_dir, "deadbeef")
+                )
+            case CancelledNsjailOperation.ACTION:
+                execution = asyncio.create_task(
+                    runner.execute_action(job_dir, sandbox_config)
+                )
+
+        try:
+            await process_started.wait()
+            for _ in range(100):
+                try:
+                    descendant_pid = int(descendant_pid_path.read_text())
+                except (FileNotFoundError, ValueError):
+                    await asyncio.sleep(0.01)
+                else:
+                    break
+            else:
+                pytest.fail("nsjail descendant did not publish its PID")
+            assert descendant_pid is not None
+
+            execution.cancel()
+
+            with pytest.raises(asyncio.CancelledError):
+                await execution
+
+            assert process is not None
+            assert process.returncode is not None
+            assert not (job_dir / "nsjail.cfg").exists()
+            for _ in range(100):
+                try:
+                    os.kill(descendant_pid, 0)
+                except ProcessLookupError:
+                    break
+                await asyncio.sleep(0.01)
+            else:
+                pytest.fail("nsjail descendant survived process-group cleanup")
+        finally:
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.wait()
+            if descendant_pid is not None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(descendant_pid, signal.SIGKILL)
+
+
+@pytest.mark.anyio
+async def test_nstun_bounds_parent_udp_sockets(tmp_path: Path) -> None:
+    smoke_case = SmokeCase.NSJAIL_SOCKET_BUDGET
+    if _missing_prerequisite(smoke_case):
+        _run_executor_action_smoke_in_docker_or_skip(smoke_case)
+        return
+    await _run_nstun_socket_budget_smoke_case(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "smoke_case",
+    [
+        pytest.param(SmokeCase.DIRECT, id=SmokeCase.DIRECT.value),
+        pytest.param(SmokeCase.DIRECT_SQUASHFS, id=SmokeCase.DIRECT_SQUASHFS.value),
+        pytest.param(
+            SmokeCase.DIRECT_CURRENT_BUILTIN,
+            id=SmokeCase.DIRECT_CURRENT_BUILTIN.value,
+        ),
+        pytest.param(SmokeCase.NSJAIL_GZ, id=SmokeCase.NSJAIL_GZ.value),
+        pytest.param(SmokeCase.NSJAIL_SQUASHFS, id=SmokeCase.NSJAIL_SQUASHFS.value),
+        pytest.param(SmokeCase.NSJAIL_GATEWAY, id=SmokeCase.NSJAIL_GATEWAY.value),
+        pytest.param(
+            SmokeCase.NSJAIL_NETWORK_POLICY,
+            id=SmokeCase.NSJAIL_NETWORK_POLICY.value,
+        ),
+        pytest.param(
+            SmokeCase.NSJAIL_CURRENT_BUILTIN,
+            id=SmokeCase.NSJAIL_CURRENT_BUILTIN.value,
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_action_runner_executes_registry_action_smoke(
+    smoke_case: SmokeCase,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if smoke_case in _CURRENT_BUILTIN_CASES:
+        if smoke_case.force_sandbox and _missing_prerequisite(smoke_case):
+            _run_executor_action_smoke_in_docker_or_skip(smoke_case)
+            return
+        await _run_current_builtin_smoke_case(
+            smoke_case=smoke_case,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+        )
+        return
+
+    if smoke_case.force_sandbox and _missing_prerequisite(smoke_case):
+        _run_executor_action_smoke_in_docker_or_skip(smoke_case)
+        return
+
+    await _run_executor_action_smoke_case(
+        smoke_case,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+
+def _run_smoke_from_cli(smoke_case: SmokeCase) -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-executor-nsjail-"))
+        try:
+            if smoke_case is SmokeCase.NSJAIL_SOCKET_BUDGET:
+                await _run_nstun_socket_budget_smoke_case(tmp_path)
+            elif smoke_case in _CURRENT_BUILTIN_CASES:
+                await _run_current_builtin_smoke_case(
+                    smoke_case=smoke_case,
+                    monkeypatch=monkeypatch,
+                    tmp_path=tmp_path,
+                )
+            else:
+                await _run_executor_action_smoke_case(
+                    smoke_case,
+                    monkeypatch=monkeypatch,
+                    tmp_path=tmp_path,
+                )
+        finally:
+            monkeypatch.undo()
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["--run-nsjail-squashfs-smoke"]:
+        _run_smoke_from_cli(SmokeCase.NSJAIL_SQUASHFS)
+    elif len(sys.argv) == 3 and sys.argv[1] == "--run-smoke":
+        _run_smoke_from_cli(SmokeCase(sys.argv[2]))
+    else:
+        raise SystemExit(
+            "Usage: python -m tests.unit.test_executor_sandbox_nsjail "
+            "--run-smoke "
+            f"[{'|'.join(case.value for case in SmokeCase)}]"
+        )

@@ -7,11 +7,11 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep
-from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
     Organization,
     OrganizationDomain,
@@ -69,7 +69,7 @@ def _get_user_display_name_and_email(
 @require_scope("org:read")
 async def get_organization(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> OrgRead:
     """Get the current organization.
@@ -96,11 +96,41 @@ async def get_organization(
     return OrgRead(id=org.id, name=org.name)
 
 
+@router.get("/memberships", response_model=list[OrgRead])
+async def list_current_user_organization_memberships(
+    *,
+    role: AuthenticatedUserOnly,
+    session: AsyncDBSessionBypass,
+) -> list[OrgRead]:
+    """List active organizations the current user belongs to."""
+    # No org context exists yet when switching orgs, so this uses the
+    # RLS-bypass session like the invitation endpoints below. The user_id
+    # filter is the tenant-isolation control — keep it in any refactor.
+    # user_id is guaranteed to be set by AuthenticatedUserOnly
+    assert role.user_id is not None
+
+    stmt = (
+        select(Organization.id, Organization.name)
+        .join(
+            OrganizationMembership,
+            OrganizationMembership.organization_id == Organization.id,
+        )
+        .where(
+            OrganizationMembership.user_id == role.user_id,
+            Organization.is_active.is_(True),
+        )
+        .order_by(Organization.name.asc(), Organization.id.asc())
+    )
+    result = await session.execute(stmt)
+
+    return [OrgRead(id=org_id, name=name) for org_id, name in result.all()]
+
+
 @router.get("/domains", response_model=list[OrgDomainRead])
 @require_scope("org:read")
 async def list_organization_domains(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> list[OrgDomainRead]:
     """List domains assigned to the current organization."""
@@ -152,7 +182,7 @@ async def delete_organization(
 ) -> None:
     """Delete the current organization.
 
-    Restricted to organization owners and platform superusers.
+    Restricted to organization owners/admins through tenant RBAC.
     """
     service = OrgService(session, role=role)
     try:
@@ -175,9 +205,10 @@ async def delete_organization(
 
 
 @router.get("/entitlements", response_model=EffectiveEntitlements)
+@require_scope("org:read")
 async def get_organization_entitlements(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> EffectiveEntitlements:
     """Get the effective entitlements for the current organization."""
@@ -363,7 +394,7 @@ async def delete_org_member(
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Action cannot be performed. Check if user is a superuser or has active sessions.",
+            detail="Action cannot be performed because related records still reference this member.",
         ) from e
     except TracecatAuthorizationError as e:
         raise HTTPException(
@@ -568,7 +599,7 @@ async def get_invitation_token(
 async def accept_invitation(
     *,
     role: AuthenticatedUserOnly,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     params: OrgInvitationAccept,
 ) -> dict[str, str]:
     """Accept an invitation and join the organization.
@@ -603,7 +634,7 @@ async def accept_invitation(
 async def list_my_pending_invitations(
     *,
     role: AuthenticatedUserOnly,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     user: Annotated[User, Depends(current_active_user)],
 ) -> list[OrgPendingInvitationRead]:
     """List pending, unexpired invitations for the authenticated user."""
@@ -656,9 +687,9 @@ async def list_my_pending_invitations(
 @router.get("/invitations/token/{token}", response_model=OrgInvitationReadMinimal)
 async def get_invitation_by_token(
     *,
-    session: AsyncDBSession,
-    token: str,
     user: OptionalUserDep = None,
+    session: AsyncDBSessionBypass,
+    token: str,
 ) -> OrgInvitationReadMinimal:
     """Get minimal invitation details by token (public endpoint for UI).
 

@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Create or update repository content
+  description: 'Create or update repository content. Calls PUT /repos/{owner}/{repo}/contents/{path} directly. Accepted OAuth scopes: repo (default; omit only for public repository data); workflow when modifying .github/workflows.'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: create_or_update_repository_content
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    owner:
+      type: str
+      description: GitHub API path value for owner.
+    repo:
+      type: str
+      description: GitHub API path value for repo.
+    path:
+      type: str
+      description: Nested repository content path.
+    payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
+      type: dict[str, Any] | None
+      description: >-
+        API-native request body. Documented fields: content (required), message (required), author, branch, committer, sha.
+      default: null
+    base_url:
+      type: str
+      description: GitHub.com REST API base URL.
+      default: https://api.github.com
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode(inputs.owner) }}/${{ FN.url_encode(inputs.repo) }}/contents/${{ FN.url_encode(inputs.path, "/") }}
+      method: PUT
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

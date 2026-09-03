@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from tracecat_registry import RegistryOAuthSecret
 
 from tracecat.agent.mcp import internal_tools
+from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.schemas import ProviderKey
 
 
 class _AsyncContext:
@@ -35,6 +40,19 @@ def _build_claims(preset_id: uuid.UUID) -> MCPTokenClaims:
     )
 
 
+def _build_preset_read(preset: dict[str, object]) -> AgentPresetRead:
+    data = dict(preset)
+    data.setdefault("skills", [])
+    return AgentPresetRead.model_validate(data)
+
+
+def test_builder_bundled_actions_exclude_exa_tools():
+    assert all(
+        not action.startswith("tools.exa.")
+        for action in internal_tools.BUILDER_BUNDLED_ACTIONS
+    )
+
+
 def test_evaluate_configuration_prefers_workspace_secret_even_when_empty():
     requirements = [
         {
@@ -50,10 +68,109 @@ def test_evaluate_configuration_prefers_workspace_secret_even_when_empty():
         requirements,
         workspace_inventory,
         org_inventory,
+        set(),
     )
 
     assert configured is False
     assert missing == ["missing key: slack.SLACK_BOT_TOKEN"]
+
+
+def test_evaluate_configuration_accepts_configured_oauth_integration():
+    requirements = [
+        {
+            "type": "oauth",
+            "provider_id": "google_docs",
+            "grant_type": "client_credentials",
+            "optional": False,
+        }
+    ]
+
+    configured, missing = internal_tools._evaluate_configuration(
+        requirements,
+        {},
+        {},
+        {
+            ProviderKey(
+                id="google_docs",
+                grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+            )
+        },
+    )
+
+    assert configured is True
+    assert missing == []
+
+
+@pytest.mark.anyio
+async def test_list_sessions_defaults_to_all_workspace_creators(monkeypatch):
+    preset_id = uuid.uuid4()
+    claims = _build_claims(preset_id)
+    captured: dict[str, object] = {}
+
+    async def _list_sessions(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    service = SimpleNamespace(list_sessions=_list_sessions)
+    monkeypatch.setattr(
+        "tracecat.agent.session.service.AgentSessionService.with_session",
+        lambda role: _AsyncContext(service),
+    )
+
+    result = await internal_tools.list_sessions({}, claims)
+
+    assert result == {"sessions": []}
+    assert captured["created_by"] is None
+    assert captured["entity_id"] == preset_id
+
+
+@pytest.mark.anyio
+async def test_list_sessions_accepts_creator_filter(monkeypatch):
+    preset_id = uuid.uuid4()
+    creator_id = uuid.uuid4()
+    claims = _build_claims(preset_id)
+    captured: dict[str, object] = {}
+
+    async def _list_sessions(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    service = SimpleNamespace(list_sessions=_list_sessions)
+    monkeypatch.setattr(
+        "tracecat.agent.session.service.AgentSessionService.with_session",
+        lambda role: _AsyncContext(service),
+    )
+
+    await internal_tools.list_sessions({"created_by": str(creator_id)}, claims)
+
+    assert captured["created_by"] == creator_id
+
+
+@pytest.mark.anyio
+async def test_get_session_rejects_non_preset_entity(monkeypatch):
+    preset_id = uuid.uuid4()
+    claims = _build_claims(preset_id)
+    service = SimpleNamespace(
+        get_session=lambda _session_id: None,
+    )
+
+    async def _get_session(_session_id):
+        return SimpleNamespace(
+            entity_type="agent_preset_builder",
+            entity_id=preset_id,
+        )
+
+    service.get_session = _get_session
+    monkeypatch.setattr(
+        "tracecat.agent.session.service.AgentSessionService.with_session",
+        lambda role: _AsyncContext(service),
+    )
+
+    with pytest.raises(internal_tools.InternalToolError, match="not found"):
+        await internal_tools.get_session(
+            {"session_id": str(uuid.uuid4())},
+            claims,
+        )
 
 
 @pytest.mark.anyio
@@ -101,6 +218,9 @@ async def test_list_available_tools_includes_configuration_fields(monkeypatch):
     async def _secret_inventory(_role):
         return {}, {}
 
+    async def _oauth_inventory(_role):
+        return set()
+
     monkeypatch.setattr(
         "tracecat.agent.preset.service.AgentPresetService.with_session",
         lambda role: _AsyncContext(preset_service),
@@ -113,6 +233,11 @@ async def test_list_available_tools_includes_configuration_fields(monkeypatch):
         internal_tools,
         "_load_secret_inventory",
         _secret_inventory,
+    )
+    monkeypatch.setattr(
+        internal_tools,
+        "_load_oauth_inventory",
+        _oauth_inventory,
     )
     monkeypatch.setattr(internal_tools, "_get_action_configuration", _config)
 
@@ -149,6 +274,9 @@ async def test_update_preset_blocks_unconfigured_tool_add(monkeypatch):
     async def _secret_inventory(_role):
         return {}, {}
 
+    async def _oauth_inventory(_role):
+        return set()
+
     monkeypatch.setattr(
         "tracecat.agent.preset.service.AgentPresetService.with_session",
         lambda role: _AsyncContext(preset_service),
@@ -162,6 +290,11 @@ async def test_update_preset_blocks_unconfigured_tool_add(monkeypatch):
         "_load_secret_inventory",
         _secret_inventory,
     )
+    monkeypatch.setattr(
+        internal_tools,
+        "_load_oauth_inventory",
+        _oauth_inventory,
+    )
     monkeypatch.setattr(internal_tools, "_get_action_configuration", _config)
 
     with pytest.raises(
@@ -171,3 +304,96 @@ async def test_update_preset_blocks_unconfigured_tool_add(monkeypatch):
             {"actions": ["tools.alpha", "tools.slack.post_message"]},
             claims,
         )
+
+
+@pytest.mark.anyio
+async def test_update_preset_allows_configured_oauth_tool_add(monkeypatch):
+    preset_id = uuid.uuid4()
+    claims = _build_claims(preset_id)
+
+    existing_preset = SimpleNamespace(actions=["tools.alpha"])
+    updated_preset = {
+        "id": preset_id,
+        "workspace_id": claims.workspace_id,
+        "name": "Builder Preset",
+        "slug": "builder-preset",
+        "description": None,
+        "current_version_id": None,
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
+        "instructions": None,
+        "model_name": "gpt-5.4",
+        "model_provider": "openai",
+        "base_url": None,
+        "output_type": None,
+        "actions": ["tools.alpha", "tools.google_docs.create_document"],
+        "namespaces": None,
+        "tool_approvals": None,
+        "mcp_integrations": None,
+        "retries": 3,
+        "enable_internet_access": False,
+    }
+
+    async def _get_preset(_preset_id):
+        return existing_preset
+
+    async def _update_preset(_preset, _params):
+        return updated_preset
+
+    async def _build_preset(_preset):
+        return _build_preset_read(updated_preset)
+
+    async def _get_action_from_index(_action_name):
+        return SimpleNamespace(manifest=object())
+
+    registry_service = SimpleNamespace(
+        get_action_from_index=_get_action_from_index,
+        aggregate_secrets_from_manifest=lambda _manifest, _action_name: [
+            RegistryOAuthSecret(
+                provider_id="google_docs",
+                grant_type="client_credentials",
+            )
+        ],
+    )
+    preset_service = SimpleNamespace(
+        get_preset=_get_preset,
+        update_preset=_update_preset,
+        build_preset_read=_build_preset,
+    )
+
+    async def _secret_inventory(_role):
+        return {}, {}
+
+    async def _oauth_inventory(_role):
+        return {
+            ProviderKey(
+                id="google_docs",
+                grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+            )
+        }
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.AgentPresetService.with_session",
+        lambda role: _AsyncContext(preset_service),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.mcp.internal_tools.RegistryActionsService.with_session",
+        lambda role: _AsyncContext(registry_service),
+    )
+    monkeypatch.setattr(
+        internal_tools,
+        "_load_secret_inventory",
+        _secret_inventory,
+    )
+    monkeypatch.setattr(
+        internal_tools,
+        "_load_oauth_inventory",
+        _oauth_inventory,
+    )
+
+    result = await internal_tools.update_preset(
+        {"actions": ["tools.alpha", "tools.google_docs.create_document"]},
+        claims,
+    )
+
+    assert result["actions"] == ["tools.alpha", "tools.google_docs.create_document"]

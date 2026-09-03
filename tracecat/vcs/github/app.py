@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+from enum import StrEnum
 from typing import Any
 
+from cryptography.fernet import InvalidToken
 from github import Auth, Github, GithubIntegration
 from github.GithubException import GithubException, UnknownObjectException
 from pydantic import SecretStr
 from pydantic import ValidationError as PydanticValidationError
 
 from tracecat.authz.controls import require_scope
+from tracecat.db.models import OrganizationSecret
 from tracecat.exceptions import TracecatException, TracecatNotFoundError
 from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
@@ -18,14 +21,24 @@ from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseOrgService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
+from tracecat.vcs.exceptions import VcsProviderError
 from tracecat.vcs.github.schemas import (
     GitHubAppConfig,
     GitHubAppCredentials,
+    GitHubAppRepository,
 )
 
 
-class GitHubAppError(TracecatException):
+class GitHubAppError(VcsProviderError):
     """GitHub App operation error."""
+
+
+class GitHubAppSecretState(StrEnum):
+    """State of the stored GitHub App org secret."""
+
+    MISSING = "missing"
+    VALID = "valid"
+    CORRUPTED = "corrupted"
 
 
 class GitHubAppService(BaseOrgService):
@@ -135,21 +148,71 @@ class GitHubAppService(BaseOrgService):
         Raises:
             GitHubAppError: If credentials already exist or are invalid
         """
-        # Check if credentials already exist
-        try:
-            await self.get_github_app_credentials()
+        secret_state, _secret, _credentials = await self._get_github_app_secret_state()
+        if secret_state is not GitHubAppSecretState.MISSING:
             raise GitHubAppError(
                 "GitHub App credentials already exist. Use update_github_app_credentials() to modify them."
             )
-        except GitHubAppError as e:
-            if "Failed to retrieve GitHub App credentials" not in str(e):
-                # Re-raise if it's not a "not found" error
-                raise
 
         # Delegate to the main register_app method
         return await self.register_app(
             app_id, private_key_pem, webhook_secret, client_id
         )
+
+    def _build_secret_update(
+        self,
+        *,
+        app_id: str,
+        private_key_pem: SecretStr,
+        webhook_secret: SecretStr | None,
+        client_id: str | None,
+    ) -> SecretUpdate:
+        """Build a full replacement key payload for the GitHub App secret."""
+        secret_keys = [
+            SecretKeyValue(key="app_id", value=SecretStr(app_id)),
+            SecretKeyValue(key="private_key", value=private_key_pem),
+        ]
+
+        if webhook_secret:
+            secret_keys.append(
+                SecretKeyValue(key="webhook_secret", value=webhook_secret)
+            )
+
+        if client_id:
+            secret_keys.append(
+                SecretKeyValue(key="client_id", value=SecretStr(client_id))
+            )
+
+        return SecretUpdate(keys=secret_keys)
+
+    async def _get_github_app_secret_state(
+        self,
+    ) -> tuple[
+        GitHubAppSecretState,
+        OrganizationSecret | None,
+        GitHubAppCredentials | None,
+    ]:
+        """Classify the stored GitHub App secret without failing on corruption."""
+        secrets_service = SecretsService(session=self.session, role=self.role)
+        try:
+            secret = await secrets_service._get_github_app_org_secret()
+        except TracecatNotFoundError:
+            return GitHubAppSecretState.MISSING, None, None
+
+        try:
+            decrypted_keys = secrets_service.decrypt_keys(secret.encrypted_keys)
+            key_dict = {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
+            credentials = GitHubAppCredentials.model_validate(key_dict)
+        except (InvalidToken, PydanticValidationError, ValueError) as e:
+            self.logger.warning(
+                "Stored GitHub App credentials are corrupted; allowing reconfiguration",
+                secret_id=str(secret.id),
+                error_type=type(e).__name__,
+                error=str(e),
+            )
+            return GitHubAppSecretState.CORRUPTED, secret, None
+
+        return GitHubAppSecretState.VALID, secret, credentials
 
     @requires_entitlement(Entitlement.GIT_SYNC)
     @require_scope("org:settings:update")
@@ -174,13 +237,19 @@ class GitHubAppService(BaseOrgService):
         Raises:
             GitHubAppError: If no credentials exist or update fails
         """
-        # Get existing credentials
-        try:
-            existing_credentials = await self.get_github_app_credentials()
-        except GitHubAppError as e:
+        (
+            secret_state,
+            secret,
+            existing_credentials,
+        ) = await self._get_github_app_secret_state()
+        if secret_state is GitHubAppSecretState.MISSING or secret is None:
             raise GitHubAppError(
                 "No existing GitHub App credentials found. Use register_existing_app() first."
-            ) from e
+            )
+        if existing_credentials is None:
+            raise GitHubAppError(
+                "Stored GitHub App credentials are corrupted. Re-enter all values to recover them."
+            )
 
         # Use existing values if new ones aren't provided
         updated_credentials = GitHubAppCredentials(
@@ -196,31 +265,14 @@ class GitHubAppService(BaseOrgService):
             else existing_credentials.client_id,
         )
 
-        # Prepare secret keys for storage
-        secret_keys = [
-            SecretKeyValue(key="app_id", value=SecretStr(updated_credentials.app_id)),
-            SecretKeyValue(key="private_key", value=updated_credentials.private_key),
-        ]
-
-        if updated_credentials.webhook_secret:
-            secret_keys.append(
-                SecretKeyValue(
-                    key="webhook_secret", value=updated_credentials.webhook_secret
-                )
-            )
-
-        if updated_credentials.client_id:
-            secret_keys.append(
-                SecretKeyValue(
-                    key="client_id", value=SecretStr(updated_credentials.client_id)
-                )
-            )
-
         # Update the organization secret
         secrets_service = SecretsService(session=self.session, role=self.role)
-        secret = await secrets_service.get_org_secret_by_name("github-app-credentials")
-
-        secret_update = SecretUpdate(keys=secret_keys)
+        secret_update = self._build_secret_update(
+            app_id=updated_credentials.app_id,
+            private_key_pem=updated_credentials.private_key,
+            webhook_secret=updated_credentials.webhook_secret,
+            client_id=updated_credentials.client_id,
+        )
         await secrets_service.update_org_secret(secret, secret_update)
 
         # Create config with basic info
@@ -263,30 +315,14 @@ class GitHubAppService(BaseOrgService):
         Raises:
             GitHubAppError: If operation fails
         """
-        try:
-            # Try to get existing credentials to determine if this is an update
-            existing_credentials = await self.get_github_app_credentials()
-
-            # Update existing credentials
-            config = await self.update_github_app_credentials(
-                app_id=app_id,
-                private_key_pem=private_key_pem,
-                webhook_secret=webhook_secret,
-                client_id=client_id,
-            )
-
-            self.logger.info(
-                "Updated existing GitHub App credentials",
-                app_id=app_id,
-                previous_app_id=existing_credentials.app_id,
-            )
-
-            return config, False  # was_created = False (updated)
-
-        except GitHubAppError as e:
-            if "Failed to retrieve GitHub App credentials" in str(e):
-                # No existing credentials, create new ones
-                config = await self.register_existing_app(
+        (
+            secret_state,
+            secret,
+            existing_credentials,
+        ) = await self._get_github_app_secret_state()
+        match secret_state:
+            case GitHubAppSecretState.MISSING:
+                config = await self.register_app(
                     app_id=app_id,
                     private_key_pem=private_key_pem,
                     webhook_secret=webhook_secret,
@@ -298,10 +334,50 @@ class GitHubAppService(BaseOrgService):
                     app_id=app_id,
                 )
 
-                return config, True  # was_created = True (new)
-            else:
-                # Re-raise other GitHubAppErrors
-                raise
+                return config, True
+            case GitHubAppSecretState.CORRUPTED:
+                if secret is None:
+                    raise GitHubAppError(
+                        "Stored GitHub App credentials could not be recovered."
+                    )
+                secrets_service = SecretsService(session=self.session, role=self.role)
+                secret_update = self._build_secret_update(
+                    app_id=app_id,
+                    private_key_pem=private_key_pem,
+                    webhook_secret=webhook_secret,
+                    client_id=client_id,
+                )
+                await secrets_service.update_org_secret(secret, secret_update)
+                config = GitHubAppConfig(
+                    installation_id=0,
+                    app_id=app_id,
+                    client_id=client_id,
+                )
+                self.logger.info(
+                    "Recovered corrupted GitHub App credentials",
+                    app_id=app_id,
+                    secret_id=str(secret.id),
+                )
+                return config, False
+            case GitHubAppSecretState.VALID:
+                config = await self.update_github_app_credentials(
+                    app_id=app_id,
+                    private_key_pem=private_key_pem,
+                    webhook_secret=webhook_secret,
+                    client_id=client_id,
+                )
+
+                self.logger.info(
+                    "Updated existing GitHub App credentials",
+                    app_id=app_id,
+                    previous_app_id=existing_credentials.app_id
+                    if existing_credentials
+                    else None,
+                )
+
+                return config, False
+
+        raise GitHubAppError("Failed to save GitHub App credentials")
 
     @requires_entitlement(Entitlement.GIT_SYNC)
     @require_scope("org:settings:delete")
@@ -334,40 +410,50 @@ class GitHubAppService(BaseOrgService):
         Returns:
             Dictionary with credentials status information
         """
-        try:
-            credentials = await self.get_github_app_credentials()
+        secret_state, secret, credentials = await self._get_github_app_secret_state()
+        match secret_state:
+            case GitHubAppSecretState.VALID if secret and credentials:
+                has_webhook_secret = credentials.webhook_secret is not None
+                webhook_secret_preview = None
+                if credentials.webhook_secret is not None:
+                    raw = credentials.webhook_secret.get_secret_value()
+                    webhook_secret_preview = (
+                        raw[:4] + "****" if len(raw) >= 4 else "****"
+                    )
 
-            # Get the secret to find when it was created
-            secrets_service = SecretsService(session=self.session, role=self.role)
-            secret = await secrets_service.get_org_secret_by_name(
-                "github-app-credentials"
-            )
-
-            has_webhook_secret = credentials.webhook_secret is not None
-            webhook_secret_preview = None
-            if credentials.webhook_secret is not None:
-                raw = credentials.webhook_secret.get_secret_value()
-                webhook_secret_preview = raw[:4] + "****" if len(raw) >= 4 else "****"
-
-            return {
-                "exists": True,
-                "app_id": credentials.app_id,
-                "has_webhook_secret": has_webhook_secret,
-                "webhook_secret_preview": webhook_secret_preview,
-                "client_id": credentials.client_id,
-                "created_at": secret.created_at.isoformat()
-                if secret.created_at
-                else None,
-            }
-        except GitHubAppError:
-            return {
-                "exists": False,
-                "app_id": None,
-                "has_webhook_secret": False,
-                "webhook_secret_preview": None,
-                "client_id": None,
-                "created_at": None,
-            }
+                return {
+                    "exists": True,
+                    "is_corrupted": False,
+                    "app_id": credentials.app_id,
+                    "has_webhook_secret": has_webhook_secret,
+                    "webhook_secret_preview": webhook_secret_preview,
+                    "client_id": credentials.client_id,
+                    "created_at": secret.created_at.isoformat()
+                    if secret.created_at
+                    else None,
+                }
+            case GitHubAppSecretState.CORRUPTED if secret:
+                return {
+                    "exists": True,
+                    "is_corrupted": True,
+                    "app_id": None,
+                    "has_webhook_secret": False,
+                    "webhook_secret_preview": None,
+                    "client_id": None,
+                    "created_at": secret.created_at.isoformat()
+                    if secret.created_at
+                    else None,
+                }
+            case _:
+                return {
+                    "exists": False,
+                    "is_corrupted": False,
+                    "app_id": None,
+                    "has_webhook_secret": False,
+                    "webhook_secret_preview": None,
+                    "client_id": None,
+                    "created_at": None,
+                }
 
     @requires_entitlement(Entitlement.GIT_SYNC)
     @require_scope("org:settings:read")
@@ -380,38 +466,26 @@ class GitHubAppService(BaseOrgService):
         Raises:
             GitHubAppError: If credentials are not found or invalid
         """
-        try:
-            secrets_service = SecretsService(session=self.session, role=self.role)
-            secret = await secrets_service.get_org_secret_by_name(
-                "github-app-credentials"
-            )
+        secret_state, _secret, credentials = await self._get_github_app_secret_state()
+        match secret_state:
+            case GitHubAppSecretState.MISSING:
+                raise GitHubAppError(
+                    "Failed to retrieve GitHub App credentials: credentials not found"
+                )
+            case GitHubAppSecretState.CORRUPTED:
+                raise GitHubAppError(
+                    "Failed to retrieve GitHub App credentials: invalid credential data"
+                )
+            case GitHubAppSecretState.VALID if credentials:
+                self.logger.debug(
+                    "Retrieved GitHub App credentials from organization secret"
+                )
+                return credentials
 
-            # Decrypt the secret keys
-            decrypted_keys = secrets_service.decrypt_keys(secret.encrypted_keys)
-
-            # Convert to dictionary for easier access
-            key_dict = {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
-
-            # Validate and construct the credentials model
-            credentials = GitHubAppCredentials.model_validate(key_dict)
-
-            self.logger.debug(
-                "Retrieved GitHub App credentials from organization secret"
-            )
-            return credentials
-
-        except TracecatNotFoundError as e:
-            self.logger.debug("Failed to retrieve GitHub App credentials", error=str(e))
-            raise GitHubAppError(
-                "Failed to retrieve GitHub App credentials: credentials not found"
-            ) from e
-        except PydanticValidationError as e:
-            self.logger.debug("Failed to retrieve GitHub App credentials", error=str(e))
-            raise GitHubAppError(
-                "Failed to retrieve GitHub App credentials: invalid credential data"
-            ) from e
+        raise GitHubAppError("Failed to retrieve GitHub App credentials")
 
     @requires_entitlement(Entitlement.GIT_SYNC)
+    @require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
     async def get_github_client_for_repo(self, repo_url: GitUrl) -> Github:
         """Get authenticated PyGithub client for a specific repository.
 
@@ -424,7 +498,19 @@ class GitHubAppService(BaseOrgService):
         Raises:
             GitHubAppError: If authentication fails or app not installed
         """
-        credentials = await self.get_github_app_credentials()
+        secret_state, _secret, credentials = await self._get_github_app_secret_state()
+        match secret_state:
+            case GitHubAppSecretState.MISSING:
+                raise GitHubAppError(
+                    "Failed to retrieve GitHub App credentials: credentials not found"
+                )
+            case GitHubAppSecretState.CORRUPTED:
+                raise GitHubAppError(
+                    "Failed to retrieve GitHub App credentials: invalid credential data"
+                )
+
+        if credentials is None:
+            raise GitHubAppError("Failed to retrieve GitHub App credentials")
 
         # Normalize private key format to handle common formatting issues
         raw_private_key = credentials.private_key.get_secret_value()
@@ -469,6 +555,85 @@ class GitHubAppService(BaseOrgService):
                 repo=f"{repo_url.org}/{repo_url.repo}",
             )
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
+        finally:
+            gh_integration.close()
+
+    @requires_entitlement(Entitlement.GIT_SYNC)
+    @require_scope("workspace:update")
+    async def list_accessible_repositories(self) -> list[GitHubAppRepository]:
+        """List repositories granted to the configured GitHub App installation.
+
+        Returns:
+            Repositories accessible through the configured GitHub App credentials.
+
+        Raises:
+            GitHubAppError: If credentials are missing, corrupted, or the GitHub API fails.
+        """
+        secret_state, _secret, credentials = await self._get_github_app_secret_state()
+        match secret_state:
+            case GitHubAppSecretState.MISSING:
+                raise GitHubAppError(
+                    "Failed to retrieve GitHub App credentials: credentials not found"
+                )
+            case GitHubAppSecretState.CORRUPTED:
+                raise GitHubAppError(
+                    "Failed to retrieve GitHub App credentials: invalid credential data"
+                )
+
+        if credentials is None:
+            raise GitHubAppError("Failed to retrieve GitHub App credentials")
+
+        raw_private_key = credentials.private_key.get_secret_value()
+        normalized_private_key = self._normalize_private_key(raw_private_key)
+
+        try:
+            app_id = int(credentials.app_id)
+        except ValueError as e:
+            raise GitHubAppError(
+                "Failed to retrieve GitHub App credentials: invalid credential data"
+            ) from e
+
+        auth = Auth.AppAuth(
+            app_id=app_id,
+            private_key=normalized_private_key,
+        )
+        gh_integration = GithubIntegration(auth=auth)
+
+        def collect_repositories() -> list[GitHubAppRepository]:
+            repositories_by_id: dict[int, GitHubAppRepository] = {}
+            for installation in gh_integration.get_installations():
+                account = installation.account
+                account_login = getattr(account, "login", "unknown")
+                account_type = getattr(account, "type", None)
+
+                for repo in installation.get_repos():
+                    repositories_by_id[repo.id] = GitHubAppRepository(
+                        id=repo.id,
+                        name=repo.name,
+                        full_name=repo.full_name,
+                        private=repo.private,
+                        default_branch=repo.default_branch or "main",
+                        git_url=f"git+ssh://git@github.com/{repo.full_name}.git",
+                        html_url=repo.html_url,
+                        installation_id=installation.id,
+                        installation_account=account_login,
+                        installation_account_type=account_type,
+                    )
+
+            return sorted(
+                repositories_by_id.values(),
+                key=lambda repository: repository.full_name.lower(),
+            )
+
+        try:
+            return await asyncio.to_thread(collect_repositories)
+        except GithubException as e:
+            self.logger.error(
+                "GitHub API error listing accessible repositories",
+                status=e.status,
+                data=e.data,
+            )
+            raise GitHubAppError(f"GitHub API error: {e.status}") from e
         finally:
             gh_integration.close()
 

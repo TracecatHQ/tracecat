@@ -17,11 +17,11 @@ definition:
       type: str | None
       description: Optional project ID to filter workspaces by project.
       default: null
-    page[size]:
+    page_size:
       type: int
       description: The number of workspaces to return per page.
       default: 20
-    page[number]:
+    page_number:
       type: int
       description: The page number to return.
       default: 1
@@ -41,12 +41,12 @@ definition:
     - ref: list_workspaces
       action: core.http_request
       args:
-        url: ${{ steps.build_url.result.data }}
+        url: ${{ steps.build_url.result }}
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
           Content-Type: application/vnd.api+json
         params:
-          page[size]: ${{ inputs.page[size] }}
-          page[number]: ${{ inputs.page[number] }}
+          "page[size]": ${{ inputs.page_size }}
+          "page[number]": ${{ inputs.page_number }}
   returns: ${{ steps.list_workspaces.result.data }}

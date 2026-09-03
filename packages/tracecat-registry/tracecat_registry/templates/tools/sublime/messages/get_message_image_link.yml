@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Get message image link
+  description: Retrieve a temporary link to a rendered Sublime message image.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/getmessageimagelink-1
+  namespace: tools.sublime
+  name: get_message_image_link
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Sublime message ID.
+    link_duration_seconds:
+      type: int | None
+      description: Period link should be valid for. Default is 15 minutes, max 7 days.
+      default: null
+    platform_link:
+      type: bool | None
+      description: When true, link will always be presigned against Sublime. When false, the link may be to S3 directly.
+      default: null
+    recompute_mdm_from_raw:
+      type: bool | None
+      description: When true, recompute the MDM from the raw EML. For internal use only!
+      default: null
+    remove_large_text_fields:
+      type: bool | None
+      description: When true, any text field over 1MB will be cleared before returning
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/messages/${{ FN.url_encode(inputs.id) }}/image_link
+        method: GET
+        params:
+          link_duration_seconds: ${{ inputs.link_duration_seconds }}
+          platform_link: ${{ inputs.platform_link }}
+          recompute_mdm_from_raw: ${{ inputs.recompute_mdm_from_raw }}
+          remove_large_text_fields: ${{ inputs.remove_large_text_fields }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

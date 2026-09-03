@@ -1,7 +1,7 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import {
+  type ChatOnDataCallback,
   type ChatStatus,
   getToolName,
   isToolUIPart,
@@ -12,13 +12,24 @@ import {
 } from "ai"
 import {
   CheckIcon,
-  HammerIcon,
+  Loader2,
+  MousePointerClickIcon,
   PencilIcon,
   RefreshCcwIcon,
   XIcon,
 } from "lucide-react"
 import { motion } from "motion/react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  type ChangeEvent,
+  type FocusEvent,
+  memo,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import type {
   AgentSessionEntity,
   AgentSessionReadVercel,
@@ -35,11 +46,11 @@ import { Message, MessageContent } from "@/components/ai-elements/message"
 import {
   PromptInput,
   PromptInputBody,
-  PromptInputButton,
+  PromptInputFooter,
+  PromptInputHeader,
   type PromptInputMessage,
   PromptInputSubmit,
   PromptInputTextarea,
-  PromptInputToolbar,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
 import {
@@ -55,38 +66,157 @@ import {
   SourcesTrigger,
 } from "@/components/ai-elements/sources"
 import {
+  getStatusBadge,
   Tool,
   ToolContent,
   ToolHeader,
+  type ToolHeaderProps,
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool"
-import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
-import { getIcon } from "@/components/icons"
+import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
+import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
+import { SmoothResponse } from "@/components/chat/smooth-response"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
+import { getIcon, ProviderIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Dots } from "@/components/loading/dots"
+import { MentionHint } from "@/components/mentions/mention-hint"
+import { MentionPopover } from "@/components/mentions/mention-popover"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import {
-  type ApprovalCard,
   makeContinueMessage,
+  parseChatError,
+  useAdoptServerTranscript,
+  useCancelChatTurn,
+  useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
-import type { ModelInfo } from "@/lib/chat"
+import { useMentions } from "@/hooks/use-mentions"
+import { useOverflowBadges } from "@/hooks/use-overflow-badges"
+import { isAgentToolSelectable } from "@/lib/agent-tools"
 import {
+  type ApprovalCard,
+  CANCELLED_DATA_PART_TYPE,
   ENTITY_TO_INVALIDATION,
+  getCancelledPartToolCallIds,
+  getSessionLastError,
+  isApprovalCardArray,
+  isInterruptArtifactError,
+  isToolApprovedDecision,
+  isToolDeniedDecision,
+  type ModelInfo,
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
+import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
+import { findAgentMention, type MentionRange } from "@/lib/mentions"
+import { useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
+import type { ChatSurface } from "@/types/chat-surface"
+import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
+
+const AGENT_TOOL_NAMES = new Set(["Agent", "Task"])
+const AGENT_TOOL_TARGET_KEYS = ["subagent_type", "agent_type", "type", "name"]
+const AGENT_TOOL_NESTED_INPUT_KEYS = ["args", "input", "tool_input"]
+
+const TOOL_ICON_PROPS = { className: "size-5 p-[3px]" } as const
+
+function messageHasVisibleParts(message: UIMessage): boolean {
+  return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
+}
+
+/**
+ * Raised to abandon a submit that sent no message.
+ *
+ * `submitPrompt` runs its cleanup after any submit that resolves, clearing
+ * attachments and blanking the textarea, so a turn that produced nothing has to
+ * reject to leave the composer alone. It swallows the rejection. Anything worth
+ * telling the user is reported before this is thrown.
+ */
+class SubmitAbandonedError extends Error {
+  constructor(reason: string) {
+    super(reason)
+    this.name = "SubmitAbandonedError"
+  }
+}
+
+/**
+ * Whether a part counts as assistant content when attributing a cancelled
+ * marker to the message the user stopped. Structural parts (step-start) and
+ * data-* markers can share a message with the live-streamed cancelled marker,
+ * and must not stop the marker from tagging the preceding content message
+ * that holds the interrupted tool calls.
+ */
+function isCancelAttributionContentPart(
+  part: UIMessage["parts"][number]
+): boolean {
+  if (part.type === "step-start" || part.type.startsWith("data-")) {
+    return false
+  }
+  if (part.type === "text" || part.type === "reasoning") {
+    return typeof part.text === "string" && part.text.trim().length > 0
+  }
+  return true
+}
+
+function matchingUserTextPartKeys(
+  messages: UIMessage[],
+  text: string
+): Set<string> {
+  const keys = new Set<string>()
+  for (const message of messages) {
+    if (message.role !== "user") {
+      continue
+    }
+    for (const [partIndex, part] of message.parts.entries()) {
+      if (part.type === "text" && part.text === text) {
+        keys.add(`${message.id}:${partIndex}`)
+      }
+    }
+  }
+  return keys
+}
+
+function hasNewMatchingUserTextPart(
+  messages: UIMessage[],
+  text: string,
+  knownKeys: Set<string>
+): boolean {
+  for (const key of matchingUserTextPartKeys(messages, text)) {
+    if (!knownKeys.has(key)) {
+      return true
+    }
+  }
+  return false
+}
+
+function areToolListsEqual(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((tool, index) => tool === right[index])
+  )
+}
+
+/**
+ * Session preset wiring for the composer. The list itself comes from the
+ * mention popover, so this only carries the active selection and the write.
+ */
+type ChatPresetSelector = {
+  label: string
+  selectedPresetId: string | null
+  /**
+   * Awaited before a message is sent so the preset lands on the same turn.
+   * Resolves false when the write failed, which aborts the send.
+   */
+  onSelect: (presetId: string | null) => Promise<boolean>
+  disabled?: boolean
+  showSpinner?: boolean
+}
 
 export interface ChatSessionPaneProps {
   chat?: AgentSessionReadVercel | ChatReadVercel
@@ -96,8 +226,18 @@ export interface ChatSessionPaneProps {
   className?: string
   placeholder?: string
   onMessagesChange?: (messages: UIMessage[]) => void
-  modelInfo: ModelInfo
+  onData?: ChatOnDataCallback<UIMessage>
+  /** Called whenever the underlying chat transport status changes. */
+  onStatusChange?: (status: ChatStatus) => void
+  modelInfo?: ModelInfo
   toolsEnabled?: boolean
+  agentAddonsEnabled?: boolean
+  /**
+   * Whether `@` offers agent presets on this surface. Independent of the
+   * entitlement: an un-entitled org still gets the trigger, on a lock row.
+   */
+  agentMentionsSupported?: boolean
+  mcpEnabled?: boolean
   /** Autofocus the prompt input when the pane mounts. */
   autoFocusInput?: boolean
   /**
@@ -106,7 +246,16 @@ export interface ChatSessionPaneProps {
    * new session ID to switch to, or null to cancel.
    * Used for inbox fork-on-send behavior.
    */
-  onBeforeSend?: (messageText: string) => Promise<string | null>
+  onBeforeSend?: (
+    messageText: string,
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
+  ) => Promise<string | null>
+  /**
+   * Render a temporary user message and assistant loading dots while
+   * onBeforeSend is creating a session or fork before the real stream mounts.
+   */
+  optimisticBeforeSend?: boolean
   /**
    * Message to send immediately on mount. Used after forking a session
    * to send the user's message to the newly forked session.
@@ -126,6 +275,18 @@ export interface ChatSessionPaneProps {
    * Placeholder to show when input is disabled.
    */
   inputDisabledPlaceholder?: string
+  /**
+   * Optional preset selector rendered in the prompt footer.
+   */
+  presetSelector?: ChatPresetSelector
+  /** Selects the chat stream projection and surrounding UI surface. */
+  surface?: ChatSurface
+  /**
+   * Reconnect to the live event stream on mount. Defaults to true. Set to
+   * false for terminal sessions whose history is already loaded, to avoid
+   * replaying the last turn on top of the seeded messages.
+   */
+  resume?: boolean
 }
 
 export function ChatSessionPane({
@@ -136,16 +297,30 @@ export function ChatSessionPane({
   className,
   placeholder = "Ask your question...",
   onMessagesChange,
+  onData,
+  onStatusChange,
   modelInfo,
   toolsEnabled = true,
+  agentAddonsEnabled = true,
+  agentMentionsSupported = false,
+  mcpEnabled = false,
   autoFocusInput = false,
   onBeforeSend,
+  optimisticBeforeSend = false,
   pendingMessage,
   onPendingMessageSent,
   inputDisabled = false,
   inputDisabledPlaceholder,
+  presetSelector,
+  surface = "regular",
+  resume = true,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
+  const promptInputContainerRef = useRef<HTMLDivElement>(null)
+  const promptTextareaFocusedRef = useRef(false)
+  const shouldRestoreInputFocusRef = useRef(false)
+  const promptPointerDownInsideRef = useRef(false)
+  const promptPointerDownResetTimerRef = useRef<number>()
   const processedMessageRef = useRef<
     | {
         messageId: string
@@ -155,29 +330,141 @@ export function ChatSessionPane({
   >(undefined)
 
   const [input, setInput] = useState<string>("")
-  const [toolsDialogOpen, setToolsDialogOpen] = useState(false)
+  const [isInputFocused, setIsInputFocused] = useState(false)
+  const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const getInputText = useCallback(() => input, [input])
+  const mentions = useMentions({
+    workspaceId,
+    textareaRef: promptTextareaRef,
+    getText: getInputText,
+    setText: setInput,
+    // Presets are an agent add-on, so an un-entitled org gets the lock row
+    // rather than a dead `@`. Chat offers no `/` workflow commands.
+    agents: agentMentionsSupported
+      ? { entitlements: ["agent_addons"], single: true }
+      : undefined,
+  })
+  const {
+    handleTextChange: handleMentionTextChange,
+    handleKeyDown: handleMentionKeyDown,
+    dismiss: dismissMentions,
+    dropPrefix: dropMentionPrefix,
+  } = mentions
+  const [selectedTools, setSelectedTools] = useState<string[]>([])
+  const [selectedMcpIntegrations, setSelectedMcpIntegrations] = useState<
+    string[]
+  >([])
+  const [optimisticMessageText, setOptimisticMessageText] = useState<
+    string | null
+  >(null)
+  const optimisticMessageKnownTextPartKeysRef = useRef<Set<string>>(new Set())
+  const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
+  const { cancelChatTurn, isCancellingChatTurn } =
+    useCancelChatTurn(workspaceId)
+  const { registryActions } = useBuilderRegistryActions()
+  const sessionMcpEnabled = mcpEnabled && entityType === "copilot"
+  // Without agent add-ons a session may only use the servers the workspace
+  // configured itself, so ask the API for that half of the list. The picker
+  // then cannot offer a Tracecat-managed catalog connector the run would drop.
+  const mcpIntegrationsSource = agentAddonsEnabled ? undefined : "workspace"
+  const { mcpIntegrations } = useListMcpIntegrations(
+    workspaceId,
+    mcpIntegrationsSource,
+    {
+      enabled: toolsEnabled && sessionMcpEnabled,
+    }
+  )
 
   // Check if this is a legacy read-only session
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
+  const readonlyDescription =
+    chat && "user_id" in chat
+      ? "This legacy conversation is read-only."
+      : "This conversation belongs to a teammate."
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
     [chat?.messages]
   )
-  const { sendMessage, messages, status, regenerate, lastError, clearError } =
-    useVercelChat({
-      chatId: chat?.id,
-      workspaceId,
-      messages: uiMessages,
-      modelInfo,
-    })
+  const isWorkspaceChat = surface === "workspace-chat"
+  const chatContentCenterClass = isWorkspaceChat
+    ? "mx-auto w-full max-w-[56rem]"
+    : undefined
+  const promptCenterClass = isWorkspaceChat
+    ? "relative mx-auto w-full max-w-[56rem]"
+    : "relative"
+  const promptInputClassName = isWorkspaceChat
+    ? "[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-muted-foreground/25 [&_[data-slot=input-group]]:shadow-none"
+    : undefined
+  const {
+    sendMessage,
+    messages,
+    setMessages,
+    status,
+    regenerate,
+    lastError,
+    clearError,
+  } = useVercelChat({
+    chatId: chat?.id,
+    workspaceId,
+    messages: uiMessages,
+    modelInfo,
+    onData,
+    resume,
+  })
+
+  // Prefer the live streaming error; fall back to the persisted last_error so a
+  // reopened session whose last run failed still surfaces why (the live error
+  // only exists during/right after the failing run).
+  //
+  // Suppress the persisted error the moment a new turn starts — optimistically
+  // on submit, before the backend clears last_error — because the new run will
+  // produce its own outcome (a fresh error or a reply) that supersedes it.
+  // The live error is always the current run's, so it is never suppressed.
+  const hasNewTurnStarted =
+    optimisticMessageText !== null ||
+    status === "submitted" ||
+    status === "streaming"
+  const persistedError =
+    hasNewTurnStarted || !chat ? null : getSessionLastError(chat)
+  const displayedError = lastError ?? persistedError
+
+  useAdoptServerTranscript({
+    status,
+    serverMessages: uiMessages,
+    liveMessages: messages,
+    setMessages,
+  })
+
+  useEffect(() => {
+    onStatusChange?.(status)
+  }, [status, onStatusChange])
+
+  const hasOptimisticMessageInStream = useMemo(
+    () =>
+      optimisticMessageText
+        ? hasNewMatchingUserTextPart(
+            messages,
+            optimisticMessageText,
+            optimisticMessageKnownTextPartKeysRef.current
+          )
+        : false,
+    [messages, optimisticMessageText]
+  )
+
+  useEffect(() => {
+    if (hasOptimisticMessageInStream) {
+      optimisticMessageKnownTextPartKeysRef.current = new Set()
+      setOptimisticMessageText(null)
+    }
+  }, [hasOptimisticMessageInStream])
 
   // Track pending message sends to avoid duplicate sends
   const pendingMessageSentRef = useRef<string | null>(null)
 
   // Send pending message on mount (used after forking)
   useEffect(() => {
-    if (!pendingMessage || isReadonly || !chat) return
+    if (!pendingMessage || isReadonly || !chat || !modelInfo) return
 
     const messageKey = `${chat.id}:${pendingMessage}`
     if (pendingMessageSentRef.current === messageKey) return
@@ -190,6 +477,7 @@ export function ChatSessionPane({
     pendingMessage,
     isReadonly,
     chat,
+    modelInfo,
     clearError,
     sendMessage,
     onPendingMessageSent,
@@ -219,10 +507,94 @@ export function ChatSessionPane({
     return false
   }, [status, messages])
 
+  const isOptimisticBeforeSendPending = optimisticMessageText !== null
+  const isInputDisabled =
+    isReadonly || inputDisabled || isOptimisticBeforeSendPending || !canSubmit
+
+  const isGeneratingTurn = status === "submitted" || status === "streaming"
+  const [cancelRequested, setCancelRequested] = useState(false)
+
+  useEffect(() => {
+    if (!isGeneratingTurn) setCancelRequested(false)
+  }, [isGeneratingTurn])
+
+  const handleStop = useCallback(async () => {
+    if (!chat?.id || cancelRequested || isReadonly) return
+    setCancelRequested(true)
+    try {
+      await cancelChatTurn({ chatId: chat.id })
+    } catch (error) {
+      setCancelRequested(false)
+      toast({
+        title: "Failed to stop run",
+        description: parseChatError(error),
+      })
+    }
+  }, [cancelChatTurn, cancelRequested, chat?.id, isReadonly])
+  const isInputDisabledRef = useRef(isInputDisabled)
+  isInputDisabledRef.current = isInputDisabled
+  /** Guards `handleSubmit` against re-entry while it awaits a preset write. */
+  const submitInFlightRef = useRef(false)
+  const wasInputDisabledRef = useRef(isInputDisabled)
+
+  useEffect(() => {
+    const wasInputDisabled = wasInputDisabledRef.current
+    wasInputDisabledRef.current = isInputDisabled
+
+    if (!wasInputDisabled && isInputDisabled) {
+      shouldRestoreInputFocusRef.current = promptTextareaFocusedRef.current
+      return
+    }
+
+    if (!wasInputDisabled || isInputDisabled) {
+      return
+    }
+
+    if (!shouldRestoreInputFocusRef.current) {
+      return
+    }
+    shouldRestoreInputFocusRef.current = false
+
+    const textarea =
+      promptInputContainerRef.current?.querySelector<HTMLTextAreaElement>(
+        'textarea[name="message"]'
+      )
+    textarea?.focus()
+  }, [isInputDisabled])
+
+  useEffect(() => {
+    if (!isInputDisabled) {
+      return
+    }
+
+    function cancelPendingFocusRestore(event: Event) {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+      if (promptInputContainerRef.current?.contains(target)) {
+        return
+      }
+      shouldRestoreInputFocusRef.current = false
+      promptTextareaFocusedRef.current = false
+    }
+
+    document.addEventListener("pointerdown", cancelPendingFocusRestore, true)
+    document.addEventListener("focusin", cancelPendingFocusRestore, true)
+
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        cancelPendingFocusRestore,
+        true
+      )
+      document.removeEventListener("focusin", cancelPendingFocusRestore, true)
+    }
+  }, [isInputDisabled])
+
   const handleSubmitApprovals = useCallback(
     async (decisionPayload: ApprovalDecision[]) => {
-      if (!decisionPayload.length) return
-      console.log("decisionPayload", decisionPayload)
+      if (isReadonly || !decisionPayload.length) return
       try {
         clearError()
         await sendMessage(makeContinueMessage(decisionPayload))
@@ -237,17 +609,334 @@ export function ChatSessionPane({
         throw error
       }
     },
-    [clearError, sendMessage]
+    [clearError, isReadonly, sendMessage]
   )
 
   useEffect(() => {
     onMessagesChange?.(messages)
   }, [messages, onMessagesChange])
 
+  // Display labels for the selected-tool chips. Tools are picked in the Tools
+  // popover, which builds its own list, so nothing here needs ordering.
+  const toolLabels = useMemo(
+    () =>
+      new Map<string, string>(
+        (registryActions ?? [])
+          .filter((action) => isAgentToolSelectable(action.action))
+          .map((action) => [
+            action.action,
+            action.default_title || action.action,
+          ])
+      ),
+    [registryActions]
+  )
+
+  const persistToolsChainRef = useRef<Promise<void>>(Promise.resolve())
+  const selectedToolsRef = useRef<string[]>([])
+  const pendingPersistedToolsRef = useRef<string[] | null>(null)
+  const syncedChatIdRef = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    selectedToolsRef.current = selectedTools
+  }, [selectedTools])
+
+  useEffect(() => {
+    const nextChatId = chat?.id
+    const nextTools = chat?.tools ?? []
+
+    if (syncedChatIdRef.current !== nextChatId) {
+      syncedChatIdRef.current = nextChatId
+      pendingPersistedToolsRef.current = null
+      selectedToolsRef.current = nextTools
+      setSelectedTools(nextTools)
+      return
+    }
+
+    const pendingTools = pendingPersistedToolsRef.current
+    if (pendingTools) {
+      if (areToolListsEqual(nextTools, pendingTools)) {
+        pendingPersistedToolsRef.current = null
+      } else {
+        // Keep the optimistic selection visible until the invalidated chat query
+        // catches up, otherwise intermediate server echoes can flicker chips away.
+        return
+      }
+    }
+
+    if (!areToolListsEqual(selectedToolsRef.current, nextTools)) {
+      selectedToolsRef.current = nextTools
+      setSelectedTools(nextTools)
+    }
+  }, [chat?.id, chat?.tools])
+
+  const queuePersistTools = useCallback(
+    (tools: string[]) => {
+      if (!chat || isReadonly) {
+        return
+      }
+
+      const chatId = chat.id
+      persistToolsChainRef.current = persistToolsChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await updateChat({
+              chatId,
+              update: { tools },
+            })
+          } catch (error) {
+            if (
+              pendingPersistedToolsRef.current &&
+              areToolListsEqual(pendingPersistedToolsRef.current, tools)
+            ) {
+              pendingPersistedToolsRef.current = null
+            }
+            toast({
+              title: "Failed to update tools",
+              description: parseChatError(error),
+              variant: "destructive",
+            })
+          }
+        })
+    },
+    [chat, isReadonly, updateChat]
+  )
+
+  const commitSelectedTools = useCallback(
+    (next: string[]) => {
+      if (areToolListsEqual(selectedToolsRef.current, next)) {
+        return
+      }
+
+      selectedToolsRef.current = next
+      setSelectedTools(next)
+
+      if (!chat || isReadonly) {
+        pendingPersistedToolsRef.current = null
+        return
+      }
+
+      pendingPersistedToolsRef.current = next
+      void queuePersistTools(next)
+    },
+    [chat, isReadonly, queuePersistTools]
+  )
+
+  const persistMcpChainRef = useRef<Promise<void>>(Promise.resolve())
+  const selectedMcpIntegrationsRef = useRef<string[]>([])
+  const pendingPersistedMcpIntegrationsRef = useRef<string[] | null>(null)
+  const syncedMcpChatIdRef = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    selectedMcpIntegrationsRef.current = selectedMcpIntegrations
+  }, [selectedMcpIntegrations])
+
+  useEffect(() => {
+    const nextChatId = chat?.id
+    const nextMcpIntegrations = chat?.mcp_integrations ?? []
+
+    if (syncedMcpChatIdRef.current !== nextChatId) {
+      syncedMcpChatIdRef.current = nextChatId
+      pendingPersistedMcpIntegrationsRef.current = null
+      selectedMcpIntegrationsRef.current = nextMcpIntegrations
+      setSelectedMcpIntegrations(nextMcpIntegrations)
+      return
+    }
+
+    const pendingMcpIntegrations = pendingPersistedMcpIntegrationsRef.current
+    if (pendingMcpIntegrations) {
+      if (areToolListsEqual(nextMcpIntegrations, pendingMcpIntegrations)) {
+        pendingPersistedMcpIntegrationsRef.current = null
+      } else {
+        // Keep the optimistic MCP selection visible until the invalidated chat
+        // query catches up, matching the selected tools behavior above.
+        return
+      }
+    }
+
+    if (
+      !areToolListsEqual(
+        selectedMcpIntegrationsRef.current,
+        nextMcpIntegrations
+      )
+    ) {
+      selectedMcpIntegrationsRef.current = nextMcpIntegrations
+      setSelectedMcpIntegrations(nextMcpIntegrations)
+    }
+  }, [chat?.id, chat?.mcp_integrations])
+
+  const commitSelectedMcpIntegrations = useCallback(
+    (next: string[]) => {
+      if (areToolListsEqual(selectedMcpIntegrationsRef.current, next)) {
+        return
+      }
+
+      selectedMcpIntegrationsRef.current = next
+      setSelectedMcpIntegrations(next)
+      if (!chat || isReadonly) {
+        pendingPersistedMcpIntegrationsRef.current = null
+        return
+      }
+      const chatId = chat.id
+      pendingPersistedMcpIntegrationsRef.current = next
+      persistMcpChainRef.current = persistMcpChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await updateChat({
+              chatId,
+              update: { mcp_integrations: next },
+            })
+          } catch (error) {
+            if (
+              pendingPersistedMcpIntegrationsRef.current &&
+              areToolListsEqual(
+                pendingPersistedMcpIntegrationsRef.current,
+                next
+              )
+            ) {
+              pendingPersistedMcpIntegrationsRef.current = null
+            }
+            toast({
+              title: "Failed to update MCP integrations",
+              description: parseChatError(error),
+              variant: "destructive",
+            })
+          }
+        })
+    },
+    [chat, isReadonly, updateChat]
+  )
+
+  const removeSelectedTool = useCallback(
+    (toolName: string) => {
+      commitSelectedTools(
+        selectedToolsRef.current.filter((tool) => tool !== toolName)
+      )
+    },
+    [commitSelectedTools]
+  )
+
+  const handleInputChange = useCallback(
+    (event: ChangeEvent<HTMLTextAreaElement>) => {
+      const nextText = event.target.value
+      // The mention layer diffs against the previous value, so it has to run
+      // before the new text lands in state.
+      handleMentionTextChange(
+        nextText,
+        event.target.selectionStart ?? nextText.length
+      )
+      setInput(nextText)
+    },
+    [handleMentionTextChange]
+  )
+
+  const handleInputFocus = useCallback(() => {
+    promptTextareaFocusedRef.current = true
+    setIsInputFocused(true)
+  }, [])
+
+  const handlePromptPointerDownCapture = useCallback(() => {
+    promptPointerDownInsideRef.current = true
+    if (promptPointerDownResetTimerRef.current !== undefined) {
+      window.clearTimeout(promptPointerDownResetTimerRef.current)
+    }
+    promptPointerDownResetTimerRef.current = window.setTimeout(() => {
+      promptPointerDownInsideRef.current = false
+      promptPointerDownResetTimerRef.current = undefined
+    }, 0)
+  }, [])
+
+  const handleInputBlur = useCallback(
+    (event: FocusEvent<HTMLTextAreaElement>) => {
+      setIsInputFocused(false)
+      dismissMentions()
+
+      const nextFocusedElement = event.relatedTarget
+      if (
+        nextFocusedElement instanceof Node &&
+        promptInputContainerRef.current?.contains(nextFocusedElement)
+      ) {
+        return
+      }
+
+      if (nextFocusedElement === null && promptPointerDownInsideRef.current) {
+        return
+      }
+
+      if (!isInputDisabledRef.current) {
+        promptTextareaFocusedRef.current = false
+        shouldRestoreInputFocusRef.current = false
+      }
+    },
+    [dismissMentions]
+  )
+
+  useEffect(() => {
+    return () => {
+      if (promptPointerDownResetTimerRef.current !== undefined) {
+        window.clearTimeout(promptPointerDownResetTimerRef.current)
+      }
+    }
+  }, [])
+
+  const selectedToolBadges = useMemo(
+    () =>
+      selectedTools.map((toolName) => ({
+        value: toolName,
+        label: toolLabels.get(toolName) ?? toolName,
+        icon: getIcon(toolName, {
+          className: "size-5 shrink-0",
+        }),
+      })),
+    [selectedTools, toolLabels]
+  )
+
   const transformedMessages = useMemo(
     () => transformMessages(messages),
     [messages]
   )
+
+  // Messages whose turn the user stopped, plus the tool calls those
+  // interrupts aborted. The live stream appends the data-cancelled part to
+  // the assistant message itself, while reloaded history renders the
+  // persisted marker as a standalone system message that follows the
+  // assistant content — cover both so interrupted tool calls in the
+  // preceding message render accurately. The marker's `tool_call_ids`
+  // payload is the structured signal recorded by the backend at interrupt
+  // time; tool call IDs are globally unique, so one session-wide set works.
+  const { cancelledTurnMessageIds, interruptedToolCallIds } = useMemo(() => {
+    const ids = new Set<string>()
+    const toolCallIds = new Set<string>()
+    let lastContentMessageId: string | null = null
+    for (const message of transformedMessages) {
+      const parts = message.parts ?? []
+      let hasCancelledPart = false
+      let hasContentParts = false
+      for (const part of parts) {
+        if (part.type === CANCELLED_DATA_PART_TYPE) {
+          hasCancelledPart = true
+          for (const toolCallId of getCancelledPartToolCallIds(
+            (part as { data?: unknown }).data
+          )) {
+            toolCallIds.add(toolCallId)
+          }
+        } else if (isCancelAttributionContentPart(part)) {
+          hasContentParts = true
+        }
+      }
+      if (hasCancelledPart) {
+        ids.add(message.id)
+        if (!hasContentParts && lastContentMessageId) {
+          ids.add(lastContentMessageId)
+        }
+      }
+      if (hasContentParts) {
+        lastContentMessageId = message.id
+      }
+    }
+    return { cancelledTurnMessageIds: ids, interruptedToolCallIds: toolCallIds }
+  }, [transformedMessages])
 
   const invalidateEntityQueries = useCallback(
     (toolNames: string[]) => {
@@ -287,7 +976,6 @@ export function ChatSessionPane({
     const toolNames = lastMessage.parts.filter(isToolUIPart).map(getToolName)
 
     if (toolNames.length > 0) {
-      console.log("Invalidating entity queries for tools:", toolNames)
       invalidateEntityQueries(toolNames)
     }
 
@@ -300,18 +988,135 @@ export function ChatSessionPane({
   const handleSubmit = async (message: PromptInputMessage) => {
     const hasText = Boolean(message.text?.trim())
 
-    if (!hasText) {
+    if (!hasText || isReadonly || !modelInfo) {
       return
     }
 
+    // A submit awaits the preset write before it sends, and the composer stays
+    // enabled meanwhile. Without this a second Enter would see the optimistic
+    // `selectedPresetId`, skip the write it is still waiting on, and send under
+    // the preset the server has -- then the first submit would resume and send
+    // again. A ref rather than state because two keystrokes in the same tick
+    // would both read a stale `false`.
+    if (submitInFlightRef.current) {
+      // Reject rather than return: a resolved duplicate makes `submitPrompt`
+      // clear attachments and blank the textarea, and the submit still running
+      // reads that live value to tell the sent message from a newer draft.
+      throw new SubmitAbandonedError("A submit is already in flight")
+    }
+    submitInFlightRef.current = true
+    try {
+      await submitMessage(message)
+    } finally {
+      submitInFlightRef.current = false
+    }
+  }
+
+  const submitMessage = async (message: PromptInputMessage) => {
     const messageText = message.text || ""
 
+    // An `@Agent` mention sets the session preset for the whole conversation.
+    // Awaited first so the write lands before the turn is sent, and before the
+    // tool and MCP persistence chains below.
+    const agentMention = findAgentMention(mentions.ranges)
+    if (agentMention) {
+      // The mention names the agent that should answer, so nothing below may
+      // fall through and run the turn under the previous one.
+      if (!presetSelector) {
+        // `ChatInterface` drops the selector as soon as agent add-ons stop
+        // resolving -- revoked, or a refetch that failed -- while the bound
+        // range survives in the composer. Nothing here can apply the mention,
+        // and nothing else would tell the user, so say so before abandoning.
+        toast({
+          title: "Could not route to the mentioned agent",
+          description:
+            "Agent presets are unavailable right now. Reload and try again.",
+        })
+        throw new SubmitAbandonedError("Preset selector is unavailable")
+      }
+      if (agentMention.targetId !== presetSelector.selectedPresetId) {
+        // The draft is left intact -- `handlePresetChange` has already toasted
+        // the error -- so the user can retry.
+        const applied = await presetSelector.onSelect(agentMention.targetId)
+        if (!applied) {
+          // Reject rather than return: `submitPrompt` treats a resolved submit
+          // as sent and runs its cleanup, which drops any attached files even
+          // though nothing left the composer. It swallows a rejection instead.
+          throw new SubmitAbandonedError(
+            "Failed to persist the mentioned agent preset"
+          )
+        }
+      }
+    }
+
+    // Enter does not empty the box until the awaits here resolve, so the user
+    // carries on typing onto the end of the message being sent. Only what
+    // follows it is a new draft: keeping the whole value would strand the sent
+    // text in the composer for the next submit to send again. `input` is this
+    // closure's snapshot, so only the ref knows the live value.
+    const remainingDraft = () => {
+      const live = promptTextareaRef.current?.value ?? ""
+      return live.startsWith(messageText)
+        ? live.slice(messageText.length)
+        : live
+    }
+    // Ranges follow the text they describe: the ones inside the prefix go with
+    // it, the rest keep their bindings at their new offsets. Clearing them all
+    // would unbind a mention picked while this submit was in flight, leaving
+    // the surviving draft naming an agent that its own submit would not route
+    // to. `dropPrefix` re-reads the ranges, since this closure's copy predates
+    // any such pick.
+    const clearSubmittedDraft = () => {
+      const live = promptTextareaRef.current?.value ?? ""
+      const remaining = remainingDraft()
+      setInput(remaining)
+      dropMentionPrefix(live.length - remaining.length)
+    }
+
+    // The optimistic branch blanks the composer before `onBeforeSend` resolves,
+    // so the submitted text's bindings have to come off at the same moment.
+    // Held here so a cancelled submit can put them back with the text.
+    let submittedMentions: MentionRange[] = []
+
     if (onBeforeSend) {
-      const result = await onBeforeSend(messageText)
+      if (optimisticBeforeSend) {
+        optimisticMessageKnownTextPartKeysRef.current =
+          matchingUserTextPartKeys(messages, messageText)
+        setOptimisticMessageText(messageText)
+        // Cut the prefix now, while the live value still carries it. Leaving it
+        // to the `clearSubmittedDraft` below would measure a zero cut against a
+        // composer this branch has already blanked, and the submitted mention
+        // would outlive its text as a range nothing renders -- which the next
+        // send reads back, re-applying a preset the user has since cleared.
+        // Cutting here rather than after the await is also what keeps a mention
+        // picked while the await runs: its offsets are already relative to the
+        // blanked composer, so a deferred cut would filter it out instead.
+        submittedMentions = mentions.ranges
+        clearSubmittedDraft()
+      }
+
+      const result = await onBeforeSend(
+        messageText,
+        selectedTools,
+        selectedMcpIntegrations
+      )
       // Only clear input if onBeforeSend succeeded (non-null)
       // If null, the action was cancelled and user keeps their draft
       if (result !== null) {
-        setInput("")
+        clearSubmittedDraft()
+      } else if (optimisticBeforeSend) {
+        optimisticMessageKnownTextPartKeysRef.current = new Set()
+        setOptimisticMessageText(null)
+        // Restoring the cancelled message would clobber a newer draft.
+        if (!remainingDraft()) {
+          // The bindings go back with the text: a restored draft that still
+          // reads `@Agent` has to route there when the user retries it.
+          mentions.commitEdit({
+            text: messageText,
+            mentions: submittedMentions,
+            caret: messageText.length,
+          })
+        }
       }
       // Parent will handle switching sessions and sending via pendingMessage
       return
@@ -322,9 +1127,11 @@ export function ChatSessionPane({
     }
 
     // Clear input for normal message sending
-    setInput("")
+    clearSubmittedDraft()
 
     try {
+      await persistToolsChainRef.current.catch(() => undefined)
+      await persistMcpChainRef.current.catch(() => undefined)
       clearError()
       sendMessage({
         text: messageText,
@@ -335,163 +1142,500 @@ export function ChatSessionPane({
     }
   }
 
-  return (
-    <div className={cn("flex h-full min-h-0 flex-col", className)}>
-      <div className="flex flex-1 min-h-0 flex-col">
-        <Conversation className="flex-1">
-          <ConversationContent>
-            {lastError && (
-              <Alert variant="destructive" className="mb-4">
-                <AlertTitle>Unable to continue with this model</AlertTitle>
-                <AlertDescription>{lastError}</AlertDescription>
-              </Alert>
-            )}
-            {transformedMessages.map(({ id, role, parts }) => {
-              // Track whether this message is the latest entry so we can keep its actions visible.
-              const isLastMessage = id === messages[messages.length - 1].id
-              return (
-                <div key={id} className="group relative">
-                  {role === "assistant" &&
-                    parts &&
-                    parts.filter((part) => part.type === "source-url").length >
-                      0 && (
-                      <Sources>
-                        <SourcesTrigger
-                          count={
-                            parts.filter((part) => part.type === "source-url")
-                              .length
-                          }
-                        />
-                        {parts
-                          .filter((part) => part.type === "source-url")
-                          .map((part, partIdx) => (
-                            <SourcesContent
-                              key={`${id}-${part.type}-${partIdx}`}
-                            >
-                              <Source
-                                href={"url" in part ? part.url : "#"}
-                                title={"url" in part ? part.url : "Source"}
-                              />
-                            </SourcesContent>
-                          ))}
-                      </Sources>
-                    )}
+  // The badge stands in for the hint once a preset owns the session. Unlike the
+  // hint it is state rather than a discoverability cue, so focus does not gate
+  // it.
+  const activePresetLabel =
+    presetSelector && !isReadonly && presetSelector.selectedPresetId
+      ? presetSelector.label
+      : null
 
-                  {parts?.map((part, partIdx) => (
-                    <MessagePart
-                      key={`${id}-${part.type}-${partIdx}`}
-                      part={part}
-                      partIdx={partIdx}
-                      id={id}
-                      role={role}
-                      status={status}
-                      isLastMessage={isLastMessage}
-                      onSubmitApprovals={handleSubmitApprovals}
-                    />
-                  ))}
-                  {role === "assistant" &&
-                    parts &&
-                    parts.length > 0 &&
-                    !isWaitingForResponse && (
-                      // Render response actions for assistant messages and reveal them on hover for older messages.
-                      <Actions
-                        className={cn(
-                          // Apply a smooth transition so the actions fade in and out gracefully.
-                          "transition-opacity duration-200 ease-out",
-                          // Hide actions by default for non-last messages and reveal them when the message group is hovered.
-                          !isLastMessage &&
-                            "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                        )}
-                      >
-                        {isLastMessage && (
-                          <Action
-                            size="sm"
-                            onClick={() => regenerate()}
-                            label="Retry"
-                            tooltip="Retry"
-                          >
-                            <RefreshCcwIcon className="size-3" />
-                          </Action>
-                        )}
-                      </Actions>
-                    )}
-                </div>
-              )
-            })}
-            {isWaitingForResponse && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3, ease: "easeInOut" }}
-              >
-                <Dots />
-              </motion.div>
+  const promptComposer = (
+    <div ref={promptInputContainerRef} className={promptCenterClass}>
+      {isReadonly ? (
+        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <Badge variant="outline" className="px-1.5 py-0 font-normal">
+            Read only
+          </Badge>
+          {readonlyDescription}
+        </div>
+      ) : null}
+      <MentionPopover
+        open={mentions.isOpen}
+        kind={mentions.kind}
+        caret={mentions.caret}
+        sections={mentions.sections}
+        itemCount={mentions.itemCount}
+        activeIndex={mentions.activeIndex}
+        isLoading={mentions.isLoading}
+        locked={mentions.locked}
+        hasError={mentions.hasError}
+        onSelect={mentions.selectSuggestion}
+      >
+        <PromptInput onSubmit={handleSubmit} className={promptInputClassName}>
+          {/* Workspace chat surfaces attached tools via the Tools popover, so
+              the header chip row is reserved for the other chat surfaces. */}
+          {toolsEnabled &&
+            !isWorkspaceChat &&
+            selectedToolBadges.length > 0 && (
+              <SelectedToolsHeader
+                badges={selectedToolBadges}
+                onRemove={removeSelectedTool}
+                removeDisabled={
+                  isUpdatingTools ||
+                  isReadonly ||
+                  inputDisabled ||
+                  !toolsEnabled
+                }
+              />
             )}
-          </ConversationContent>
-          <ConversationScrollButton />
-        </Conversation>
-      </div>
-      <div className="px-4 pb-4">
-        <PromptInput onSubmit={handleSubmit}>
           <PromptInputBody>
             <PromptInputTextarea
-              onChange={(event) => setInput(event.target.value)}
+              ref={promptTextareaRef}
+              onChange={handleInputChange}
+              // The mention layer owns popover keys and atomic mention
+              // backspace. It calls preventDefault when it consumes a key,
+              // which is what stops the prompt input from submitting on Enter
+              // while the popover is open.
+              onKeyDown={handleMentionKeyDown}
+              onFocus={handleInputFocus}
+              onBlur={handleInputBlur}
+              onSelect={mentions.handleSelectionChange}
               placeholder={
                 isReadonly
-                  ? "This is a legacy session (read-only)"
-                  : inputDisabled && inputDisabledPlaceholder
+                  ? readonlyDescription
+                  : (inputDisabled || isOptimisticBeforeSendPending) &&
+                      inputDisabledPlaceholder
                     ? inputDisabledPlaceholder
                     : placeholder
               }
               value={input}
               autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
-              disabled={isReadonly || inputDisabled || !canSubmit}
+              disabled={isInputDisabled}
             />
           </PromptInputBody>
-          <PromptInputToolbar>
-            {toolsEnabled && !isReadonly && (
-              <PromptInputTools>
-                <TooltipProvider delayDuration={0}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <PromptInputButton
-                        aria-label="Configure tools"
-                        size="sm"
-                        onClick={() => setToolsDialogOpen(true)}
-                        className="h-7 gap-1 px-2"
-                        variant="ghost"
-                        disabled={!!status}
-                      >
-                        <HammerIcon className="size-4" />
-                        <span className="text-xs">Tools</span>
-                      </PromptInputButton>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      Configure tools for the agent
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </PromptInputTools>
-            )}
-            <PromptInputSubmit
-              disabled={isReadonly || inputDisabled || !canSubmit || !input}
-              status={status}
-              className="ml-auto text-muted-foreground/80"
-            />
-          </PromptInputToolbar>
+          <PromptInputFooter>
+            <PromptInputTools>
+              {toolsEnabled && !isReadonly && (
+                <ChatToolsPicker
+                  registryActions={registryActions ?? []}
+                  selectedTools={selectedTools}
+                  onToolsChange={commitSelectedTools}
+                  mcpIntegrations={mcpIntegrations ?? []}
+                  selectedMcpIntegrations={selectedMcpIntegrations}
+                  onMcpChange={commitSelectedMcpIntegrations}
+                  agentAddonsEnabled={agentAddonsEnabled}
+                  mcpEnabled={sessionMcpEnabled}
+                  disabled={inputDisabled || isUpdatingTools}
+                  surface={surface}
+                  mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
+                />
+              )}
+              {!isReadonly && modelInfo ? (
+                <PromptModelIndicator modelInfo={modelInfo} />
+              ) : null}
+            </PromptInputTools>
+            <div className="flex items-center gap-2">
+              {activePresetLabel ? (
+                <ActivePresetBadge
+                  label={activePresetLabel}
+                  showSpinner={presetSelector?.showSpinner}
+                  disabled={
+                    presetSelector?.disabled || inputDisabled || !canSubmit
+                  }
+                  onClear={() => void presetSelector?.onSelect(null)}
+                />
+              ) : (
+                <MentionHint
+                  show={isInputFocused && !input.trim()}
+                  agents={mentions.agents}
+                  workflows={mentions.workflows}
+                />
+              )}
+              <PromptInputSubmit
+                disabled={
+                  isReadonly ||
+                  (isGeneratingTurn
+                    ? isCancellingChatTurn || cancelRequested
+                    : isInputDisabled || !input.trim())
+                }
+                onStop={() => void handleStop()}
+                status={status}
+                className="size-7 text-muted-foreground/80"
+              />
+            </div>
+          </PromptInputFooter>
         </PromptInput>
-        {chat && toolsEnabled && !isReadonly && (
-          <ChatToolsDialog
-            chatId={chat.id}
-            open={toolsDialogOpen}
-            onOpenChange={setToolsDialogOpen}
-          />
-        )}
+      </MentionPopover>
+    </div>
+  )
+
+  const showEmptyHero =
+    isWorkspaceChat &&
+    !isReadonly &&
+    !displayedError &&
+    !optimisticMessageText &&
+    !isWaitingForResponse &&
+    !transformedMessages.some(messageHasVisibleParts)
+
+  if (showEmptyHero) {
+    return (
+      <div className={cn("flex h-full min-h-0 flex-col", className)}>
+        <div
+          className="flex min-h-0 flex-1 flex-col"
+          onPointerDownCapture={handlePromptPointerDownCapture}
+        >
+          <ChatEmptyHero>{promptComposer}</ChatEmptyHero>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={cn("flex h-full min-h-0 flex-col", className)}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <Conversation
+            className="flex-1"
+            resize={status === "streaming" ? "instant" : "smooth"}
+          >
+            <ConversationContent className={chatContentCenterClass}>
+              {displayedError && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertTitle>
+                    {lastError
+                      ? "Unable to continue with this model"
+                      : "Last run failed"}
+                  </AlertTitle>
+                  <AlertDescription>{displayedError}</AlertDescription>
+                </Alert>
+              )}
+              {optimisticMessageText ? (
+                <OptimisticPendingMessage text={optimisticMessageText} />
+              ) : null}
+              {transformedMessages.map(({ id, role, parts }) => {
+                const visibleParts = parts?.filter(
+                  (part) => part.type !== ARTIFACT_DATA_PART_TYPE
+                )
+                if (!visibleParts?.length) {
+                  return null
+                }
+
+                // Track whether this message is the latest entry so we can keep its actions visible.
+                const isLastMessage = id === messages[messages.length - 1].id
+                const sourceUrlParts = visibleParts.filter(
+                  (part) => part.type === "source-url"
+                )
+                return (
+                  <div key={id} className="group relative">
+                    {role === "assistant" && sourceUrlParts.length > 0 && (
+                      <Sources>
+                        <SourcesTrigger count={sourceUrlParts.length} />
+                        {sourceUrlParts.map((part, partIdx) => (
+                          <SourcesContent key={`${id}-${part.type}-${partIdx}`}>
+                            <Source
+                              href={"url" in part ? part.url : "#"}
+                              title={"url" in part ? part.url : "Source"}
+                            />
+                          </SourcesContent>
+                        ))}
+                      </Sources>
+                    )}
+
+                    {visibleParts.map((part, partIdx) => (
+                      <MemoizedMessagePart
+                        key={`${id}-${part.type}-${partIdx}`}
+                        part={part}
+                        partIdx={partIdx}
+                        id={id}
+                        role={role}
+                        status={status}
+                        isLastMessage={isLastMessage}
+                        turnCancelled={cancelledTurnMessageIds.has(id)}
+                        interruptedToolCallIds={interruptedToolCallIds}
+                        onSubmitApprovals={
+                          isReadonly ? undefined : handleSubmitApprovals
+                        }
+                      />
+                    ))}
+                    {role === "assistant" &&
+                      !isWaitingForResponse &&
+                      !isReadonly && (
+                        // Render response actions for assistant messages and reveal them on hover for older messages.
+                        <Actions
+                          className={cn(
+                            "mt-4",
+                            // Apply a smooth transition so the actions fade in and out gracefully.
+                            "transition-opacity duration-200 ease-out",
+                            // Hide actions by default for non-last messages and reveal them when the message group is hovered.
+                            !isLastMessage &&
+                              "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                          )}
+                        >
+                          {isLastMessage && (
+                            <Action
+                              size="sm"
+                              onClick={() => regenerate()}
+                              label="Retry"
+                              tooltip="Retry"
+                            >
+                              <RefreshCcwIcon className="size-3" />
+                            </Action>
+                          )}
+                        </Actions>
+                      )}
+                  </div>
+                )
+              })}
+              {isWaitingForResponse && (
+                <motion.div
+                  className="mt-5"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3, ease: "easeInOut" }}
+                >
+                  <Dots />
+                </motion.div>
+              )}
+            </ConversationContent>
+            <ConversationScrollButton />
+          </Conversation>
+        </div>
+        <div
+          className="px-3 pb-3"
+          onPointerDownCapture={handlePromptPointerDownCapture}
+        >
+          {promptComposer}
+        </div>
       </div>
     </div>
   )
 }
+
+type SelectedToolBadge = {
+  value: string
+  label: string
+  icon: ReactNode
+}
+
+/** Single selected-tool chip. Renders the remove button only when interactive
+ * so the hidden measurement layer stays out of the tab order. */
+function SelectedToolChip({
+  tool,
+  onRemove,
+  removeDisabled,
+  interactive,
+}: {
+  tool: SelectedToolBadge
+  onRemove?: (value: string) => void
+  removeDisabled?: boolean
+  interactive: boolean
+}) {
+  return (
+    <Badge variant="secondary" className="h-7 shrink-0 gap-1.5 px-2.5 text-xs">
+      <span className="inline-flex items-center justify-center text-foreground">
+        {tool.icon}
+      </span>
+      <span className="truncate">{tool.label}</span>
+      {interactive ? (
+        <button
+          type="button"
+          className="inline-flex items-center text-muted-foreground hover:text-foreground"
+          aria-label={`Remove ${tool.label}`}
+          onClick={() => onRemove?.(tool.value)}
+          disabled={removeDisabled}
+        >
+          <XIcon className="size-3.5" />
+        </button>
+      ) : (
+        <span className="inline-flex items-center text-muted-foreground">
+          <XIcon className="size-3.5" />
+        </span>
+      )}
+    </Badge>
+  )
+}
+
+/**
+ * Chip strip of tools attached to the chat session, rendered above the
+ * composer textarea. Keeps the chips on a single line, showing only those that
+ * fit plus a "+N" indicator for the rest, so a large tool set never grows the
+ * composer past one row.
+ *
+ * Overflow measurement is shared with MultiSelectBadges (case custom fields)
+ * via the useOverflowBadges hook: a hidden measurement layer renders every chip
+ * so the visible set can be recomputed when the panel resizes.
+ */
+function SelectedToolsHeader({
+  badges,
+  onRemove,
+  removeDisabled,
+}: {
+  badges: SelectedToolBadge[]
+  onRemove: (value: string) => void
+  removeDisabled: boolean
+}) {
+  // gap-1.5 = 0.375rem = 6px between chips.
+  const { measureRef, visibleCount } = useOverflowBadges(badges, { gap: 6 })
+
+  const hiddenTools = badges.slice(visibleCount)
+  const hiddenCount = hiddenTools.length
+
+  return (
+    <PromptInputHeader className="gap-1.5 px-3 pt-3">
+      <div className="relative w-full min-w-0 overflow-hidden">
+        {/* Hidden measurement layer — every chip plus a +N placeholder so the
+            ResizeObserver can recompute the visible set as the panel resizes. */}
+        <div
+          ref={measureRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-1.5"
+          style={{ visibility: "hidden" }}
+        >
+          {badges.map((tool) => (
+            <SelectedToolChip
+              key={tool.value}
+              tool={tool}
+              interactive={false}
+            />
+          ))}
+          <span className="shrink-0 text-xs">+{badges.length}</span>
+        </div>
+        {/* Visible layer — only the chips that fit plus a +N indicator. */}
+        <div className="flex items-center gap-1.5">
+          {badges.slice(0, visibleCount).map((tool) => (
+            <SelectedToolChip
+              key={tool.value}
+              tool={tool}
+              onRemove={onRemove}
+              removeDisabled={removeDisabled}
+              interactive
+            />
+          ))}
+          {hiddenCount > 0 && (
+            <Badge
+              variant="secondary"
+              className="h-7 shrink-0 px-2.5 text-xs text-muted-foreground"
+              title={hiddenTools.map((tool) => tool.label).join(", ")}
+            >
+              +{hiddenCount}
+            </Badge>
+          )}
+        </div>
+      </div>
+    </PromptInputHeader>
+  )
+}
+
+function OptimisticPendingMessage({ text }: { text: string }) {
+  return (
+    <>
+      <Message from="user">
+        <MessageContent variant="flat">
+          <Response>{text}</Response>
+        </MessageContent>
+      </Message>
+      <motion.div
+        className="mt-5"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.3, ease: "easeInOut" }}
+      >
+        <Dots />
+      </motion.div>
+    </>
+  )
+}
+
+/**
+ * The session's active agent preset, shown where the mention hint otherwise
+ * sits. Clearing it is the only way back to a tools-only session.
+ */
+function ActivePresetBadge({
+  label,
+  disabled = false,
+  showSpinner = false,
+  onClear,
+}: {
+  label: string
+  disabled?: boolean
+  showSpinner?: boolean
+  onClear: () => void
+}) {
+  return (
+    <span className="flex h-7 min-w-0 max-w-[14rem] items-center gap-1.5 rounded-md border border-border/70 px-2 text-xs text-muted-foreground">
+      <MousePointerClickIcon className="size-3 shrink-0" />
+      <span className="truncate" title={label}>
+        {label}
+      </span>
+      {showSpinner ? (
+        <Loader2 className="size-3 shrink-0 animate-spin" />
+      ) : (
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={disabled}
+          aria-label="Clear agent"
+          className="shrink-0 text-muted-foreground/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+        >
+          <XIcon className="size-3" />
+        </button>
+      )}
+    </span>
+  )
+}
+
+function formatProviderLabel(value: string): string {
+  return value.replaceAll("_", " ")
+}
+
+function getProviderIconId(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "anthropic"
+    case "azure_ai":
+    case "azure_openai":
+      return "microsoft"
+    case "bedrock":
+      return "amazon-bedrock"
+    case "gemini":
+    case "vertex_ai":
+      return "google"
+    case "mistral":
+      return "mistral"
+    case "openai":
+      return "openai"
+    default:
+      return "custom"
+  }
+}
+
+function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
+  return (
+    <Badge
+      variant="outline"
+      className="h-7 min-w-0 max-w-[18rem] gap-1.5 px-2.5 text-xs font-normal"
+    >
+      <ProviderIcon
+        className="size-4 rounded-none bg-transparent p-0"
+        providerId={modelInfo.iconId ?? getProviderIconId(modelInfo.provider)}
+      />
+      <span
+        className="truncate font-medium text-foreground"
+        title={modelInfo.name}
+      >
+        {modelInfo.name}
+      </span>
+      <span className="shrink-0 text-muted-foreground">
+        {formatProviderLabel(modelInfo.provider)}
+      </span>
+    </Badge>
+  )
+}
+
+const EMPTY_INTERRUPTED_TOOL_CALL_IDS: ReadonlySet<string> = new Set()
 
 export function MessagePart({
   part,
@@ -500,6 +1644,8 @@ export function MessagePart({
   role,
   status,
   isLastMessage,
+  turnCancelled = false,
+  interruptedToolCallIds = EMPTY_INTERRUPTED_TOOL_CALL_IDS,
   onSubmitApprovals,
 }: {
   part: UIMessagePart<UIDataTypes, UITools>
@@ -508,13 +1654,26 @@ export function MessagePart({
   role: UIMessage["role"]
   status?: ChatStatus
   isLastMessage: boolean
+  turnCancelled?: boolean
+  /**
+   * Tool call IDs the backend marked as aborted by a user interrupt
+   * (structured metadata from the data-cancelled part).
+   */
+  interruptedToolCallIds?: ReadonlySet<string>
   onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<void>
 }) {
+  if (part.type === CANCELLED_DATA_PART_TYPE) {
+    return (
+      <div key={`${id}-${partIdx}`} className="w-full py-2">
+        <span className="text-xs text-muted-foreground">Interrupted</span>
+        <div className="mt-2 border-t" />
+      </div>
+    )
+  }
+
   if (part.type === "data-approval-request") {
     const payload = (part as { data?: unknown }).data
-    const approvals: ApprovalCard[] = Array.isArray(payload)
-      ? (payload.filter(Boolean) as ApprovalCard[])
-      : []
+    const approvals = isApprovalCardArray(payload) ? payload : []
     return (
       <ApprovalRequestPart
         key={`${id}-${partIdx}`}
@@ -528,7 +1687,10 @@ export function MessagePart({
     return (
       <Message key={`${id}-${partIdx}`} from={role}>
         <MessageContent variant="flat">
-          <Response>{part.text}</Response>
+          <SmoothResponse
+            text={part.text}
+            animate={status === "streaming" && isLastMessage}
+          />
         </MessageContent>
       </Message>
     )
@@ -550,6 +1712,7 @@ export function MessagePart({
 
   if (isToolUIPart(part)) {
     const toolName = getToolName(part).replaceAll("__", ".")
+    const toolTitle = getToolTitle(toolName, part.input)
     // Derive an error state for streaming when servers send
     // a tool output that encodes validation feedback in `output`
     // rather than `errorText`.
@@ -565,22 +1728,50 @@ export function MessagePart({
         ? (outputAsAny as { errorText?: string }).errorText
         : undefined
     const derivedErrorText = partErrorText ?? outputErrorText
-    const derivedState = derivedErrorText
-      ? ("output-error" as const)
-      : part.state
+    // In a turn the user stopped, tool calls that never completed (still
+    // pending) or that only "failed" because the SDK aborted them are
+    // interruptions, not tool errors — don't show a stale spinner or leak
+    // internal abort messages. The backend reports aborted calls as
+    // structured metadata (interruptedToolCallIds); the error-text substring
+    // check is a legacy fallback for histories persisted before that
+    // metadata existed.
+    const isPendingState =
+      part.state === "input-streaming" || part.state === "input-available"
+    // The structured ids are authoritative on their own: the backend records
+    // them at interrupt time, so they apply even when the cancelled marker
+    // landed in a different message than the tool calls it aborted. The
+    // state/error-text heuristics still require the turn-level flag.
+    const isInterrupted =
+      interruptedToolCallIds.has(part.toolCallId) ||
+      (turnCancelled &&
+        (isPendingState ||
+          (typeof derivedErrorText === "string" &&
+            isInterruptArtifactError(derivedErrorText))))
+    let derivedState: ToolHeaderProps["state"]
+    if (isInterrupted) {
+      derivedState = "output-interrupted"
+    } else if (derivedErrorText) {
+      derivedState = "output-error"
+    } else {
+      derivedState = part.state
+    }
     return (
       <Tool key={`${id}-${partIdx}`}>
         <ToolHeader
-          title={toolName}
+          title={toolTitle}
           type={part.type}
           state={derivedState}
-          icon={getIcon(toolName, {
-            className: "size-4 p-[3px]",
-          })}
+          icon={getIcon(toolName, TOOL_ICON_PROPS)}
         />
         <ToolContent>
           <ToolInput input={part.input} />
-          <ToolOutput output={part.output} errorText={derivedErrorText} />
+          {isInterrupted ? (
+            <div className="text-[11px] text-muted-foreground">
+              Stopped before completion
+            </div>
+          ) : (
+            <ToolOutput output={part.output} errorText={derivedErrorText} />
+          )}
         </ToolContent>
       </Tool>
     )
@@ -589,10 +1780,149 @@ export function MessagePart({
   return null
 }
 
+function getToolTitle(toolName: string, input: unknown): string {
+  if (!AGENT_TOOL_NAMES.has(toolName)) {
+    return toolName
+  }
+
+  const agentTarget = getAgentToolTarget(input)
+  return agentTarget ? `${toolName}: ${agentTarget}` : toolName
+}
+
+function getAgentToolTarget(input: unknown, depth = 0): string | null {
+  if (depth > 2) {
+    return null
+  }
+
+  const inputRecord = asInputRecord(input)
+  if (!inputRecord) {
+    return null
+  }
+
+  for (const key of AGENT_TOOL_TARGET_KEYS) {
+    const value = inputRecord[key]
+    if (typeof value === "string" && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  for (const key of AGENT_TOOL_NESTED_INPUT_KEYS) {
+    const nestedTarget = getAgentToolTarget(inputRecord[key], depth + 1)
+    if (nestedTarget) {
+      return nestedTarget
+    }
+  }
+
+  return null
+}
+
+function asInputRecord(input: unknown): Record<string, unknown> | null {
+  if (typeof input === "string") {
+    const trimmed = input.trim()
+    if (!trimmed) {
+      return null
+    }
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      return asInputRecord(parsed)
+    } catch {
+      return null
+    }
+  }
+
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return null
+  }
+
+  return input as Record<string, unknown>
+}
+
+const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
+  if (
+    prev.partIdx !== next.partIdx ||
+    prev.id !== next.id ||
+    prev.role !== next.role ||
+    prev.status !== next.status ||
+    prev.isLastMessage !== next.isLastMessage ||
+    prev.turnCancelled !== next.turnCancelled ||
+    prev.interruptedToolCallIds !== next.interruptedToolCallIds ||
+    prev.onSubmitApprovals !== next.onSubmitApprovals
+  ) {
+    return false
+  }
+
+  const prevPart = prev.part
+  const nextPart = next.part
+
+  if (prevPart.type !== nextPart.type) {
+    return false
+  }
+
+  if (prevPart.type === "text" || prevPart.type === "reasoning") {
+    return prevPart.text === (nextPart as typeof prevPart).text
+  }
+
+  if (isToolUIPart(prevPart) && isToolUIPart(nextPart)) {
+    return (
+      prevPart.toolCallId === nextPart.toolCallId &&
+      prevPart.state === nextPart.state &&
+      prevPart.input === nextPart.input &&
+      prevPart.output === nextPart.output &&
+      ("errorText" in prevPart
+        ? (prevPart as { errorText?: string }).errorText
+        : undefined) ===
+        ("errorText" in nextPart
+          ? (nextPart as { errorText?: string }).errorText
+          : undefined)
+    )
+  }
+
+  return prevPart === nextPart
+})
+MemoizedMessagePart.displayName = "MessagePart"
+
 type DecisionState = {
   action: ApprovalDecision["action"] | undefined
   reason?: string
   overrideArgs?: string
+}
+
+function submittedDecisionFromApproval(
+  approval: ApprovalCard
+): DecisionState | undefined {
+  if (approval.status === "approved") {
+    if (
+      isToolApprovedDecision(approval.decision) &&
+      approval.decision.override_args !== undefined
+    ) {
+      return {
+        action: "override",
+        overrideArgs: formatArgs(approval.decision.override_args),
+      }
+    }
+    return { action: "approve" }
+  }
+
+  if (approval.status === "rejected") {
+    const reason =
+      approval.reason ??
+      (isToolDeniedDecision(approval.decision) &&
+      typeof approval.decision.message === "string"
+        ? approval.decision.message
+        : undefined)
+    return { action: "deny", reason }
+  }
+
+  return undefined
+}
+
+function approvalStateKey(approval: ApprovalCard): string {
+  return JSON.stringify({
+    id: approval.tool_call_id,
+    status: approval.status ?? "pending",
+    decision: approval.decision ?? null,
+    reason: approval.reason ?? null,
+  })
 }
 
 function ApprovalRequestPart({
@@ -603,15 +1933,42 @@ function ApprovalRequestPart({
   onSubmit?: (decisions: ApprovalDecision[]) => Promise<void>
 }) {
   const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
+  const [submittedDecisions, setSubmittedDecisions] = useState<
+    Record<string, DecisionState>
+  >({})
   const [submitting, setSubmitting] = useState(false)
 
-  useEffect(() => {
-    setDecisions({})
-  }, [approvals.map((a) => a.tool_call_id).join(":")])
+  const approvalsKey = useMemo(
+    () => approvals.map(approvalStateKey).join(":"),
+    [approvals]
+  )
 
-  const readyToSubmit =
+  useEffect(() => {
+    const nextSubmittedDecisions: Record<string, DecisionState> = {}
+    for (const approval of approvals) {
+      const submittedDecision = submittedDecisionFromApproval(approval)
+      if (submittedDecision) {
+        nextSubmittedDecisions[approval.tool_call_id] = submittedDecision
+      }
+    }
+    setDecisions({})
+    setSubmittedDecisions(nextSubmittedDecisions)
+  }, [approvalsKey])
+
+  const hasSelectedPendingDecision =
     approvals.length > 0 &&
-    approvals.every((approval) => decisions[approval.tool_call_id]?.action)
+    approvals.some((approval) => {
+      if (submittedDecisions[approval.tool_call_id]) {
+        return false
+      }
+      return Boolean(decisions[approval.tool_call_id]?.action)
+    })
+
+  const allApprovalsSubmitted =
+    approvals.length > 0 &&
+    approvals.every((approval) =>
+      Boolean(submittedDecisions[approval.tool_call_id])
+    )
 
   const setDecision = useCallback(
     (toolCallId: string, update: Partial<DecisionState>) => {
@@ -627,26 +1984,28 @@ function ApprovalRequestPart({
   )
 
   const handleSubmit = useCallback(async () => {
-    if (!onSubmit || !readyToSubmit) {
+    if (!onSubmit || !hasSelectedPendingDecision) {
       toast({
         title: "Pending decisions",
-        description: "Choose an action for each tool before continuing.",
+        description:
+          "Choose an action for at least one tool before continuing.",
       })
       return
     }
 
     const payload: ApprovalDecision[] = []
+    const acceptedDecisions: Record<string, DecisionState> = {}
     for (const approval of approvals) {
+      if (submittedDecisions[approval.tool_call_id]) {
+        continue
+      }
       const decision = decisions[approval.tool_call_id]
       if (!decision?.action) {
-        toast({
-          title: "Missing decision",
-          description: `Select an action for ${approval.tool_name}.`,
-        })
-        return
+        continue
       }
       if (decision.action === "approve") {
         payload.push({ tool_call_id: approval.tool_call_id, action: "approve" })
+        acceptedDecisions[approval.tool_call_id] = decision
       } else if (decision.action === "override") {
         try {
           const parsed = decision.overrideArgs
@@ -657,6 +2016,7 @@ function ApprovalRequestPart({
             action: "override",
             override_args: parsed,
           })
+          acceptedDecisions[approval.tool_call_id] = decision
         } catch {
           toast({
             variant: "destructive",
@@ -671,19 +2031,36 @@ function ApprovalRequestPart({
           action: "deny",
           reason: decision.reason ?? "",
         })
+        acceptedDecisions[approval.tool_call_id] = decision
       }
     }
 
     try {
       setSubmitting(true)
       await onSubmit(payload)
-      setDecisions({})
+      setSubmittedDecisions((prev) => ({
+        ...prev,
+        ...acceptedDecisions,
+      }))
+      setDecisions((prev) => {
+        const next = { ...prev }
+        for (const toolCallId of Object.keys(acceptedDecisions)) {
+          delete next[toolCallId]
+        }
+        return next
+      })
     } catch (error) {
       console.error(error)
     } finally {
       setSubmitting(false)
     }
-  }, [approvals, decisions, onSubmit, readyToSubmit])
+  }, [
+    approvals,
+    decisions,
+    hasSelectedPendingDecision,
+    onSubmit,
+    submittedDecisions,
+  ])
 
   const disabled = !onSubmit
 
@@ -693,28 +2070,35 @@ function ApprovalRequestPart({
 
   return (
     <div className="space-y-4">
-      <div>
-        <p className="text-xs font-medium uppercase text-muted-foreground">
-          Approvals required
-        </p>
-      </div>
       <div className="space-y-3">
-        {approvals.map((approval) => {
+        {approvals.map((approval, index) => {
           const actionId = approval.tool_name.replaceAll("__", ".")
           const decision = decisions[approval.tool_call_id]
-          const argsPreview = formatArgs(approval.args)
+          const submittedDecision = submittedDecisions[approval.tool_call_id]
+          const visibleDecision = submittedDecision ?? decision
+          const isSubmitted = Boolean(submittedDecision)
+          const initialOverrideArgs = formatArgs(approval.args)
+          const isLastApproval = index === approvals.length - 1
           return (
             <div
               key={approval.tool_call_id}
-              className="space-y-3 rounded-md border border-border/60 bg-background p-3"
+              data-testid={`approval-card-${approval.tool_call_id}`}
+              className={cn(
+                "space-y-3 rounded-md border border-border/60 bg-background p-3 transition-colors",
+                isSubmitted && "bg-muted/10",
+                !isSubmitted &&
+                  visibleDecision?.action !== undefined &&
+                  "border-foreground/20"
+              )}
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-1">
-                    {getIcon(actionId, {
-                      className: "size-4 p-[3px]",
-                    })}
-                    <p className="text-sm font-semibold">{actionId}</p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                    {getIcon(actionId, TOOL_ICON_PROPS)}
+                    <p className="min-w-0 truncate font-medium text-sm">
+                      {actionId}
+                    </p>
+                    {isSubmitted ? null : getStatusBadge("approval-requested")}
                   </div>
                 </div>
                 <JsonViewWithControls
@@ -725,11 +2109,10 @@ function ApprovalRequestPart({
                 />
                 <div className="flex w-full flex-wrap justify-start gap-1 sm:w-auto [&>button]:h-6 [&>button]:rounded-lg">
                   <Button
+                    type="button"
                     size="sm"
-                    variant={
-                      decision?.action === "approve" ? "default" : "outline"
-                    }
-                    disabled={disabled || submitting}
+                    variant="outline"
+                    disabled={disabled || submitting || isSubmitted}
                     onClick={() =>
                       setDecision(approval.tool_call_id, {
                         action: "approve",
@@ -738,103 +2121,129 @@ function ApprovalRequestPart({
                       })
                     }
                     className={cn(
-                      decision?.action === "approve" &&
-                        "bg-green-500/80 hover:bg-green-600/80"
+                      visibleDecision?.action === "approve" &&
+                        "border-success/55 text-success hover:border-success/65 hover:bg-background hover:text-success disabled:opacity-100"
                     )}
                   >
                     <CheckIcon className="mr-1 size-3" />
                     Approve
                   </Button>
                   <Button
+                    type="button"
                     size="sm"
-                    variant={
-                      decision?.action === "override" ? "default" : "outline"
-                    }
-                    disabled={disabled || submitting}
+                    variant="outline"
+                    disabled={disabled || submitting || isSubmitted}
                     onClick={() =>
                       setDecision(approval.tool_call_id, {
                         action: "override",
                         reason: undefined,
+                        overrideArgs:
+                          decision?.overrideArgs ?? initialOverrideArgs,
                       })
                     }
                     className={cn(
-                      decision?.action === "override" &&
-                        "bg-green-500/80 hover:bg-green-600/80"
+                      visibleDecision?.action === "override" &&
+                        "border-success/55 text-success hover:border-success/65 hover:bg-background hover:text-success disabled:opacity-100"
                     )}
                   >
                     <PencilIcon className="mr-1 size-3" />
-                    Approve + change
+                    Edit + approve
                   </Button>
                   <Button
+                    type="button"
                     size="sm"
-                    variant={
-                      decision?.action === "deny" ? "destructive" : "outline"
-                    }
-                    disabled={disabled || submitting}
+                    variant="outline"
+                    disabled={disabled || submitting || isSubmitted}
                     onClick={() =>
                       setDecision(approval.tool_call_id, {
                         action: "deny",
                         overrideArgs: undefined,
                       })
                     }
+                    className={cn(
+                      visibleDecision?.action === "deny" &&
+                        "border-destructive/55 text-destructive hover:border-destructive/65 hover:bg-background hover:text-destructive disabled:opacity-100"
+                    )}
                   >
                     <XIcon className="mr-1 size-3" />
                     Deny
                   </Button>
                 </div>
               </div>
-              {decision?.action === "override" && (
-                <Textarea
-                  className="text-xs"
-                  rows={4}
-                  spellCheck={false}
-                  value={decision.overrideArgs ?? ""}
-                  onChange={(event) =>
-                    setDecision(approval.tool_call_id, {
-                      ...decision,
-                      overrideArgs: event.target.value,
-                    })
-                  }
-                  placeholder={argsPreview}
-                  disabled={disabled || submitting}
-                />
+              {visibleDecision?.action === "override" && (
+                <div
+                  data-testid={`approval-override-editor-${approval.tool_call_id}`}
+                >
+                  <CodeEditor
+                    value={visibleDecision.overrideArgs ?? initialOverrideArgs}
+                    language="json"
+                    readOnly={disabled || submitting || isSubmitted}
+                    onChange={(value) => {
+                      if (isSubmitted) {
+                        return
+                      }
+                      setDecision(approval.tool_call_id, {
+                        ...(decision ?? {}),
+                        action: "override",
+                        overrideArgs: value,
+                      })
+                    }}
+                    className={cn(
+                      "text-xs",
+                      "[&_.cm-editor]:!border [&_.cm-editor]:!border-input [&_.cm-editor]:!bg-background [&_.cm-editor]:rounded-md",
+                      "[&_.cm-scroller]:h-auto [&_.cm-scroller]:min-h-24 [&_.cm-scroller]:max-h-80 [&_.cm-scroller]:overflow-auto"
+                    )}
+                  />
+                </div>
               )}
-              {decision?.action === "deny" && (
+              {visibleDecision?.action === "deny" && (
                 <Textarea
                   className="text-xs"
                   rows={3}
-                  value={decision.reason ?? ""}
+                  value={visibleDecision.reason ?? ""}
                   onChange={(event) =>
                     setDecision(approval.tool_call_id, {
-                      ...decision,
+                      ...(decision ?? {}),
+                      action: "deny",
                       reason: event.target.value,
                     })
                   }
                   placeholder="Share a short reason"
-                  disabled={disabled || submitting}
+                  disabled={disabled || submitting || isSubmitted}
                 />
+              )}
+              {isLastApproval && (
+                <div className="flex flex-wrap justify-end gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant={allApprovalsSubmitted ? "outline" : "default"}
+                    onClick={handleSubmit}
+                    disabled={
+                      disabled ||
+                      submitting ||
+                      allApprovalsSubmitted ||
+                      !hasSelectedPendingDecision
+                    }
+                    className={cn(
+                      "h-6 gap-1 px-2 text-xs",
+                      allApprovalsSubmitted &&
+                        "border-border bg-muted text-muted-foreground disabled:opacity-100"
+                    )}
+                  >
+                    {submitting ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      <CheckIcon className="size-3" />
+                    )}
+                    {submitting && "Submitting..."}
+                    {!submitting && allApprovalsSubmitted && "Submitted"}
+                    {!submitting && !allApprovalsSubmitted && "Submit"}
+                  </Button>
+                </div>
               )}
             </div>
           )
         })}
-      </div>
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          disabled={submitting}
-          onClick={() => setDecisions({})}
-          className="h-7 px-2 text-muted-foreground/80"
-        >
-          Reset
-        </Button>
-        <Button
-          onClick={handleSubmit}
-          disabled={disabled || submitting || !readyToSubmit}
-          className="h-7 px-2"
-        >
-          {submitting ? "Submitting..." : "Submit"}
-        </Button>
       </div>
       {disabled && (
         <p className="text-xs text-muted-foreground">

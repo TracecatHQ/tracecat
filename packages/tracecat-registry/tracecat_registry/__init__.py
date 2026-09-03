@@ -1,9 +1,11 @@
 """Tracecat managed actions and integrations registry."""
 
-__version__ = "1.0.0-beta.23"
+__version__ = "1.0.0-beta.50"
+__pep440_version__ = "1.0.0b50"
 
 
 from tracecat_registry import types
+from tracecat_registry import ctx as ctx
 from tracecat_registry._internal import exceptions, registry, secrets
 from tracecat_registry._internal.exceptions import (
     ActionIsInterfaceError,
@@ -20,6 +22,7 @@ from tracecat_registry._internal.models import (
 
 __all__ = [
     "registry",
+    "ctx",
     "types",
     "RegistrySecret",
     "logger",

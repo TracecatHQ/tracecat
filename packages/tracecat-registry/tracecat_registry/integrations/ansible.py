@@ -11,6 +11,7 @@ ansible_secret = RegistrySecret(
     keys=[
         "PRIVATE_KEY",
     ],
+    secret_type="ssh_key",
 )
 """Ansible SSH key.
 - name: `ansible`

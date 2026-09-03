@@ -1,0 +1,833 @@
+"""Tests for platform MCP catalog loading resilience."""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+
+import orjson
+import pytest
+
+from tracecat.db.models import MCPIntegration
+from tracecat.integrations.catalog import loader
+from tracecat.integrations.catalog.service import PlatformMCPCatalogService
+from tracecat.integrations.catalog.types import RawCatalogRow
+from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
+from tracecat.integrations.schemas import OAuthTokenState
+
+
+class _CatalogResource:
+    def __init__(self, payload: bytes, resource_name: str) -> None:
+        self._payload = payload
+        self._resource_name = resource_name
+
+    def joinpath(self, name: str) -> _CatalogResource:
+        assert name == self._resource_name
+        return self
+
+    def read_bytes(self) -> bytes:
+        return self._payload
+
+
+def _clear_catalog_cache() -> None:
+    loader._cached_platform_mcp_catalog_entries.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def isolate_catalog_cache() -> Iterator[None]:
+    """Keep stubbed catalogs from leaking into later tests on the same worker."""
+    _clear_catalog_cache()
+    yield
+    _clear_catalog_cache()
+
+
+def _stub_catalog_resource(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> None:
+    _clear_catalog_cache()
+
+    def _files(package: str) -> _CatalogResource:
+        if package == loader._CATALOG_PACKAGE:
+            return _CatalogResource(payload, "mcp_catalog.json")
+        raise ModuleNotFoundError(package)
+
+    monkeypatch.setattr(
+        loader.resources,
+        "files",
+        _files,
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"[]",
+        b'{"servers": {"slug": "elastic-mcp"}}',
+        b'{"servers": ["not-a-server", {"slug": "elastic-mcp"}]}',
+        b'{"servers": [{"slug": "", "name": "Elastic", "description": "x", "category": "SIEM"}]}',
+        # Credentials must carry an explicit target; inference was removed.
+        b'{"servers": [{"slug": "x-mcp", "name": "X", "description": "x", "category": "SIEM",'
+        b' "connection_spec": {"server_type": "http", "auth_type": "CUSTOM",'
+        b' "server_uri": "https://x.example.com/mcp", "credentials": [{"key": "Authorization"}]}}]}',
+    ],
+)
+def test_get_platform_mcp_catalog_entries_ignores_malformed_shapes(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: bytes,
+) -> None:
+    _stub_catalog_resource(monkeypatch, payload)
+
+    assert loader.get_platform_mcp_catalog_entries() == []
+
+
+def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_catalog_resource(
+        monkeypatch,
+        orjson.dumps(
+            {
+                "servers": [
+                    {
+                        "slug": "elastic-mcp",
+                        "name": "Elastic",
+                        "description": "Search telemetry",
+                        "category": "SIEM / Datalake",
+                        "icon": "https://example.com/elastic.png",
+                        "docs": "https://example.com/docs",
+                        "status": "coming_soon",
+                        "connection_spec": {
+                            "server_type": "http",
+                            "auth_type": "CUSTOM",
+                            "server_uri": "https://{KIBANA_URL}/api/mcp",
+                            "credentials": [
+                                {
+                                    "key": "KIBANA_URL",
+                                    "secret": False,
+                                    "target": "server_uri",
+                                },
+                                {"key": "Authorization", "target": "http_header"},
+                            ],
+                        },
+                    },
+                    {
+                        "slug": "future-mcp",
+                        "name": "Future",
+                        "description": "Future server",
+                        "category": "Cloud",
+                        "status": "coming_soon",
+                    },
+                    {
+                        "slug": "generic-oauth-mcp",
+                        "name": "Generic OAuth",
+                        "description": "OAuth server without a provider",
+                        "category": "Cloud",
+                        "connection_spec": {
+                            "server_type": "http",
+                            "auth_type": "OAUTH2",
+                            "server_uri": "https://mcp.example.com/mcp",
+                            "oauth_resource": "https://mcp.example.com",
+                        },
+                    },
+                    {
+                        "slug": "provider-oauth-mcp",
+                        "name": "Provider OAuth",
+                        "description": "OAuth server with a provider",
+                        "category": "Cloud",
+                        "provider_id": "runreveal_mcp",
+                        "connection_spec": {
+                            "server_type": "http",
+                            "auth_type": "OAUTH2",
+                            "server_uri": "https://api.runreveal.com/mcp",
+                        },
+                    },
+                    {
+                        "slug": "bad-mcp",
+                        "name": "Bad",
+                        "description": "Bad server",
+                        "category": "Cloud",
+                        "status": "available",
+                        "connection_spec": {
+                            "server_type": "grpc",
+                            "auth_type": "CUSTOM",
+                        },
+                    },
+                    {
+                        "slug": "user-url-mcp",
+                        "name": "User URL",
+                        "description": "Server URI supplied by user",
+                        "category": "Cloud",
+                        "connection_spec": {
+                            "server_type": "http",
+                            "auth_type": "CUSTOM",
+                            "server_uri": None,
+                            "credentials": [
+                                {
+                                    "key": "SNOWFLAKE_MCP_URL",
+                                    "label": "Snowflake MCP URL",
+                                    "secret": False,
+                                    "target": "server_uri",
+                                },
+                                {"key": "Authorization", "target": "http_header"},
+                            ],
+                        },
+                    },
+                    {
+                        "slug": "local-only-mcp",
+                        "name": "Local Only",
+                        "description": "Needs user command",
+                        "category": "IaC",
+                        "connection_spec": {
+                            "server_type": "stdio",
+                            "auth_type": "CUSTOM",
+                            "stdio_command": None,
+                            "stdio_args": ["run", "local-only"],
+                            "credentials": [],
+                            "packages": [],
+                        },
+                    },
+                ]
+            }
+        ),
+    )
+
+    entries = loader.get_platform_mcp_catalog_entries(include_private=True)
+
+    # bad-mcp has an unknown server_type, so the whole row fails validation.
+    assert [entry.slug for entry in entries] == [
+        "elastic-mcp",
+        "future-mcp",
+        "generic-oauth-mcp",
+        "provider-oauth-mcp",
+        "user-url-mcp",
+        "local-only-mcp",
+    ]
+    assert entries[0].status == "available"
+    assert entries[0].docs_url == "https://example.com/docs"
+    elastic_spec = entries[0].connection_spec
+    assert elastic_spec is not None
+    assert elastic_spec.model_dump(mode="json") == {
+        "kind": "http_custom",
+        "server_type": "http",
+        "auth_type": "CUSTOM",
+        "server_uri": "https://{KIBANA_URL}/api/mcp",
+        "requires_config": True,
+        "config_fields": [
+            {
+                "key": "KIBANA_URL",
+                "label": "KIBANA_URL",
+                "description": "",
+                "target": "server_uri",
+                "required": True,
+                "secret": False,
+                "placeholder": None,
+                "type": "string",
+            },
+            {
+                "key": "Authorization",
+                "label": "Authorization",
+                "description": "",
+                "target": "http_header",
+                "required": True,
+                "secret": True,
+                "placeholder": None,
+                "type": "string",
+            },
+        ],
+        "credentials": [
+            {
+                "key": "KIBANA_URL",
+                "label": "KIBANA_URL",
+                "description": "",
+                "required": True,
+                "secret": False,
+                "default_value": None,
+                "placeholder": None,
+                "type": "string",
+                "target": "server_uri",
+            },
+            {
+                "key": "Authorization",
+                "label": "Authorization",
+                "description": "",
+                "required": True,
+                "secret": True,
+                "default_value": None,
+                "placeholder": None,
+                "type": "string",
+                "target": "http_header",
+            },
+        ],
+    }
+    assert entries[1].status == "coming_soon"
+    assert entries[1].connection_spec is None
+    assert entries[2].status == "available"
+    generic_oauth_spec = entries[2].connection_spec
+    assert generic_oauth_spec is not None
+    assert generic_oauth_spec.auth_type == MCPAuthType.OAUTH2
+    assert generic_oauth_spec.oauth_resource == "https://mcp.example.com"
+    assert entries[3].status == "available"
+    assert entries[3].provider_id == "runreveal_mcp"
+    provider_oauth_spec = entries[3].connection_spec
+    assert provider_oauth_spec is not None
+    assert provider_oauth_spec.auth_type == MCPAuthType.OAUTH2
+    user_url_spec = entries[4].connection_spec
+    assert user_url_spec is not None
+    assert user_url_spec.server_type == "http"
+    assert user_url_spec.server_uri == ""
+    assert user_url_spec.requires_config is True
+    assert user_url_spec.config_fields[0].target == "server_uri"
+    local_only_spec = entries[5].connection_spec
+    assert local_only_spec is not None
+    assert local_only_spec.server_type == "stdio"
+    assert local_only_spec.requires_config is True
+
+
+def test_get_platform_mcp_catalog_entries_normalizes_connection_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_catalog_resource(
+        monkeypatch,
+        orjson.dumps(
+            {
+                "servers": [
+                    {
+                        "slug": "panther-mcp",
+                        "name": "Panther",
+                        "description": "Investigate alerts",
+                        "category": "SIEM / Datalake",
+                        "default_connection_option": "remote-http",
+                        "connection_options": [
+                            {
+                                "id": "remote-http",
+                                "label": "Remote OAuth",
+                                "connection_spec": {
+                                    "server_type": "http",
+                                    "auth_type": "OAUTH2",
+                                    "server_uri": "https://api.<host>/mcp",
+                                    "credentials": [
+                                        {
+                                            "key": "host",
+                                            "target": "server_uri",
+                                            "secret": False,
+                                        }
+                                    ],
+                                },
+                            },
+                            {
+                                "id": "local-stdio",
+                                "label": "Local stdio",
+                                "connection_spec": {
+                                    "server_type": "stdio",
+                                    "auth_type": "CUSTOM",
+                                    "stdio_command": "uvx",
+                                    "stdio_args": ["mcp-panther"],
+                                    "stdio_env": ["PANTHER_API_TOKEN"],
+                                    "credentials": [
+                                        {
+                                            "key": "PANTHER_API_TOKEN",
+                                            "target": "stdio_env",
+                                        }
+                                    ],
+                                },
+                            },
+                        ],
+                    }
+                ]
+            }
+        ),
+    )
+
+    entries = loader.get_platform_mcp_catalog_entries(include_private=True)
+
+    assert len(entries) == 1
+    assert entries[0].status == "available"
+    connection_spec = entries[0].connection_spec
+    assert connection_spec is not None
+    assert connection_spec.kind == "http_oauth2"
+    options = entries[0].connection_options
+    assert options is not None
+    assert [option.id for option in options] == [
+        "remote-http",
+        "local-stdio",
+    ]
+    assert [option.connection_spec.server_type for option in options] == [
+        "http",
+        "stdio",
+    ]
+
+
+def test_get_platform_mcp_catalog_entries_propagates_credential_type_and_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catalog ``type``/``placeholder`` reach the loaded credentials/config fields."""
+    _stub_catalog_resource(
+        monkeypatch,
+        orjson.dumps(
+            {
+                "servers": [
+                    {
+                        "slug": "typed-stdio-mcp",
+                        "name": "Typed Stdio",
+                        "description": "Has a URL-typed env credential",
+                        "category": "Endpoint",
+                        "connection_spec": {
+                            "server_type": "stdio",
+                            "auth_type": "CUSTOM",
+                            "stdio_command": "uvx",
+                            "stdio_args": ["typed-mcp"],
+                            "stdio_env": ["TOKEN", "CONSOLE_BASE_URL"],
+                            "credentials": [
+                                {
+                                    "key": "TOKEN",
+                                    "secret": True,
+                                    "target": "stdio_env",
+                                },
+                                {
+                                    "key": "CONSOLE_BASE_URL",
+                                    "secret": False,
+                                    "type": "url",
+                                    "placeholder": "https://your-console.example.net",
+                                    "target": "stdio_env",
+                                },
+                            ],
+                        },
+                    },
+                ]
+            }
+        ),
+    )
+
+    entries = loader.get_platform_mcp_catalog_entries(include_private=True)
+    spec = entries[0].connection_spec
+    assert spec is not None
+
+    creds = {cred.key: cred for cred in spec.credentials}
+    # Explicit catalog values flow through.
+    assert creds["CONSOLE_BASE_URL"].type == "url"
+    assert creds["CONSOLE_BASE_URL"].placeholder == "https://your-console.example.net"
+    # Defaults apply when the catalog omits them.
+    assert creds["TOKEN"].type == "string"
+    assert creds["TOKEN"].placeholder is None
+
+    # config_fields mirror the same data for the configure dialog.
+    fields = {field.key: field for field in spec.config_fields}
+    assert fields["CONSOLE_BASE_URL"].type == "url"
+    assert fields["CONSOLE_BASE_URL"].placeholder == "https://your-console.example.net"
+
+
+def test_get_platform_mcp_catalog_entries_merges_private_mcp_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_catalog_cache()
+    public = orjson.dumps(
+        {
+            "servers": [
+                {
+                    "slug": "scanner-mcp",
+                    "name": "Scanner",
+                    "description": "Search security data",
+                    "category": "SIEM / Datalake",
+                    "icon": "https://example.com/scanner.png",
+                    "status": "available",
+                },
+                {
+                    "slug": "sumo-logic-mcp",
+                    "name": "Sumo Logic",
+                    "description": "Search telemetry",
+                    "category": "SIEM / Datalake",
+                    "status": "coming_soon",
+                },
+            ]
+        }
+    )
+    private = orjson.dumps(
+        {
+            "servers": [
+                {
+                    "slug": "scanner-mcp",
+                    "docs": "https://docs.scanner.dev/mcp",
+                    "connection_spec": {
+                        "server_type": "http",
+                        "auth_type": "CUSTOM",
+                        "server_uri": "https://mcp.example.scanner.dev/v1/mcp",
+                        "credentials": [
+                            {
+                                "key": "Authorization",
+                                "label": "Scanner API key",
+                                "target": "http_header",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "slug": "sumo-logic-mcp",
+                    "docs": "https://www.sumologic.com/demo/mcp-server",
+                    "connection_spec": {
+                        "server_type": "http",
+                        "auth_type": None,
+                        "server_uri": None,
+                    },
+                },
+            ]
+        }
+    )
+
+    def _files(package: str) -> _CatalogResource:
+        if package == loader._CATALOG_PACKAGE:
+            return _CatalogResource(public, "mcp_catalog.json")
+        if package == loader._PRIVATE_CATALOG_PACKAGE:
+            return _CatalogResource(private, "mcp_catalog_private.json")
+        raise ModuleNotFoundError(package)
+
+    monkeypatch.setattr(loader.resources, "files", _files)
+
+    public_entries = loader.get_platform_mcp_catalog_entries()
+
+    assert len(public_entries) == 2
+    assert public_entries[0].slug == "scanner-mcp"
+    assert public_entries[0].docs_url is None
+    assert public_entries[0].connection_spec is None
+
+    private_entries = loader.get_platform_mcp_catalog_entries(include_private=True)
+
+    assert len(private_entries) == 2
+    assert private_entries[0].slug == "scanner-mcp"
+    assert private_entries[0].docs_url == "https://docs.scanner.dev/mcp"
+    assert private_entries[0].connection_spec is not None
+    assert private_entries[1].slug == "sumo-logic-mcp"
+    assert private_entries[1].status == "coming_soon"
+    assert private_entries[1].docs_url == "https://www.sumologic.com/demo/mcp-server"
+    assert private_entries[1].connection_spec is None
+
+
+def test_get_platform_mcp_catalog_entries_caches_static_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_catalog_cache()
+    public = orjson.dumps(
+        {
+            "servers": [
+                {
+                    "slug": "scanner-mcp",
+                    "name": "Scanner",
+                    "description": "Search security data",
+                    "category": "SIEM / Datalake",
+                    "status": "available",
+                }
+            ]
+        }
+    )
+    private = orjson.dumps(
+        {
+            "servers": [
+                {
+                    "slug": "scanner-mcp",
+                    "docs": "https://docs.scanner.dev/mcp",
+                    "connection_spec": {
+                        "server_type": "http",
+                        "auth_type": "CUSTOM",
+                        "server_uri": "https://mcp.example.scanner.dev/v1/mcp",
+                        "credentials": [
+                            {
+                                "key": "Authorization",
+                                "label": "Scanner API key",
+                                "target": "http_header",
+                            }
+                        ],
+                    },
+                }
+            ]
+        }
+    )
+    calls: dict[str, int] = {}
+
+    def _files(package: str) -> _CatalogResource:
+        calls[package] = calls.get(package, 0) + 1
+        if package == loader._CATALOG_PACKAGE:
+            return _CatalogResource(public, "mcp_catalog.json")
+        if package == loader._PRIVATE_CATALOG_PACKAGE:
+            return _CatalogResource(private, "mcp_catalog_private.json")
+        raise ModuleNotFoundError(package)
+
+    monkeypatch.setattr(loader.resources, "files", _files)
+
+    first_entries = loader.get_platform_mcp_catalog_entries(include_private=True)
+    first_spec = first_entries[0].connection_spec
+    assert first_spec is not None
+    assert first_spec.server_type == "http"
+    first_entries[0].name = "Mutated"
+    first_spec.server_uri = "https://mutated.example/mcp"
+
+    second_entries = loader.get_platform_mcp_catalog_entries(include_private=True)
+
+    assert calls == {
+        loader._CATALOG_PACKAGE: 1,
+        loader._PRIVATE_CATALOG_PACKAGE: 1,
+    }
+    assert second_entries[0].name == "Scanner"
+    second_spec = second_entries[0].connection_spec
+    assert second_spec is not None
+    assert second_spec.server_type == "http"
+    assert second_spec.server_uri == "https://mcp.example.scanner.dev/v1/mcp"
+
+
+def test_bundled_catalog_rows_all_validate() -> None:
+    """Every bundled catalog row must validate strictly.
+
+    A failure here means the bundled JSON itself is broken and must be fixed
+    in the catalog, not papered over in the loader.
+    """
+    _clear_catalog_cache()
+    for include_private in (False, True):
+        catalog_data = loader._catalog_data(include_private=include_private)
+        servers = catalog_data.get("servers")
+        assert isinstance(servers, list)
+        assert servers
+        for raw in servers:
+            RawCatalogRow.model_validate(raw)
+        entries = loader.get_platform_mcp_catalog_entries(
+            include_private=include_private
+        )
+        assert len(entries) == len(servers)
+
+
+def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
+    _clear_catalog_cache()
+    public_entries = loader.get_platform_mcp_catalog_entries()
+    private_entries = loader.get_platform_mcp_catalog_entries(include_private=True)
+    private_by_slug = {entry.slug: entry for entry in private_entries}
+
+    assert len(private_entries) >= len(public_entries)
+    for entry in public_entries:
+        assert entry.slug in private_by_slug
+
+    for slug in (
+        "splunk-mcp",
+        "hashicorp-vault-mcp",
+        "palo-alto-mcp",
+        "terraform-mcp",
+    ):
+        coming_soon = private_by_slug[slug]
+        assert coming_soon.status == "coming_soon"
+        assert coming_soon.connection_spec is None
+
+    # jamf-mcp now ships only Jamf's hosted no-auth HTTP docs server; the
+    # local mcp-hub stdio option was retired when its git pin stopped
+    # installing.
+    jamf = private_by_slug["jamf-mcp"]
+    assert jamf.connection_spec is not None
+    assert jamf.connection_spec.server_type == "http"
+    assert jamf.connection_spec.requires_config is False
+    assert all(
+        option.connection_spec.server_type != "stdio"
+        for option in (jamf.connection_options or [])
+    )
+
+    servicenow_spec = private_by_slug["servicenow-mcp"].connection_spec
+    assert servicenow_spec is not None
+    assert servicenow_spec.kind == "http_oauth2"
+    assert servicenow_spec.requires_config is True
+    assert "{SERVICENOW_INSTANCE}" in servicenow_spec.server_uri
+    assert servicenow_spec.oauth_authorization_endpoint is None
+    assert {
+        credential.key: credential.target for credential in servicenow_spec.credentials
+    } == {
+        "SERVICENOW_INSTANCE": "server_uri",
+        "MCP_SERVER_NAME": "server_uri",
+        "client_id": "oauth_client",
+        "client_secret": "oauth_client",
+    }
+
+    semgrep_spec = private_by_slug["semgrep-mcp"].connection_spec
+    assert semgrep_spec is not None
+    assert semgrep_spec.kind == "http_oauth2"
+    assert semgrep_spec.requires_config is False
+    assert semgrep_spec.credentials == []
+    assert semgrep_spec.server_uri == "https://mcp.semgrep.ai/mcp"
+    # mcp.semgrep.ai mirrors the AS metadata at its own well-known path, so the
+    # login.semgrep.dev endpoint host is pinned to be allowlisted during discovery.
+    assert (
+        semgrep_spec.oauth_authorization_endpoint
+        == "https://login.semgrep.dev/oauth2/authorize"
+    )
+    assert semgrep_spec.oauth_token_endpoint == "https://login.semgrep.dev/oauth2/token"
+
+    wiz = private_by_slug["wiz-mcp"]
+    assert wiz.connection_spec is not None
+    assert wiz.connection_spec.kind == "http_oauth2"
+    assert wiz.connection_options is not None
+    assert [option.id for option in wiz.connection_options] == [
+        "remote-oauth",
+        "client-credentials",
+    ]
+    client_credentials = next(
+        option for option in wiz.connection_options if option.id == "client-credentials"
+    )
+    client_credentials_spec = client_credentials.connection_spec
+    assert client_credentials_spec.kind == "http_custom"
+    assert client_credentials_spec.server_uri == "https://mcp.app.wiz.io/"
+    assert client_credentials_spec.requires_config is True
+    headers = {
+        credential.key: credential
+        for credential in client_credentials_spec.credentials
+        if credential.target == "http_header"
+    }
+    assert set(headers) == {
+        "Wiz-Client-Id",
+        "Wiz-Client-Secret",
+        "Wiz-DataCenter",
+        "X-Wiz-MCP-Mode",
+    }
+    assert headers["X-Wiz-MCP-Mode"].default_value == "gateway"
+
+
+def test_google_secops_row_ships_templated_uri_and_pinned_authorize_params() -> None:
+    """Google's managed remote SecOps server needs a region and offline consent."""
+    _clear_catalog_cache()
+    entry = loader.get_platform_mcp_catalog_entry_by_slug(
+        "google-cloud-secops-mcp", include_private=True
+    )
+    assert entry is not None
+    spec = entry.connection_spec
+    assert spec is not None
+    assert spec.kind == "http_oauth2"
+    assert spec.server_uri == "https://chronicle.{REGION}.rep.googleapis.com/mcp"
+    assert spec.requires_config is True
+    assert spec.scopes == ["https://www.googleapis.com/auth/chronicle"]
+    assert (
+        spec.oauth_authorization_endpoint
+        == "https://accounts.google.com/o/oauth2/v2/auth"
+    )
+    assert spec.oauth_token_endpoint == "https://oauth2.googleapis.com/token"
+    # Google only returns a refresh token when both params reach the authorize
+    # request, so the catalog pins them rather than relying on discovery.
+    assert spec.oauth_authorize_params == {
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+    assert {credential.key: credential.target for credential in spec.credentials} == {
+        "REGION": "server_uri",
+        "client_id": "oauth_client",
+        "client_secret": "oauth_client",
+        "x-goog-user-project": "http_header",
+    }
+
+
+def test_google_workspace_rows_pin_offline_consent_authorize_params() -> None:
+    """Gmail, Drive and Calendar share the SecOps missing-refresh-token bug."""
+    _clear_catalog_cache()
+    for slug in ("gmail-mcp", "google-drive-mcp", "google-calendar-mcp"):
+        entry = loader.get_platform_mcp_catalog_entry_by_slug(
+            slug, include_private=True
+        )
+        assert entry is not None
+        spec = entry.connection_spec
+        assert spec is not None
+        assert spec.kind == "http_oauth2"
+        assert spec.oauth_authorize_params == {
+            "access_type": "offline",
+            "prompt": "consent",
+        }
+
+
+def test_catalog_state_marks_unverified_non_oauth_mcp_rows_configured() -> None:
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=MCPIntegration(
+            id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            name="No Auth MCP",
+            slug="no-auth-mcp",
+            auth_type=MCPAuthType.NONE,
+        ),
+        token_state=None,
+        oauth_grant_type=None,
+    )
+
+    assert state == "configured"
+
+
+def test_catalog_state_marks_verified_non_oauth_mcp_rows_connected() -> None:
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=MCPIntegration(
+            id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            name="No Auth MCP",
+            slug="no-auth-mcp",
+            auth_type=MCPAuthType.NONE,
+            tools=[],
+        ),
+        token_state=None,
+        oauth_grant_type=None,
+    )
+
+    assert state == "connected"
+
+
+def _oauth_mcp_row() -> MCPIntegration:
+    return MCPIntegration(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        name="OAuth MCP",
+        slug="oauth-mcp",
+        auth_type=MCPAuthType.OAUTH2,
+        tools=[],
+    )
+
+
+def test_catalog_state_flags_dead_oauth_token_as_reauth_required() -> None:
+    """Expired access token with no refresh token cannot self-heal."""
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=_oauth_mcp_row(),
+        token_state=OAuthTokenState(
+            encrypted_access_token=b"token",
+            encrypted_refresh_token=None,
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        ),
+        oauth_grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+    )
+
+    assert state == "reauth_required"
+
+
+def test_catalog_state_keeps_refreshable_expired_oauth_token_connected() -> None:
+    """An expired access token with a refresh token self-heals on next use."""
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=_oauth_mcp_row(),
+        token_state=OAuthTokenState(
+            encrypted_access_token=b"token",
+            encrypted_refresh_token=b"refresh",
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        ),
+        oauth_grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+    )
+
+    assert state == "connected"
+
+
+def test_catalog_state_keeps_non_expiring_oauth_token_connected() -> None:
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=_oauth_mcp_row(),
+        token_state=OAuthTokenState(
+            encrypted_access_token=b"token",
+            encrypted_refresh_token=None,
+            expires_at=None,
+        ),
+        oauth_grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+    )
+
+    assert state == "connected"
+
+
+def test_catalog_state_keeps_expired_client_credentials_connected() -> None:
+    """Client credentials renew without an interactive reauthorization flow."""
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=_oauth_mcp_row(),
+        token_state=OAuthTokenState(
+            encrypted_access_token=b"token",
+            encrypted_refresh_token=None,
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        ),
+        oauth_grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+    )
+
+    assert state == "connected"

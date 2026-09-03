@@ -9,10 +9,9 @@ import {
   Check,
   ChevronDown,
   CircleIcon,
+  CircleSlashIcon,
   ClockIcon,
   ListIcon,
-  Minus,
-  Plus,
   SearchIcon,
   ShieldAlertIcon,
   SignalHighIcon,
@@ -20,16 +19,12 @@ import {
   TagIcon,
   UserIcon,
 } from "lucide-react"
-import {
-  type ComponentType,
-  type ReactNode,
-  useEffect,
-  useMemo,
-  useState,
-} from "react"
+import { type ComponentType, useEffect, useMemo, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import type {
   CaseDropdownDefinitionRead,
+  CaseDurationDefinitionRead,
+  CaseFieldReadMinimal,
   CasePriority,
   CaseSeverity,
   CaseStatus,
@@ -41,18 +36,22 @@ import {
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
+import { CaseColumnPicker } from "@/components/cases/case-column-picker"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
+import {
+  type CaseSortField,
+  type CaseSortValue,
+  DEFAULT_CASE_SORT,
+} from "@/components/cases/case-sort"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
+import {
+  type FilterMode,
+  FilterMultiSelect,
+  type FilterOption,
+  type SortDirection,
+} from "@/components/filters/filter-multi-select"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Calendar } from "@/components/ui/calendar"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
 import { Input } from "@/components/ui/input"
 import {
   Popover,
@@ -71,7 +70,6 @@ import type {
   DropdownFilterState,
 } from "@/hooks/use-cases"
 import { DEFAULT_CREATED_PRESET } from "@/hooks/use-cases"
-import { getDisplayName } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
 const getIconTextClass = (color?: string) =>
@@ -269,38 +267,6 @@ function DateFilterSelect({
   )
 }
 
-interface FilterOption<T extends string = string> {
-  value: T
-  label: string
-  icon?: ComponentType<{ className?: string; style?: React.CSSProperties }>
-  iconClassName?: string
-  iconStyle?: React.CSSProperties
-  labelClassName?: string
-  labelStyle?: React.CSSProperties
-  /** Custom render function for icons that need dynamic content (e.g., avatars) */
-  renderIcon?: () => ReactNode
-}
-
-export type FilterMode = "include" | "exclude"
-export type SortDirection = "asc" | "desc" | null
-export type CaseSortField =
-  | "updated_at"
-  | "created_at"
-  | "priority"
-  | "severity"
-  | "status"
-  | "tasks"
-
-export interface CaseSortValue {
-  field: CaseSortField
-  direction: "asc" | "desc"
-}
-
-export const DEFAULT_CASE_SORT: CaseSortValue = {
-  field: "updated_at",
-  direction: "desc",
-}
-
 const CASE_SORT_OPTIONS: Array<{
   value: CaseSortField
   label: string
@@ -318,228 +284,6 @@ function isDefaultCaseSort(value: CaseSortValue): boolean {
   return (
     value.field === DEFAULT_CASE_SORT.field &&
     value.direction === DEFAULT_CASE_SORT.direction
-  )
-}
-
-interface FilterMultiSelectProps<T extends string> {
-  placeholder: string
-  icon?: ComponentType<{ className?: string }>
-  /** Alternative to `icon` — render a custom trigger icon node */
-  renderTriggerIcon?: () => ReactNode
-  value: T[]
-  options: FilterOption<T>[]
-  onChange: (value: T[]) => void
-  mode: FilterMode
-  onModeChange: (mode: FilterMode) => void
-  className?: string
-  emptyMessage?: string
-  /** Enable sort controls in the dropdown */
-  showSort?: boolean
-  /** Current sort direction (null means no sorting applied) */
-  sortDirection?: SortDirection
-  /** Callback when sort direction changes */
-  onSortDirectionChange?: (direction: SortDirection) => void
-  allowExclude?: boolean
-}
-
-function FilterMultiSelect<T extends string>({
-  placeholder,
-  icon: Icon,
-  renderTriggerIcon,
-  value,
-  options,
-  onChange,
-  mode,
-  onModeChange,
-  className,
-  emptyMessage = "No results found.",
-  showSort = false,
-  sortDirection = null,
-  onSortDirectionChange,
-  allowExclude = true,
-}: FilterMultiSelectProps<T>) {
-  const [open, setOpen] = useState(false)
-  const valueSet = useMemo(() => new Set(value), [value])
-
-  const selectedCount = value.length
-
-  const handleSortClick = (direction: "asc" | "desc") => {
-    if (!onSortDirectionChange) return
-    // Toggle off if already selected, otherwise set the direction
-    onSortDirectionChange(sortDirection === direction ? null : direction)
-  }
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "flex h-6 items-center gap-1.5 rounded-md border border-input bg-transparent px-2 text-xs font-medium transition-colors",
-            "hover:bg-muted/50",
-            sortDirection && "border-primary/50 bg-primary/5",
-            className
-          )}
-        >
-          {renderTriggerIcon
-            ? renderTriggerIcon()
-            : Icon && <Icon className="size-3.5 text-muted-foreground" />}
-          <span>{placeholder}</span>
-          {selectedCount > 0 && (
-            <span className="ml-0.5 text-[10px] font-medium text-muted-foreground">
-              {selectedCount}
-            </span>
-          )}
-          {sortDirection && (
-            <span className="ml-0.5">
-              {sortDirection === "asc" ? (
-                <ArrowUpIcon className="size-3 text-muted-foreground" />
-              ) : (
-                <ArrowDownIcon className="size-3 text-muted-foreground" />
-              )}
-            </span>
-          )}
-          <ChevronDown className="size-3 opacity-50" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-[220px] p-0 shadow-sm"
-        align="start"
-        sideOffset={4}
-      >
-        <div className="flex items-center justify-between border-b px-2 py-1.5">
-          <span className="text-[11px] font-medium tracking-wide text-muted-foreground">
-            {mode === "exclude" ? "Excluding" : "Including"}
-          </span>
-          <div className="flex items-center gap-0.5">
-            {(allowExclude
-              ? (["include", "exclude"] as FilterMode[])
-              : (["include"] as FilterMode[])
-            ).map((option) => (
-              <button
-                key={option}
-                type="button"
-                className={cn(
-                  "flex size-6 items-center justify-center rounded text-xs transition-colors",
-                  mode === option
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted/50"
-                )}
-                aria-label={
-                  option === "include" ? "Include filters" : "Exclude filters"
-                }
-                onClick={() => onModeChange(option)}
-              >
-                {option === "include" ? (
-                  <Plus className="size-3.5" />
-                ) : (
-                  <Minus className="size-3.5" />
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-        {showSort && (
-          <div className="flex items-center justify-between border-b px-2 py-1.5">
-            <span className="text-[11px] font-medium tracking-wide text-muted-foreground">
-              Sort
-            </span>
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                className={cn(
-                  "flex size-6 items-center justify-center rounded text-xs transition-colors",
-                  sortDirection === "asc"
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted/50"
-                )}
-                aria-label="Sort ascending"
-                onClick={() => handleSortClick("asc")}
-              >
-                <ArrowUpIcon className="size-3.5" />
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "flex size-6 items-center justify-center rounded text-xs transition-colors",
-                  sortDirection === "desc"
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted/50"
-                )}
-                aria-label="Sort descending"
-                onClick={() => handleSortClick("desc")}
-              >
-                <ArrowDownIcon className="size-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-        <Command>
-          <CommandInput
-            placeholder={`Search ${placeholder.toLowerCase()}...`}
-            className="text-xs"
-          />
-          <CommandList>
-            <CommandEmpty>{emptyMessage}</CommandEmpty>
-            <CommandGroup>
-              {options.map((option) => {
-                const isSelected = valueSet.has(option.value)
-                return (
-                  <CommandItem
-                    key={option.value}
-                    value={`${option.label} ${option.value}`}
-                    onSelect={() => {
-                      const nextValue = isSelected
-                        ? value.filter((item) => item !== option.value)
-                        : [...value, option.value]
-                      onChange(nextValue)
-                      setOpen(true)
-                    }}
-                    className="flex items-center gap-2 text-xs"
-                  >
-                    <div
-                      className={cn(
-                        "flex size-4 shrink-0 items-center justify-center rounded-sm border",
-                        isSelected
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-muted-foreground/40"
-                      )}
-                    >
-                      {isSelected && <Check className="size-3" aria-hidden />}
-                    </div>
-                    {option.renderIcon
-                      ? option.renderIcon()
-                      : option.icon && (
-                          <option.icon
-                            className={cn("size-3.5", option.iconClassName)}
-                            style={option.iconStyle}
-                          />
-                        )}
-                    <span
-                      className={cn("truncate", option.labelClassName)}
-                      style={option.labelStyle}
-                    >
-                      {option.label}
-                    </span>
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-        {selectedCount > 0 && (
-          <div className="border-t p-1">
-            <button
-              type="button"
-              className="flex h-7 w-full items-center justify-center rounded text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              onClick={() => onChange([])}
-            >
-              Clear selection
-            </button>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
   )
 }
 
@@ -645,6 +389,10 @@ interface CasesHeaderProps {
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  fieldDefinitions?: CaseFieldReadMinimal[]
+  durationDefinitions?: CaseDurationDefinitionRead[]
+  visibleColumnIds?: string[]
+  onToggleColumn?: (columnId: string) => void
   dropdownFilters: Record<string, DropdownFilterState>
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
@@ -697,6 +445,10 @@ export function CasesHeader({
   members,
   tags,
   dropdownDefinitions,
+  fieldDefinitions,
+  durationDefinitions,
+  visibleColumnIds,
+  onToggleColumn,
   dropdownFilters,
   onDropdownFilterChange,
   onDropdownModeChange,
@@ -736,18 +488,11 @@ export function CasesHeader({
 
   const assigneeOptions = useMemo<FilterOption<string>[]>(() => {
     const workspaceMembers = members?.map((member) => {
-      const displayName = getDisplayName({
-        first_name: member.first_name,
-        last_name: member.last_name,
-        email: member.email,
-      })
-      const initials = member.first_name
-        ? member.first_name[0].toUpperCase()
-        : member.email[0].toUpperCase()
+      const initials = member.email[0].toUpperCase()
 
       return {
         value: member.user_id,
-        label: displayName,
+        label: member.email,
         renderIcon: () => (
           <Avatar className="size-5">
             <AvatarFallback className="text-[10px] font-medium">
@@ -761,10 +506,10 @@ export function CasesHeader({
     return [
       {
         value: UNASSIGNED,
-        label: "Not assigned",
+        label: "Unassigned",
         renderIcon: () => (
           <div className="flex size-5 items-center justify-center">
-            <UserIcon className="size-3.5 text-muted-foreground" />
+            <CircleSlashIcon className="size-3 text-muted-foreground/50" />
           </div>
         ),
       },
@@ -862,13 +607,22 @@ export function CasesHeader({
           />
         </div>
 
-        {(displayCaseCount ?? totalCaseCount) > 0 && (
-          <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2">
+          {onToggleColumn && visibleColumnIds && (
+            <CaseColumnPicker
+              dropdownDefinitions={dropdownDefinitions}
+              fieldDefinitions={fieldDefinitions}
+              durationDefinitions={durationDefinitions}
+              visibleColumnIds={visibleColumnIds}
+              onToggle={onToggleColumn}
+            />
+          )}
+          {(displayCaseCount ?? totalCaseCount) > 0 && (
             <span className="text-xs text-muted-foreground">
               {displayCaseCount ?? totalCaseCount} cases
             </span>
-          </div>
-        )}
+          )}
+        </div>
       </header>
 
       {/* Row 2: Filter dropdowns */}

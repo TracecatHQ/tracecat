@@ -1,7 +1,10 @@
+import uuid
+
 import pytest
 from fastapi import HTTPException, status
 from pytest_mock import MockerFixture
 
+from tracecat.api.common import bootstrap_role
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
     require_auth_type_enabled,
@@ -27,7 +30,7 @@ async def test_verify_auth_type_invalid_type():
         ),
         pytest.param(
             AuthType.SAML,
-            [AuthType.GOOGLE_OAUTH, AuthType.BASIC],
+            [AuthType.OIDC, AuthType.BASIC],
             id="saml_auth",
         ),
     ],
@@ -50,7 +53,6 @@ async def test_verify_auth_type_not_allowed(
 async def test_verify_auth_type_setting_disabled(mocker: MockerFixture):
     """Test that disabled SAML setting raises HTTPException."""
     mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
-    mocker.patch("tracecat.auth.dependencies.get_setting_override", return_value=None)
     mocker.patch("tracecat.auth.dependencies.get_setting", return_value=False)
 
     with pytest.raises(HTTPException) as exc:
@@ -64,7 +66,6 @@ async def test_verify_auth_type_setting_disabled(mocker: MockerFixture):
 async def test_verify_auth_type_invalid_setting(mocker: MockerFixture):
     """Test that invalid settings raise HTTPException."""
     mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
-    mocker.patch("tracecat.auth.dependencies.get_setting_override", return_value=None)
     mocker.patch("tracecat.auth.dependencies.get_setting", return_value=None)
 
     with pytest.raises(HTTPException) as exc:
@@ -76,7 +77,7 @@ async def test_verify_auth_type_invalid_setting(mocker: MockerFixture):
 
 @pytest.mark.parametrize(
     "auth_type",
-    [AuthType.BASIC, AuthType.OIDC, AuthType.GOOGLE_OAUTH],
+    [AuthType.BASIC, AuthType.OIDC],
 )
 @pytest.mark.anyio
 async def test_verify_auth_type_non_saml_is_platform_controlled(
@@ -96,18 +97,40 @@ async def test_verify_auth_type_non_saml_is_platform_controlled(
 
 
 @pytest.mark.anyio
+async def test_verify_auth_type_uses_provided_org_role(
+    mocker: MockerFixture,
+) -> None:
+    """SAML checks should honor the caller's resolved organization context."""
+    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
+    get_setting_mock = mocker.patch(
+        "tracecat.auth.dependencies.get_setting",
+        return_value=True,
+    )
+    org_id = uuid.uuid4()
+    role = bootstrap_role(org_id)
+
+    await verify_auth_type(AuthType.SAML, role=role)
+
+    get_setting_mock.assert_awaited_once_with(
+        key="saml_enabled",
+        role=role,
+        session=None,
+    )
+
+
+@pytest.mark.anyio
 async def test_require_any_auth_type_enabled_succeeds_on_first_match(
     mocker: MockerFixture,
 ) -> None:
     """First matching auth type is accepted without further checks."""
     mocker.patch(
         "tracecat.config.TRACECAT__AUTH_TYPES",
-        [AuthType.OIDC, AuthType.GOOGLE_OAUTH],
+        [AuthType.OIDC],
     )
     verify_mock = mocker.patch(
         "tracecat.auth.dependencies.verify_auth_type",
     )
-    dependency = require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
+    dependency = require_any_auth_type_enabled([AuthType.OIDC])
     check_any = dependency.dependency
     assert check_any is not None
 
@@ -124,9 +147,9 @@ async def test_require_any_auth_type_enabled_rejects_when_none_allowed(
     """Raises 403 when no candidate auth type is in the allowed list."""
     mocker.patch(
         "tracecat.config.TRACECAT__AUTH_TYPES",
-        [AuthType.BASIC],  # Neither OIDC nor Google OAuth
+        [AuthType.BASIC],
     )
-    dependency = require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
+    dependency = require_any_auth_type_enabled([AuthType.OIDC])
     check_any = dependency.dependency
     assert check_any is not None
 

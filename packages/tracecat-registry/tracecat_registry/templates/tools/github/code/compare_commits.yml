@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: Compare commits
+  description: 'Compare commits. Calls GET /repos/{owner}/{repo}/compare/{basehead} directly. Accepted OAuth scopes: repo (default; omit only for public repository data).'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: compare_commits
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    owner:
+      type: str
+      description: GitHub API path value for owner.
+    repo:
+      type: str
+      description: GitHub API path value for repo.
+    basehead:
+      type: str
+      description: GitHub API path value for basehead.
+    page:
+      type: int | None
+      description: The page number of the results to fetch.
+      default: null
+    per_page:
+      type: int | None
+      description: The number of results per page (max 100).
+      default: null
+    base_url:
+      type: str
+      description: GitHub.com REST API base URL.
+      default: https://api.github.com
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode(inputs.owner) }}/${{ FN.url_encode(inputs.repo) }}/compare/${{ FN.url_encode(inputs.basehead) }}
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      params:
+        page: ${{ inputs.page }}
+        per_page: ${{ inputs.per_page }}
+  returns: ${{ steps.request.result }}

@@ -1,10 +1,11 @@
 import type { LucideIcon } from "lucide-react"
 import {
   BlocksIcon,
-  BotIcon,
   BoxIcon,
   DatabaseIcon,
   LayersIcon,
+  MousePointerClickIcon,
+  PlusIcon,
   SparklesIcon,
   SquareFunctionIcon,
   Table2Icon,
@@ -13,6 +14,7 @@ import {
 import { useCallback, useMemo, useState } from "react"
 import type { RegistryActionReadMinimal } from "@/client"
 import { getIcon } from "@/components/icons"
+import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -65,7 +67,7 @@ const ACTION_CATEGORIES: ActionCategory[] = [
     id: "agent",
     label: "Agent",
     namespace: "ai",
-    icon: BotIcon,
+    icon: MousePointerClickIcon,
     align: "center",
   },
   {
@@ -120,12 +122,15 @@ const CORE_TOP = [
   "core.http_request",
   "core.http_paginate",
   "core.http_poll",
+  "core.ssh.execute_command",
   "core.send_email_smtp",
   "core.grpc.request",
 ]
 const WORKFLOW_TOP = [
   "core.workflow.execute",
   "core.workflow.get_status",
+  "core.loop.start",
+  "core.loop.end",
   "core.transform.scatter",
   "core.transform.gather",
 ]
@@ -146,16 +151,20 @@ const TRANSFORM_TOP = [
 const SQL_TOP = ["core.duckdb.execute_sql", "core.sql.execute_query"]
 const AI_TOP = ["ai.action", "ai.ranker", "ai.slackbot"]
 const AGENT_TOP = ["ai.agent", "ai.preset_agent"]
+function isLockedAction(action: RegistryActionReadMinimal): boolean {
+  return action.availability?.locked ?? false
+}
 
 const WORKFLOW_EXTRA_ACTIONS = new Set([
   "core.transform.scatter",
   "core.transform.gather",
 ])
+const WORKFLOW_NAMESPACES = ["core.workflow", "core.loop"]
 const SQL_NAMESPACES = ["core.sql", "core.duckdb"]
 const CATEGORY_STYLES: Record<string, { buttonClass: string }> = {
   core: {
     buttonClass:
-      "text-muted-foreground hover:bg-zinc-100/70 hover:text-foreground data-[state=open]:bg-zinc-100/70",
+      "text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent",
   },
   ai: {
     buttonClass:
@@ -167,23 +176,23 @@ const CATEGORY_STYLES: Record<string, { buttonClass: string }> = {
   },
   "core.workflow": {
     buttonClass:
-      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+      "text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent",
   },
   "core.transform": {
     buttonClass:
-      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+      "text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent",
   },
   "core.cases": {
     buttonClass:
-      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+      "text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent",
   },
   "core.table": {
     buttonClass:
-      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+      "text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent",
   },
   "core.sql": {
     buttonClass:
-      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+      "text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent",
   },
   tools: {
     buttonClass:
@@ -208,6 +217,7 @@ function isCoreAction(action: RegistryActionReadMinimal): boolean {
   if (action.action.startsWith("core.http_")) return true
   if (matchesNamespace(action.namespace, "core.script")) return true
   if (matchesNamespace(action.namespace, "core.grpc")) return true
+  if (matchesNamespace(action.namespace, "core.ssh")) return true
   return false
 }
 
@@ -262,11 +272,27 @@ function sortActions(
 
 export interface CanvasToolbarProps {
   onAddAction: (action: RegistryActionReadMinimal) => void
+  /**
+   * When true, collapse the toolbar into a small pill that expands into the
+   * full category bar on hover (used in the embedded workflow artifact).
+   */
+  embedded?: boolean
 }
 
-export function CanvasToolbar({ onAddAction }: CanvasToolbarProps) {
+export function CanvasToolbar({
+  onAddAction,
+  embedded = false,
+}: CanvasToolbarProps) {
   const { registryActions, registryActionsIsLoading } =
-    useBuilderRegistryActions()
+    useBuilderRegistryActions({ includeLocked: true })
+  const [hovered, setHovered] = useState(false)
+  // Track open category popovers so the bar stays expanded while one is open,
+  // even though the pointer has left the bar to reach the popover.
+  const [openCount, setOpenCount] = useState(0)
+
+  const handleCategoryOpenChange = useCallback((open: boolean) => {
+    setOpenCount((count) => Math.max(0, count + (open ? 1 : -1)))
+  }, [])
 
   const actionsByCategory = useMemo(() => {
     if (!registryActions) return new Map<string, RegistryActionReadMinimal[]>()
@@ -286,8 +312,9 @@ export function CanvasToolbar({ onAddAction }: CanvasToolbarProps) {
         }
         if (category.id === "core.workflow") {
           return (
-            matchesNamespace(action.namespace, "core.workflow") ||
-            WORKFLOW_EXTRA_ACTIONS.has(action.action)
+            WORKFLOW_NAMESPACES.some((namespace) =>
+              matchesNamespace(action.namespace, namespace)
+            ) || WORKFLOW_EXTRA_ACTIONS.has(action.action)
           )
         }
         if (category.id === "core.sql") {
@@ -308,24 +335,67 @@ export function CanvasToolbar({ onAddAction }: CanvasToolbarProps) {
     return grouped
   }, [registryActions])
 
+  const bar = (
+    <div
+      className={cn(
+        "flex items-center gap-1 rounded-lg border bg-background/95 p-1 backdrop-blur supports-[backdrop-filter]:bg-background/80",
+        // Keep the standalone builder toolbar elevated; the embedded toolbar stays flat.
+        !embedded && "shadow-lg"
+      )}
+    >
+      {ACTION_CATEGORIES.map((category) => {
+        const Icon = category.icon
+        const actions = actionsByCategory.get(category.id) ?? []
+
+        return (
+          <ToolbarCategoryDropdown
+            key={category.id}
+            category={category}
+            actions={actions}
+            isLoading={registryActionsIsLoading}
+            onAddAction={onAddAction}
+            onOpenChange={embedded ? handleCategoryOpenChange : undefined}
+            Icon={Icon}
+          />
+        )
+      })}
+    </div>
+  )
+
+  if (!embedded) {
+    return <TooltipProvider delayDuration={300}>{bar}</TooltipProvider>
+  }
+
+  // Expanded while hovered or while a category popover is open; otherwise the
+  // bar collapses back into the pill once the pointer leaves.
+  const expanded = hovered || openCount > 0
+
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex items-center gap-1 rounded-lg border bg-background/95 p-1 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        {ACTION_CATEGORIES.map((category) => {
-          const Icon = category.icon
-          const actions = actionsByCategory.get(category.id) ?? []
-
-          return (
-            <ToolbarCategoryDropdown
-              key={category.id}
-              category={category}
-              actions={actions}
-              isLoading={registryActionsIsLoading}
-              onAddAction={onAddAction}
-              Icon={Icon}
-            />
-          )
-        })}
+      <div
+        className="flex items-center justify-center"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        {expanded ? (
+          <div className="duration-150 animate-in fade-in-0 zoom-in-95">
+            {bar}
+          </div>
+        ) : (
+          <button
+            type="button"
+            aria-label="Show actions"
+            onClick={() => setHovered(true)}
+            className="flex items-center gap-1 rounded-full border bg-background/95 px-2 py-0.5 text-muted-foreground backdrop-blur transition-colors duration-150 animate-in fade-in-0 zoom-in-95 hover:text-foreground supports-[backdrop-filter]:bg-background/80"
+          >
+            <PlusIcon className="size-3" />
+            <span className="flex items-center gap-0.5">
+              <span className="size-0.5 rounded-full bg-muted-foreground/40" />
+              <span className="size-0.5 rounded-full bg-muted-foreground/40" />
+              <span className="size-0.5 rounded-full bg-muted-foreground/40" />
+            </span>
+          </button>
+        )}
       </div>
     </TooltipProvider>
   )
@@ -337,6 +407,8 @@ interface ToolbarCategoryDropdownProps {
   isLoading: boolean
   onAddAction: (action: RegistryActionReadMinimal) => void
   Icon: LucideIcon
+  /** Notified whenever this category's popover opens or closes. */
+  onOpenChange?: (open: boolean) => void
 }
 
 function ToolbarCategoryDropdown({
@@ -345,9 +417,21 @@ function ToolbarCategoryDropdown({
   isLoading,
   onAddAction,
   Icon,
+  onOpenChange,
 }: ToolbarCategoryDropdownProps) {
   const [open, setOpen] = useState(false)
+  const [lockedFeatureOpen, setLockedFeatureOpen] = useState(false)
   const [search, setSearch] = useState("")
+
+  // Single funnel for open/close so the parent is notified for both user-driven
+  // (Radix) and programmatic (select) transitions.
+  const setOpenAndNotify = useCallback(
+    (next: boolean) => {
+      setOpen(next)
+      onOpenChange?.(next)
+    },
+    [onOpenChange]
+  )
   const isAiCategory = category.id === "ai"
   const isAgentCategory = category.id === "agent"
   const categoryStyle = CATEGORY_STYLES[category.id]
@@ -364,25 +448,31 @@ function ToolbarCategoryDropdown({
 
   const handleSelect = useCallback(
     (action: RegistryActionReadMinimal) => {
+      if (isLockedAction(action)) {
+        setOpenAndNotify(false)
+        setSearch("")
+        setLockedFeatureOpen(true)
+        return
+      }
       onAddAction(action)
-      setOpen(false)
+      setOpenAndNotify(false)
       setSearch("")
     },
-    [onAddAction]
+    [onAddAction, setOpenAndNotify]
   )
 
   function renderActionIcon(action: RegistryActionReadMinimal) {
     if (isAiCategory) {
       return (
-        <div className="flex size-8 items-center justify-center rounded-md border border-sky-100 bg-sky-50/80">
-          <SparklesIcon className="size-4 text-zinc-700" />
+        <div className="flex size-8 items-center justify-center rounded-md border border-sky-100 bg-sky-50/80 dark:border-sky-900 dark:bg-sky-500/10">
+          <SparklesIcon className="size-4 text-foreground" />
         </div>
       )
     }
     if (isAgentCategory) {
       return (
-        <div className="flex size-8 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50/80">
-          <BotIcon className="size-4 text-zinc-700" />
+        <div className="flex size-8 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50/80 dark:border-emerald-900 dark:bg-emerald-500/10">
+          <MousePointerClickIcon className="size-4 text-foreground" />
         </div>
       )
     }
@@ -392,15 +482,20 @@ function ToolbarCategoryDropdown({
   }
 
   function renderActionItem(action: RegistryActionReadMinimal) {
+    const isLocked = isLockedAction(action)
+
     return (
       <CommandItem
         key={action.action}
         value={action.action}
         onSelect={() => handleSelect(action)}
-        className="flex cursor-pointer items-center gap-3 py-2"
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-3 py-2",
+          isLocked && "text-muted-foreground"
+        )}
       >
         {renderActionIcon(action)}
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-xs font-medium">
             {action.default_title ?? action.action}
           </span>
@@ -413,52 +508,58 @@ function ToolbarCategoryDropdown({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn("size-9", categoryStyle?.buttonClass)}
-              disabled={isLoading || actions.length === 0}
-            >
-              <Icon className="size-5" />
-            </Button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">
-          {category.label}
-        </TooltipContent>
-      </Tooltip>
-      <PopoverContent
-        side="top"
-        align={category.align ?? "start"}
-        className="w-fit min-w-48 max-w-80 p-0"
-        sideOffset={8}
-      >
-        <Command shouldFilter={false}>
-          {category.hasSearch && (
-            <CommandInput
-              placeholder={`Search ${category.label.toLowerCase()}...`}
-              value={search}
-              onValueChange={setSearch}
-              className="text-xs"
-            />
-          )}
-          <CommandList>
-            <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
-              No actions found
-            </CommandEmpty>
-            <CommandGroup
-              heading={`${category.label} actions`}
-              className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium"
-            >
-              {filteredActions.map((action) => renderActionItem(action))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+    <>
+      <LockedFeatureModal
+        open={lockedFeatureOpen}
+        onOpenChange={setLockedFeatureOpen}
+      />
+      <Popover open={open} onOpenChange={setOpenAndNotify}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("size-9", categoryStyle?.buttonClass)}
+                disabled={isLoading || actions.length === 0}
+              >
+                <Icon className="size-5" />
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs">
+            {category.label}
+          </TooltipContent>
+        </Tooltip>
+        <PopoverContent
+          side="top"
+          align={category.align ?? "start"}
+          className="w-fit min-w-48 max-w-80 p-0"
+          sideOffset={8}
+        >
+          <Command shouldFilter={false}>
+            {category.hasSearch && (
+              <CommandInput
+                placeholder={`Search ${category.label.toLowerCase()}...`}
+                value={search}
+                onValueChange={setSearch}
+                className="text-xs"
+              />
+            )}
+            <CommandList>
+              <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
+                No actions found
+              </CommandEmpty>
+              <CommandGroup
+                heading={`${category.label} actions`}
+                className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium"
+              >
+                {filteredActions.map((action) => renderActionItem(action))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </>
   )
 }

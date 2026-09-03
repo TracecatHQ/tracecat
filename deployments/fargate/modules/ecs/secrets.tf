@@ -1,11 +1,18 @@
-# Required secrets in AWS Secrets Manager:
+# Required secrets in AWS Secrets Manager (all services):
 # 1. TRACECAT__DB_ENCRYPTION_KEY
 # 2. TRACECAT__SERVICE_KEY
 # 3. TRACECAT__SIGNING_SECRET
 #
+# Required secrets (API and MCP):
+# 4. USER_AUTH_SECRET  — used by the API service (password reset, email
+#    verification, OAuth state signing) and the MCP service (internal OIDC
+#    client-secret derivation). Required for ALL auth types.
+#    Do NOT add to required_tracecat_base_secrets; it must stay out of
+#    executor and worker services to limit blast radius.
+#
 # Optional secrets:
-# 1. OAUTH_CLIENT_ID
-# 2. OAUTH_CLIENT_SECRET
+# 1. OAUTH_CLIENT_ID (legacy OIDC alias)
+# 2. OAUTH_CLIENT_SECRET (legacy OIDC alias)
 
 ### Required secrets
 data "aws_secretsmanager_secret" "tracecat_db_encryption_key" {
@@ -18,6 +25,10 @@ data "aws_secretsmanager_secret" "tracecat_service_key" {
 
 data "aws_secretsmanager_secret" "tracecat_signing_secret" {
   arn = var.tracecat_signing_secret_arn
+}
+
+data "aws_secretsmanager_secret" "user_auth_secret" {
+  arn = var.user_auth_secret_arn
 }
 
 ### Optional secrets
@@ -44,24 +55,14 @@ data "aws_secretsmanager_secret" "oidc_client_secret" {
   arn   = var.oidc_client_secret_arn
 }
 
-data "aws_secretsmanager_secret" "user_auth_secret" {
-  count = var.user_auth_secret_arn != null ? 1 : 0
-  arn   = var.user_auth_secret_arn
-}
-
 data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
   count = var.saml_idp_metadata_url_arn != null ? 1 : 0
   arn   = var.saml_idp_metadata_url_arn
 }
 
-data "aws_secretsmanager_secret" "saml_ca_certs" {
-  count = var.saml_ca_certs_arn != null ? 1 : 0
-  arn   = var.saml_ca_certs_arn
-}
-
-data "aws_secretsmanager_secret" "saml_metadata_cert" {
-  count = var.saml_metadata_cert_arn != null ? 1 : 0
-  arn   = var.saml_metadata_cert_arn
+data "aws_secretsmanager_secret" "otel_exporter_otlp_headers" {
+  count = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  arn   = var.otel_exporter_otlp_headers_arn
 }
 
 # Temporal UI authentication
@@ -118,8 +119,7 @@ data "aws_secretsmanager_secret_version" "oidc_client_secret" {
 }
 
 data "aws_secretsmanager_secret_version" "user_auth_secret" {
-  count     = var.user_auth_secret_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.user_auth_secret[0].id
+  secret_id = data.aws_secretsmanager_secret.user_auth_secret.id
 }
 
 data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
@@ -127,14 +127,9 @@ data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
   secret_id = data.aws_secretsmanager_secret.saml_idp_metadata_url[0].id
 }
 
-data "aws_secretsmanager_secret_version" "saml_ca_certs" {
-  count     = var.saml_ca_certs_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.saml_ca_certs[0].id
-}
-
-data "aws_secretsmanager_secret_version" "saml_metadata_cert" {
-  count     = var.saml_metadata_cert_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.saml_metadata_cert[0].id
+data "aws_secretsmanager_secret_version" "otel_exporter_otlp_headers" {
+  count     = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.otel_exporter_otlp_headers[0].id
 }
 
 # Temporal UI secrets
@@ -203,9 +198,11 @@ locals {
     }
   ] : []
 
-  tracecat_base_secrets = concat(
-    local.required_tracecat_base_secrets,
-    local.temporal_api_key_secret
+  tracecat_base_secrets = local.required_tracecat_base_secrets
+
+  tracecat_temporal_secrets = concat(
+    local.tracecat_base_secrets,
+    local.temporal_api_key_secret,
   )
 
   oauth_client_id_secret = var.oauth_client_id_arn != null ? [
@@ -236,31 +233,22 @@ locals {
     }
   ] : []
 
-  user_auth_secret_secret = var.user_auth_secret_arn != null ? [
+  # USER_AUTH_SECRET is needed by the API service (password reset, email
+  # verification, OAuth state signing) and the MCP service (internal OIDC
+  # client-secret derivation). Required for ALL auth types.
+  # It must NOT be in required_tracecat_base_secrets to avoid leaking to
+  # executor and worker services.
+  user_auth_secret_secret = [
     {
       name      = "USER_AUTH_SECRET"
-      valueFrom = data.aws_secretsmanager_secret_version.user_auth_secret[0].arn
+      valueFrom = data.aws_secretsmanager_secret_version.user_auth_secret.arn
     }
-  ] : []
+  ]
 
   saml_idp_metadata_url_secret = var.saml_idp_metadata_url_arn != null ? [
     {
       name      = "SAML_IDP_METADATA_URL"
       valueFrom = data.aws_secretsmanager_secret_version.saml_idp_metadata_url[0].arn
-    }
-  ] : []
-
-  saml_ca_certs_secret = var.saml_ca_certs_arn != null ? [
-    {
-      name      = "SAML_CA_CERTS"
-      valueFrom = data.aws_secretsmanager_secret_version.saml_ca_certs[0].arn
-    }
-  ] : []
-
-  saml_metadata_cert_secret = var.saml_metadata_cert_arn != null ? [
-    {
-      name      = "SAML_METADATA_CERT"
-      valueFrom = data.aws_secretsmanager_secret_version.saml_metadata_cert[0].arn
     }
   ] : []
 
@@ -278,16 +266,22 @@ locals {
     }
   ] : []
 
+  platform_otel_headers_secret = var.otel_exporter_otlp_headers_arn != null ? [
+    {
+      name      = "OTEL_EXPORTER_OTLP_HEADERS"
+      valueFrom = data.aws_secretsmanager_secret_version.otel_exporter_otlp_headers[0].arn
+    }
+  ] : []
+
   tracecat_api_secrets = concat(
-    local.tracecat_base_secrets,
+    local.tracecat_temporal_secrets,
+    local.platform_otel_headers_secret,
     local.oauth_client_id_secret,
     local.oauth_client_secret_secret,
     local.oidc_client_id_secret,
     local.oidc_client_secret_secret,
     local.user_auth_secret_secret,
-    local.saml_idp_metadata_url_secret,
-    local.saml_ca_certs_secret,
-    local.saml_metadata_cert_secret
+    local.saml_idp_metadata_url_secret
   )
 
   tracecat_ui_secrets = [
@@ -309,5 +303,21 @@ locals {
     local.temporal_auth_client_secret_secret,
   )
 
-  executor_secrets = local.tracecat_base_secrets
+  worker_secrets = concat(
+    local.tracecat_temporal_secrets,
+    local.platform_otel_headers_secret,
+  )
+
+  # The direct executor backend passes its process environment to untrusted
+  # action subprocesses, so platform exporter credentials must stay out of the
+  # executor task. Operators can expose an unauthenticated collector endpoint
+  # on the executor's private network when executor spans are required.
+  executor_secrets = local.tracecat_temporal_secrets
+
+  litellm_secrets = local.tracecat_base_secrets
+
+  mcp_secrets = concat(
+    local.tracecat_temporal_secrets,
+    local.user_auth_secret_secret,
+  )
 }

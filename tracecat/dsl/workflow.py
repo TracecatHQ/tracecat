@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Coroutine, Iterator
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Never
 
 from temporalio import workflow
 from temporalio.common import (
@@ -18,7 +18,11 @@ from temporalio.exceptions import (
     ApplicationError,
     ChildWorkflowError,
     FailureError,
+    TimeoutType,
     is_cancelled_exception,
+)
+from temporalio.exceptions import (
+    TimeoutError as TemporalTimeoutError,
 )
 
 with workflow.unsafe.imports_passed_through():
@@ -36,10 +40,13 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config, identifiers
     from tracecat.agent.aliases import build_agent_alias
+    from tracecat.agent.preset.activities import (
+        ResolveAgentPresetVersionRefActivityInput,
+        resolve_agent_preset_version_ref_activity,
+    )
     from tracecat.agent.schemas import RunAgentArgs
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
-    from tracecat.concurrency import cooperative
     from tracecat.contexts import (
         ctx_interaction,
         ctx_logical_time,
@@ -49,7 +56,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.action import (
         BuildAgentArgsActivityInput,
-        BuildPresetAgentArgsActivityInput,
         DSLActivities,
         EvaluateTemplatedObjectActivityInput,
         NormalizeTriggerInputsActivityInputs,
@@ -72,12 +78,17 @@ with workflow.unsafe.imports_passed_through():
         PlatformAction,
         WaitStrategy,
     )
+    from tracecat.dsl.error_policy import (
+        adapt_error_handler_details,
+        build_terminal_application_error,
+        raise_child_failures_application_error,
+    )
     from tracecat.dsl.init_activities import (
         ResolveTimeAnchorActivityInputs,
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
-    from tracecat.dsl.scheduler import DSLScheduler
+    from tracecat.dsl.scheduler import DSLScheduler, PlatformExecutionError
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
         ActionStatement,
@@ -89,7 +100,10 @@ with workflow.unsafe.imports_passed_through():
         StreamID,
         TaskResult,
     )
-    from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
+    from tracecat.dsl.types import (
+        ActionErrorInfo,
+        TaskExceptionInfo,
+    )
     from tracecat.dsl.validation import format_input_schema_validation_error
     from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.ee.interactions.decorators import maybe_interactive
@@ -107,6 +121,13 @@ with workflow.unsafe.imports_passed_through():
         exec_id_to_parts,
     )
     from tracecat.registry.lock.types import RegistryLock
+    from tracecat.runtime.errors import (
+        RetryDisposition,
+        RuntimeErrorClassification,
+        RuntimeErrorKind,
+        RuntimeErrorOwner,
+        select_error_classification,
+    )
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -118,6 +139,14 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
+    from tracecat.temporal.errors import (
+        extract_error_classification,
+        extract_error_classifications,
+        raise_application_error_from_classification,
+        raise_wrapped_application_error,
+    )
+    from tracecat.temporal.exceptions import UserError
+    from tracecat.temporal.patches import WorkflowPatch
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
         AcquireWorkflowPermitInput,
@@ -158,6 +187,16 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.workspaces.activities import get_workspace_organization_id_activity
 
 
+_CHILD_RUN_ARG_PREP_YIELD_EVERY = 8
+
+
+def _raise_workflow_application_error(
+    task_exceptions: Mapping[str, TaskExceptionInfo],
+) -> Never:
+    """Raise the terminal workflow error without changing legacy payloads."""
+    raise build_terminal_application_error(task_exceptions) from None
+
+
 def _inherit_search_attributes_with_alias(
     base_attrs: TypedSearchAttributes | None,
     alias: str,
@@ -172,6 +211,19 @@ def _inherit_search_attributes_with_alias(
             if p.key != TemporalSearchAttr.ALIAS.key
         )
     return TypedSearchAttributes(search_attributes=pairs)
+
+
+def _without_terminal_error_owner(
+    attrs: TypedSearchAttributes,
+) -> TypedSearchAttributes:
+    """Prevent a successful child from inheriting its parent's terminal owner."""
+    return TypedSearchAttributes(
+        search_attributes=[
+            pair
+            for pair in attrs.search_attributes
+            if pair.key != TemporalSearchAttr.ERROR_OWNER.key
+        ]
+    )
 
 
 def _build_agent_child_search_attributes(
@@ -211,6 +263,7 @@ class DSLWorkflow:
     organization_id: identifiers.OrganizationID
     dep_list: dict[str, list[str]]
     scheduler: DSLScheduler
+    workspace_id: identifiers.WorkspaceID
 
     # Tier limit tracking
     _tier_limits: EffectiveLimits | None = None
@@ -222,18 +275,28 @@ class DSLWorkflow:
     @workflow.init
     def __init__(self, args: DSLRunArgs) -> None:
         self.role = args.role
+        ctx_role.set(self.role)
         self.start_to_close_timeout = args.timeout
         """The activity execution timeout."""
         self.execution_type = args.execution_type
         """Execution type (draft or published). Draft executions use draft aliases for child workflows."""
+        self.interactions = InteractionManager(self)
+
+    def _initialize_run(self, args: DSLRunArgs) -> None:
+        """Initialize fallible workflow runtime state inside the interceptor."""
         wf_info = workflow.info()
         # Tracecat wf exec id == Temporal wf exec id
         self.wf_exec_id = wf_info.workflow_id
         # Tracecat wf run id == Temporal wf run id
         self.wf_run_id = wf_info.run_id
-        if self.role.workspace_id is None:
-            raise ApplicationError("Workspace ID is required", non_retryable=True)
-        self.workspace_id = self.role.workspace_id
+        if (workspace_id := self.role.workspace_id) is None:
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
+                message="Tracecat could not initialize the workflow workspace",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+            )
+            raise_application_error_from_classification(classification)
+        self.workspace_id = workspace_id
         self.logger = get_workflow_logger(
             wf_id=args.wf_id,
             wf_exec_id=self.wf_exec_id,
@@ -259,8 +322,6 @@ class DSLWorkflow:
             )
         except Exception as e:
             self.logger.error("Failed to show workflow info", error=e)
-
-        self.interactions = InteractionManager(self)
 
     @workflow.update
     async def interaction_handler(self, input: InteractionInput) -> InteractionResult:
@@ -303,6 +364,7 @@ class DSLWorkflow:
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> StoredObject:
+        self._initialize_run(args)
         self.organization_id = await self._resolve_organization_id()
 
         # Set DSL and registry_lock
@@ -317,17 +379,9 @@ class DSLWorkflow:
         else:
             # Otherwise, fetch the latest workflow definition
             self.logger.debug("Fetching latest workflow definition")
-            try:
-                result = await self._get_workflow_definition(args.wf_id)
-                self.dsl = result.dsl
-                registry_lock = result.registry_lock
-            except TracecatException as e:
-                self.logger.error("Failed to fetch workflow definition")
-                raise ApplicationError(
-                    "Failed to fetch workflow definition",
-                    non_retryable=True,
-                    type=e.__class__.__name__,
-                ) from e
+            result = await self._load_published_workflow_definition(args.wf_id)
+            self.dsl = result.dsl
+            registry_lock = result.registry_lock
             self.dispatch_type = "pull"
 
         # Resolve registry lock if not provided or empty
@@ -403,64 +457,16 @@ class DSLWorkflow:
         try:
             return await self._run_workflow(args)
         except ApplicationError as e:
-            # Application error
-            self.logger.warning(
-                "Error running workflow, running error handler",
-                type=e.__class__.__name__,
+            stamp_owner_after_handler = workflow.patched(
+                WorkflowPatch.ERROR_OWNER_AFTER_HANDLER
             )
-            # 1. Get the error handler workflow ID
-            handler_wf_id = await self._get_error_handler_workflow_id(args)
-            if handler_wf_id is None:
-                self.logger.warning("No error handler workflow ID found, raising error")
-                raise e
-
-            if e.details:
-                err_info_map = e.details[0]
-                self.logger.info("Raising error info", err_info_data=err_info_map)
-                if not isinstance(err_info_map, dict):
-                    self.logger.error(
-                        "Unexpected error info object",
-                        err_info_map=err_info_map,
-                        type=type(err_info_map).__name__,
-                    )
-                    # TODO: There's likely a nicer way to gracefully handle this
-                    # instead of a sentinel error value
-                    errors = [
-                        ActionErrorInfo(
-                            ref="N/A",
-                            message=f"Unexpected error info object of type {type(err_info_map).__name__}: {err_info_map}",
-                            type=type(err_info_map).__name__,
-                        )
-                    ]
-                else:
-                    errors = [
-                        ActionErrorInfoAdapter.validate_python(data)
-                        for data in err_info_map.values()
-                    ]
-            else:
-                errors = None
-
-            trigger_type = get_trigger_type(workflow.info())
-            try:
-                err_run_args = await self._prepare_error_handler_workflow(
-                    message=e.message,
-                    handler_wf_id=handler_wf_id,
-                    orig_wf_id=args.wf_id,
-                    orig_wf_exec_id=self.wf_exec_id,
-                    orig_dsl=self.dsl,
-                    trigger_type=TriggerType(trigger_type),
-                    errors=errors,
-                )
-                await self._run_error_handler_workflow(err_run_args)
-            except Exception as err_handler_exc:
-                self.logger.error(
-                    "Failed to run error handler workflow",
-                    error=err_handler_exc,
-                )
-                raise err_handler_exc from e
-
-            # Finally, raise the original error
-            raise e
+            if not stamp_owner_after_handler:
+                self._upsert_terminal_error_owner(e)
+            await self._handle_application_error(
+                args,
+                e,
+                stamp_terminal_owner=stamp_owner_after_handler,
+            )
         except Exception as e:
             # Platform error
             if is_cancelled_exception(e):
@@ -474,14 +480,14 @@ class DSLWorkflow:
             raise e
         finally:
             await self._run_cancellation_safe_cleanup(
-                self._stop_workflow_permit_heartbeat(),
+                self._stop_workflow_permit_heartbeat,
                 operation="stop_workflow_permit_heartbeat",
             )
             # Release workflow permit if acquired
             if self._workflow_permit_acquired:
                 self.logger.warning("Releasing workflow permit")
                 await self._run_cancellation_safe_cleanup(
-                    self._release_workflow_permit(),
+                    self._release_workflow_permit,
                     operation="release_workflow_permit",
                 )
 
@@ -552,6 +558,8 @@ class DSLWorkflow:
                 )
             except ActivityError as e:
                 match cause := e.cause:
+                    case ApplicationError() if extract_error_classification(cause):
+                        raise cause from None
                     case ApplicationError(type=t, details=details) if (
                         t == ValidationError.__name__
                     ):
@@ -664,43 +672,58 @@ class DSLWorkflow:
         try:
             task_exceptions = await self.scheduler.start()
         except Exception as e:
-            msg = f"DSL scheduler failed with unexpected error: {e}"
-            raise ApplicationError(
-                msg, non_retryable=True, type=e.__class__.__name__
-            ) from e
+            if is_cancelled_exception(e):
+                raise
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
+                message="Tracecat could not complete workflow scheduling",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                cause=e,
+            )
+            raise_wrapped_application_error(
+                e,
+                fallback_classification=classification,
+                include_implicit_context=False,
+            )
 
         if task_exceptions:
-            n_exc = len(task_exceptions)
-            formatted_exc = "\n".join(
-                f"{'=' * 10} ({i + 1}/{n_exc}) {details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
-                for i, (ref, info) in enumerate(task_exceptions.items())
-                if (details := info.details)
-            )
             # NOTE: This error is shown in the final activity in the workflow history
-            raise ApplicationError(
-                f"Workflow failed with {n_exc} error(s)\n\n{formatted_exc}",
-                # We should add the details of the exceptions to the error message because this will get captured
-                # in the error handler workflow
-                {ref: info.details for ref, info in task_exceptions.items()},
-                non_retryable=True,
-                type=ApplicationError.__name__,
-            )
+            _raise_workflow_application_error(task_exceptions)
 
         try:
             self.logger.info("DSL workflow completed")
             return await self._handle_return()
-        except TracecatExpressionError as e:
-            raise ApplicationError(
-                f"Couldn't parse return value expression: {e}",
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
         except Exception as e:
-            raise ApplicationError(
-                f"Unexpected error handling return value: {e}",
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
+            if classifications := extract_error_classifications(
+                e,
+                include_implicit_context=False,
+            ):
+                classification = select_error_classification(classifications)
+                raise_wrapped_application_error(
+                    e,
+                    fallback_classification=classification,
+                    include_implicit_context=False,
+                )
+            classification = (
+                RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID,
+                    message="The workflow return expression could not be evaluated",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                    cause=e,
+                )
+                if isinstance(e, TracecatExpressionError)
+                else RuntimeErrorClassification.platform(
+                    kind=RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION,
+                    message="Tracecat could not finalize the workflow return value",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                    cause=e,
+                )
+            )
+            raise_wrapped_application_error(
+                e,
+                fallback_classification=classification,
+                include_implicit_context=False,
+            )
 
     async def _handle_timers(self, task: ActionStatement) -> None:
         """Perform any timing control flow logic (start_delay, wait_until).
@@ -826,6 +849,53 @@ class DSLWorkflow:
             return current, outer_message
         return current, current.__class__.__name__
 
+    @staticmethod
+    def _upsert_terminal_error_owner(error: BaseException) -> None:
+        """Stamp attribution only when a classified error reaches this boundary."""
+        # The escaping error owns terminal attribution. An error handler runs
+        # while the original workflow error remains the active exception, so
+        # following implicit ``__context__`` here can misclassify an
+        # unclassified handler failure as the original error's owner.
+        classifications = extract_error_classifications(
+            error,
+            include_implicit_context=False,
+        )
+        if not classifications:
+            return
+        if not workflow.patched(WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE):
+            return
+
+        owner = select_error_classification(classifications).owner
+        workflow.upsert_search_attributes(
+            [TemporalSearchAttr.ERROR_OWNER.key.value_set(owner.value)]
+        )
+
+    @staticmethod
+    def _has_user_error_cause(error: BaseException) -> bool:
+        classifications = extract_error_classifications(error)
+        if (
+            classifications
+            and select_error_classification(classifications).owner
+            is RuntimeErrorOwner.USER
+        ):
+            return workflow.patched(WorkflowPatch.ERROR_OWNER_CONTROL_FLOW)
+
+        current = error
+        seen: set[int] = set()
+        while True:
+            current_id = id(current)
+            if current_id in seen:
+                return False
+            seen.add(current_id)
+
+            if UserError.matches(current):
+                return True
+
+            nested = getattr(current, "cause", None)
+            if not isinstance(nested, BaseException):
+                return False
+            current = nested
+
     @maybe_interactive
     async def _execute_task(self, task: ActionStatement) -> TaskResult:
         """Purely execute a task and manage the results.
@@ -881,24 +951,41 @@ class DSLWorkflow:
                     # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
                     # Single activity prepares everything: alias resolution, definition fetch, loop iteration data
                     self.logger.trace("Preparing child workflow")
-                    use_committed = self.execution_type != ExecutionType.DRAFT
-                    prepared = await workflow.execute_activity(
-                        DSLActivities.prepare_subflow_activity,
-                        arg=PrepareSubflowActivityInput(
-                            role=self.role,
-                            task=task,
-                            operand=self.get_context(),
-                            key=action_collection_prefix(
-                                str(self.workspace_id),
-                                self.wf_exec_id,
-                                stream_id,
-                                task.ref,
+                    try:
+                        prepared = await workflow.execute_activity(
+                            DSLActivities.prepare_subflow_activity,
+                            arg=PrepareSubflowActivityInput(
+                                role=self.role,
+                                task=task,
+                                operand=self._build_action_context(task, stream_id),
+                                key=action_collection_prefix(
+                                    str(self.workspace_id),
+                                    self.wf_exec_id,
+                                    stream_id,
+                                    task.ref,
+                                ),
+                                use_committed=(
+                                    self.execution_type != ExecutionType.DRAFT
+                                ),
                             ),
-                            use_committed=use_committed,
-                        ),
-                        start_to_close_timeout=timedelta(seconds=120),
-                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                    )
+                            start_to_close_timeout=timedelta(seconds=120),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                        )
+                    except Exception as e:
+                        if self._has_user_error_cause(e):
+                            raise
+                        if workflow.patched(WorkflowPatch.ERROR_OWNER_CONTROL_FLOW):
+                            raise
+                        root_error, root_message = self._unwrap_temporal_failure_cause(
+                            e
+                        )
+                        platform_error = (
+                            root_error if isinstance(root_error, Exception) else e
+                        )
+                        task_result = task_result.with_error(
+                            root_message, platform_error.__class__.__name__
+                        )
+                        raise PlatformExecutionError(platform_error) from e
                     self.logger.trace("Child workflow prepared", prepared=prepared)
                     # Execute child workflow (handles both single and looped)
                     stored_result = await self._execute_child_workflow_prepared(
@@ -943,7 +1030,7 @@ class DSLWorkflow:
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
                     )
-                    session_id = workflow.uuid4()
+                    session_id = action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
@@ -952,21 +1039,26 @@ class DSLWorkflow:
                             config=AgentConfig(
                                 model_name=action_args.model_name,
                                 model_provider=action_args.model_provider,
+                                catalog_id=action_args.catalog_id,
                                 instructions=action_args.instructions,
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
+                                enable_thinking=action_args.enable_thinking,
                                 base_url=action_args.base_url,
                                 actions=action_args.actions,
                                 tool_approvals=action_args.tool_approvals,
+                                agents=action_args.agents,
+                                mcp_servers=action_args.mcp_servers,
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,
-                            use_workspace_credentials=action_args.use_workspace_credentials,
+                            timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
+                        continue_existing_session=action_args.session_id is not None,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -982,6 +1074,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             stream_id=stream_id or ROOT_STREAM,
+                            mask_output=task.mask_output,
                         ).model_dump(),
                     )
                 case PlatformAction.AI_ACTION:
@@ -1013,11 +1106,15 @@ class DSLWorkflow:
                             config=AgentConfig(
                                 model_name=action_args.model_name,
                                 model_provider=action_args.model_provider,
+                                catalog_id=action_args.catalog_id,
                                 instructions=action_args.instructions,
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
-                                base_url=action_args.base_url,
+                                enable_thinking=action_args.enable_thinking,
+                                base_url=action_args.base_url
+                                if action_args.catalog_id is None
+                                else None,
                                 # AI action has no tools
                                 actions=None,
                                 tool_approvals=None,
@@ -1025,7 +1122,7 @@ class DSLWorkflow:
                             max_requests=action_args.max_requests,
                             # No tool calls for AI action
                             max_tool_calls=0,
-                            use_workspace_credentials=action_args.use_workspace_credentials,
+                            timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1045,6 +1142,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             stream_id=stream_id or ROOT_STREAM,
+                            mask_output=task.mask_output,
                         ).model_dump(),
                     )
                 case PlatformAction.AI_PRESET_AGENT:
@@ -1053,7 +1151,7 @@ class DSLWorkflow:
                     self._set_logical_time_context()
                     preset_action_args = await workflow.execute_activity(
                         DSLActivities.build_preset_agent_args_activity,
-                        arg=BuildPresetAgentArgsActivityInput(
+                        arg=BuildAgentArgsActivityInput(
                             args=dict(task.args),
                             operand=agent_operand,
                             role=self.role,
@@ -1061,6 +1159,16 @@ class DSLWorkflow:
                             default_environment=self.run_context.environment,
                         ),
                         start_to_close_timeout=timedelta(seconds=60),
+                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    )
+                    preset_ref = await workflow.execute_activity(
+                        resolve_agent_preset_version_ref_activity,
+                        ResolveAgentPresetVersionRefActivityInput(
+                            role=self.role,
+                            preset_slug=preset_action_args.preset,
+                            preset_version=preset_action_args.preset_version,
+                        ),
+                        start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
 
@@ -1080,21 +1188,26 @@ class DSLWorkflow:
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
                     )
-                    session_id = workflow.uuid4()
+                    session_id = preset_action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
                             user_prompt=preset_action_args.user_prompt,
                             session_id=session_id,
                             preset_slug=preset_action_args.preset,
+                            preset_version=preset_action_args.preset_version,
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
-                            use_workspace_credentials=preset_action_args.use_workspace_credentials,
+                            timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
+                        agent_preset_id=preset_ref.preset_id,
+                        agent_preset_version_id=preset_ref.preset_version_id,
+                        continue_existing_session=preset_action_args.session_id
+                        is not None,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -1110,6 +1223,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             stream_id=stream_id or ROOT_STREAM,
+                            mask_output=task.mask_output,
                         ).model_dump(),
                     )
                 case _:
@@ -1146,10 +1260,14 @@ class DSLWorkflow:
         # NOTE: By the time we receive an exception, we've exhausted all retry attempts
         # Note that execute_task is called by the scheduler, so we don't have to return ApplicationError
         except (ActivityError, ChildWorkflowError, FailureError) as e:
+            if is_cancelled_exception(e) and workflow.patched(
+                WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION
+            ):
+                raise
             # These are deterministic and expected errors that
             err_type = e.__class__.__name__
-            msg = self.ERROR_TYPE_TO_MESSAGE[err_type]
-            cause = e.cause
+            msg = self.ERROR_TYPE_TO_MESSAGE.get(err_type, "Workflow execution failed")
+            cause = e if isinstance(e, ApplicationError) else e.cause
             root_error, root_message = self._unwrap_temporal_failure_cause(
                 cause if isinstance(cause, BaseException) else e
             )
@@ -1168,11 +1286,15 @@ class DSLWorkflow:
                     err_type = cause.type or err_type
                     task_result = task_result.with_error(err_info, err_type)
                     # Reraise the cause, as it's wrapped by the ApplicationError
+                    if cause is e:
+                        raise
                     raise cause from e
                 case ApplicationError() as app_err:
                     err_type = app_err.type or err_type
                     err_message = app_err.message or root_message
                     task_result = task_result.with_error(err_message, err_type)
+                    if app_err is e:
+                        raise
                     raise app_err from e
                 case _:
                     resolved_type = root_error.__class__.__name__
@@ -1186,6 +1308,9 @@ class DSLWorkflow:
                     raise ApplicationError(
                         root_message, non_retryable=True, type=resolved_type
                     ) from e
+
+        except PlatformExecutionError:
+            raise
 
         except TracecatExpressionError as e:
             err_type = e.__class__.__name__
@@ -1209,12 +1334,14 @@ class DSLWorkflow:
         finally:
             if action_permit_heartbeat_task is not None:
                 await self._run_cancellation_safe_cleanup(
-                    self._stop_action_permit_heartbeat(action_permit_heartbeat_task),
+                    lambda: self._stop_action_permit_heartbeat(
+                        action_permit_heartbeat_task
+                    ),
                     operation="stop_action_permit_heartbeat",
                 )
             if action_permit_id is not None:
                 await self._run_cancellation_safe_cleanup(
-                    self._release_action_permit(action_id=action_permit_id),
+                    lambda: self._release_action_permit(action_id=action_permit_id),
                     operation="release_action_permit",
                 )
             self.logger.trace("Setting action result", task_result=task_result)
@@ -1255,7 +1382,7 @@ class DSLWorkflow:
                 DSLActivities.evaluate_templated_object_activity,
                 arg=EvaluateTemplatedObjectActivityInput(
                     obj=task.args.get("trigger_inputs"),
-                    operand=self.get_context(),
+                    operand=self._build_action_context(task, stream_id),
                     key=key,
                 ),
                 start_to_close_timeout=timedelta(seconds=60),
@@ -1263,7 +1390,7 @@ class DSLWorkflow:
             )
 
             runtime_config = prepared.get_config(0)
-            sf_run_args = DSLRunArgs(
+            sf_run_args = DSLRunArgs.model_construct(
                 role=self.role,
                 dsl=prepared.dsl,
                 wf_id=prepared.wf_id,
@@ -1386,67 +1513,57 @@ class DSLWorkflow:
         retrieve its specific trigger_inputs.
         """
 
-        def iter_run_args() -> Iterator[tuple[int, DSLRunArgs]]:
-            for i in range(batch_size):
-                loop_index = batch_start + i
-                config = prepared.get_config(loop_index)
-
-                # Get trigger_inputs for this specific iteration
-                # Works with both CollectionObject and InlineObject
-                trigger_inputs = prepared.get_trigger_input_at(loop_index)
-
-                yield (
-                    loop_index,
-                    DSLRunArgs(
-                        role=self.role,
-                        dsl=prepared.dsl,
-                        wf_id=prepared.wf_id,
-                        trigger_inputs=trigger_inputs,
-                        parent_run_context=self.run_context,
-                        runtime_config=config,
-                        execution_type=self.execution_type,
-                        time_anchor=child_time_anchor,
-                        registry_lock=prepared.registry_lock,
-                    ),
-                )
-
-        dispatch_semaphore = asyncio.Semaphore(dispatch_window)
-
-        async def dispatch_child(
-            *, loop_index: int, run_args: DSLRunArgs
-        ) -> workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]:
-            async with dispatch_semaphore:
-                return await self._dispatch_child_workflow(
-                    task,
-                    run_args,
-                    loop_index=loop_index,
-                    wait_strategy=wait_strategy,
-                )
-
-        coros: list[
+        dispatch_batch: list[
             Awaitable[workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]]
         ] = []
-        async for loop_index, run_args in cooperative(
-            iter_run_args(),
-            delay=0.1,
-        ):
-            self.logger.trace(
-                "Run child workflow batch (prepared)",
-                loop_index=loop_index,
-                fail_strategy=fail_strategy,
-            )
-            coro = dispatch_child(loop_index=loop_index, run_args=run_args)
-            coros.append(coro)
+        launched_handles: list[
+            workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject] | BaseException
+        ] = []
 
-        launched_handles = await asyncio.gather(*coros, return_exceptions=True)
+        for offset in range(batch_size):
+            if offset and offset % _CHILD_RUN_ARG_PREP_YIELD_EVERY == 0:
+                # Prepared subflow data has already been validated by the
+                # activity. Checkpoint before another burst of trusted model
+                # construction inside the workflow activation.
+                await asyncio.sleep(0)
+
+            loop_index = batch_start + offset
+            dispatch_batch.append(
+                self._prepare_child_workflow_dispatch(
+                    task,
+                    prepared,
+                    loop_index=loop_index,
+                    wait_strategy=wait_strategy,
+                    fail_strategy=fail_strategy,
+                    child_time_anchor=child_time_anchor,
+                )
+            )
+            if len(dispatch_batch) >= dispatch_window:
+                launched_handles.extend(
+                    await self._flush_child_workflow_dispatch_batch(dispatch_batch)
+                )
+                await asyncio.sleep(0)
+
+        if dispatch_batch:
+            launched_handles.extend(
+                await self._flush_child_workflow_dispatch_batch(dispatch_batch)
+            )
         gather_result = await self._gather_dispatched_child_results(
             launched_handles=launched_handles,
             wait_strategy=wait_strategy,
         )
 
         if fail_strategy == FailStrategy.ALL:
-            if any(isinstance(val, BaseException) for val in gather_result):
-                raise RuntimeError("One or more child workflows failed")
+            failures = [
+                (index, val)
+                for index, val in enumerate(gather_result, start=batch_start)
+                if isinstance(val, BaseException)
+            ]
+            if failures:
+                raise_child_failures_application_error(
+                    task_ref=task.ref,
+                    failures=failures,
+                )
 
         result: list[StoredObject] = []
         for val in gather_result:
@@ -1458,6 +1575,65 @@ class DSLWorkflow:
                 case _:
                     result.append(StoredObjectValidator.validate_python(val))
         return result
+
+    def _prepare_child_workflow_dispatch(
+        self,
+        task: ActionStatement,
+        prepared: PreparedSubflowResult,
+        *,
+        loop_index: int,
+        wait_strategy: WaitStrategy,
+        fail_strategy: FailStrategy,
+        child_time_anchor: datetime,
+    ) -> Awaitable[workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]]:
+        run_args = self._build_prepared_child_run_args(
+            prepared=prepared,
+            loop_index=loop_index,
+            child_time_anchor=child_time_anchor,
+        )
+        self.logger.trace(
+            "Run child workflow batch (prepared)",
+            loop_index=loop_index,
+            fail_strategy=fail_strategy,
+        )
+        return self._dispatch_child_workflow(
+            task,
+            run_args,
+            loop_index=loop_index,
+            wait_strategy=wait_strategy,
+        )
+
+    def _build_prepared_child_run_args(
+        self,
+        *,
+        prepared: PreparedSubflowResult,
+        loop_index: int,
+        child_time_anchor: datetime,
+    ) -> DSLRunArgs:
+        return DSLRunArgs.model_construct(
+            role=self.role,
+            dsl=prepared.dsl,
+            wf_id=prepared.wf_id,
+            trigger_inputs=prepared.get_trigger_input_at(loop_index),
+            parent_run_context=self.run_context,
+            runtime_config=prepared.get_config(loop_index),
+            execution_type=self.execution_type,
+            time_anchor=child_time_anchor,
+            registry_lock=prepared.registry_lock,
+        )
+
+    async def _flush_child_workflow_dispatch_batch(
+        self,
+        dispatch_batch: list[
+            Awaitable[workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]]
+        ],
+    ) -> list[workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject] | BaseException]:
+        launched_handles = await asyncio.gather(
+            *dispatch_batch,
+            return_exceptions=True,
+        )
+        dispatch_batch.clear()
+        return list(launched_handles)
 
     async def _gather_dispatched_child_results(
         self,
@@ -1512,6 +1688,28 @@ class DSLWorkflow:
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
+
+    async def _load_published_workflow_definition(
+        self,
+        workflow_id: identifiers.WorkflowID,
+    ) -> WorkflowDefinitionActivityResult:
+        """Load a published definition and preserve classified activity failures."""
+        try:
+            return await self._get_workflow_definition(workflow_id)
+        except ActivityError as error:
+            if isinstance(
+                error.cause, ApplicationError
+            ) and extract_error_classification(error.cause):
+                self._upsert_terminal_error_owner(error.cause)
+                raise error.cause from error
+            raise
+        except TracecatException as error:
+            self.logger.error("Failed to fetch workflow definition")
+            raise ApplicationError(
+                "Failed to fetch workflow definition",
+                non_retryable=True,
+                type=error.__class__.__name__,
+            ) from error
 
     async def _get_workflow_definition(
         self, workflow_id: identifiers.WorkflowID, version: int | None = None
@@ -1701,20 +1899,54 @@ class DSLWorkflow:
             registry_lock=self.registry_lock,
         )
 
+        return await self._execute_action_activity(task, arg)
+
+    async def _execute_action_activity(
+        self, task: ActionStatement, arg: RunActionInput
+    ) -> StoredObject:
+        """Dispatch an action, retrying one executor heartbeat interruption."""
+        try:
+            stored = await self._execute_action_activity_once(task, arg)
+        except ActivityError as exc:
+            cause = exc.cause
+            should_retry_heartbeat = (
+                task.retry_policy.max_attempts == 1
+                and isinstance(cause, TemporalTimeoutError)
+                and cause.type is TimeoutType.HEARTBEAT
+                and workflow.patched(WorkflowPatch.ACTION_HEARTBEAT_TIMEOUT_RETRY)
+            )
+            if not should_retry_heartbeat:
+                raise
+
+            self.logger.warning(
+                "Retrying action after activity heartbeat timeout",
+                task_ref=task.ref,
+            )
+            stored = await self._execute_action_activity_once(task, arg)
+
+        return StoredObjectValidator.validate_python(stored)
+
+    async def _execute_action_activity_once(
+        self, task: ActionStatement, arg: RunActionInput
+    ) -> Any:
         # Dispatch to ExecutorWorker on shared-action-queue
         # Using string activity name since it's registered on a different worker
-        stored = await workflow.execute_activity(
+        return await workflow.execute_activity(
             "execute_action_activity",
             args=(arg, self.role),
             task_queue=config.TRACECAT__EXECUTOR_QUEUE,
             start_to_close_timeout=timedelta(
                 seconds=task.start_delay + task.retry_policy.timeout
             ),
+            heartbeat_timeout=timedelta(
+                seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT
+            )
+            if config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT > 0
+            else None,
             retry_policy=RetryPolicy(
                 maximum_attempts=task.retry_policy.max_attempts,
             ),
         )
-        return StoredObjectValidator.validate_python(stored)
 
     async def _run_child_workflow(
         self, task: ActionStatement, run_args: DSLRunArgs, loop_index: int | None = None
@@ -1771,6 +2003,7 @@ class DSLWorkflow:
             loop_index=loop_index,
             wait_strategy=wait_strategy,
             stream_id=stream_id,
+            mask_output=task.mask_output,
         ).model_dump()
         self.logger.debug(
             "Dispatching child workflow",
@@ -1794,6 +2027,73 @@ class DSLWorkflow:
                 else workflow.ParentClosePolicy.TERMINATE  # Default is TERMINATE
             ),
         )
+
+    async def _handle_application_error(
+        self,
+        args: DSLRunArgs,
+        error: ApplicationError,
+        *,
+        stamp_terminal_owner: bool,
+    ) -> Never:
+        """Run an error handler before stamping the error that remains terminal."""
+        self.logger.warning(
+            "Error running workflow, running error handler",
+            type=error.__class__.__name__,
+        )
+        handler_failure: Exception | None = None
+        try:
+            handler_wf_id = await self._get_error_handler_workflow_id(args)
+            if handler_wf_id is None:
+                self.logger.warning("No error handler workflow ID found, raising error")
+            else:
+                if error.details:
+                    err_info_map = error.details[0]
+                    self.logger.info("Raising error info", err_info_data=err_info_map)
+                    if not isinstance(err_info_map, dict):
+                        self.logger.error(
+                            "Unexpected error info object",
+                            err_info_map=err_info_map,
+                            type=type(err_info_map).__name__,
+                        )
+                    errors = adapt_error_handler_details(error.details)
+                else:
+                    errors = None
+
+                trigger_type = get_trigger_type(workflow.info())
+                err_run_args = await self._prepare_error_handler_workflow(
+                    message=error.message,
+                    handler_wf_id=handler_wf_id,
+                    orig_wf_id=args.wf_id,
+                    orig_wf_exec_id=self.wf_exec_id,
+                    orig_dsl=self.dsl,
+                    trigger_type=TriggerType(trigger_type),
+                    errors=errors,
+                )
+                await self._run_error_handler_workflow(err_run_args)
+        except Exception as handler_error:
+            self.logger.error(
+                "Failed to run error handler workflow",
+                error_type=type(handler_error).__name__,
+            )
+            if not workflow.patched(
+                WorkflowPatch.PRESERVE_ORIGINAL_ERROR_AFTER_HANDLER_FAILURE
+            ):
+                if stamp_terminal_owner:
+                    self._upsert_terminal_error_owner(handler_error)
+                raise handler_error from error
+            if is_cancelled_exception(handler_error):
+                raise
+            handler_failure = handler_error
+
+        # Leave the failed handler in Temporal activity/child history and logs,
+        # but keep the classified workflow failure as the terminal cause. The
+        # interceptor owns the single terminal search-attribute upsert. Raising
+        # outside the handler's except block avoids chaining it back onto `error`.
+        if handler_failure is not None:
+            raise error from None
+        if stamp_terminal_owner:
+            self._upsert_terminal_error_owner(error)
+        raise error
 
     async def _get_error_handler_workflow_id(
         self, args: DSLRunArgs
@@ -1903,7 +2203,9 @@ class DSLWorkflow:
             execution_timeout=wf_info.execution_timeout,
             task_timeout=wf_info.task_timeout,
             memo=memo.model_dump(),
-            search_attributes=wf_info.typed_search_attributes,
+            search_attributes=_without_terminal_error_owner(
+                wf_info.typed_search_attributes
+            ),
         )
 
     # ==================== Tier Limit Enforcement ====================
@@ -1946,12 +2248,19 @@ class DSLWorkflow:
 
     async def _run_cancellation_safe_cleanup(
         self,
-        cleanup: Coroutine[Any, Any, None],
+        cleanup: Callable[[], Coroutine[Any, Any, None]],
         *,
         operation: str,
     ) -> None:
         """Run cleanup to completion even if workflow cancellation is requested."""
-        cleanup_task = asyncio.create_task(cleanup)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # A terminated or timed-out execution can be evicted while the
+            # Worker event loop is shutting down. There is no task left to
+            # clean up in that state, and no coroutine should be constructed.
+            return
+        cleanup_task = loop.create_task(cleanup())
         try:
             await asyncio.shield(cleanup_task)
         except BaseException as e:
@@ -2089,14 +2398,12 @@ class DSLWorkflow:
             elapsed_seconds = (workflow.now() - started_at).total_seconds()
             max_wait_seconds = config.TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS
             if elapsed_seconds >= max_wait_seconds:
-                raise ApplicationError(
-                    (
-                        "Timed out waiting for workflow concurrency permit "
-                        f"({elapsed_seconds:.1f}s/{max_wait_seconds}s)"
-                    ),
-                    non_retryable=True,
-                    type="WorkflowPermitTimeoutExceeded",
+                classification = RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED,
+                    message="The workflow concurrency limit is currently exhausted",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
                 )
+                raise_application_error_from_classification(classification)
 
             sleep_duration = min(
                 self._next_permit_backoff_seconds(attempt=attempt),
@@ -2146,14 +2453,12 @@ class DSLWorkflow:
             elapsed_seconds = (workflow.now() - started_at).total_seconds()
             max_wait_seconds = config.TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS
             if elapsed_seconds >= max_wait_seconds:
-                raise ApplicationError(
-                    (
-                        "Timed out waiting for action concurrency permit "
-                        f"({elapsed_seconds:.1f}s/{max_wait_seconds}s)"
-                    ),
-                    non_retryable=True,
-                    type="ActionPermitTimeoutExceeded",
+                classification = RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED,
+                    message="The action concurrency limit is currently exhausted",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
                 )
+                raise_application_error_from_classification(classification)
 
             sleep_duration = min(
                 self._next_permit_backoff_seconds(attempt=attempt),
@@ -2234,8 +2539,9 @@ class DSLWorkflow:
         self._action_execution_count += 1
 
         if self._action_execution_count > max_actions:
-            raise ApplicationError(
-                f"Action execution limit exceeded ({self._action_execution_count}/{max_actions})",
-                non_retryable=True,
-                type="ActionExecutionLimitExceeded",
+            classification = RuntimeErrorClassification.user(
+                kind=RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED,
+                message="The workflow action execution limit was exceeded",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
             )
+            raise_application_error_from_classification(classification)

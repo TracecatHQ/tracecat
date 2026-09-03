@@ -57,12 +57,12 @@ const notificationVariants = cva(
     variants: {
       variant: {
         success:
-          "bg-green-500/15 border-green-500/50 text-green-600 dark:border-green-500 [&>svg]:text-green-500",
-        info: "bg-cyan-500/15 border-cyan-500/50 text-cyan-600 dark:border-cyan-500 [&>svg]:text-cyan-500",
+          "border-green-500/50 bg-green-500/15 text-green-700 dark:border-green-500/50 dark:bg-green-950/40 dark:text-green-300 [&>svg]:text-green-600 dark:[&>svg]:text-green-400",
+        info: "border-cyan-500/50 bg-cyan-500/15 text-cyan-700 dark:border-cyan-500/50 dark:bg-cyan-950/40 dark:text-cyan-300 [&>svg]:text-cyan-600 dark:[&>svg]:text-cyan-400",
         warning:
-          "bg-yellow-500/10 border-yellow-500/50 text-yellow-600 dark:border-yellow-500 [&>svg]:text-yellow-500",
+          "border-yellow-500/50 bg-yellow-500/10 text-yellow-700 dark:border-yellow-500/50 dark:bg-yellow-950/40 dark:text-yellow-300 [&>svg]:text-yellow-600 dark:[&>svg]:text-yellow-400",
         error:
-          "bg-destructive/10 border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
+          "border-destructive/50 bg-destructive/10 text-destructive dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 [&>svg]:text-destructive dark:[&>svg]:text-red-400",
       },
     },
     defaultVariants: {

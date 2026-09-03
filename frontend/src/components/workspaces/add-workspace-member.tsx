@@ -113,7 +113,7 @@ export function AddWorkspaceMember({
           variant="outline"
           size="sm"
           disabled={!canInviteMembers}
-          className="h-7 bg-white disabled:cursor-not-allowed"
+          className="h-7 bg-background disabled:cursor-not-allowed"
         >
           <Plus className="mr-1 h-3.5 w-3.5" />
           Add member

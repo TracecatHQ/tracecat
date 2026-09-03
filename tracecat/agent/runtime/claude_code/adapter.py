@@ -20,6 +20,7 @@ from tracecat.agent.common.stream_types import (
     StreamEventType,
     UnifiedStreamEvent,
 )
+from tracecat.agent.common.tool_inputs import sanitize_agent_tool_input
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 
 
@@ -81,11 +82,16 @@ class InputJsonDelta(TypedDict):
     partial_json: str
 
 
+class SignatureDelta(TypedDict):
+    type: Literal["signature_delta"]
+    signature: str
+
+
 class UnknownDelta(TypedDict):
     type: str
 
 
-Delta = TextDelta | ThinkingDelta | InputJsonDelta | UnknownDelta
+Delta = TextDelta | ThinkingDelta | SignatureDelta | InputJsonDelta | UnknownDelta
 
 
 class ContentBlockDeltaEvent(TypedDict):
@@ -209,6 +215,13 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
                 part_id=index,
                 thinking=delta.get("thinking", ""),
             )
+        elif delta_type == "signature_delta":
+            # Signature deltas carry replay metadata only; they are not visible
+            # content and must not be treated as text.
+            return UnifiedStreamEvent(
+                type=StreamEventType.MESSAGE_START,
+                part_id=index,
+            )
         elif delta_type == "input_json_delta":
             partial_json = delta.get("partial_json", "")
             # Accumulate partial JSON in context for stop event
@@ -257,6 +270,7 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
             # Normalize tool name for display
             raw_tool_name = (state.tool_name if state else None) or "unknown"
             normalized_tool_name = normalize_mcp_tool_name(raw_tool_name)
+            args = sanitize_agent_tool_input(normalized_tool_name, args)
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_CALL_STOP,
                 part_id=index,

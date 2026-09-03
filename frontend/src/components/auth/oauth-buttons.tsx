@@ -1,14 +1,9 @@
 "use client"
 
 import { type ComponentPropsWithoutRef, useState } from "react"
-import { authOauthOidcDatabaseAuthorize } from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
-import {
-  sanitizeReturnUrl,
-  serializeClearPostAuthReturnUrlCookie,
-  serializePostAuthReturnUrlCookie,
-} from "@/lib/auth-return-url"
+import { startOidcLogin } from "@/lib/auth-login"
 
 type OAuthButtonProps = ComponentPropsWithoutRef<typeof Button> & {
   returnUrl?: string | null
@@ -19,14 +14,6 @@ type OidcProviderIcon = "google" | "login"
 type OidcOAuthButtonProps = OAuthButtonProps & {
   providerLabel?: string
   providerIcon?: OidcProviderIcon
-}
-
-function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
-  const secure = window.location.protocol === "https:"
-  const sanitizedReturnUrl = sanitizeReturnUrl(returnUrl)
-  document.cookie = sanitizedReturnUrl
-    ? serializePostAuthReturnUrlCookie(sanitizedReturnUrl, secure)
-    : serializeClearPostAuthReturnUrlCookie(secure)
 }
 
 export function GithubOAuthButton({
@@ -68,9 +55,7 @@ export function OidcOAuthButton({
   const handleClick = async () => {
     try {
       setIsLoading(true)
-      const { authorization_url } = await authOauthOidcDatabaseAuthorize()
-      setPostAuthReturnUrlCookie(returnUrl)
-      window.location.href = authorization_url
+      await startOidcLogin(returnUrl)
     } catch (error) {
       console.error("Error authorizing with OIDC", error)
     } finally {

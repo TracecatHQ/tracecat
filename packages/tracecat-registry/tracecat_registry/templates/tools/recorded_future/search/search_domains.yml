@@ -1,0 +1,87 @@
+type: action
+definition:
+  title: Search domains
+  description: Search for Domain entities based on a filter. Calls GET /v2/domain/search directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/domain-search
+  namespace: tools.recorded_future
+  name: search_domains
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    parent:
+      type: str | None
+      description: Filters for companies based on parent company. The expected value is a Company ID.
+      default: null
+    riskRule:
+      type: str | None
+      description: Filters for domains based on a single risk rule. Valid rule IDs are listed by the GET /v2/domain/riskrules endpoint.
+      default: null
+    fields:
+      type: str | None
+      description: The enrichment fields requested for the entities returned. Several fields can be given as a comma separated string. See https://docs.recordedfuture.com/reference/enrichment-field-attributes for a list of values.
+      default: null
+    metadata:
+      type: bool | None
+      description: Annotates the response with additional metadata explaining the response data elements.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of records returned. The maximum is 1000.
+      default: null
+    from:
+      type: int | None
+      description: Offsets the pagination of the request. Note that there is a limit of returning only the top 1000 results from a search, meaning if limit plus from exceeds 1000, this will result in a Bad Request message.
+      default: null
+    riskScore:
+      type: str | None
+      description: Filters entities based on risk score, e.g. on the form [20, 80] (20 <= risk score <= 80), [20,) (20 <= risk score), or [,90) (risk score < 90). '[' and ']' are inclusive while '(' and ')' are exclusive.
+      default: null
+    firstSeen:
+      type: str | None
+      description: Filters entities based on the download of the first reference which is taken into account during risk scoring of the entity. All Elasticsearch compatible date formats are valid.
+      default: null
+    lastSeen:
+      type: str | None
+      description: Filters entities based on the download of the latest reference which is taken into account during risk scoring of the entity. All Elasticsearch compatible date formats are valid.
+      default: null
+    list:
+      type: str | None
+      description: Filters entities based on presence in a single list. Requires the list ID, which can be found using the List API.
+      default: null
+    orderBy:
+      type: str | None
+      description: Sorts the search according to the chosen parameter. Results are sorted before pagination. Allowed values are created, modified, sixtydayshits, sevendayhits, criticality, riskscore, totalhits, firstseen, lastseen and rules.
+      default: null
+    direction:
+      type: str | None
+      description: The direction of the sorting by the orderBy parameter, ascending or descending. Allowed values are asc and desc.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/v2/domain/search
+        method: GET
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+        params:
+          parent: ${{ inputs.parent }}
+          riskRule: ${{ inputs.riskRule }}
+          fields: ${{ inputs.fields }}
+          metadata: ${{ inputs.metadata }}
+          limit: ${{ inputs.limit }}
+          from: ${{ inputs.from }}
+          riskScore: ${{ inputs.riskScore }}
+          firstSeen: ${{ inputs.firstSeen }}
+          lastSeen: ${{ inputs.lastSeen }}
+          list: ${{ inputs.list }}
+          orderBy: ${{ inputs.orderBy }}
+          direction: ${{ inputs.direction }}
+  returns: ${{ steps.request.result }}

@@ -18,9 +18,8 @@ import {
 import { siteConfig } from "@/config/site"
 import { useAuth } from "@/hooks/use-auth"
 import { useOrganization } from "@/hooks/use-organization"
-import { useAppInfo } from "@/lib/hooks"
 
-type SidebarUserNavSettingsItem = {
+type SidebarUserNavManageItem = {
   title: string
   href: string
   icon: LucideIcon
@@ -28,20 +27,24 @@ type SidebarUserNavSettingsItem = {
 }
 
 export function SidebarUserNav({
-  settingsItems,
+  manageItems,
+  showManageLabel = true,
 }: {
-  settingsItems?: SidebarUserNavSettingsItem[]
+  manageItems?: SidebarUserNavManageItem[]
+  showManageLabel?: boolean
 }) {
   const { user } = useAuth()
   const { setOpen } = useSettingsModal()
   const { organization, isLoading } = useOrganization()
-  const { appInfo } = useAppInfo()
-  const multiTenantEnabled = appInfo?.ee_multi_tenant ?? true
-  const adminUrl = multiTenantEnabled ? "/admin" : "/admin/registry"
 
   return (
     <SidebarMenu>
       <Separator className="my-1" />
+      {showManageLabel ? (
+        <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+          Manage
+        </div>
+      ) : null}
 
       <SidebarMenuItem>
         <SidebarMenuButton onClick={() => setOpen(true)} tooltip="Settings">
@@ -50,7 +53,7 @@ export function SidebarUserNav({
         </SidebarMenuButton>
       </SidebarMenuItem>
 
-      {settingsItems?.map((item) => (
+      {manageItems?.map((item) => (
         <SidebarMenuItem key={item.href}>
           <SidebarMenuButton asChild isActive={item.isActive}>
             <Link href={item.href}>
@@ -66,7 +69,7 @@ export function SidebarUserNav({
           <Tooltip>
             <TooltipTrigger asChild>
               <SidebarMenuButton asChild>
-                <Link href={adminUrl}>
+                <Link href="/admin">
                   <ShieldCheckIcon className="size-4" />
                   <span>Admin</span>
                 </Link>

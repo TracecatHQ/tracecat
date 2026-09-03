@@ -11,16 +11,16 @@ from aiocache import Cache
 from sqlalchemy import and_, or_, select, union_all
 
 from tracecat import config
-from tracecat.auth.executor_tokens import mint_executor_token
+from tracecat.auth.executor_tokens import ExecutionOrigin, mint_executor_token
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_action_scope
-from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import (
     ctx_interaction,
     ctx_logical_time,
     ctx_role,
+    ctx_run,
 )
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     PlatformRegistryRepository,
     PlatformRegistryVersion,
@@ -50,6 +50,10 @@ from tracecat.executor.schemas import (
     ExecutorResultSuccess,
     ResolvedContext,
 )
+from tracecat.executor.secret_preprocessors import (
+    SecretEnvProjection,
+    project_secret_env,
+)
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
     collect_expressions,
@@ -57,9 +61,14 @@ from tracecat.expressions.eval import (
     get_iterables_from_expression,
 )
 from tracecat.expressions.expectations import create_expectation_model
+from tracecat.expressions.policy import (
+    ActionArgumentPlan,
+    ProvenanceMap,
+    build_provenance,
+    resolve_action_args,
+)
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import TemplateActionDefinition
 from tracecat.registry.actions.service import RegistryActionsService
@@ -76,6 +85,34 @@ type ArgsT = Mapping[str, Any]
 type ExecutionResult = Any | ExecutorActionErrorInfo
 
 
+def _execution_origin_for_role(role: Role) -> ExecutionOrigin:
+    """Classify the trusted entry point that dispatched an executor action."""
+    match role:
+        case Role(type="service", service_id="tracecat-mcp"):
+            return "agent"
+        case _:
+            return "workflow"
+
+
+def _mint_action_executor_token(input: RunActionInput, role: Role) -> str:
+    """Mint SDK credentials carrying the root action's trusted provenance."""
+    if role.workspace_id is None:
+        raise ValueError("workspace_id is required for action execution")
+    execution_origin = _execution_origin_for_role(role)
+    return mint_executor_token(
+        workspace_id=role.workspace_id,
+        user_id=role.user_id,
+        service_id=role.service_id,
+        execution_origin=execution_origin,
+        root_action=input.task.action,
+        agent_session_id=(
+            input.agent_session_id if execution_origin == "agent" else None
+        ),
+        wf_id=str(input.run_context.wf_id),
+        wf_exec_id=str(input.run_context.wf_run_id),
+    )
+
+
 @dataclass
 class DispatchActionContext:
     role: Role
@@ -85,7 +122,7 @@ class DispatchActionContext:
 class RegistryArtifactsContext:
     origin: str
     version: str
-    tarball_uri: str
+    artifact_uri: str
 
 
 # Cache for individual artifacts (origin, version) -> RegistryArtifactsContext
@@ -143,7 +180,7 @@ async def get_registry_artifacts_for_lock(
 
     # Fetch all misses with a single UNION ALL query
     fetched_artifacts: list[RegistryArtifactsContext] = []
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         statements = []
 
         # Platform query (no org filter)
@@ -208,12 +245,12 @@ async def get_registry_artifacts_for_lock(
         # Process results
         found_keys: set[tuple[str, str]] = set()
         for row in rows:
-            origin_val, version_val, tarball_uri = row
-            if tarball_uri is not None:
+            origin_val, version_val, artifact_uri = row
+            if artifact_uri is not None:
                 artifact = RegistryArtifactsContext(
                     origin=origin_val,
                     version=version_val,
-                    tarball_uri=tarball_uri,
+                    artifact_uri=artifact_uri,
                 )
                 fetched_artifacts.append(artifact)
                 found_keys.add((origin_val, version_val))
@@ -222,7 +259,7 @@ async def get_registry_artifacts_for_lock(
                 await _artifact_cache.set(key=key, value=artifact)
             else:
                 logger.warning(
-                    "Registry version found but missing tarball_uri",
+                    "Registry version found but missing artifact URI",
                     origin=origin_val,
                     version=version_val,
                 )
@@ -366,10 +403,8 @@ async def _run_single_template_step(
         result = await _run_template_steps(defn, nested_context)
     else:
         logger.trace("Running UDF async", action=action.name)
-        # Get secrets from context
-        secrets = context.get("SECRETS", {})
-        flat_secrets = secrets_manager.flatten_secrets(secrets)
-        with secrets_manager.env_sandbox(flat_secrets):
+        secret_projection = await _get_template_secret_projection(context)
+        with secrets_manager.env_sandbox(secret_projection.env):
             result = await _run_action_direct(action=action, args=args)
 
     return result
@@ -397,16 +432,8 @@ async def _prepare_step_context(
         step_action, input.registry_lock, role.organization_id
     )
 
-    # Mint new executor token for step (required for SDK authentication)
-    if role.workspace_id is None:
-        raise ValueError("workspace_id is required for template step execution")
-    executor_token = mint_executor_token(
-        workspace_id=role.workspace_id,
-        user_id=role.user_id,
-        service_id=role.service_id,
-        wf_id=str(input.run_context.wf_id),
-        wf_exec_id=str(input.run_context.wf_run_id),
-    )
+    # Mint a fresh step token while retaining the root action's provenance.
+    executor_token = _mint_action_executor_token(input, role)
 
     # Reuse parent secrets/variables, use pre-evaluated args
     return ResolvedContext(
@@ -419,6 +446,7 @@ async def _prepare_step_context(
         run_id=parent_resolved.run_id,
         executor_token=executor_token,  # Mint new token for step
         logical_time=parent_resolved.logical_time,
+        secret_projection=parent_resolved.secret_projection,
     )
 
 
@@ -428,6 +456,7 @@ async def _execute_template_action(
     ctx: DispatchActionContext,
     resolved_context: ResolvedContext,
     timeout: float,
+    provenance: ProvenanceMap,
 ) -> Any:
     """Execute a template action by orchestrating its steps.
 
@@ -443,6 +472,7 @@ async def _execute_template_action(
         ctx: Dispatch context containing the role
         resolved_context: Pre-resolved context with secrets and template definition
         timeout: Execution timeout
+        provenance: Authored input-source and secret-path mapping for this invocation
 
     Returns:
         The evaluated returns expression result
@@ -474,8 +504,21 @@ async def _execute_template_action(
     else:
         validated_input_args = dict(resolved_context.evaluated_args)
 
-    # Build template context for expression evaluation
-    # Secrets context uses the pre-resolved secrets from parent
+    # Defaults enter the runtime input mapping during validation rather than
+    # through the caller's action arguments. Seed their authored source here so
+    # policy-aware child steps can redact or preserve them like explicit inputs.
+    default_source_args: dict[str, Any] = {
+        parameter: field.default
+        for parameter, field in template_def.expects.items()
+        if parameter not in provenance and field.has_default()
+    }
+    if default_source_args:
+        provenance = {
+            **provenance,
+            **build_provenance(default_source_args, provenance),
+        }
+
+    # Build template context for expression evaluation.
     secrets_context = resolved_context.secrets
     env_context = input.exec_context.get("ENV", DSLEnvironment())
     vars_context = resolved_context.variables
@@ -487,7 +530,6 @@ async def _execute_template_action(
         inputs=validated_input_args,
         steps={},
     )
-
     logger.info(
         "Executing template action via backend",
         action=template_def.action,
@@ -502,10 +544,11 @@ async def _execute_template_action(
             step_action=step.action,
         )
 
-        # Evaluate step args with template context
-        evaled_args = cast(
-            dict[str, Any],
-            eval_templated_object(step.args, operand=template_context),
+        evaled_args = resolve_action_args(
+            step.action,
+            step.args,
+            template_context,
+            provenance,
         )
 
         # Prepare step context (reuses parent secrets, no re-fetch)
@@ -517,6 +560,13 @@ async def _execute_template_action(
             role=role,
         )
 
+        # Nested templates receive provenance derived in this scope.
+        child_provenance = (
+            build_provenance(step.args, provenance)
+            if step_resolved.action_impl.type == "template"
+            else {}
+        )
+
         # Execute step via _invoke_step (handles nested templates)
         try:
             step_result = await _invoke_step(
@@ -525,6 +575,7 @@ async def _execute_template_action(
                 input=input,
                 ctx=ctx,
                 timeout=timeout,
+                provenance=child_provenance,
             )
         except ExecutionError:
             # Re-raise with step context preserved
@@ -557,6 +608,7 @@ async def _invoke_step(
     input: RunActionInput,
     ctx: DispatchActionContext,
     timeout: float,
+    provenance: ProvenanceMap,
 ) -> Any:
     """Execute a template step. Skips masking (done at root level).
 
@@ -570,6 +622,7 @@ async def _invoke_step(
         input: The original RunActionInput
         ctx: Dispatch context containing the role
         timeout: Execution timeout
+        provenance: Authored input-source and secret-path mapping for this invocation
 
     Returns:
         The step execution result (unmasked)
@@ -583,6 +636,7 @@ async def _invoke_step(
                 ctx=ctx,
                 resolved_context=resolved_context,
                 timeout=timeout,
+                provenance=provenance,
             )
         case "udf":
             # Leaf node - execute via backend
@@ -611,6 +665,28 @@ class PreparedContext:
 
     resolved_context: ResolvedContext
     mask_values: set[str] | None
+    provenance: ProvenanceMap | None = None
+
+
+async def _get_template_secret_projection(
+    context: TemplateExecutionContext,
+) -> SecretEnvProjection:
+    secrets = context.get("SECRETS", {})
+    role = ctx_role.get()
+    run_context = ctx_run.get()
+    if role is None or run_context is None:
+        flat_secrets = secrets_manager.flatten_secrets(secrets)
+        mask_values = {
+            value
+            for value in flat_secrets.values()
+            if isinstance(value, str) and len(value) > 1
+        }
+        return SecretEnvProjection(env=flat_secrets, mask_values=mask_values)
+    return await project_secret_env(
+        secrets=secrets,
+        role=role,
+        run_context=run_context,
+    )
 
 
 async def prepare_resolved_context(
@@ -641,8 +717,12 @@ async def prepare_resolved_context(
         action_name, input.registry_lock, role.organization_id
     )
 
-    # Collect expressions to know what secrets/variables are needed
-    collected = collect_expressions(task.args)
+    # Apply field policy before expression collection: preserved source is
+    # excluded, while secret-dependent occurrences in durable content are
+    # replaced before any argument-driven secret lookup.
+    argument_plan = ActionArgumentPlan.build(action_name, task.args)
+    provenance = build_provenance(task.args) if action_impl.type == "template" else None
+    collected = collect_expressions(argument_plan.evaluable)
 
     # Fetch secrets and variables
     secrets = await secrets_manager.get_action_secrets(
@@ -654,23 +734,7 @@ async def prepare_resolved_context(
         role=role,
     )
 
-    # Build mask values for secret masking
-    if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
-        logger.warning(
-            "Secrets masking is disabled. This is unsafe in production workflows."
-        )
-        mask_values = None
-    else:
-        mask_values = set()
-        for _, secret_value in traverse_leaves(secrets):
-            if secret_value is not None:
-                secret_str = str(secret_value)
-                if len(secret_str) > 1:
-                    mask_values.add(secret_str)
-                if isinstance(secret_value, str) and len(secret_value) > 1:
-                    mask_values.add(secret_value)
-
-    # Build execution context for SDK calls
+    # Build execution context for SDK calls (uses raw secrets for expression eval)
     context = input.exec_context.copy()
     context["SECRETS"] = secrets
     context["VARS"] = workspace_variables
@@ -698,9 +762,7 @@ async def prepare_resolved_context(
             logical_time=logical_time,
             has_interaction=input.interaction_context is not None,
         )
-
-        # Evaluate templated args (now with logical_time and interaction context set)
-        evaluated_args = evaluate_templated_args(task, context)
+        evaluated_args = argument_plan.evaluate(context)
     finally:
         ctx_logical_time.reset(logical_time_token)
         ctx_interaction.reset(interaction_token)
@@ -708,14 +770,24 @@ async def prepare_resolved_context(
     if role.workspace_id is None:
         raise ValueError("workspace_id is required for action execution")
 
-    # Generate executor token for SDK authentication
-    executor_token = mint_executor_token(
-        workspace_id=role.workspace_id,
-        user_id=role.user_id,
-        service_id=role.service_id,
-        wf_id=str(input.run_context.wf_id),
-        wf_exec_id=str(input.run_context.wf_run_id),
+    secret_projection = await project_secret_env(
+        secrets=secrets,
+        role=role,
+        run_context=input.run_context,
     )
+
+    # Build root-level masks from the runtime projection so host-side credential
+    # rewriting is also redacted from final outputs.
+    if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
+        logger.warning(
+            "Secrets masking is disabled. This is unsafe in production workflows."
+        )
+        mask_values = None
+    else:
+        mask_values = set(secret_projection.mask_values)
+
+    # Generate executor token for SDK authentication
+    executor_token = _mint_action_executor_token(input, role)
 
     resolved_context = ResolvedContext(
         secrets=secrets,
@@ -727,9 +799,14 @@ async def prepare_resolved_context(
         run_id=str(input.run_context.wf_run_id),
         executor_token=executor_token,
         logical_time=logical_time,
+        secret_projection=secret_projection,
     )
 
-    return PreparedContext(resolved_context=resolved_context, mask_values=mask_values)
+    return PreparedContext(
+        resolved_context=resolved_context,
+        mask_values=mask_values,
+        provenance=provenance,
+    )
 
 
 async def invoke_once(
@@ -741,7 +818,6 @@ async def invoke_once(
     """Execute action using the configured backend.
 
     The backend is selected via TRACECAT__EXECUTOR_BACKEND config:
-    - 'pool': Warm nsjail workers (single-tenant, high throughput)
     - 'ephemeral': Cold nsjail subprocess per action (multitenant, full isolation)
     - 'direct': Direct subprocess execution
     - 'test': In-process execution (tests only)
@@ -781,6 +857,7 @@ async def invoke_once(
             input=input,
             ctx=ctx,
             timeout=timeout,
+            provenance=prepared.provenance or {},
         )
 
     except ExecutionError as e:
@@ -804,10 +881,13 @@ async def invoke_once(
             exec_result.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
         raise ExecutionError(info=exec_result) from e
 
-    # Apply secret masking at root level only
-    # Steps don't mask - masking happens once here after all execution completes
+    # Apply secret masking at root level only. Large action results can make this
+    # CPU-bound traversal expensive, so keep it off the activity event loop where
+    # it could otherwise delay heartbeats for every activity on the worker.
     if mask_values:
-        action_result = apply_masks_object(action_result, masks=mask_values)
+        action_result = await asyncio.to_thread(
+            apply_masks_object, action_result, masks=mask_values
+        )
     return action_result
 
 
@@ -850,34 +930,56 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
 
     logger.info("Running for_each on action in parallel", action=task.action)
 
-    # Handle for_each by creating parallel executions
+    # Handle for_each by creating bounded parallel executions
     base_context = input.exec_context
     # We have a list of iterators that give a variable assignment path ".path.to.value"
     # and a collection of values as a tuple.
     iterators = get_iterables_from_expression(expr=task.for_each, operand=base_context)
 
-    tasks: list[asyncio.Task[ExecutionResult]] = []
+    max_concurrency = max(1, config.TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)
+    # Use a fixed worker pool instead of a semaphore around one task per loop item.
+    # A semaphore would cap active invokes, but still schedules every iteration and
+    # retains per-item task state for large loops. Workers pull lazily from the
+    # iterator, so memory and event-loop pressure scale with max_concurrency.
+    # Keep this loop-local; cross-activity caps must not use asyncio primitives
+    # because activities can run on different event loops.
+    loop_items = iter(enumerate(zip(*iterators, strict=False)))
+    results: dict[int, ExecutionResult] = {}
+    loop_errors: dict[int, ExecutionError] = {}
+    iteration_count = 0
+
+    async def worker() -> None:
+        nonlocal iteration_count
+
+        while True:
+            try:
+                i, items = next(loop_items)
+            except StopIteration:
+                return
+
+            iteration_count += 1
+            new_context = base_context.copy()
+            # Patch each loop variable
+            for iterator_path, iterator_value in items:
+                patch_object(
+                    obj=cast(MutableMapping[str, Any], new_context),
+                    path=ExprContext.LOCAL_VARS + iterator_path,
+                    value=iterator_value,
+                )
+            # Create a new task with the patched context
+            new_input = input.model_copy(update={"exec_context": new_context})
+            try:
+                results[i] = await invoke_once(backend, new_input, ctx, iteration=i)
+            except ExecutionError as e:
+                loop_errors[i] = e
+
     try:
-        # Create a generator that zips the iterables together
-        # Iterate over the for_each items
-        async with GatheringTaskGroup() as tg:
-            for i, items in enumerate(zip(*iterators, strict=False)):
-                new_context = base_context.copy()
-                # Patch each loop variable
-                for iterator_path, iterator_value in items:
-                    patch_object(
-                        obj=cast(MutableMapping[str, Any], new_context),
-                        path=ExprContext.LOCAL_VARS + iterator_path,
-                        value=iterator_value,
-                    )
-                # Create a new task with the patched context
-                new_input = input.model_copy(update={"exec_context": new_context})
-                coro = invoke_once(backend, new_input, ctx, iteration=i)
-                tasks.append(tg.create_task(coro))
-        return tg.results()
+        async with asyncio.TaskGroup() as tg:
+            for _ in range(max_concurrency):
+                tg.create_task(worker())
     except* ExecutionError as eg:
-        loop_errors = flatten_wrapped_exc_error_group(eg)
-        raise LoopExecutionError(loop_errors) from eg
+        grouped_loop_errors = flatten_wrapped_exc_error_group(eg)
+        raise LoopExecutionError(grouped_loop_errors) from eg
     except* Exception as eg:
         errors = [str(x) for x in eg.exceptions]
         logger.error("Unexpected error(s) in loop", errors=errors, exc_group=eg)
@@ -890,10 +992,9 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
             ),
             detail={"errors": errors},
         ) from eg
-    finally:
-        logger.debug("Shut down any pending tasks")
-        for t in tasks:
-            t.cancel()
+    if loop_errors:
+        raise LoopExecutionError([loop_errors[i] for i in sorted(loop_errors)])
+    return [results[i] for i in range(iteration_count)]
 
 
 """Utilities"""

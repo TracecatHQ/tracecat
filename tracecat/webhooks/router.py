@@ -1,5 +1,6 @@
+import uuid
 from itertools import batched
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 from fastapi import (
     APIRouter,
@@ -11,18 +12,37 @@ from fastapi import (
     Response,
     status,
 )
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from temporalio.service import RPCError
 
+from tracecat import config
 from tracecat.concurrency import cooperative
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.schemas import TriggerInputs
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.enums import InteractionCategory
 from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, generate_exec_id
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage import blob
+from tracecat.storage.collection import get_collection_page
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    InlineObject,
+    StoredObject,
+    StoredObjectValidator,
+)
+from tracecat.storage.utils import (
+    cached_blob_download,
+    compute_sha256,
+    deserialize_object,
+    serialize_object,
+)
 from tracecat.webhooks.dependencies import (
     DraftWorkflowDep,
     PayloadDep,
@@ -50,9 +70,174 @@ class OktaVerificationResponse(TypedDict):
     verification: str
 
 
+class WebhookStoredObjectInlineResponse(TypedDict):
+    kind: Literal["value"]
+    value: Any
+
+
+class WebhookStoredObjectDownloadResponse(TypedDict):
+    kind: Literal["download_file", "download_export"]
+    download_url: str
+    expires_in_seconds: int
+    content_type: str
+    size_bytes: int
+
+
+type WaitResultOutput = (
+    WebhookStoredObjectInlineResponse | WebhookStoredObjectDownloadResponse
+)
+
+
+type WaitResultUnwrappedOutput = (
+    dict[str, Any] | list[Any] | str | int | float | bool | None
+)
+
+
+class WaitResultUnwrapOverflowResponse(TypedDict):
+    detail: WebhookStoredObjectDownloadResponse
+
+
 type WebhookResponse = (
     WorkflowExecutionCreateResponse | OktaVerificationResponse | Response
 )
+
+
+async def _to_external_download_response(
+    external: ExternalObject,
+) -> WebhookStoredObjectDownloadResponse:
+    ref = external.ref
+    expiry = config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+    download_url = await blob.generate_presigned_download_url(
+        key=ref.key,
+        bucket=ref.bucket,
+        expiry=expiry,
+        force_download=True,
+        override_content_type="application/octet-stream",
+    )
+    return WebhookStoredObjectDownloadResponse(
+        kind="download_file",
+        download_url=download_url,
+        expires_in_seconds=expiry,
+        content_type=ref.content_type,
+        size_bytes=ref.size_bytes,
+    )
+
+
+async def _to_collection_download_response(
+    collection: CollectionObject,
+) -> WebhookStoredObjectDownloadResponse:
+    materialized = await _materialize_collection_values_for_wait(collection)
+    serialized = serialize_object(materialized)
+    prefix = collection.manifest_ref.key.removesuffix("/manifest.json")
+    export_key = f"{prefix}/downloads/{uuid.uuid4().hex}.json"
+
+    await blob.upload_file(
+        content=serialized,
+        key=export_key,
+        bucket=collection.manifest_ref.bucket,
+        content_type="application/json",
+    )
+
+    expiry = config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+    download_url = await blob.generate_presigned_download_url(
+        key=export_key,
+        bucket=collection.manifest_ref.bucket,
+        expiry=expiry,
+        force_download=True,
+        override_content_type="application/json",
+    )
+
+    return WebhookStoredObjectDownloadResponse(
+        kind="download_export",
+        download_url=download_url,
+        expires_in_seconds=expiry,
+        content_type="application/json",
+        size_bytes=len(serialized),
+    )
+
+
+async def _retrieve_external_value(external: ExternalObject) -> Any:
+    ref = external.ref
+    content = await cached_blob_download(
+        sha256=ref.sha256,
+        bucket=ref.bucket,
+        key=ref.key,
+    )
+
+    actual_sha256 = compute_sha256(content)
+    if actual_sha256 != ref.sha256:
+        raise ValueError(
+            f"Integrity check failed for {ref.key}: "
+            f"expected {ref.sha256}, got {actual_sha256}"
+        )
+    return deserialize_object(content)
+
+
+async def _resolve_stored_object_value(stored: StoredObject) -> Any:
+    match stored:
+        case InlineObject(data=data):
+            return data
+        case ExternalObject() as external:
+            return await _retrieve_external_value(external)
+        case CollectionObject() as collection:
+            return await _materialize_collection_values_for_wait(collection)
+        case _:
+            raise TypeError(f"Expected StoredObject, got {type(stored).__name__}")
+
+
+async def _materialize_collection_values_for_wait(
+    collection: CollectionObject,
+) -> Any:
+    if collection.index is not None:
+        index = collection.index
+        if index < 0:
+            index += collection.count
+        if index < 0 or index >= collection.count:
+            raise IndexError(
+                f"Collection index {index} out of range [0, {collection.count})"
+            )
+
+        items = await get_collection_page(collection, offset=index, limit=1)
+        if not items:
+            raise IndexError(
+                f"Collection index {index} out of range [0, {collection.count})"
+            )
+        item = items[0]
+        if collection.element_kind == "value":
+            return item
+        stored = StoredObjectValidator.validate_python(item)
+        return await _resolve_stored_object_value(stored)
+
+    items = await get_collection_page(collection)
+    if collection.element_kind == "value":
+        return items
+
+    values: list[Any] = []
+    for item in items:
+        stored = StoredObjectValidator.validate_python(item)
+        values.append(await _resolve_stored_object_value(stored))
+    return values
+
+
+async def _normalize_wait_result(value: StoredObject) -> WaitResultOutput:
+    """Normalize /wait response values for StoredObject variants.
+
+    - InlineObject: returns value envelope
+    - ExternalObject: returns download envelope
+    - CollectionObject: materializes and returns download envelope
+    """
+    match value:
+        case InlineObject(data=data):
+            return WebhookStoredObjectInlineResponse(
+                kind="value",
+                value=data,
+            )
+        case ExternalObject() as external:
+            return await _to_external_download_response(external)
+        case CollectionObject() as collection:
+            return await _to_collection_download_response(collection)
+        case _:
+            raise ValueError(f"Expected StoredObject, got {type(value).__name__}")
 
 
 # NOTE: Need to set response_model to None to avoid FastAPI trying to parse the response as JSON
@@ -90,6 +275,7 @@ async def incoming_webhook_post(
         vendor=vendor,
         request=request,
         content_type=content_type,
+        include_headers=getattr(request.state, "webhook_include_headers", False),
     )
 
 
@@ -126,7 +312,68 @@ async def incoming_webhook_get(
         vendor=vendor,
         request=request,
         content_type=content_type,
+        include_headers=getattr(request.state, "webhook_include_headers", False),
     )
+
+
+# Auth headers that must never be exposed to workflows via the trigger envelope.
+_REDACTED_HEADERS = frozenset({"x-tracecat-api-key"})
+
+
+class WebhookTriggerEnvelope(TypedDict):
+    """`core.http.request`-style envelope passed to TRIGGER when a webhook opts
+    into ``include_headers``."""
+
+    status_code: int
+    headers: dict[str, str]
+    data: TriggerInputs | None
+    raw_body: NotRequired[str]
+
+
+def _include_raw_body(input_schema: dict[str, Any] | None) -> bool:
+    """Preserve legacy include_headers schemas that forbid unknown fields."""
+    return not input_schema or "raw_body" in input_schema
+
+
+async def _wrap_with_headers(
+    payload: TriggerInputs | None, request: Request, *, include_raw_body: bool = True
+) -> WebhookTriggerEnvelope:
+    """Wrap the parsed body in a `core.http.request`-style envelope.
+
+    Strips sensitive auth headers so workflow authors can't read the webhook's
+    own credentials.
+    """
+    headers = {
+        k: v for k, v in request.headers.items() if k.lower() not in _REDACTED_HEADERS
+    }
+    envelope = WebhookTriggerEnvelope(
+        status_code=200,
+        headers=headers,
+        data=payload,
+    )
+    if include_raw_body:
+        body = await request.body()
+        envelope["raw_body"] = body.decode("utf-8")
+    return envelope
+
+
+async def _wrapped_payload(
+    request: Request,
+    payload: TriggerInputs | None,
+    *,
+    include_raw_body: bool = True,
+) -> TriggerInputs | None:
+    """Wrap the parsed body in the request envelope when the webhook opts in.
+
+    Used by trigger endpoints that pass the payload straight through (no NDJSON
+    batching), so the whole payload can be wrapped here. The root POST/GET path
+    wraps per-batch-item inside ``_incoming_webhook`` instead.
+    """
+    if getattr(request.state, "webhook_include_headers", False):
+        return await _wrap_with_headers(
+            payload, request, include_raw_body=include_raw_body
+        )
+    return payload
 
 
 async def _incoming_webhook(
@@ -139,11 +386,13 @@ async def _incoming_webhook(
     vendor: str | None,
     request: Request,
     content_type: str | None,
+    include_headers: bool = False,
 ) -> WebhookResponse:
     logger.info("Webhook hit", path=workflow_id, role=ctx_role.get())
     logger.trace("Webhook payload", payload=payload)
 
     dsl_input = DSLInput(**defn.content)
+    include_raw_body = _include_raw_body(dsl_input.entrypoint.expects)
 
     service = await WorkflowExecutionsService.connect()
     # If this was a ndjson, automatically batch the requests
@@ -157,7 +406,11 @@ async def _incoming_webhook(
             one_response = await service.create_workflow_execution_wait_for_start(
                 dsl=dsl_input,
                 wf_id=workflow_id,
-                payload=p,
+                payload=await _wrap_with_headers(
+                    p, request, include_raw_body=include_raw_body
+                )
+                if include_headers
+                else p,
                 trigger_type=TriggerType.WEBHOOK,
                 registry_lock=RegistryLock.model_validate(defn.registry_lock)
                 if defn.registry_lock
@@ -176,7 +429,11 @@ async def _incoming_webhook(
         response = await service.create_workflow_execution_wait_for_start(
             dsl=dsl_input,
             wf_id=workflow_id,
-            payload=payload,
+            payload=await _wrap_with_headers(
+                payload, request, include_raw_body=include_raw_body
+            )
+            if include_headers
+            else payload,
             trigger_type=TriggerType.WEBHOOK,
             registry_lock=RegistryLock.model_validate(defn.registry_lock)
             if defn.registry_lock
@@ -210,21 +467,52 @@ async def _incoming_webhook(
     return response
 
 
-@router.post("/wait")
+@router.post(
+    "/wait",
+    response_model=WaitResultOutput,
+    responses={
+        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: {
+            "model": WaitResultUnwrapOverflowResponse,
+            "description": (
+                "Unwrapped workflow result exceeded inline response limits. "
+                "Use `detail.download_url` to fetch the externalized result."
+            ),
+        }
+    },
+)
 async def incoming_webhook_wait(
     workflow_id: AnyWorkflowIDPath,
     defn: ValidWorkflowDefinitionDep,
     payload: PayloadDep,
-) -> Any:
+    request: Request,
+    unwrap: Annotated[
+        bool,
+        Query(
+            description=(
+                "Return the workflow result directly as the response body, without the "
+                "`{kind, value}` envelope. Requires the result to fit inline. If the "
+                "result was externalized, returns 413 with the download envelope in "
+                "`detail`."
+            ),
+        ),
+    ] = False,
+) -> WaitResultOutput | Response:
     """Webhook endpoint to trigger a workflow.
 
     This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
     The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
     """
     logger.info("Webhook hit", path=workflow_id, role=ctx_role.get())
-    logger.trace("Webhook payload", payload=payload)
+    # Do not log the payload here: it may be wrapped with request headers
+    # (include_headers), which can contain auth/signature values.
+    logger.trace("Webhook payload received")
 
     dsl_input = DSLInput(**defn.content)
+    payload = await _wrapped_payload(
+        request=request,
+        payload=payload,
+        include_raw_body=_include_raw_body(dsl_input.entrypoint.expects),
+    )
 
     service = await WorkflowExecutionsService.connect()
     response = await service.create_workflow_execution(
@@ -237,7 +525,16 @@ async def incoming_webhook_wait(
         else None,
     )
 
-    return response["result"]
+    result = response["result"]
+    if unwrap:
+        if isinstance(result, InlineObject):
+            return JSONResponse(content=jsonable_encoder(result.data))
+        envelope = await _normalize_wait_result(result)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=envelope,
+        )
+    return await _normalize_wait_result(result)
 
 
 @router.post("/draft", response_model=None)
@@ -245,6 +542,7 @@ async def incoming_webhook_draft(
     workflow_id: AnyWorkflowIDPath,
     draft_ctx: DraftWorkflowDep,
     payload: PayloadDep,
+    request: Request,
 ) -> WorkflowExecutionCreateResponse:
     """Draft webhook endpoint to trigger a workflow execution using the draft workflow graph.
 
@@ -252,7 +550,15 @@ async def incoming_webhook_draft(
     Child workflows using aliases will resolve to the latest draft aliases, not committed aliases.
     """
     logger.info("Draft webhook hit", path=workflow_id, role=ctx_role.get())
-    logger.trace("Draft webhook payload", payload=payload)
+    # Do not log the payload here: it may be wrapped with request headers
+    # (include_headers), which can contain auth/signature values.
+    logger.trace("Draft webhook payload received")
+
+    payload = await _wrapped_payload(
+        request=request,
+        payload=payload,
+        include_raw_body=_include_raw_body(draft_ctx.dsl.entrypoint.expects),
+    )
 
     service = await WorkflowExecutionsService.connect()
     pinned_action_results = await service.resolve_draft_pinned_action_results(

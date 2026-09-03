@@ -1,12 +1,12 @@
 # ECS Task Definition for Executor service
 resource "aws_ecs_task_definition" "executor_task_definition" {
-  family                   = "TracecatExecutorTaskDefinition"
+  family                   = "${var.iam_name_prefix}ExecutorTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.executor_cpu
   memory                   = var.executor_memory
   execution_role_arn       = aws_iam_role.worker_execution.arn
-  task_role_arn            = aws_iam_role.api_worker_task.arn
+  task_role_arn            = aws_iam_role.executor_task.arn
 
   runtime_platform {
     operating_system_family = "LINUX"

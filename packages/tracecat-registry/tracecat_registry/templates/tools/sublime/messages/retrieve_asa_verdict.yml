@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Retrieve ASA verdict
+  description: Retrieve the Autonomous Security Analyst verdict for a message.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/retrieveasaverdict
+  namespace: tools.sublime
+  name: retrieve_asa_verdict
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Sublime message ID.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/messages/${{ FN.url_encode(inputs.id) }}/asa_verdict
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

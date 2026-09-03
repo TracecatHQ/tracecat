@@ -29,3 +29,9 @@
 .ag-selection-col-aligned {
   padding-left: 18px !important;
 }
+
+/* Remove rounded corners from cell range/selection highlighting */
+.ag-cell-range-selected,
+.ag-cell-range-single-cell {
+  border-radius: 0 !important;
+}

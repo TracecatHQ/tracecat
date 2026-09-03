@@ -1,6 +1,6 @@
 """Sentry MCP OAuth integration using Model Context Protocol."""
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from tracecat.integrations.providers.base import MCPAuthProvider
 from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
@@ -39,3 +39,17 @@ class SentryMCPProvider(MCPAuthProvider):
         ),
         api_docs_url="https://docs.sentry.io/product/sentry-mcp/",
     )
+
+    def _get_additional_authorize_params(self) -> dict[str, Any]:
+        """Use the MCP endpoint as the OAuth resource for Sentry."""
+
+        params = super()._get_additional_authorize_params()
+        params["resource"] = self.mcp_server_uri
+        return params
+
+    def _get_additional_token_params(self) -> dict[str, Any]:
+        """Use the same MCP endpoint resource during token exchange."""
+
+        params = super()._get_additional_token_params()
+        params["resource"] = self.mcp_server_uri
+        return params

@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import NoResultFound
 
 from tracecat import config
 from tracecat.auth.credentials import SuperuserRole
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.exceptions import TracecatValidationError
+from tracecat.invitations.enums import InvitationStatus
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat_ee.admin.organizations.schemas import (
+    AdminOrgInvitationCreate,
+    AdminOrgInvitationCreateResponse,
+    AdminOrgInvitationRead,
+    AdminOrgInvitationTokenRead,
     OrgCreate,
     OrgDomainCreate,
     OrgDomainRead,
@@ -40,21 +47,25 @@ def _require_multi_tenant() -> None:
 @router.get("", response_model=list[OrgRead])
 async def list_organizations(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
 ) -> list[OrgRead]:
     """List all organizations."""
     service = AdminOrgService(session, role)
     return list(await service.list_organizations())
 
 
-@router.post("", response_model=OrgRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=OrgRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_require_multi_tenant)],
+)
 async def create_organization(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     params: OrgCreate,
 ) -> OrgRead:
     """Create a new organization."""
-    _require_multi_tenant()
     service = AdminOrgService(session, role)
     try:
         return await service.create_organization(params)
@@ -65,7 +76,7 @@ async def create_organization(
 @router.get("/{org_id}", response_model=OrgRead)
 async def get_organization(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
 ) -> OrgRead:
     """Get organization by ID."""
@@ -79,7 +90,7 @@ async def get_organization(
 @router.patch("/{org_id}", response_model=OrgRead)
 async def update_organization(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     params: OrgUpdate,
 ) -> OrgRead:
@@ -95,10 +106,14 @@ async def update_organization(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
-@router.delete("/{org_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{org_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(_require_multi_tenant)],
+)
 async def delete_organization(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     confirm: str | None = Query(
         default=None,
@@ -106,7 +121,6 @@ async def delete_organization(
     ),
 ) -> None:
     """Delete organization."""
-    _require_multi_tenant()
     service = AdminOrgService(session, role)
     try:
         await service.delete_organization(org_id, confirmation=confirm)
@@ -118,13 +132,126 @@ async def delete_organization(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
+# Org Invitation Endpoints
+
+
+@router.post(
+    "/{org_id}/invitations",
+    response_model=AdminOrgInvitationCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_organization_invitation(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    org_id: uuid.UUID,
+    params: AdminOrgInvitationCreate,
+) -> AdminOrgInvitationCreateResponse:
+    """Create a platform-scoped invitation for an organization."""
+    service = AdminOrgService(session, role)
+    try:
+        return await service.create_organization_invitation(org_id, params)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.get(
+    "/{org_id}/invitations",
+    response_model=CursorPaginatedResponse[AdminOrgInvitationRead],
+)
+async def list_organization_invitations(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    org_id: uuid.UUID,
+    invitation_status: InvitationStatus | None = Query(None, alias="status"),
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginatedResponse[AdminOrgInvitationRead]:
+    """List platform-created invitations for an organization."""
+    service = AdminOrgService(session, role)
+    try:
+        return await service.list_organization_invitations(
+            org_id,
+            status=invitation_status,
+            pagination=CursorPaginationParams(
+                limit=limit,
+                cursor=cursor,
+                reverse=reverse,
+            ),
+        )
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.get(
+    "/{org_id}/invitations/{invitation_id}/token",
+    response_model=AdminOrgInvitationTokenRead,
+)
+async def get_organization_invitation_token(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    org_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+) -> AdminOrgInvitationTokenRead:
+    """Get the raw token for a platform-created organization invitation."""
+    service = AdminOrgService(session, role)
+    try:
+        return await service.get_organization_invitation_token(org_id, invitation_id)
+    except (NoResultFound, ValueError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found",
+        ) from e
+
+
+@router.delete(
+    "/{org_id}/invitations/{invitation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_organization_invitation(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    org_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+) -> None:
+    """Revoke a pending platform-created organization invitation."""
+    service = AdminOrgService(session, role)
+    try:
+        await service.revoke_organization_invitation(org_id, invitation_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found",
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
 # Org Domain Endpoints
 
 
 @router.get("/{org_id}/domains", response_model=list[OrgDomainRead])
 async def list_organization_domains(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
 ) -> list[OrgDomainRead]:
     """List all assigned domains for an organization."""
@@ -142,7 +269,7 @@ async def list_organization_domains(
 )
 async def create_organization_domain(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     params: OrgDomainCreate,
 ) -> OrgDomainRead:
@@ -169,7 +296,7 @@ async def create_organization_domain(
 @router.patch("/{org_id}/domains/{domain_id}", response_model=OrgDomainRead)
 async def update_organization_domain(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     domain_id: uuid.UUID,
     params: OrgDomainUpdate,
@@ -196,7 +323,7 @@ async def update_organization_domain(
 @router.delete("/{org_id}/domains/{domain_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_organization_domain(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     domain_id: uuid.UUID,
 ) -> None:
@@ -223,7 +350,7 @@ async def delete_organization_domain(
 )
 async def list_org_repositories(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
 ) -> list[OrgRegistryRepositoryRead]:
     """List registry repositories for an organization."""
@@ -240,7 +367,7 @@ async def list_org_repositories(
 )
 async def list_org_repository_versions(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     repository_id: uuid.UUID,
 ) -> list[OrgRegistryVersionRead]:
@@ -258,7 +385,7 @@ async def list_org_repository_versions(
 )
 async def sync_org_repository(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     repository_id: uuid.UUID,
     params: OrgRegistrySyncRequest | None = None,
@@ -278,7 +405,7 @@ async def sync_org_repository(
 )
 async def promote_org_repository_version(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     repository_id: uuid.UUID,
     version_id: uuid.UUID,

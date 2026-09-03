@@ -2,6 +2,7 @@
 
 import {
   Copy,
+  CopyPlus,
   DownloadIcon,
   ExternalLink,
   FolderKanban,
@@ -36,16 +37,22 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowActions({
   item,
+  onDuplicateWorkflow,
+  duplicateDisabled = false,
   setSelectedWorkflow,
   setActiveDialog,
   showMoveToFolder = true,
   availableTags,
+  areTagsLoading = false,
 }: {
   item: WorkflowDirectoryItem
+  onDuplicateWorkflow: (item: WorkflowDirectoryItem) => void
+  duplicateDisabled?: boolean
   setSelectedWorkflow: (workflow: WorkflowReadMinimal) => void
   setActiveDialog?: (activeDialog: ActiveDialog | null) => void
   showMoveToFolder?: boolean
   availableTags?: TagRead[]
+  areTagsLoading?: boolean
 }) {
   const { appSettings } = useOrgAppSettings()
   const workspaceId = useWorkspaceId()
@@ -103,6 +110,17 @@ export function WorkflowActions({
           Copy workflow alias
         </ContextMenuItem>
       )}
+      <ContextMenuItem
+        className="text-xs"
+        onClick={(e) => {
+          e.stopPropagation() // Prevent row click
+          setSelectedWorkflow(item)
+          setActiveDialog?.(ActiveDialog.WorkflowRename)
+        }}
+      >
+        <Pencil className="mr-2 size-3.5" />
+        Rename workflow
+      </ContextMenuItem>
       {showMoveToFolder && (
         <ContextMenuItem
           className="text-xs"
@@ -185,6 +203,14 @@ export function WorkflowActions({
             </ContextMenuSubContent>
           </ContextMenuPortal>
         </ContextMenuSub>
+      ) : areTagsLoading ? (
+        <ContextMenuItem
+          className="!bg-transparent text-xs !text-muted-foreground"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <TagsIcon className="mr-2 size-3.5" />
+          <span>Loading tags...</span>
+        </ContextMenuItem>
       ) : (
         <ContextMenuItem
           className="!bg-transparent text-xs !text-muted-foreground hover:cursor-not-allowed"
@@ -225,6 +251,17 @@ export function WorkflowActions({
       >
         <Copy className="mr-2 size-3.5" />
         Copy workflow ID
+      </ContextMenuItem>
+      <ContextMenuItem
+        className="text-xs"
+        disabled={duplicateDisabled || !enabledExport}
+        onClick={(event) => {
+          event.stopPropagation()
+          onDuplicateWorkflow(item)
+        }}
+      >
+        <CopyPlus className="mr-2 size-3.5" />
+        Duplicate workflow
       </ContextMenuItem>
       <ContextMenuSeparator />
       <DeleteWorkflowAlertDialogTrigger asChild>

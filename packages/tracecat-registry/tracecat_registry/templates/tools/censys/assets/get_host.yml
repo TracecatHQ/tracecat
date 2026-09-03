@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Get host
+  description: Get a host. Calls GET /v3/global/asset/host/{host_id} directly.
+  display_group: Censys
+  doc_url: https://docs.censys.com/reference/v3-globaldata-asset-host
+  namespace: tools.censys
+  name: get_host
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_TOKEN"]
+  expects:
+    host_id:
+      type: str
+      description: The IP address of a host.
+    at_time:
+      type: str | None
+      description: RFC3339 Timestamp to view a host at a specific point in time. Must be a valid RFC3339 string. Ensure that you suffix the date with T00:00:00Z or a specific time.
+      default: null
+    organization_id:
+      type: str | None
+      description: The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Censys Platform API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.censys.base_url || "https://api.platform.censys.io" }}/v3/global/asset/host/${{ FN.url_encode(inputs.host_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
+        params:
+          at_time: ${{ inputs.at_time }}
+          organization_id: ${{ inputs.organization_id }}
+  returns: ${{ steps.request.result }}

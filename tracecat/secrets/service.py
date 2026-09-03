@@ -8,8 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.audit.logger import audit_log
+from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import BaseSecret, OrganizationSecret, Secret
@@ -45,10 +45,7 @@ class SecretsService(BaseOrgService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
-        encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
-        if not encryption_key:
-            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
-        self._encryption_key = encryption_key
+        self._encryption_key = get_db_encryption_key()
 
     def _require_workspace_id(self) -> WorkspaceID:
         """Get workspace_id, raising if role or workspace_id is None."""
@@ -254,9 +251,9 @@ class SecretsService(BaseOrgService):
                 " Please double check that the name was correctly input."
             ) from e
 
-    @require_scope("secret:update")
+    @require_scope("secret:create")
     @audit_log(resource_type="secret", action="create")
-    async def create_secret(self, params: SecretCreate) -> None:
+    async def create_secret(self, params: SecretCreate) -> Secret:
         """Create a workspace secret."""
         workspace_id = self._require_workspace_id()
         if params.type == SecretType.SSH_KEY:
@@ -276,8 +273,9 @@ class SecretsService(BaseOrgService):
         )
         self.session.add(secret)
         await self.session.commit()
+        return secret
 
-    @require_scope("secret:create")
+    @require_scope("secret:update")
     @audit_log(resource_type="secret", action="update")
     async def update_secret(self, secret: Secret, params: SecretUpdate) -> None:
         """Update a workspace secret."""
@@ -337,8 +335,7 @@ class SecretsService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalar_one()
 
-    @require_scope("org:secret:read")
-    async def get_org_secret_by_name(
+    async def _get_org_secret_by_name(
         self,
         secret_name: str,
         environment: str | None = None,
@@ -364,10 +361,32 @@ class SecretsService(BaseOrgService):
                 " Please double check that the name was correctly input."
             ) from e
 
+    @require_scope("org:secret:read")
+    async def get_org_secret_by_name(
+        self,
+        secret_name: str,
+        environment: str | None = None,
+    ) -> OrganizationSecret:
+        """Retrieve an organization-wide secret by its name."""
+        return await self._get_org_secret_by_name(secret_name, environment)
+
+    async def _get_github_app_org_secret(self) -> OrganizationSecret:
+        """Retrieve the GitHub App organization secret for workflow sync."""
+        return await self._get_org_secret_by_name("github-app-credentials")
+
+    @require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+    async def get_github_app_org_secret(self) -> OrganizationSecret:
+        """Retrieve the GitHub App organization secret for workflow sync."""
+        return await self._get_github_app_org_secret()
+
     @require_scope("org:secret:create")
-    @audit_log(resource_type="organization_secret", action="create")
     async def create_org_secret(self, params: SecretCreate) -> None:
         """Create a new organization secret."""
+        await self._create_org_secret(params)
+
+    @audit_log(resource_type="organization_secret", action="create")
+    async def _create_org_secret(self, params: SecretCreate) -> OrganizationSecret:
+        """Create an organization secret for callers with their own access gate."""
         if params.type == SecretType.SSH_KEY:
             validate_ssh_key_values(params.keys)
         elif params.type == SecretType.MTLS:
@@ -385,20 +404,31 @@ class SecretsService(BaseOrgService):
         )
         self.session.add(secret)
         await self.session.commit()
+        return secret
 
     @require_scope("org:secret:update")
-    @audit_log(resource_type="organization_secret", action="update")
     async def update_org_secret(
         self, secret: OrganizationSecret, params: SecretUpdate
     ) -> None:
+        await self._update_org_secret(secret=secret, params=params)
+
+    @audit_log(resource_type="organization_secret", action="update")
+    async def _update_org_secret(
+        self, secret: OrganizationSecret, params: SecretUpdate
+    ) -> None:
+        """Update an organization secret for callers with their own access gate."""
         await self._update_secret(secret=secret, params=params)
 
     @require_scope("org:secret:delete")
+    async def delete_org_secret(self, org_secret: OrganizationSecret) -> None:
+        await self._delete_org_secret(org_secret)
+
     @audit_log(
         resource_type="organization_secret",
         action="delete",
     )
-    async def delete_org_secret(self, org_secret: OrganizationSecret) -> None:
+    async def _delete_org_secret(self, org_secret: OrganizationSecret) -> None:
+        """Delete an organization secret for callers with their own access gate."""
         await self._delete_secret(org_secret)
 
     @require_scope("org:secret:read")
@@ -432,6 +462,6 @@ class SecretsService(BaseOrgService):
             return SecretStr(raw_value)
         except TracecatNotFoundError as e:
             raise TracecatCredentialsNotFoundError(
-                f"SSH key {key_name} not found. Please check whether this key exists.\n\n"
-                " If not, please create a key in your organization's credentials page and try again."
+                f"SSH key {key_name} not found. "
+                "Add one under Organization settings -> Custom registry -> Repository."
             ) from e

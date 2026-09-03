@@ -1,0 +1,269 @@
+/**
+ * @jest-environment jsdom
+ */
+
+import { render, screen } from "@testing-library/react"
+import type { ReactNode } from "react"
+import type { IntegrationRead, OAuthGrantType, ProviderRead } from "@/client"
+import { OAuthIntegrationDetailsDialog } from "@/components/integrations/oauth-integration-details-dialog"
+import {
+  useConnectProvider,
+  useDeleteProvider,
+  useDisconnectProvider,
+  useTestProvider,
+} from "@/hooks/use-integration-actions"
+import { useIntegrationProvider } from "@/lib/hooks"
+
+jest.mock("@/components/confirm-destructive-dialog", () => ({
+  ConfirmDestructiveDialog: () => null,
+}))
+
+jest.mock("@/components/icons", () => ({
+  ProviderIcon: () => <span data-testid="provider-icon" />,
+}))
+
+jest.mock("@/components/ui/dialog", () => ({
+  Dialog: ({
+    open,
+    children,
+  }: {
+    open: boolean
+    onOpenChange?: (open: boolean) => void
+    children: ReactNode
+  }) => (open ? <div>{children}</div> : null),
+  DialogContent: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogDescription: ({ children }: { children: ReactNode }) => (
+    <p>{children}</p>
+  ),
+  DialogHeader: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
+}))
+
+jest.mock("@/components/ui/dropdown-menu", () => ({
+  DropdownMenu: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DropdownMenuContent: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DropdownMenuItem: ({
+    children,
+    disabled,
+    onClick,
+  }: {
+    children: ReactNode
+    disabled?: boolean
+    onClick?: () => void
+  }) => (
+    <button type="button" disabled={disabled} onClick={onClick}>
+      {children}
+    </button>
+  ),
+  DropdownMenuSeparator: () => <hr />,
+  DropdownMenuTrigger: ({ children }: { children: ReactNode }) => (
+    <>{children}</>
+  ),
+}))
+
+jest.mock("@/components/ui/scroll-area", () => ({
+  ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+}))
+
+jest.mock("@/hooks/use-integration-actions", () => ({
+  useConnectProvider: jest.fn(),
+  useDeleteProvider: jest.fn(),
+  useDisconnectProvider: jest.fn(),
+  useTestProvider: jest.fn(),
+}))
+
+jest.mock("@/lib/hooks", () => ({
+  useIntegrationProvider: jest.fn(),
+}))
+
+jest.mock("@/providers/workspace-id", () => ({
+  useWorkspaceId: () => "workspace-1",
+}))
+
+const mockUseIntegrationProvider =
+  useIntegrationProvider as jest.MockedFunction<typeof useIntegrationProvider>
+const mockUseConnectProvider = useConnectProvider as jest.MockedFunction<
+  typeof useConnectProvider
+>
+const mockUseDisconnectProvider = useDisconnectProvider as jest.MockedFunction<
+  typeof useDisconnectProvider
+>
+const mockUseTestProvider = useTestProvider as jest.MockedFunction<
+  typeof useTestProvider
+>
+const mockUseDeleteProvider = useDeleteProvider as jest.MockedFunction<
+  typeof useDeleteProvider
+>
+
+const provider: ProviderRead = {
+  grant_type: "authorization_code",
+  metadata: {
+    id: "slack",
+    name: "Slack",
+    description: "Slack OAuth provider",
+  },
+  scopes: { default: [] },
+  config_schema: { json_schema: {} },
+  integration_status: "connected",
+  default_authorization_endpoint: null,
+  default_token_endpoint: null,
+}
+
+const integration: IntegrationRead = {
+  id: "integration-1",
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+  user_id: "user-1",
+  provider_id: "slack",
+  authorization_endpoint: null,
+  token_endpoint: null,
+  token_type: "Bearer",
+  expires_at: null,
+  client_id: "client-id",
+  granted_scopes: [],
+  requested_scopes: [],
+  status: "connected",
+  is_expired: false,
+}
+
+function setupMocks(
+  grantType: OAuthGrantType,
+  integrationOverrides: Partial<IntegrationRead> = {}
+) {
+  mockUseIntegrationProvider.mockReturnValue({
+    provider: { ...provider, grant_type: grantType },
+    providerIsLoading: false,
+    providerError: null,
+    integration: { ...integration, ...integrationOverrides },
+    integrationIsLoading: false,
+    integrationError: null,
+  } as unknown as ReturnType<typeof useIntegrationProvider>)
+
+  const mutation = {
+    isPending: false,
+    mutate: jest.fn(),
+    mutateAsync: jest.fn(),
+  }
+
+  mockUseConnectProvider.mockReturnValue(
+    mutation as unknown as ReturnType<typeof useConnectProvider>
+  )
+  mockUseDisconnectProvider.mockReturnValue(
+    mutation as unknown as ReturnType<typeof useDisconnectProvider>
+  )
+  mockUseTestProvider.mockReturnValue(
+    mutation as unknown as ReturnType<typeof useTestProvider>
+  )
+  mockUseDeleteProvider.mockReturnValue(
+    mutation as unknown as ReturnType<typeof useDeleteProvider>
+  )
+}
+
+function renderDialog(
+  grantType: OAuthGrantType,
+  integrationOverrides: Partial<IntegrationRead> = {},
+  {
+    providerId = "slack",
+    canDelete = false,
+  }: { providerId?: string; canDelete?: boolean } = {}
+) {
+  setupMocks(grantType, integrationOverrides)
+
+  render(
+    <OAuthIntegrationDetailsDialog
+      providerId={providerId}
+      grantType={grantType}
+      open={true}
+      onOpenChange={() => {}}
+      canUpdate={true}
+      canDelete={canDelete}
+    />
+  )
+}
+
+describe("OAuthIntegrationDetailsDialog", () => {
+  it("hides the Test action for authorization-code providers", () => {
+    renderDialog("authorization_code")
+
+    expect(
+      screen.queryByRole("button", { name: /test/i })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /reauthorize/i })
+    ).toBeInTheDocument()
+  })
+
+  it("shows the Test action for client-credentials providers", () => {
+    renderDialog("client_credentials")
+
+    expect(screen.getByRole("button", { name: /test/i })).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /reauthorize/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it.each<OAuthGrantType>(["authorization_code", "client_credentials"])(
+    "uses grant-type-neutral recovery guidance for %s providers",
+    (grantType) => {
+      renderDialog(grantType, {
+        status: "reauth_required",
+        is_expired: true,
+      })
+
+      expect(
+        screen.getByText(
+          "The access token expired. Reconnect to restore this integration."
+        )
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(
+          "The access token expired and no refresh token is available. Reauthorize to restore this integration."
+        )
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  it("shows the delete action for custom providers when allowed", () => {
+    renderDialog(
+      "authorization_code",
+      {},
+      { providerId: "custom_acme", canDelete: true }
+    )
+
+    expect(
+      screen.getByRole("button", { name: /delete provider/i })
+    ).toBeInTheDocument()
+  })
+
+  it("hides the delete action for custom providers without the scope", () => {
+    renderDialog(
+      "authorization_code",
+      {},
+      { providerId: "custom_acme", canDelete: false }
+    )
+
+    expect(
+      screen.queryByRole("button", { name: /delete provider/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it("hides the delete action for built-in providers", () => {
+    renderDialog(
+      "authorization_code",
+      {},
+      { providerId: "slack", canDelete: true }
+    )
+
+    expect(
+      screen.queryByRole("button", { name: /delete provider/i })
+    ).not.toBeInTheDocument()
+  })
+})

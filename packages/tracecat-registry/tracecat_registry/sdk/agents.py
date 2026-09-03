@@ -47,6 +47,33 @@ class MCPServerConfig(TypedDict):
     """Optional: Transport type. Defaults to 'http'."""
 
 
+class CursorPage(TypedDict):
+    items: list[dict[str, Any]]
+    next_cursor: str | None
+    has_more: bool
+
+
+class AgentPresetSkillBinding(TypedDict):
+    """Skill binding for attaching a published skill to an agent preset."""
+
+    skill_id: str
+    """Required skill identifier."""
+
+
+class SkillPublishFile(TypedDict):
+    """File payload for publishing a workspace skill version."""
+
+    path: str
+    content_base64: str
+    content_type: NotRequired[str | None]
+
+
+def _skill_identifier(skill_id: str, skill_uuid: str | uuid.UUID | None = None) -> str:
+    """Return the skill route identifier, preferring stable UUID over authoring slug."""
+
+    return str(skill_uuid) if skill_uuid is not None else skill_id
+
+
 class RankableItem(TypedDict):
     id: str | int
     text: str
@@ -59,6 +86,7 @@ class AgentConfig:
     # Model
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = None
     base_url: str | None = None
     # Agent
     instructions: str | None = None
@@ -87,6 +115,7 @@ async def run_agent(
     user_prompt: str,
     model_name: str,
     model_provider: str,
+    catalog_id: uuid.UUID | None = None,
     actions: list[str] | None = None,
     namespaces: list[str] | None = None,
     tool_approvals: dict[str, bool] | None = None,
@@ -128,7 +157,7 @@ async def run_agent(
     Returns:
         AgentOutput with result, message history, usage, and session ID.
     """
-    from tracecat_registry.context import get_context
+    from tracecat_registry import ctx
 
     # Handle legacy mcp_server_url/headers
     merged_mcp_servers: list[MCPServerConfig] | None = mcp_servers
@@ -143,12 +172,12 @@ async def run_agent(
             )
         )
 
-    ctx = get_context()
-    result = await ctx.agents.run(
+    result = await ctx.agents.aio.run(
         user_prompt=user_prompt,
         config=AgentConfig(
             model_name=model_name,
             model_provider=model_provider,
+            catalog_id=catalog_id,
             actions=actions,
             namespaces=namespaces,
             tool_approvals=tool_approvals,
@@ -178,6 +207,7 @@ async def rank_items(
     criteria_prompt: str,
     model_name: str,
     model_provider: str,
+    catalog_id: uuid.UUID | None = None,
     model_settings: dict[str, object] | None = None,
     max_requests: int = 5,
     retries: int = 3,
@@ -205,14 +235,14 @@ async def rank_items(
     Returns:
         List of item IDs in ranked order (most to least relevant).
     """
-    from tracecat_registry.context import get_context
+    from tracecat_registry import ctx
 
-    ctx = get_context()
-    return await ctx.agents.rank_items(
+    return await ctx.agents.aio.rank_items(
         items=items,
         criteria_prompt=criteria_prompt,
         model_name=model_name,
         model_provider=model_provider,
+        catalog_id=catalog_id,
         model_settings=model_settings,
         max_requests=max_requests,
         retries=retries,
@@ -227,6 +257,7 @@ async def rank_items_pairwise(
     criteria_prompt: str,
     model_name: str,
     model_provider: str,
+    catalog_id: uuid.UUID | None = None,
     id_field: str = "id",
     batch_size: int = 10,
     num_passes: int = 10,
@@ -262,14 +293,14 @@ async def rank_items_pairwise(
     Returns:
         List of item IDs in ranked order (most to least relevant).
     """
-    from tracecat_registry.context import get_context
+    from tracecat_registry import ctx
 
-    ctx = get_context()
-    return await ctx.agents.rank_items_pairwise(
+    return await ctx.agents.aio.rank_items_pairwise(
         items=items,
         criteria_prompt=criteria_prompt,
         model_name=model_name,
         model_provider=model_provider,
+        catalog_id=catalog_id,
         id_field=id_field,
         batch_size=batch_size,
         num_passes=num_passes,
@@ -297,6 +328,7 @@ class AgentsClient:
         user_prompt: str,
         config: AgentConfig | None = None,
         preset_slug: str | None = None,
+        preset_version: int | None = None,
         max_requests: int = 120,
         max_tool_calls: int | None = None,
     ) -> registry_types.AgentOutputRead:
@@ -308,6 +340,7 @@ class AgentsClient:
             user_prompt: The prompt for the agent.
             config: Inline agent configuration.
             preset_slug: Slug of a preset to use (resolves on server).
+            preset_version: Optional preset version number to pin.
             max_requests: Maximum LLM requests.
             max_tool_calls: Maximum tool calls.
 
@@ -319,9 +352,16 @@ class AgentsClient:
             "max_requests": max_requests,
         }
         if config is not None:
-            data["config"] = asdict(config)
+            config_data = {
+                key: value for key, value in asdict(config).items() if value is not None
+            }
+            if config.catalog_id is not None:
+                config_data["catalog_id"] = str(config.catalog_id)
+            data["config"] = config_data
         if preset_slug is not None:
             data["preset_slug"] = preset_slug
+        if preset_version is not None:
+            data["preset_version"] = preset_version
         if max_tool_calls is not None:
             data["max_tool_calls"] = max_tool_calls
 
@@ -334,6 +374,7 @@ class AgentsClient:
         criteria_prompt: str,
         model_name: str,
         model_provider: str,
+        catalog_id: uuid.UUID | None = None,
         model_settings: dict[str, object] | None = None,
         max_requests: int = 5,
         retries: int = 3,
@@ -366,6 +407,8 @@ class AgentsClient:
             "max_requests": max_requests,
             "retries": retries,
         }
+        if catalog_id is not None:
+            data["catalog_id"] = str(catalog_id)
         if model_settings is not None:
             data["model_settings"] = model_settings
         if base_url is not None:
@@ -384,6 +427,7 @@ class AgentsClient:
         criteria_prompt: str,
         model_name: str,
         model_provider: str,
+        catalog_id: uuid.UUID | None = None,
         id_field: str = "id",
         batch_size: int = 10,
         num_passes: int = 10,
@@ -428,6 +472,8 @@ class AgentsClient:
             "max_requests": max_requests,
             "retries": retries,
         }
+        if catalog_id is not None:
+            data["catalog_id"] = str(catalog_id)
         if model_settings is not None:
             data["model_settings"] = model_settings
         if base_url is not None:
@@ -438,6 +484,94 @@ class AgentsClient:
             data["max_items"] = max_items
 
         return await self._client.post("/agent/rank-pairwise", json=data)
+
+    # --- Skill methods ---
+
+    async def list_skills(
+        self, *, limit: int = 20, cursor: str | None = None, reverse: bool = False
+    ) -> CursorPage:
+        params: dict[str, Any] = {"limit": limit, "reverse": reverse}
+        if cursor is not None:
+            params["cursor"] = cursor
+        return await self._client.get("/agent/skills", params=params)
+
+    async def create_skill(
+        self, *, name: str, description: str | None = None
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {"name": name}
+        if description is not None:
+            data["description"] = description
+        return await self._client.post("/agent/skills", json=data)
+
+    async def get_skill(
+        self, skill_id: str, *, skill_uuid: str | uuid.UUID | None = None
+    ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        return await self._client.get(f"/agent/skills/{identifier}")
+
+    async def list_skill_versions(
+        self,
+        *,
+        skill_id: str,
+        skill_uuid: str | uuid.UUID | None = None,
+        limit: int = 20,
+        cursor: str | None = None,
+        reverse: bool = False,
+    ) -> CursorPage:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        params: dict[str, Any] = {"limit": limit, "reverse": reverse}
+        if cursor is not None:
+            params["cursor"] = cursor
+        return await self._client.get(
+            f"/agent/skills/{identifier}/versions", params=params
+        )
+
+    async def get_skill_version(
+        self,
+        *,
+        skill_id: str,
+        version_id: str | uuid.UUID,
+        skill_uuid: str | uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        return await self._client.get(
+            f"/agent/skills/{identifier}/versions/{version_id}"
+        )
+
+    async def publish_skill_version(
+        self,
+        *,
+        skill_id: str,
+        files: list[SkillPublishFile] | list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = None,
+        base_version_id: str | None = None,
+    ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        data: dict[str, Any] = {"files": files}
+        if base_version_id is not None:
+            data["base_version_id"] = base_version_id
+        return await self._client.post(
+            f"/agent/skills/{identifier}/versions",
+            json=data,
+        )
+
+    async def restore_skill_version(
+        self,
+        *,
+        skill_id: str,
+        version_id: str | uuid.UUID,
+        skill_uuid: str | uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        return await self._client.post(
+            f"/agent/skills/{identifier}/versions/{version_id}/restore"
+        )
+
+    async def archive_skill(
+        self, skill_id: str, *, skill_uuid: str | uuid.UUID | None = None
+    ) -> None:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        await self._client.delete(f"/agent/skills/{identifier}")
 
     # --- Preset methods ---
 
@@ -453,36 +587,55 @@ class AgentsClient:
         self,
         *,
         name: str,
-        model_name: str,
-        model_provider: str,
+        model_name: str | Unset = UNSET,
+        model_provider: str | Unset = UNSET,
+        catalog_id: str | Unset = UNSET,
         slug: str | Unset = UNSET,
         description: str | Unset = UNSET,
         instructions: str | Unset = UNSET,
         base_url: str | Unset = UNSET,
         output_type: str | dict[str, Any] | Unset = UNSET,
         actions: list[str] | Unset = UNSET,
+        namespaces: list[str] | Unset = UNSET,
+        tool_approvals: dict[str, bool] | Unset = UNSET,
+        mcp_integrations: list[str] | Unset = UNSET,
+        agents: dict[str, Any] | Unset = UNSET,
+        retries: int | Unset = UNSET,
+        enable_thinking: bool | Unset = UNSET,
+        enable_internet_access: bool | Unset = UNSET,
+        skills: list[AgentPresetSkillBinding] | Unset = UNSET,
     ) -> dict[str, Any]:
         """Create a new agent preset.
 
         Args:
             name: Human-readable name for the preset.
-            model_name: LLM model name (e.g., 'gpt-4', 'claude-3-opus').
-            model_provider: LLM provider identifier (e.g., 'openai', 'anthropic').
+            model_name: Deprecated legacy model name retained for backward
+                compatibility. Prefer catalog_id. Defaults to workspace default
+                if omitted.
+            model_provider: Deprecated legacy model provider retained for backward
+                compatibility. Prefer catalog_id. Defaults to workspace default
+                if omitted.
+            catalog_id: Canonical model catalog row ID backing this preset.
             slug: URL-friendly identifier. Auto-generated from name if not provided.
             description: Brief description of the preset's purpose.
             instructions: System instructions/prompt for the agent.
             base_url: Custom API endpoint URL for the model.
             output_type: Expected output format (type string or JSON schema).
             actions: List of action identifiers the agent can use as tools.
+            skills: Skill bindings containing `skill_id`.
 
         Returns:
             Created preset data.
         """
-        data: dict[str, Any] = {
-            "name": name,
-            "model_name": model_name,
-            "model_provider": model_provider,
-        }
+        data: dict[str, Any] = {"name": name}
+        # Deprecated legacy fields retained for backward compatibility.
+        # catalog_id is the canonical model selector for new callers.
+        if is_set(model_name):
+            data["model_name"] = model_name
+        if is_set(model_provider):
+            data["model_provider"] = model_provider
+        if is_set(catalog_id):
+            data["catalog_id"] = catalog_id
         if is_set(slug):
             data["slug"] = slug
         if is_set(description):
@@ -495,6 +648,22 @@ class AgentsClient:
             data["output_type"] = output_type
         if is_set(actions):
             data["actions"] = actions
+        if is_set(namespaces):
+            data["namespaces"] = namespaces
+        if is_set(tool_approvals):
+            data["tool_approvals"] = tool_approvals
+        if is_set(mcp_integrations):
+            data["mcp_integrations"] = mcp_integrations
+        if is_set(agents):
+            data["agents"] = agents
+        if is_set(retries):
+            data["retries"] = retries
+        if is_set(enable_thinking):
+            data["enable_thinking"] = enable_thinking
+        if is_set(enable_internet_access):
+            data["enable_internet_access"] = enable_internet_access
+        if is_set(skills):
+            data["skills"] = skills
         return await self._client.post("/agent/presets", json=data)
 
     async def get_preset(self, slug: str) -> dict[str, Any]:
@@ -521,9 +690,18 @@ class AgentsClient:
         instructions: str | Unset = UNSET,
         model_name: str | Unset = UNSET,
         model_provider: str | Unset = UNSET,
+        catalog_id: str | Unset = UNSET,
         base_url: str | Unset = UNSET,
         output_type: str | dict[str, Any] | Unset = UNSET,
         actions: list[str] | Unset = UNSET,
+        namespaces: list[str] | Unset = UNSET,
+        tool_approvals: dict[str, bool] | Unset = UNSET,
+        mcp_integrations: list[str] | Unset = UNSET,
+        agents: dict[str, Any] | Unset = UNSET,
+        retries: int | Unset = UNSET,
+        enable_thinking: bool | Unset = UNSET,
+        enable_internet_access: bool | Unset = UNSET,
+        skills: list[AgentPresetSkillBinding] | Unset = UNSET,
     ) -> dict[str, Any]:
         """Update an existing agent preset.
 
@@ -533,11 +711,15 @@ class AgentsClient:
             new_slug: Updated slug identifier.
             description: Updated description.
             instructions: Updated system instructions.
-            model_name: Updated LLM model name.
-            model_provider: Updated LLM provider.
+            model_name: Deprecated legacy model name retained for backward
+                compatibility. Prefer catalog_id.
+            model_provider: Deprecated legacy model provider retained for backward
+                compatibility. Prefer catalog_id.
+            catalog_id: Canonical model catalog row ID backing this preset.
             base_url: Updated custom API endpoint URL.
             output_type: Updated output format.
             actions: Updated list of action identifiers.
+            skills: Skill bindings containing `skill_id`.
 
         Returns:
             Updated preset data.
@@ -554,16 +736,36 @@ class AgentsClient:
             data["description"] = description
         if is_set(instructions):
             data["instructions"] = instructions
+        # Deprecated legacy fields retained for backward compatibility.
+        # catalog_id is the canonical model selector for new callers.
         if is_set(model_name):
             data["model_name"] = model_name
         if is_set(model_provider):
             data["model_provider"] = model_provider
+        if is_set(catalog_id):
+            data["catalog_id"] = catalog_id
         if is_set(base_url):
             data["base_url"] = base_url
         if is_set(output_type):
             data["output_type"] = output_type
         if is_set(actions):
             data["actions"] = actions
+        if is_set(namespaces):
+            data["namespaces"] = namespaces
+        if is_set(tool_approvals):
+            data["tool_approvals"] = tool_approvals
+        if is_set(mcp_integrations):
+            data["mcp_integrations"] = mcp_integrations
+        if is_set(agents):
+            data["agents"] = agents
+        if is_set(retries):
+            data["retries"] = retries
+        if is_set(enable_thinking):
+            data["enable_thinking"] = enable_thinking
+        if is_set(enable_internet_access):
+            data["enable_internet_access"] = enable_internet_access
+        if is_set(skills):
+            data["skills"] = skills
         return await self._client.patch(f"/agent/presets/by-slug/{slug}", json=data)
 
     async def delete_preset(self, slug: str) -> None:
@@ -583,6 +785,8 @@ __all__ = [
     "AgentOutput",
     "AgentsClient",
     "MCPServerConfig",
+    "AgentPresetSkillBinding",
+    "CursorPage",
     "OutputType",
     "RankableItem",
     "rank_items",

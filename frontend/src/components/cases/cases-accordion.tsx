@@ -16,6 +16,8 @@ import type { ComponentType } from "react"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
+  CaseDurationDefinitionRead,
+  CaseFieldReadMinimal,
   CaseReadMinimal,
   CaseSearchAggregateRead,
   CaseStatus,
@@ -23,8 +25,13 @@ import type {
   WorkspaceMember,
 } from "@/client"
 import { CaseItem } from "@/components/cases/case-item"
-import type { FilterMode, SortDirection } from "@/components/cases/cases-header"
+import type {
+  FilterMode,
+  SortDirection,
+} from "@/components/filters/filter-multi-select"
 import { cn } from "@/lib/utils"
+
+type CaseFieldMetadata = Pick<CaseFieldReadMinimal, "display_name" | "type">
 
 type StatusGroup =
   | "new"
@@ -77,6 +84,7 @@ const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
     icon: CheckCircleIcon,
     statuses: ["closed"],
     iconColor: "text-violet-600",
+    aggregateKey: "closed",
   },
   other: {
     label: "Other",
@@ -89,7 +97,8 @@ const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
     label: "Unknown",
     icon: CircleHelpIcon,
     statuses: ["unknown"],
-    iconColor: "text-slate-600",
+    iconColor: "text-muted-foreground",
+    aggregateKey: "unknown",
   },
 }
 
@@ -117,6 +126,9 @@ interface CasesAccordionProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  fieldMetadataById?: ReadonlyMap<string, CaseFieldMetadata>
+  durationNamesById?: ReadonlyMap<CaseDurationDefinitionRead["id"], string>
+  visibleColumnIds?: string[]
   prioritySortDirection?: SortDirection
   severitySortDirection?: SortDirection
   assigneeSortDirection?: SortDirection
@@ -144,6 +156,9 @@ interface VirtualizedGroupRowsProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  fieldMetadataById?: ReadonlyMap<string, CaseFieldMetadata>
+  durationNamesById?: ReadonlyMap<CaseDurationDefinitionRead["id"], string>
+  visibleColumnIds?: string[]
 }
 
 function VirtualizedGroupRows({
@@ -157,6 +172,9 @@ function VirtualizedGroupRows({
   tags,
   members,
   dropdownDefinitions,
+  fieldMetadataById,
+  durationNamesById,
+  visibleColumnIds,
 }: VirtualizedGroupRowsProps) {
   const groupContainerRef = useRef<HTMLDivElement | null>(null)
   const [scrollMargin, setScrollMargin] = useState(0)
@@ -265,6 +283,9 @@ function VirtualizedGroupRows({
               tags={tags}
               members={members}
               dropdownDefinitions={dropdownDefinitions}
+              fieldMetadataById={fieldMetadataById}
+              durationNamesById={durationNamesById}
+              visibleColumnIds={visibleColumnIds}
             />
           </div>
         )
@@ -283,6 +304,9 @@ export function CasesAccordion({
   tags,
   members,
   dropdownDefinitions,
+  fieldMetadataById,
+  durationNamesById,
+  visibleColumnIds,
   prioritySortDirection,
   severitySortDirection,
   assigneeSortDirection,
@@ -441,7 +465,7 @@ export function CasesAccordion({
                     groupKey === "other" &&
                       "data-[state=open]:border-l-muted-foreground data-[state=open]:bg-muted/50",
                     groupKey === "unknown" &&
-                      "data-[state=open]:border-l-slate-600 data-[state=open]:bg-slate-600/[0.03] dark:data-[state=open]:bg-slate-600/[0.08]"
+                      "data-[state=open]:border-l-muted-foreground data-[state=open]:bg-muted/50"
                   )}
                 >
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center">
@@ -474,6 +498,9 @@ export function CasesAccordion({
                     tags={tags}
                     members={members}
                     dropdownDefinitions={dropdownDefinitions}
+                    fieldMetadataById={fieldMetadataById}
+                    durationNamesById={durationNamesById}
+                    visibleColumnIds={visibleColumnIds}
                   />
                 </div>
               </AccordionPrimitive.Content>

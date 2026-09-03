@@ -4,13 +4,12 @@ Creates a per-job MCP server that exposes only configured tools and
 forwards execution requests to the trusted MCP server via Unix socket.
 
 Handles two types of tools:
-1. Registry actions (e.g., core.cases.list_cases) -> execute_action_tool
-2. User MCP tools (e.g., mcp__my-server__my_tool) -> execute_user_mcp_tool
+1. Registry actions (for example core.http_request or core.script.run_python) -> execute_action_tool
+2. User MCP tools (for example mcp__my-server__my_tool) -> execute_user_mcp_tool
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -19,11 +18,27 @@ from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_serv
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
+from tracecat.agent.common.config import TRUSTED_MCP_SOCKET_PATH
 from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.mcp.metadata import (
+    PROXY_TOOL_CALL_ID_KEY,
+    PROXY_TOOL_METADATA_KEY,
+    build_registry_tool_schema,
+    extract_proxy_tool_call_id,
+)
 from tracecat.agent.mcp.user_client import UserMCPClient
-from tracecat.agent.mcp.utils import action_name_to_mcp_tool_name
-from tracecat.agent.sandbox.config import TRUSTED_MCP_SOCKET_PATH
+from tracecat.agent.mcp.utils import (
+    action_name_to_mcp_tool_name,
+    flatten_mcp_content_blocks,
+)
 from tracecat.logger import logger
+
+__all__ = [
+    "PROXY_TOOL_CALL_ID_KEY",
+    "PROXY_TOOL_METADATA_KEY",
+    "build_registry_proxy_tool_schema",
+    "create_proxy_mcp_server",
+]
 
 
 class _UDSClientFactory:
@@ -63,6 +78,13 @@ def _create_uds_transport(socket_path: str) -> StreamableHttpTransport:
     )
 
 
+def build_registry_proxy_tool_schema(
+    parameters_json_schema: dict[str, Any],
+) -> dict[str, Any]:
+    """Augment a registry tool schema with optional internal Tracecat metadata."""
+    return build_registry_tool_schema(parameters_json_schema)
+
+
 def _make_tool_handler(
     trusted_tool_name: str,
     trusted_tool_args: dict[str, Any],
@@ -80,48 +102,56 @@ def _make_tool_handler(
 
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         logger.info("Proxy forwarding tool call", **log_context)
+        forwarded_args = dict(args)
+        tool_call_id = None
+        if trusted_tool_name == "execute_action_tool":
+            tool_call_id = extract_proxy_tool_call_id(forwarded_args)
 
         try:
             transport = _create_uds_transport(str(TRUSTED_MCP_SOCKET_PATH))
             async with Client(transport) as client:
+                payload = {
+                    **trusted_tool_args,
+                    "args": forwarded_args,
+                    "auth_token": auth_token,
+                }
+                if tool_call_id is not None:
+                    payload["tool_call_id"] = tool_call_id
                 call_result = await client.call_tool(
                     trusted_tool_name,
-                    {**trusted_tool_args, "args": args, "auth_token": auth_token},
+                    payload,
                 )
 
-            # Extract result text from content
-            result_text = ""
-            if call_result.content and len(call_result.content) > 0:
-                first_block = call_result.content[0]
-                result_text = getattr(first_block, "text", str(first_block))
+            result_text = flatten_mcp_content_blocks(call_result.content)
 
-            # Check if the tool call returned an error
-            # Return structured JSON so frontend can detect errors
             if call_result.is_error:
                 logger.error(
                     "Tool call returned error", error=result_text, **log_context
                 )
-                error_response = json.dumps(
-                    {
-                        "success": False,
-                        "error": result_text or "Tool execution failed",
-                    }
-                )
-                return {"content": [{"type": "text", "text": error_response}]}
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result_text or "Tool execution failed",
+                        }
+                    ],
+                    "is_error": True,
+                }
 
             return {"content": [{"type": "text", "text": result_text}]}
 
         except Exception as e:
-            # Unexpected exceptions - return structured error response
             error_msg = str(e)
             logger.error("Proxy request failed", error=error_msg, **log_context)
-            error_response = json.dumps(
-                {
-                    "success": False,
-                    "error": error_msg or "Tool execution failed",
-                }
-            )
-            return {"content": [{"type": "text", "text": error_response}]}
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": error_msg or "Tool execution failed",
+                    }
+                ],
+                "is_error": True,
+            }
 
     return _handler
 
@@ -136,9 +166,9 @@ async def create_proxy_mcp_server(
     execution requests to the trusted MCP server via Unix socket.
 
     Handles three types of tools:
-    - Registry actions (e.g., core.cases.list_cases) -> execute_action_tool
-    - User MCP tools (e.g., mcp__my-server__my_tool) -> execute_user_mcp_tool
-    - Internal tools (e.g., internal.builder.get_preset_summary) -> execute_internal_tool
+    - Registry actions (for example core.http_request or core.script.run_python) -> execute_action_tool
+    - User MCP tools (for example mcp__my-server__my_tool) -> execute_user_mcp_tool
+    - Internal tools -> execute_internal_tool
 
     Args:
         allowed_actions: Dict mapping action names to their definitions.
@@ -152,6 +182,7 @@ async def create_proxy_mcp_server(
     tools: list[SdkMcpTool[Any]] = []
 
     for action_name, defn in allowed_actions.items():
+        tool_schema = defn.parameters_json_schema
         # Check if this is a user MCP tool
         parsed = UserMCPClient.parse_user_mcp_tool_name(action_name)
 
@@ -184,6 +215,7 @@ async def create_proxy_mcp_server(
             tool_type = "internal"
         else:
             # Registry action tool
+            tool_schema = build_registry_proxy_tool_schema(defn.parameters_json_schema)
             handler = _make_tool_handler(
                 "execute_action_tool",
                 {"action_name": action_name},
@@ -194,9 +226,7 @@ async def create_proxy_mcp_server(
             mcp_tool_name = action_name_to_mcp_tool_name(action_name)
             tool_type = "registry"
 
-        decorated = tool(mcp_tool_name, defn.description, defn.parameters_json_schema)(
-            handler
-        )
+        decorated = tool(mcp_tool_name, defn.description, tool_schema)(handler)
         tools.append(decorated)
 
         logger.debug(

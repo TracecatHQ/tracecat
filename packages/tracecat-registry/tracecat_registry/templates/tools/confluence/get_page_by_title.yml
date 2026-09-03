@@ -49,4 +49,4 @@ definition:
         script: |
           def main(results):
               return results[0] if results else None
-  returns: ${{ steps.first_result.result.data }}
+  returns: ${{ steps.first_result.result }}

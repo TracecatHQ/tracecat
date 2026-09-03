@@ -4,16 +4,16 @@ import type {
   InteractionInput,
   RunActionInput,
   WorkflowEventType,
-  WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_,
-  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_,
+  WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_,
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_,
 } from "@/client"
 import { ACTION_REF_DELIMITER, undoSlugify } from "@/lib/utils"
 
 export type WorkflowExecutionEventCompact =
-  WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_
+  WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_
 
 export type WorkflowExecutionReadCompact =
-  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
 
 export type SyntheticPinnedEventMeta = {
   source_execution_id: string
@@ -21,6 +21,8 @@ export type SyntheticPinnedEventMeta = {
 }
 
 // Safe because refs are slugified. Use `workflow` to namespace from regular action refs.
+export const WF_TRIGGER_EVENT_REF = "__workflow_trigger__"
+export const WF_TRIGGER_EVENT_LABEL = "Trigger"
 export const WF_FAILURE_EVENT_REF = "__workflow_failure__"
 export const WF_FAILURE_EVENT_LABEL = "Workflow Failure"
 export const WF_COMPLETED_EVENT_REF = "__workflow_completed__"
@@ -304,11 +306,13 @@ export function getLoopEventMeta(
   return undefined
 }
 
-function getCompactEventTimestamp(
+/** Effective timestamp of a compact event: close, else start, else schedule time. */
+export function getCompactEventTimestamp(
   event: WorkflowExecutionEventCompact
 ): number {
-  const time = event.close_time || event.start_time || event.schedule_time
-  return new Date(time).getTime()
+  const time = event.close_time ?? event.start_time ?? event.schedule_time
+  const timestamp = new Date(time).getTime()
+  return Number.isNaN(timestamp) ? 0 : timestamp
 }
 
 export function getLatestLoopEventMeta(
@@ -362,6 +366,9 @@ export function isAgentOutput(
  * @returns The formatted display label for the action ref
  */
 export function refToLabel(actionRef: string) {
+  if (actionRef === WF_TRIGGER_EVENT_REF) {
+    return WF_TRIGGER_EVENT_LABEL
+  }
   if (actionRef === WF_FAILURE_EVENT_REF) {
     return WF_FAILURE_EVENT_LABEL
   }

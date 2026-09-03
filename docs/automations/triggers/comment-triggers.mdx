@@ -1,0 +1,78 @@
+---
+title: "Comment triggers"
+description: "Run Tracecat workflows from case comments and replies: parse comment text, route directives to actions and agents, and bridge analyst chat into automation."
+icon: "lock"
+---
+
+## Overview
+
+Type `/` in a case comment or reply, select the workflow from the autocomplete list, and submit the comment.
+Only published workflows appear in the list, so publish a draft before you run it from a comment.
+
+![Comment trigger](/img/triggers/comment-triggers.png)
+
+Your organization needs the case add-ons entitlement, and your workspace role needs `workflow:read` to list workflows, `workflow:execute` to run the workflow, and `case:update` to create the comment.
+Without `workflow:read` and `workflow:execute`, `/` behaves as regular comment text and never starts a workflow.
+Without the entitlement, `/` still opens the list, showing an Enterprise notice in place of workflow titles.
+
+Selecting the autocomplete result attaches the workflow.
+Typing a workflow title as plain text does not run it.
+
+A comment runs one workflow; picking a second workflow replaces the first.
+Tracecat removes the `/Workflow title` command from the comment body before it saves the comment, and a comment with only the command saves with an empty body.
+
+## Trigger payload
+
+Comment trigger data is available under `${{ TRIGGER }}`.
+
+Fields:
+
+- `${{ TRIGGER.case_id }}`: case ID.
+- `${{ TRIGGER.comment_id }}`: comment ID.
+- `${{ TRIGGER.parent_id }}`: parent comment ID, or `null` for a top-level comment.
+- `${{ TRIGGER.thread_root_id }}`: ID of the comment that starts the thread.
+- `${{ TRIGGER.is_reply }}`: `true` when the comment is a reply.
+- `${{ TRIGGER.comment }}`: comment text.
+- `${{ TRIGGER.text }}`: comment text, same value as `comment`.
+- `${{ TRIGGER.workspace_id }}`: workspace ID.
+- `${{ TRIGGER.triggered_by }}`: actor details.
+- `${{ TRIGGER.event }}`: event details.
+- `${{ TRIGGER.tags }}`: case tags.
+
+Example payload:
+
+```json
+{
+  "case_id": "case_01abc",
+  "comment_id": "cmt_01abc",
+  "parent_id": null,
+  "thread_root_id": "cmt_01abc",
+  "is_reply": false,
+  "comment": "Escalating to the IAM workflow.",
+  "text": "Escalating to the IAM workflow.",
+  "workspace_id": "ws_01abc",
+  "triggered_by": {
+    "type": "user",
+    "user_id": "usr_01abc",
+    "service_id": null
+  },
+  "event": {
+    "id": "evt_01abc",
+    "type": "comment_created",
+    "created_at": "2026-03-19T14:22:00+00:00",
+    "user_id": "usr_01abc"
+  },
+  "tags": [
+    {
+      "id": "tag_01abc",
+      "ref": "triage",
+      "name": "Triage",
+      "color": null
+    }
+  ]
+}
+```
+
+## Related pages
+
+- See [Agent mentions](/automations/cases/agent-mentions) to invoke a preset agent from a comment with `@` instead of running a workflow.

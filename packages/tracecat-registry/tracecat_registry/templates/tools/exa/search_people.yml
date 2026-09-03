@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: Search people
+  description: Search Exa's people index for professional profiles as a second opinion for people-enrichment workflows.
+  display_group: Exa
+  doc_url: https://exa.ai/docs/reference/verticals/people-for-coding-agents
+  namespace: tools.exa
+  name: search_people
+  secrets:
+    - name: exa
+      keys: ["EXA_API_KEY"]
+  expects:
+    query:
+      type: str
+      description: Natural language people search query. Encode role, skill, company, location, seniority, and other constraints in the query string.
+    type:
+      type: enum["instant", "fast", "auto", "deep-lite", "deep", "deep-reasoning"] | None
+      description: Search method. Exa recommends auto; deep and deep-reasoning also work.
+      default: auto
+    numResults:
+      type: int | None
+      description: Number of people results to return. Exa supports 1 to 100.
+      default: null
+    contents:
+      type: dict[str, Any] | None
+      description: Optional Exa contents options nested under the search request contents field, such as highlights, text, or summary.
+      default: null
+    outputSchema:
+      type: dict[str, Any] | None
+      description: Optional JSON schema for structured output when using deep search modes.
+      default: null
+  steps:
+    - ref: search_people
+      action: core.http_request
+      args:
+        url: https://api.exa.ai/search
+        method: POST
+        headers:
+          Content-Type: application/json
+          x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
+        payload:
+          query: ${{ inputs.query }}
+          category: people
+          type: ${{ inputs.type }}
+          numResults: ${{ inputs.numResults }}
+          contents: ${{ inputs.contents }}
+          outputSchema: ${{ inputs.outputSchema }}
+  returns: ${{ steps.search_people.result.data }}

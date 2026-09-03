@@ -6,6 +6,7 @@ import pytest
 
 from tracecat.auth.types import Role
 from tracecat.authz.controls import (
+    ensure_can_grant_scopes,
     get_missing_scopes,
     has_all_scopes,
     has_any_scope,
@@ -27,7 +28,7 @@ from tracecat.authz.scopes import (
     WORKSPACE_OPERATIONAL_SCOPES,
 )
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import ScopeDeniedError
+from tracecat.exceptions import ScopeDeniedError, TracecatAuthorizationError
 
 
 @pytest.fixture(autouse=True)
@@ -244,6 +245,34 @@ class TestGetMissingScopes:
         assert missing == set()
 
 
+class TestEnsureCanGrantScopes:
+    """Tests for the scope-ceiling check, including wildcard semantics.
+
+    Wildcard matching is inherited from ``has_scope``; these pin the ceiling
+    behavior on both sides of the wildcard so a change to ``has_scope``
+    semantics cannot silently open an escalation path.
+    """
+
+    def test_exact_match_allowed(self):
+        ensure_can_grant_scopes(frozenset({"org:member:read"}), ["org:member:read"])
+
+    def test_wildcard_granter_covers_concrete_scope(self):
+        ensure_can_grant_scopes(frozenset({"org:*"}), ["org:owner:assign"])
+
+    def test_concrete_granter_cannot_grant_wildcard_scope(self):
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match=r"Cannot grant scopes not held by the caller: org:\*",
+        ):
+            ensure_can_grant_scopes(
+                frozenset({"org:read", "org:owner:assign"}), ["org:*"]
+            )
+
+    def test_empty_granter_denied(self):
+        with pytest.raises(TracecatAuthorizationError):
+            ensure_can_grant_scopes(frozenset(), ["org:member:read"])
+
+
 class TestSystemRoleScopes:
     """Tests for system role scope definitions."""
 
@@ -288,8 +317,20 @@ class TestOrgRoleScopes:
 
     def test_member_has_minimal_scopes(self):
         assert ORG_MEMBER_SCOPES == frozenset(
-            {"org:read", "org:member:read", "org:registry:read"}
+            {
+                "org:read",
+                "org:member:read",
+                "org:registry:read",
+                "agent:read",
+                "agent:execute",
+                "org:secret:read",
+            }
         )
+
+    def test_member_can_execute_agents_with_org_secret_read(self):
+        required_scopes = {"agent:read", "agent:execute", "org:secret:read"}
+
+        assert required_scopes.issubset(PRESET_ROLE_SCOPES["organization-member"])
 
 
 class TestRequireScopeDecorator:
@@ -493,8 +534,8 @@ class TestServicePrincipalScopes:
     """Tests for service principal scope definitions.
 
     Regression: the LLM gateway needs org:secret:read to fetch provider
-    credentials for copilot chat via SecretsService.get_org_secret_by_name().
-    Without it, copilot chat fails with ScopeDeniedError for all users.
+    credentials for Workspace Chat via SecretsService.get_org_secret_by_name().
+    Without it, Workspace Chat fails with ScopeDeniedError for all users.
     """
 
     def test_llm_gateway_has_org_secret_read(self):

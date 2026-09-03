@@ -5,7 +5,11 @@ import {
   FilePlus2,
   Flag,
   Flame,
+  FormInput,
   GitCompare,
+  List,
+  MessageSquarePlus,
+  MessageSquareX,
   PenSquare,
   RotateCcw,
   Tag,
@@ -79,6 +83,36 @@ export const CASE_EVENT_OPTIONS: CaseEventOption[] = [
     label: "Tag removed",
     icon: Tag,
   },
+  {
+    value: "fields_changed",
+    label: "Custom field changed",
+    icon: FormInput,
+  },
+  {
+    value: "dropdown_value_changed",
+    label: "Dropdown value changed",
+    icon: List,
+  },
+  {
+    value: "comment_created",
+    label: "Comment added",
+    icon: MessageSquarePlus,
+  },
+  {
+    value: "comment_deleted",
+    label: "Comment deleted",
+    icon: MessageSquareX,
+  },
+  {
+    value: "comment_reply_created",
+    label: "Comment reply added",
+    icon: MessageSquarePlus,
+  },
+  {
+    value: "comment_reply_deleted",
+    label: "Comment reply deleted",
+    icon: MessageSquareX,
+  },
 ]
 
 export const CASE_EVENT_VALUES = CASE_EVENT_OPTIONS.map(
@@ -150,6 +184,14 @@ export function isCaseTagEventType(
   value: CaseEventType
 ): value is CaseTagEventType {
   return (CASE_TAG_EVENT_TYPES as readonly CaseEventType[]).includes(value)
+}
+
+export function isCaseFieldEventType(value: CaseEventType): boolean {
+  return value === "fields_changed"
+}
+
+export function isCaseDropdownEventType(value: CaseEventType): boolean {
+  return value === "dropdown_value_changed"
 }
 
 export function getCaseEventOption(value: CaseEventType): CaseEventOption {

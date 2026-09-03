@@ -8,6 +8,7 @@ from .schemas import (
     CaseDurationDefinitionRead,
     CaseDurationDefinitionUpdate,
     CaseDurationEventAnchor,
+    CaseDurationEventFilters,
     CaseDurationRead,
     CaseDurationUpdate,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "CaseDurationDefinitionService",  # pyright: ignore[reportUnsupportedDunderAll]
     "CaseDurationDefinitionUpdate",
     "CaseDurationEventAnchor",
+    "CaseDurationEventFilters",
     "CaseDurationRead",
     "CaseDurationService",  # pyright: ignore[reportUnsupportedDunderAll]
     "CaseDurationUpdate",

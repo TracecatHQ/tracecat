@@ -3,7 +3,6 @@
 import type { ControllerRenderProps } from "react-hook-form"
 import type { TableColumnRead } from "@/client"
 import { MultiTagCommandInput } from "@/components/tags-input"
-import { DateTimePicker } from "@/components/ui/date-time-picker"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -47,36 +46,29 @@ export function DynamicInput({
     case "INTEGER":
       return (
         <Input
-          type="number"
+          type="text"
+          inputMode="numeric"
           placeholder="Enter an integer"
           value={
             field.value === null || field.value === undefined
               ? ""
-              : (field.value as number)
+              : String(field.value)
           }
-          onChange={(e) =>
-            field.onChange(
-              e.target.value === "" ? null : Number(e.target.value)
-            )
-          }
+          onChange={(e) => field.onChange(e.target.value)}
         />
       )
     case "NUMERIC":
       return (
         <Input
-          type="number"
-          step="any"
+          type="text"
+          inputMode="decimal"
           placeholder="Enter a number"
           value={
             field.value === null || field.value === undefined
               ? ""
-              : (field.value as number)
+              : String(field.value)
           }
-          onChange={(e) =>
-            field.onChange(
-              e.target.value === "" ? null : Number(e.target.value)
-            )
-          }
+          onChange={(e) => field.onChange(e.target.value)}
         />
       )
     case "JSONB":
@@ -88,25 +80,19 @@ export function DynamicInput({
           onChange={(e) => field.onChange(e.target.value)}
         />
       )
-    case "TIMESTAMPTZ": {
-      const stringValue =
-        typeof field.value === "string" && field.value.length > 0
-          ? field.value
-          : undefined
-      const parsedDate =
-        stringValue !== undefined ? new Date(stringValue) : null
-      const dateValue =
-        parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
-
+    case "TIMESTAMPTZ":
       return (
-        <DateTimePicker
-          value={dateValue}
-          onChange={(next) => field.onChange(next ? next.toISOString() : "")}
-          onBlur={field.onBlur}
-          buttonProps={{ className: "w-full" }}
+        <Input
+          type="text"
+          placeholder="YYYY-MM-DDTHH:mm:ss.Z"
+          value={
+            field.value === null || field.value === undefined
+              ? ""
+              : String(field.value)
+          }
+          onChange={(e) => field.onChange(e.target.value)}
         />
       )
-    }
     case "SELECT": {
       if (options && options.length > 0) {
         const stringValue =
@@ -163,19 +149,19 @@ export function DynamicInput({
         />
       )
     }
-    case "DATE": {
-      const stringValue =
-        typeof field.value === "string" && field.value.length > 0
-          ? field.value
-          : ""
+    case "DATE":
       return (
         <Input
-          type="date"
-          value={stringValue}
+          type="text"
+          placeholder="YYYY-MM-DD"
+          value={
+            field.value === null || field.value === undefined
+              ? ""
+              : String(field.value)
+          }
           onChange={(e) => field.onChange(e.target.value)}
         />
       )
-    }
     case "TEXT":
     default:
       return (

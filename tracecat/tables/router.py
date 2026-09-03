@@ -1,6 +1,6 @@
 import csv
 from io import StringIO
-from typing import Annotated, Any, Literal, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 import orjson
@@ -18,14 +18,14 @@ from fastapi import (
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatImportError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.tables.common import ColumnHasDuplicateValuesError
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import CSVImporter, normalize_csv_header
 from tracecat.tables.schemas import (
@@ -51,23 +51,6 @@ from tracecat.tables.schemas import (
 from tracecat.tables.service import TablesService
 
 router = APIRouter(prefix="/tables", tags=["tables"])
-
-WorkspaceUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
-WorkspaceEditorUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
 
 
 async def _read_csv_upload_with_limit(file: UploadFile, *, max_size: int) -> bytes:
@@ -110,7 +93,7 @@ async def _read_csv_upload_with_limit(file: UploadFile, *, max_size: int) -> byt
 @router.get("")
 @require_scope("table:read")
 async def list_tables(
-    role: WorkspaceUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
 ) -> list[TableReadMinimal]:
     """List all tables."""
@@ -124,7 +107,7 @@ async def list_tables(
 @router.post("", status_code=status.HTTP_201_CREATED)
 @require_scope("table:create")
 async def create_table(
-    role: WorkspaceEditorUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: TableCreate,
 ) -> None:
@@ -132,6 +115,11 @@ async def create_table(
     service = TablesService(session, role=role)
     try:
         await service.create_table(params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except ProgrammingError as e:
         # Drill down to the root cause
         while (cause := e.__cause__) is not None:
@@ -158,7 +146,7 @@ async def create_table(
 @router.get("/{table_id}", response_model=TableRead)
 @require_scope("table:read")
 async def get_table(
-    role: WorkspaceUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
 ) -> TableRead:
@@ -197,7 +185,7 @@ async def get_table(
 @router.patch("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("table:update")
 async def update_table(
-    role: WorkspaceEditorUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableUpdate,
@@ -231,7 +219,7 @@ async def update_table(
 @router.delete("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("table:delete")
 async def delete_table(
-    role: WorkspaceEditorUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
 ) -> None:
@@ -250,7 +238,7 @@ async def delete_table(
 @router.post("/{table_id}/columns", status_code=status.HTTP_201_CREATED)
 @require_scope("table:create")
 async def create_column(
-    role: WorkspaceEditorUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableColumnCreate,
@@ -266,6 +254,11 @@ async def create_column(
         ) from e
     try:
         await service.create_column(table, params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except ProgrammingError as e:
         # Drill down to the root cause
         while (cause := e.__cause__) is not None:
@@ -288,7 +281,7 @@ async def create_column(
 )
 @require_scope("table:update")
 async def update_column(
-    role: WorkspaceEditorUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     column_id: TableColumnID,
@@ -305,6 +298,11 @@ async def update_column(
         ) from e
     try:
         await service.update_column(column, params)
+    except ColumnHasDuplicateValuesError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -331,7 +329,7 @@ async def update_column(
 )
 @require_scope("table:delete")
 async def delete_column(
-    role: WorkspaceEditorUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     column_id: TableColumnID,
@@ -351,7 +349,7 @@ async def delete_column(
 @router.get("/{table_id}/rows")
 @require_scope("table:read")
 async def list_rows(
-    role: WorkspaceUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     limit: int = Query(
@@ -412,7 +410,7 @@ async def list_rows(
 @router.get("/{table_id}/rows/{row_id}")
 @require_scope("table:read")
 async def get_row(
-    role: WorkspaceUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     row_id: UUID,
@@ -434,7 +432,7 @@ async def get_row(
 @router.post("/{table_id}/rows", status_code=status.HTTP_201_CREATED)
 @require_scope("table:create")
 async def insert_row(
-    role: WorkspaceUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableRowInsert,
@@ -465,7 +463,7 @@ async def insert_row(
 @router.delete("/{table_id}/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("table:delete")
 async def delete_row(
-    role: WorkspaceEditorUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     row_id: UUID,
@@ -485,7 +483,7 @@ async def delete_row(
 @router.patch("/{table_id}/rows/{row_id}")
 @require_scope("table:update")
 async def update_row(
-    role: WorkspaceEditorUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     row_id: UUID,
@@ -524,7 +522,7 @@ async def update_row(
 @router.post("/{table_id}/rows/batch", status_code=status.HTTP_201_CREATED)
 @require_scope("table:create")
 async def batch_insert_rows(
-    role: WorkspaceUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableRowInsertBatch,
@@ -561,7 +559,7 @@ async def batch_insert_rows(
 
 @router.post("/{table_id}/rows/batch-delete")
 async def batch_delete_rows(
-    role: WorkspaceEditorUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableRowBatchDelete,
@@ -594,7 +592,7 @@ async def batch_delete_rows(
 
 @router.post("/{table_id}/rows/batch-update")
 async def batch_update_rows(
-    role: WorkspaceEditorUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableRowBatchUpdate,
@@ -638,7 +636,7 @@ async def get_column_mapping(column_mapping: str = Form(...)) -> dict[str, str]:
 @router.post("/import", status_code=status.HTTP_201_CREATED)
 @require_scope("table:create")
 async def import_table_from_csv(
-    role: WorkspaceEditorUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     file: UploadFile = File(...),
     table_name: str | None = Form(default=None),
@@ -702,7 +700,7 @@ async def import_table_from_csv(
 @router.post("/{table_id}/import", status_code=status.HTTP_201_CREATED)
 @require_scope("table:create")
 async def import_csv(
-    role: WorkspaceUser,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     file: UploadFile = File(...),

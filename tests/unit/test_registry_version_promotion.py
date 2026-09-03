@@ -149,11 +149,11 @@ async def test_promote_version_wrong_repository(
 
 
 @pytest.mark.anyio
-async def test_promote_version_missing_tarball(
+async def test_promote_version_missing_execution_artifact(
     svc_admin_role: Role,
     session: AsyncSession,
 ) -> None:
-    """Test that promoting a version without tarball fails."""
+    """Test that promoting a version without an execution artifact fails."""
     # Create a repository
     repo = RegistryRepository(
         organization_id=svc_admin_role.organization_id,
@@ -173,10 +173,10 @@ async def test_promote_version_missing_tarball(
     session.add(version)
     await session.commit()
 
-    # Try to promote version without tarball
+    # Try to promote version without an execution artifact
     service = RegistryReposService(session, role=svc_admin_role)
 
-    with pytest.raises(RegistryError, match="no tarball artifact"):
+    with pytest.raises(RegistryError, match="no execution artifact"):
         await service.promote_version(repo, version.id)
 
 

@@ -31,6 +31,7 @@ class WebhookRead(Schema):
     methods: list[WebhookMethod] = Field(
         default_factory=list, description="Methods to allow"
     )
+    include_headers: bool = False
     workflow_id: WorkflowID
     url: str
     api_key: WebhookApiKeyRead | None = None
@@ -51,6 +52,14 @@ class WebhookRead(Schema):
             return {}
         return v
 
+    @field_validator("include_headers", mode="before")
+    @classmethod
+    def _coerce_none_to_false(cls, v: Any) -> Any:
+        """ORM attribute may be NULL before flush; coerce to False."""
+        if v is None:
+            return False
+        return v
+
 
 class WebhookCreate(BaseModel):
     status: WebhookStatus = "offline"
@@ -59,6 +68,7 @@ class WebhookCreate(BaseModel):
     )
     entrypoint_ref: str | None = None
     allowlisted_cidrs: list[str] = Field(default_factory=list)
+    include_headers: bool = False
 
     @field_validator("allowlisted_cidrs")
     @classmethod
@@ -71,6 +81,7 @@ class WebhookUpdate(BaseModel):
     methods: list[WebhookMethod] | None = None
     entrypoint_ref: str | None = None
     allowlisted_cidrs: list[str] | None = None
+    include_headers: bool | None = None
 
     @field_validator("allowlisted_cidrs")
     @classmethod

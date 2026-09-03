@@ -1,11 +1,18 @@
-from typing import Literal, NotRequired, TypedDict
+from typing import Literal, NotRequired, Self, TypedDict
 
 import dateparser
 import yaml
-from pydantic import Field, TypeAdapter, computed_field, field_validator
+from pydantic import (
+    Field,
+    TypeAdapter,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
+from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.core.schemas import Schema
-from tracecat.dsl.enums import JoinStrategy
+from tracecat.dsl.enums import JoinStrategy, PlatformAction
 from tracecat.dsl.schemas import ActionRetryPolicy
 from tracecat.dsl.view import Position
 from tracecat.identifiers.action import ActionID
@@ -58,6 +65,13 @@ class ActionControlFlow(Schema):
         default=None,
         description="Override environment for this action's execution",
     )
+    mask_output: bool = Field(
+        default=False,
+        description=(
+            "If true, redact this action's result in workflow execution API "
+            "responses while preserving internal workflow data flow between actions."
+        ),
+    )
 
     @field_validator("wait_until", mode="before")
     def validate_wait_until(cls, v: str | None) -> str | None:
@@ -85,6 +99,14 @@ class ActionRead(Schema):
     position_x: float = 0.0
     position_y: float = 0.0
     upstream_edges: list[ActionEdge] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize_agent_timeout(self) -> Self:
+        """Expose the same deployment-bounded timeout that executes."""
+        if PlatformAction.is_agent(self.type):
+            retry_policy = self.control_flow.retry_policy
+            retry_policy.timeout = clamp_agent_timeout_seconds(retry_policy.timeout)
+        return self
 
     @computed_field
     def ref(self) -> str:

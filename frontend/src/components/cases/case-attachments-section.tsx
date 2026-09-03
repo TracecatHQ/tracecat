@@ -1,9 +1,7 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { formatDistanceToNow } from "date-fns"
 import {
-  AlertCircle,
+  Copy,
   Download,
   Eye,
   FileIcon,
@@ -11,25 +9,52 @@ import {
   FileText,
   ImageIcon,
   Music,
-  Paperclip,
   Plus,
   Presentation,
   Trash2,
   Video,
   XIcon,
 } from "lucide-react"
-import Image from "next/image"
-import { useCallback, useRef, useState } from "react"
-import type { ApiError, CaseAttachmentRead } from "@/client"
+import { useCallback, useEffect, useRef, useState } from "react"
+import type {
+  ApiError,
+  CaseAttachmentDownloadResponse,
+  CaseAttachmentRead,
+} from "@/client"
 import {
   caseAttachmentsCreateAttachment,
   caseAttachmentsDeleteAttachment,
   caseAttachmentsDownloadAttachment,
   caseAttachmentsListAttachments,
 } from "@/client"
-import { Button } from "@/components/ui/button"
+import {
+  CASE_PANEL_ACTION_BOX_CLASS,
+  CASE_PANEL_ACTION_ROW_CLASS,
+  CASE_PANEL_BOX_CLASS,
+  CASE_TASK_ROW_CLASS,
+  TASK_HOVER_REVEAL_CLASS,
+  TASK_ICON_TRIGGER_CLASS,
+} from "@/components/cases/case-task-fields"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Spinner } from "@/components/ui/spinner"
 import {
   Tooltip,
   TooltipContent,
@@ -38,103 +63,352 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { describeAttachmentUploadError } from "@/lib/cases/attachment-errors"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
-import { cn } from "@/lib/utils"
+import { useAttachmentObjectUrl } from "@/lib/cases/use-attachment-object-url"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
+import { cn, copyToClipboard, formatFileSize, shortTimeAgo } from "@/lib/utils"
 
 interface CaseAttachmentsSectionProps {
   caseId: string
   workspaceId: string
 }
 
-interface CaseAttachmentDownloadResponse {
-  download_url: string
-  file_name: string
-  content_type: string
-}
+/**
+ * The list's box: the same recessed card the tasks panel and comment threads
+ * use, so all three read as boxes on one column.
+ */
+const CASE_ATTACHMENTS_CONTAINER_CLASS = CASE_PANEL_BOX_CLASS
 
-// Type definitions for API error responses
-interface ApiErrorDetail {
-  error?: string
-  message?: string
-  allowed_extensions?: string[]
-  // Max attachments exceeded error fields
-  current_count?: number
-  max_count?: number
-  // Storage limit exceeded error fields
-  current_size_mb?: number
-  new_file_size_mb?: number
-  max_size_mb?: number
-}
-
-interface ApiErrorBody {
-  detail?: ApiErrorDetail | string
-}
+const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024 // 20MB
 
 function getFileIcon(contentType: string) {
-  if (contentType.startsWith("image/")) return <ImageIcon className="h-4 w-4" />
-  if (contentType === "application/pdf") return <FileText className="h-4 w-4" />
+  if (contentType.startsWith("image/")) return <ImageIcon className="size-4" />
+  if (contentType === "application/pdf") return <FileText className="size-4" />
   if (contentType.includes("spreadsheet"))
-    return <FileSpreadsheet className="h-4 w-4" />
+    return <FileSpreadsheet className="size-4" />
   if (contentType.includes("presentation"))
-    return <Presentation className="h-4 w-4" />
-  if (contentType.startsWith("audio/")) return <Music className="h-4 w-4" />
-  if (contentType.startsWith("video/")) return <Video className="h-4 w-4" />
-  return <FileIcon className="h-4 w-4" />
-}
-
-function getFileColor(contentType: string) {
-  if (contentType.startsWith("image/")) return "text-green-600 bg-green-50"
-  if (contentType === "application/pdf") return "text-red-600 bg-red-50"
-  if (contentType.includes("spreadsheet"))
-    return "text-emerald-600 bg-emerald-50"
-  if (contentType.includes("presentation"))
-    return "text-orange-600 bg-orange-50"
-  if (contentType.startsWith("audio/")) return "text-purple-600 bg-purple-50"
-  if (contentType.startsWith("video/")) return "text-blue-600 bg-blue-50"
-  return "text-gray-600 bg-gray-50"
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 Bytes"
-  const k = 1024
-  const sizes = ["Bytes", "KB", "MB", "GB"]
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i]
+    return <Presentation className="size-4" />
+  if (contentType.startsWith("audio/")) return <Music className="size-4" />
+  if (contentType.startsWith("video/")) return <Video className="size-4" />
+  return <FileIcon className="size-4" />
 }
 
 function truncateHash(hash: string): string {
   return hash.substring(0, 8)
 }
 
-function getUploaderName(creatorId: string | null | undefined): string {
-  if (!creatorId) return "Unknown"
-  return "User"
+/** Props for {@link AddAttachmentRow}. */
+interface AddAttachmentRowProps {
+  isUploading: boolean
+  onClick: () => void
+  standalone: boolean
 }
 
-// Add constant for max file size (20MB in bytes)
-const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024 // 20MB
+/**
+ * Muted ghost row that opens the file picker. When it follows attachment
+ * rows it is built to their geometry, so the plus sits exactly where a row's
+ * leading glyph does; when it is the panel's only content it shrinks to a
+ * compact action bar, the same one the Tables panel's `Link table` row uses.
+ */
+function AddAttachmentRow({
+  isUploading,
+  onClick,
+  standalone,
+}: AddAttachmentRowProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={isUploading}
+      className={cn(
+        standalone
+          ? CASE_PANEL_ACTION_ROW_CLASS
+          : [CASE_TASK_ROW_CLASS, "h-11"],
+        "flex w-full items-center gap-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:pointer-events-none"
+      )}
+    >
+      <span className="flex size-6 shrink-0 items-center justify-center">
+        {isUploading ? <Spinner /> : <Plus className="size-4" />}
+      </span>
+      {isUploading ? "Uploading…" : "Add attachment"}
+    </button>
+  )
+}
 
+/** Props for {@link AttachmentRow}. */
+interface AttachmentRowProps {
+  attachment: CaseAttachmentRead
+  onPreview: (attachment: CaseAttachmentRead) => void
+  onDownload: (attachment: CaseAttachmentRead) => void
+  onDelete: (attachment: CaseAttachmentRead) => void
+}
+
+/**
+ * One attachment, as a single dense line: the file-type glyph, the name and
+ * size, then a right-aligned cluster of hover-revealed actions (the SHA-256
+ * pill, preview for images, download, delete) and the always-visible upload
+ * time. Right-click is the row's menu, mirroring the task rows above.
+ */
+function AttachmentRow({
+  attachment,
+  onPreview,
+  onDownload,
+  onDelete,
+}: AttachmentRowProps) {
+  const [contextMenuOpen, setContextMenuOpen] = useState(false)
+  const [shaCopied, setShaCopied] = useState(false)
+  const shaCopiedResetRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (shaCopiedResetRef.current !== null) {
+        window.clearTimeout(shaCopiedResetRef.current)
+      }
+    }
+  }, [])
+
+  const isImage = attachment.content_type.startsWith("image/")
+  const createdAtDate = new Date(attachment.created_at)
+
+  async function copySha() {
+    // Only claim "Copied" once the write actually landed: `copyToClipboard`
+    // reports failure (e.g. no clipboard API over plain HTTP) as `false`.
+    const copied = await copyToClipboard({
+      value: attachment.sha256,
+      message: "SHA-256 copied",
+    })
+    if (!copied) {
+      return
+    }
+    setShaCopied(true)
+    if (shaCopiedResetRef.current !== null) {
+      window.clearTimeout(shaCopiedResetRef.current)
+    }
+    shaCopiedResetRef.current = window.setTimeout(
+      () => setShaCopied(false),
+      1500
+    )
+  }
+
+  return (
+    <ContextMenu onOpenChange={setContextMenuOpen}>
+      <ContextMenuTrigger asChild>
+        {/* `group/task`, not a new group name: the hover-reveal classes are
+            reused verbatim from the task rows and are scoped to it. */}
+        <div
+          className={cn(
+            CASE_TASK_ROW_CLASS,
+            "group/task",
+            contextMenuOpen ? "bg-muted/50" : "hover:bg-muted/50"
+          )}
+        >
+          <div className="flex h-11 items-center gap-2">
+            <span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
+              {getFileIcon(attachment.content_type)}
+            </span>
+            <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+              <span className="min-w-0 truncate text-sm font-medium leading-6 text-foreground">
+                {attachment.file_name}
+              </span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {formatFileSize(attachment.size)}
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5 pl-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Copy SHA-256"
+                    onClick={copySha}
+                    className={cn(
+                      TASK_HOVER_REVEAL_CLASS,
+                      "flex h-6 shrink-0 items-center rounded px-1.5 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                    )}
+                  >
+                    {truncateHash(attachment.sha256)}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="font-mono text-xs">
+                  {shaCopied ? "Copied" : attachment.sha256}
+                </TooltipContent>
+              </Tooltip>
+              {isImage && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`Preview ${attachment.file_name}`}
+                      onClick={() => onPreview(attachment)}
+                      className={cn(
+                        TASK_ICON_TRIGGER_CLASS,
+                        TASK_HOVER_REVEAL_CLASS,
+                        "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Eye className="size-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    Preview
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`Download ${attachment.file_name}`}
+                    onClick={() => onDownload(attachment)}
+                    className={cn(
+                      TASK_ICON_TRIGGER_CLASS,
+                      TASK_HOVER_REVEAL_CLASS,
+                      "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Download className="size-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  Download
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`Delete ${attachment.file_name}`}
+                    onClick={() => onDelete(attachment)}
+                    className={cn(
+                      TASK_ICON_TRIGGER_CLASS,
+                      TASK_HOVER_REVEAL_CLASS,
+                      "text-red-600 dark:text-red-400"
+                    )}
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  Delete
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="shrink-0 cursor-default text-xs text-muted-foreground">
+                    {shortTimeAgo(createdAtDate)}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  {createdAtDate.toLocaleString()}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-48">
+        {isImage && (
+          <ContextMenuItem
+            className="text-xs"
+            onClick={() => onPreview(attachment)}
+          >
+            <Eye className="mr-2 size-3.5" />
+            Preview
+          </ContextMenuItem>
+        )}
+        <ContextMenuItem
+          className="text-xs"
+          onClick={() => onDownload(attachment)}
+        >
+          <Download className="mr-2 size-3.5" />
+          Download
+        </ContextMenuItem>
+        <ContextMenuItem className="text-xs" onClick={copySha}>
+          <Copy className="mr-2 size-3.5" />
+          Copy SHA-256
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          className="text-xs text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+          onClick={() => onDelete(attachment)}
+        >
+          <Trash2 className="mr-2 size-3.5" />
+          Delete
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+}
+
+/** Props for {@link AttachmentPreviewBody}. */
+interface AttachmentPreviewBodyProps {
+  attachment: CaseAttachmentRead
+  objectUrl: string | null
+  isError: boolean
+}
+
+/** The preview dialog's image area: spinner, error text, or the image. */
+function AttachmentPreviewBody({
+  attachment,
+  objectUrl,
+  isError,
+}: AttachmentPreviewBodyProps) {
+  if (isError) {
+    return (
+      <div className="flex h-40 w-72 items-center justify-center text-xs text-white/70">
+        Preview unavailable
+      </div>
+    )
+  }
+  if (!objectUrl) {
+    return (
+      <div className="flex h-40 w-72 items-center justify-center">
+        <Spinner className="text-white/70" />
+      </div>
+    )
+  }
+  return (
+    <img
+      src={objectUrl}
+      alt={attachment.file_name}
+      className="object-contain"
+      style={{ maxWidth: "90vw", maxHeight: "85vh" }}
+    />
+  )
+}
+
+/**
+ * The Attachments panel: a flush stack of one-line attachment rows in the
+ * same recessed box the tasks panel and comment threads use. The whole box is
+ * the drop target, the `+ Add attachment` ghost row doubles as the empty
+ * state, and delete goes through a confirm dialog.
+ */
 export function CaseAttachmentsSection({
   caseId,
   workspaceId,
 }: CaseAttachmentsSectionProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
+  // Depth counter so dragging across child rows doesn't flicker the state:
+  // every child the cursor crosses fires its own enter/leave pair.
+  const dragDepthRef = useRef(0)
   const [previewAttachment, setPreviewAttachment] =
     useState<CaseAttachmentRead | null>(null)
-  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
+  // Two-state dialog pattern: the attachment is retained after `open` goes
+  // false so the confirm keeps its content through the exit animation.
+  const [attachmentPendingDelete, setAttachmentPendingDelete] =
+    useState<CaseAttachmentRead | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
-  // Get workspace settings for allowed file extensions
   const { workspace } = useWorkspaceDetails()
 
-  // Create accept attribute from workspace settings
   const acceptedExtensions =
     workspace?.settings?.effective_allowed_attachment_extensions
   const acceptAttribute = acceptedExtensions?.join(",") || undefined
 
-  // Fetch attachments from API
   const {
     data: attachments = [],
     isLoading: attachmentsLoading,
@@ -145,7 +419,6 @@ export function CaseAttachmentsSection({
       await caseAttachmentsListAttachments({ caseId, workspaceId }),
   })
 
-  // Upload attachment mutation
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
       return await caseAttachmentsCreateAttachment({
@@ -161,172 +434,16 @@ export function CaseAttachmentsSection({
         queryKey: ["case-attachments", caseId, workspaceId],
       })
       invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
-      setIsUploading(false)
       toast({
         title: "Attachment uploaded successfully",
         description: `${file.name} has been added to the case`,
       })
     },
-    onError: (error: ApiError, file) => {
-      setIsUploading(false)
-
-      // Handle structured error responses with specific HTTP status codes
-      if (
-        error.status === 415 &&
-        error.body &&
-        typeof error.body === "object"
-      ) {
-        const body = error.body as ApiErrorBody
-        const detail = body.detail
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "unsupported_file_extension"
-        ) {
-          toast({
-            title: "File type not supported",
-            description: `${file.name} cannot be uploaded. Allowed file types: ${detail.allowed_extensions?.join(", ") || "txt, pdf, png, jpeg, gif, csv"}`,
-          })
-          return
-        }
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "unsupported_content_type"
-        ) {
-          toast({
-            title: "Content type not supported",
-            description: `${file.name} has an unsupported content type. Please try a different file type.`,
-          })
-          return
-        }
-      }
-
-      if (
-        error.status === 413 &&
-        error.body &&
-        typeof error.body === "object"
-      ) {
-        const body = error.body as ApiErrorBody
-        const detail = body.detail
-
-        if (typeof detail === "object" && detail?.error === "file_too_large") {
-          toast({
-            title: "File too large",
-            description: `${file.name} is too large to upload. ${detail.message || "Please choose a smaller file."}`,
-          })
-          return
-        }
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "storage_limit_exceeded"
-        ) {
-          let description = `Adding ${file.name} would exceed the case storage limit.`
-
-          if (
-            detail.current_size_mb &&
-            detail.new_file_size_mb &&
-            detail.max_size_mb
-          ) {
-            description = `Adding ${file.name} (${detail.new_file_size_mb}MB) would exceed the case storage limit. Current usage: ${detail.current_size_mb}MB of ${detail.max_size_mb}MB allowed.`
-          }
-
-          toast({
-            title: "Case storage limit exceeded",
-            description: `${description} Please remove some attachments or choose a smaller file.`,
-          })
-          return
-        }
-      }
-
-      if (
-        error.status === 409 &&
-        error.body &&
-        typeof error.body === "object"
-      ) {
-        const body = error.body as ApiErrorBody
-        const detail = body.detail
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "max_attachments_exceeded"
-        ) {
-          let description =
-            "This case already has the maximum number of attachments allowed."
-
-          if (detail.current_count && detail.max_count) {
-            description = `This case already has ${detail.current_count} of ${detail.max_count} attachments allowed.`
-          }
-
-          toast({
-            title: "Too many attachments",
-            description: `${description} Please remove some attachments before adding new ones.`,
-          })
-          return
-        }
-      }
-
-      if (
-        error.status === 422 &&
-        error.body &&
-        typeof error.body === "object"
-      ) {
-        const body = error.body as ApiErrorBody
-        const detail = body.detail
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "security_threat_detected"
-        ) {
-          toast({
-            title: "Security threat detected",
-            description: `${file.name} contains potentially dangerous content and cannot be uploaded.`,
-          })
-          return
-        }
-      }
-
-      if (
-        error.status === 400 &&
-        error.body &&
-        typeof error.body === "object"
-      ) {
-        const body = error.body as ApiErrorBody
-        const detail = body.detail
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "file_validation_failed"
-        ) {
-          toast({
-            title: "File validation failed",
-            description: `${file.name} failed validation. Please check the file and try again.`,
-          })
-          return
-        }
-      }
-
-      // Fallback for other errors
-      let errorMessage = error.message || "Unknown error"
-      if (error.body && typeof error.body === "object") {
-        const body = error.body as ApiErrorBody
-        if (body.detail) {
-          errorMessage =
-            typeof body.detail === "string"
-              ? body.detail
-              : body.detail.message || JSON.stringify(body.detail)
-        }
-      }
-
-      toast({
-        title: "Upload failed",
-        description: `Failed to upload ${file.name}. ${errorMessage}`,
-      })
+    onError: (error: unknown, file) => {
+      toast(describeAttachmentUploadError(error, file.name))
     },
   })
 
-  // Delete attachment mutation
   const deleteMutation = useMutation({
     mutationFn: async (attachmentId: string) =>
       await caseAttachmentsDeleteAttachment({
@@ -339,35 +456,21 @@ export function CaseAttachmentsSection({
         queryKey: ["case-attachments", caseId, workspaceId],
       })
       invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
+      setDeleteDialogOpen(false)
       toast({
         title: "Attachment deleted",
         description: "The attachment has been removed from the case",
       })
     },
     onError: (error: ApiError) => {
-      console.error("Failed to delete attachment:", error)
-
-      // Extract error message from the API error
-      let errorMessage = error.message || "Unknown error"
-      if (error.body && typeof error.body === "object") {
-        const body = error.body as ApiErrorBody
-        if (body.detail) {
-          errorMessage =
-            typeof body.detail === "string"
-              ? body.detail
-              : body.detail.message || JSON.stringify(body.detail)
-        }
-      }
-
       toast({
         title: "Delete failed",
-        description: `Failed to delete attachment. ${errorMessage}`,
+        description: `Failed to delete attachment. ${error.message || "Unknown error"}`,
       })
     },
   })
 
-  // Add file validation function
-  const validateFile = (file: File): boolean => {
+  const validateFile = useCallback((file: File): boolean => {
     if (file.size > MAX_FILE_SIZE_BYTES) {
       toast({
         title: "File too large",
@@ -376,22 +479,37 @@ export function CaseAttachmentsSection({
       return false
     }
     return true
-  }
+  }, [])
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      // Validate file size before uploading
-      if (!validateFile(file)) {
+  const uploadFiles = useCallback(
+    async (files: File[]) => {
+      const validFiles = files.filter(validateFile)
+      if (validFiles.length === 0) {
         return
       }
       setIsUploading(true)
-      uploadMutation.mutate(file)
-    }
-    // Reset input
+      try {
+        for (const file of validFiles) {
+          try {
+            await uploadMutation.mutateAsync(file)
+          } catch {
+            // Per-file errors are already toasted by the mutation; keep
+            // uploading the remaining files.
+          }
+        }
+      } finally {
+        setIsUploading(false)
+      }
+    },
+    [uploadMutation, validateFile]
+  )
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? [])
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
+    void uploadFiles(files)
   }
 
   const handleAddAttachment = () => {
@@ -399,59 +517,50 @@ export function CaseAttachmentsSection({
   }
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return
     e.preventDefault()
-    e.stopPropagation()
+    dragDepthRef.current += 1
     setIsDragOver(true)
   }, [])
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return
     e.preventDefault()
-    e.stopPropagation()
-    setIsDragOver(false)
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) {
+      setIsDragOver(false)
+    }
   }, [])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return
     e.preventDefault()
-    e.stopPropagation()
   }, [])
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
-      e.stopPropagation()
+      dragDepthRef.current = 0
       setIsDragOver(false)
-
-      const files = Array.from(e.dataTransfer.files)
-      const file = files[0] // Only handle the first file
-
-      if (file) {
-        // Validate file size before uploading
-        if (!validateFile(file)) {
-          return
-        }
-        setIsUploading(true)
-        uploadMutation.mutate(file)
-      }
+      void uploadFiles(Array.from(e.dataTransfer.files))
     },
-    [uploadMutation]
+    [uploadFiles]
   )
 
   const handleDownload = async (attachment: CaseAttachmentRead) => {
     try {
-      const response = (await caseAttachmentsDownloadAttachment({
-        caseId,
-        workspaceId,
-        attachmentId: attachment.id,
-      })) as CaseAttachmentDownloadResponse
+      const response: CaseAttachmentDownloadResponse =
+        await caseAttachmentsDownloadAttachment({
+          caseId,
+          workspaceId,
+          attachmentId: attachment.id,
+        })
 
-      // Response now contains presigned URL, not binary data
       const downloadUrl = response.download_url
-
       if (!downloadUrl) {
         throw new Error("No download URL received from server")
       }
 
-      // Create a hidden link element and trigger download
       const link = document.createElement("a")
       link.href = downloadUrl
       link.download = attachment.file_name
@@ -470,285 +579,141 @@ export function CaseAttachmentsSection({
     }
   }
 
-  const handlePreview = async (attachment: CaseAttachmentRead) => {
-    try {
-      const response = (await caseAttachmentsDownloadAttachment({
-        caseId,
-        workspaceId,
-        attachmentId: attachment.id,
-        preview: true, // Request preview mode for safe inline display
-      })) as CaseAttachmentDownloadResponse
-
-      const downloadUrl = response.download_url
-      if (!downloadUrl) {
-        throw new Error("No download URL received from server")
-      }
-
-      console.log("Preview URL:", downloadUrl)
-
-      setPreviewAttachment(attachment)
-      setPreviewImageUrl(downloadUrl)
-    } catch (error) {
-      console.error("Failed to preview attachment:", error)
-      toast({
-        title: "Preview failed",
-        description: `Failed to preview ${attachment.file_name}`,
-      })
-    }
+  const handleRequestDelete = (attachment: CaseAttachmentRead) => {
+    setAttachmentPendingDelete(attachment)
+    setDeleteDialogOpen(true)
   }
 
-  const handleDelete = (attachmentId: string) => {
-    deleteMutation.mutate(attachmentId)
+  const handleConfirmDelete = () => {
+    if (!attachmentPendingDelete) return
+    deleteMutation.mutate(attachmentPendingDelete.id)
   }
+
+  const { objectUrl: previewObjectUrl, isError: previewIsError } =
+    useAttachmentObjectUrl(workspaceId, caseId, previewAttachment?.id)
 
   if (attachmentsLoading) {
     return (
-      <div className="mx-auto w-full">
-        <div className="space-y-4 p-4">
-          <div className="flex items-center gap-2 p-1.5 rounded-md border border-dashed border-muted-foreground/25">
-            <div className="p-1.5 rounded bg-muted">
-              <Skeleton className="h-3.5 w-3.5" />
-            </div>
-            <Skeleton className="h-3 w-32" />
-          </div>
-          {Array.from({ length: 2 }).map((_, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-4 p-2 px-3.5 rounded-md"
-            >
-              <Skeleton className="h-6 w-6 rounded" />
-              <div className="flex-1 space-y-1">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-3 w-1/2" />
-              </div>
-            </div>
-          ))}
-        </div>
+      <div className={CASE_ATTACHMENTS_CONTAINER_CLASS}>
+        {[...Array(3)].map((_, index) => (
+          <Skeleton key={index} className="mx-2 my-1 h-7 rounded-md" />
+        ))}
       </div>
     )
   }
 
   if (attachmentsError) {
     return (
-      <div className="mx-auto w-full">
-        <div className="flex items-center justify-center p-8">
-          <div className="flex items-center gap-2 text-red-600">
-            <AlertCircle className="h-4 w-4" />
-            <span className="text-sm">Failed to load attachments</span>
-          </div>
-        </div>
+      <div className={CASE_ATTACHMENTS_CONTAINER_CLASS}>
+        <p className="px-3 py-2 text-sm text-muted-foreground">
+          Failed to load attachments
+        </p>
       </div>
     )
   }
 
   return (
-    <TooltipProvider>
-      <div className="mx-auto w-full">
-        <div className="space-y-4 p-4">
-          <div
-            onClick={handleAddAttachment}
-            onDragEnter={handleDragEnter}
-            onDragLeave={handleDragLeave}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-            className={cn(
-              "flex items-center gap-2 p-1.5 rounded-md border border-dashed transition-all cursor-pointer group",
-              isDragOver
-                ? "border-blue-500 bg-blue-50 dark:bg-blue-950/20"
-                : "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30"
-            )}
-          >
-            <div className="p-1.5 rounded bg-muted group-hover:bg-muted-foreground/10 transition-colors">
-              <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-            </div>
-            <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
-              {isUploading || uploadMutation.isPending
-                ? "Uploading..."
-                : "Add new attachment (max 20MB)"}
-            </span>
-          </div>
-
-          {/* Attachments list */}
-          {attachments.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-4">
-              <div className="p-2 rounded-full bg-muted/50 mb-3">
-                <Paperclip className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <h3 className="text-sm font-medium text-muted-foreground mb-1">
-                No attachments found
-              </h3>
-              <p className="text-xs text-muted-foreground/75 text-center max-w-[250px]">
-                Add files by clicking the add button above or drag and drop
-                files directly.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {attachments.map((attachment) => {
-                return (
-                  <div
-                    key={attachment.id}
-                    className="flex items-center gap-4 p-2 px-3.5 rounded-md hover:bg-muted/40 transition-colors group"
-                  >
-                    <div
-                      className={`p-1 rounded ${getFileColor(attachment.content_type)}`}
-                    >
-                      {getFileIcon(attachment.content_type)}
-                    </div>
-
-                    <div className="flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-medium text-sm truncate">
-                          {attachment.file_name}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          ({formatFileSize(attachment.size)})
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>
-                          by {getUploaderName(attachment.creator_id)} •{" "}
-                          {formatDistanceToNow(
-                            new Date(attachment.created_at),
-                            {
-                              addSuffix: true,
-                            }
-                          )}
-                        </span>
-
-                        {/* Short SHA */}
-                        <span className="font-mono text-xs bg-muted px-1 py-0.5 rounded">
-                          {truncateHash(attachment.sha256)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {/* Preview button - only for images */}
-                      {attachment.content_type.startsWith("image/") && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handlePreview(attachment)}
-                              disabled={deleteMutation.isPending}
-                            >
-                              <Eye className="size-3.5" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <div className="text-xs">Preview image</div>
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDownload(attachment)}
-                            disabled={deleteMutation.isPending}
-                          >
-                            <Download className="size-3.5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <div className="text-xs">Download attachment</div>
-                        </TooltipContent>
-                      </Tooltip>
-
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        title="Delete attachment"
-                        onClick={() => handleDelete(attachment.id)}
-                        disabled={deleteMutation.isPending}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            onChange={handleFileSelect}
-            className="hidden"
-            accept={acceptAttribute}
+    <TooltipProvider delayDuration={300}>
+      <div
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        className={cn(
+          attachments.length === 0
+            ? CASE_PANEL_ACTION_BOX_CLASS
+            : CASE_ATTACHMENTS_CONTAINER_CLASS,
+          "flex flex-col gap-0.5 transition-colors",
+          isDragOver && "border-primary/50 bg-primary/5"
+        )}
+      >
+        {attachments.map((attachment) => (
+          <AttachmentRow
+            key={attachment.id}
+            attachment={attachment}
+            onPreview={setPreviewAttachment}
+            onDownload={handleDownload}
+            onDelete={handleRequestDelete}
           />
-
-          {/* Image Preview Modal */}
-          <Dialog
-            open={!!previewAttachment}
-            onOpenChange={(open) => {
-              if (!open) {
-                setPreviewAttachment(null)
-                setPreviewImageUrl(null)
-              }
-            }}
-          >
-            <DialogContent className="max-w-[95vw] max-h-[95vh] overflow-hidden p-0 bg-transparent border-0 shadow-2xl w-fit h-fit">
-              <div className="relative inline-flex border border-gray-400/25 rounded-sm overflow-hidden bg-gray-900 group">
-                {/* Floating header overlay */}
-                <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  <div className="bg-black/70 backdrop-blur-sm rounded-full px-3 py-1.5">
-                    <span className="text-white text-xs font-medium truncate max-w-[300px] block">
-                      {previewAttachment?.file_name}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setPreviewAttachment(null)
-                      setPreviewImageUrl(null)
-                    }}
-                    className="bg-black/70 backdrop-blur-sm rounded-full p-2 text-white hover:bg-black/80 transition-colors duration-200"
-                  >
-                    <XIcon className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {previewImageUrl && (
-                  <Image
-                    src={previewImageUrl}
-                    alt={previewAttachment?.file_name || "Preview image"}
-                    width={1}
-                    height={0}
-                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 90vw, 85vw"
-                    style={{
-                      maxWidth: "90vw",
-                      maxHeight: "85vh",
-                      width: "auto",
-                      height: "auto",
-                    }}
-                    className="object-contain"
-                    unoptimized
-                    onError={(e) => {
-                      console.error("Image failed to load:", e)
-                      console.error("Failed URL:", previewImageUrl)
-                      toast({
-                        title: "Image preview failed",
-                        description:
-                          "Try downloading the attachment or checking the original file for issues.",
-                      })
-                    }}
-                    onLoad={() => {
-                      console.log("Image loaded successfully:", previewImageUrl)
-                    }}
-                  />
-                )}
-              </div>
-            </DialogContent>
-          </Dialog>
-        </div>
+        ))}
+        <AddAttachmentRow
+          isUploading={isUploading}
+          onClick={handleAddAttachment}
+          standalone={attachments.length === 0}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          onChange={handleFileSelect}
+          className="hidden"
+          accept={acceptAttribute}
+        />
       </div>
+
+      <Dialog
+        open={!!previewAttachment}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPreviewAttachment(null)
+          }
+        }}
+      >
+        <DialogContent
+          title={previewAttachment?.file_name ?? "Attachment preview"}
+          className="h-fit w-fit max-w-[95vw] overflow-hidden border-0 bg-transparent p-0 shadow-none [&>button]:hidden"
+        >
+          <div className="group relative inline-flex overflow-hidden rounded-md bg-black/80">
+            <div className="absolute left-3 right-3 top-3 z-10 flex items-center justify-between opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+              <div className="rounded-full bg-black/70 px-3 py-1.5 backdrop-blur-sm">
+                <span className="block max-w-[300px] truncate text-xs font-medium text-white">
+                  {previewAttachment?.file_name}
+                </span>
+              </div>
+              <button
+                type="button"
+                aria-label="Close preview"
+                onClick={() => setPreviewAttachment(null)}
+                className="rounded-full bg-black/70 p-2 text-white backdrop-blur-sm transition-colors duration-200 hover:bg-black/80"
+              >
+                <XIcon className="size-4" />
+              </button>
+            </div>
+            {previewAttachment && (
+              <AttachmentPreviewBody
+                attachment={previewAttachment}
+                objectUrl={previewObjectUrl}
+                isError={previewIsError}
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete attachment</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "
+              {attachmentPendingDelete?.file_name}"? This action cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </TooltipProvider>
   )
 }

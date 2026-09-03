@@ -8,9 +8,12 @@ from dataclasses import dataclass
 from tracecat.auth.crypto import generate_token
 
 DEFAULT_API_KEY_PREFIX = "tc_sk_"
+ORG_API_KEY_PREFIX = "tc_org_sk_"
+WORKSPACE_API_KEY_PREFIX = "tc_ws_sk_"
 API_KEY_PREVIEW_LENGTH = 4
 SALT_BYTES = 16
 DIGEST_SIZE = 32
+API_KEY_ID_LENGTH = 12
 
 
 @dataclass(slots=True, frozen=True)
@@ -24,6 +27,29 @@ class GeneratedApiKey:
 
     def preview(self) -> str:
         return make_api_key_preview(self.raw, prefix=self.prefix)
+
+
+@dataclass(slots=True, frozen=True)
+class GeneratedManagedApiKey:
+    """Represents a generated org/workspace API key with a lookup id."""
+
+    raw: str
+    hashed: str
+    salt_b64: str
+    prefix: str
+    key_id: str
+
+    def preview(self) -> str:
+        return make_api_key_preview(self.raw, prefix=self.prefix)
+
+
+@dataclass(slots=True, frozen=True)
+class ParsedManagedApiKey:
+    """Structured data extracted from a managed API key."""
+
+    prefix: str
+    key_id: str
+    secret: str
 
 
 def make_api_key_preview(
@@ -85,6 +111,50 @@ def generate_api_key(
         salt_b64=base64.b64encode(salt).decode("ascii"),
         prefix=prefix,
     )
+
+
+def generate_managed_api_key(
+    *,
+    prefix: str,
+    key_id_length: int = API_KEY_ID_LENGTH,
+    secret_length: int = 32,
+) -> GeneratedManagedApiKey:
+    """Generate an org/workspace API key with an embedded lookup id."""
+    if key_id_length <= 0:
+        raise ValueError("key_id_length must be positive")
+    if secret_length <= 0:
+        raise ValueError("secret_length must be positive")
+
+    key_id = generate_token(prefix="", length=key_id_length)[:key_id_length]
+    secret = generate_token(prefix="", length=secret_length)
+    raw = f"{prefix}{key_id}_{secret}"
+    salt = secrets.token_bytes(SALT_BYTES)
+    hashed = _hash_api_key(raw, salt)
+    return GeneratedManagedApiKey(
+        raw=raw,
+        hashed=hashed,
+        salt_b64=base64.b64encode(salt).decode("ascii"),
+        prefix=prefix,
+        key_id=key_id,
+    )
+
+
+def parse_managed_api_key(
+    raw: str,
+    *,
+    prefixes: tuple[str, ...] = (ORG_API_KEY_PREFIX, WORKSPACE_API_KEY_PREFIX),
+) -> ParsedManagedApiKey | None:
+    """Parse a managed API key into its prefix, lookup id, and secret."""
+    prefix = next(
+        (candidate for candidate in prefixes if raw.startswith(candidate)), None
+    )
+    if prefix is None:
+        return None
+    remainder = raw.removeprefix(prefix)
+    key_id, separator, secret = remainder.partition("_")
+    if not separator or not key_id or not secret:
+        return None
+    return ParsedManagedApiKey(prefix=prefix, key_id=key_id, secret=secret)
 
 
 def verify_api_key(candidate: str, salt_b64: str, expected_hash: str) -> bool:

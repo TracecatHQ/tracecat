@@ -1,0 +1,75 @@
+type: action
+definition:
+  title: List commits
+  description: 'List commits. Calls GET /repos/{owner}/{repo}/commits directly. Accepted OAuth scopes: repo (default; omit only for public repository data).'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: list_commits
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    owner:
+      type: str
+      description: GitHub API path value for owner.
+    repo:
+      type: str
+      description: GitHub API path value for repo.
+    sha:
+      type: str | None
+      description: "SHA or branch to start listing commits from. Default: the repository’s default branch (usually main)."
+      default: null
+    path:
+      type: str | None
+      description: Only commits containing this file path will be returned.
+      default: null
+    author:
+      type: str | None
+      description: GitHub username or email address to use to filter by commit author.
+      default: null
+    committer:
+      type: str | None
+      description: GitHub username or email address to use to filter by commit committer.
+      default: null
+    since:
+      type: str | None
+      description: "Only show results that were last updated after the given time. This is a timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ. Due to limitations of Git, timestamps must be between 1970-01-01 and 2099-12-31 (inclusive) or unexpected results may be returned."
+      default: null
+    until:
+      type: str | None
+      description: "Only commits before this date will be returned. This is a timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ. Due to limitations of Git, timestamps must be between 1970-01-01 and 2099-12-31 (inclusive) or unexpected results may be returned."
+      default: null
+    per_page:
+      type: int | None
+      description: The number of results per page (max 100).
+      default: null
+    page:
+      type: int | None
+      description: The page number of the results to fetch.
+      default: null
+    base_url:
+      type: str
+      description: GitHub.com REST API base URL.
+      default: https://api.github.com
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode(inputs.owner) }}/${{ FN.url_encode(inputs.repo) }}/commits
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      params:
+        sha: ${{ inputs.sha }}
+        path: ${{ inputs.path }}
+        author: ${{ inputs.author }}
+        committer: ${{ inputs.committer }}
+        since: ${{ inputs.since }}
+        until: ${{ inputs.until }}
+        per_page: ${{ inputs.per_page }}
+        page: ${{ inputs.page }}
+  returns: ${{ steps.request.result }}

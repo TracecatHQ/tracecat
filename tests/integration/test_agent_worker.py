@@ -27,21 +27,32 @@ from temporalio.client import Client, WorkflowFailureError
 from temporalio.worker import Worker
 from tracecat_ee.agent.activities import AgentActivities
 from tracecat_ee.agent.approvals.service import ApprovalManager
-from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
+from tracecat_ee.agent.types import AgentWorkflowID
+from tracecat_ee.agent.workflows.durable import (
+    AgentWorkflowArgs,
+    DurableAgentWorkflow,
+    WorkflowApprovalSubmission,
+)
 
 from tests.conftest import AGENT_TASK_QUEUE
+from tracecat import config
+from tracecat.agent.common.stream_types import ToolCallContent
+from tracecat.agent.error_policy import user_agent_execution_failed
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
-    ExecuteApprovedToolsInput,
-    ExecuteApprovedToolsResult,
 )
+from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
     LoadSessionInput,
+    LoadSessionMessagesInput,
+    LoadSessionMessagesResult,
     LoadSessionResult,
+    ReconcileToolResultsInput,
+    ReconcileToolResultsResult,
     get_session_activities,
 )
 from tracecat.agent.session.types import AgentSessionEntity
@@ -50,6 +61,8 @@ from tracecat.auth.types import Role
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.redis.client import get_redis_client
+from tracecat.storage.object import InlineObject
+from tracecat.temporal.errors import extract_error_classification
 
 # Use worker-specific queue from conftest for pytest-xdist isolation
 TEST_AGENT_QUEUE = AGENT_TASK_QUEUE
@@ -91,6 +104,19 @@ def create_mock_load_session_activity() -> Callable[..., Any]:
     return mock_load_session_activity
 
 
+def create_mock_load_session_messages_activity() -> Callable[..., Any]:
+    """Create a mock load_session_messages_activity that returns no messages."""
+
+    @activity.defn(name="load_session_messages_activity")
+    async def mock_load_session_messages_activity(
+        input: LoadSessionMessagesInput,
+    ) -> LoadSessionMessagesResult:
+        del input
+        return LoadSessionMessagesResult(messages=[])
+
+    return mock_load_session_messages_activity
+
+
 def create_mock_run_agent_activity(
     response_callback: Callable[[AgentExecutorInput], AgentExecutorResult],
 ) -> Callable[..., Any]:
@@ -111,26 +137,14 @@ def create_mock_run_agent_activity(
     return mock_run_agent_activity
 
 
-def create_mock_execute_approved_tools_activity() -> Callable[..., Any]:
-    """Create a mock execute_approved_tools_activity."""
-
-    @activity.defn(name="execute_approved_tools_activity")
-    async def mock_execute_approved_tools_activity(
-        input: ExecuteApprovedToolsInput,
-    ) -> ExecuteApprovedToolsResult:
-        return ExecuteApprovedToolsResult(results=[], success=True)
-
-    return mock_execute_approved_tools_activity
-
-
 def create_activities_with_mock_executor(
     response_callback: Callable[[AgentExecutorInput], AgentExecutorResult],
 ) -> list[Callable[..., Any]]:
     """Create a full activity list with mocked executor and session activities.
 
-    This mocks run_agent_activity, execute_approved_tools_activity, and session
-    activities to avoid database dependencies in tests. Other activities
-    (tool building, approvals) remain real.
+    This mocks run_agent_activity and session activities to avoid database
+    dependencies in tests. Other activities (tool building, approvals) remain
+    real.
     """
     agent_activities = AgentActivities()
 
@@ -143,10 +157,10 @@ def create_activities_with_mock_executor(
     # Add mocked session activities (to avoid DB FK constraints)
     activities.append(create_mock_create_session_activity())
     activities.append(create_mock_load_session_activity())
+    activities.append(create_mock_load_session_messages_activity())
 
-    # Add mocked executor activities
+    # Add mocked runtime activity
     activities.append(create_mock_run_agent_activity(response_callback))
-    activities.append(create_mock_execute_approved_tools_activity())
 
     return activities
 
@@ -159,6 +173,7 @@ def create_activities_with_mock_executor(
 @pytest.fixture
 def agent_worker_factory(
     threadpool: Any,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[Callable[..., Worker], None, None]:
     """Factory to create workers configured for agent workflows."""
 
@@ -179,6 +194,9 @@ def agent_worker_factory(
                 *get_session_activities(),
                 *ApprovalManager.get_activities(),
             ]
+
+        monkeypatch.setattr(config, "TRACECAT__AGENT_EXECUTOR_QUEUE", task_queue)
+        monkeypatch.setattr(config, "TRACECAT__EXECUTOR_QUEUE", task_queue)
 
         return Worker(
             client=client,
@@ -223,13 +241,15 @@ class TestAgentWorkerLifecycle:
     async def test_session_activities_registered(self) -> None:
         """Verify session activities are available."""
         activities = get_session_activities()
-        assert len(activities) == 2
-
         activity_names = [
             getattr(a, "__temporal_activity_definition").name for a in activities
         ]
-        assert "create_session_activity" in activity_names
-        assert "load_session_activity" in activity_names
+        assert set(activity_names) == {
+            "create_session_activity",
+            "load_session_activity",
+            "load_session_messages_activity",
+            "reconcile_tool_results_activity",
+        }
 
 
 class TestAgentWorkerSingleTenant:
@@ -274,7 +294,7 @@ class TestAgentWorkerSingleTenant:
             wf_handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
-                id=f"test-agent-single-{session_id}",
+                id=AgentWorkflowID(session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=30),
@@ -323,7 +343,7 @@ class TestAgentWorkerSingleTenant:
             wf_handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
-                id=f"test-agent-stream-{session_id}",
+                id=AgentWorkflowID(session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=30),
@@ -333,7 +353,7 @@ class TestAgentWorkerSingleTenant:
 
             # Verify Redis stream key format
             redis_client = await get_redis_client()
-            stream_key = StreamKey(workspace_id, session_id)
+            stream_key = StreamKey(workspace_id=workspace_id, session_id=session_id)
 
             # Read events from stream (may be empty with mocked executor)
             _ = await redis_client.xrange(stream_key)
@@ -359,6 +379,7 @@ class TestAgentWorkerSingleTenant:
             return AgentExecutorResult(
                 success=False,
                 error="Simulated agent error",
+                classification=user_agent_execution_failed(),
             )
 
         activities = create_activities_with_mock_executor(mock_executor)
@@ -384,7 +405,7 @@ class TestAgentWorkerSingleTenant:
             wf_handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
-                id=f"test-agent-error-{session_id}",
+                id=AgentWorkflowID(session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=30),
@@ -394,8 +415,160 @@ class TestAgentWorkerSingleTenant:
             with pytest.raises(WorkflowFailureError) as exc_info:
                 await wf_handle.result()
 
-            # The error message is in the cause chain
-            assert "Simulated agent error" in str(exc_info.value.cause)
+            classification = extract_error_classification(exc_info.value.cause)
+            assert classification == user_agent_execution_failed()
+            assert "Simulated agent error" not in str(exc_info.value.cause)
+
+    @pytest.mark.anyio
+    @pytest.mark.integration
+    async def test_approval_continuation_resumes_with_seeded_tool_result(
+        self,
+        svc_role: Role,
+        temporal_client: Client,
+        agent_worker_factory: Callable[..., Worker],
+    ) -> None:
+        """Approval continuation should resume after the reconciled tool_result row."""
+        session_id = uuid.uuid4()
+        queue = TEST_AGENT_QUEUE
+        approval_request_recorded = asyncio.Event()
+        captured_inputs: list[AgentExecutorInput] = []
+
+        @activity.defn(name="create_session_activity")
+        async def mock_create_session_activity(
+            input: CreateSessionInput,
+        ) -> CreateSessionResult:
+            return CreateSessionResult(session_id=input.session_id, success=True)
+
+        load_session_call_count = 0
+
+        @activity.defn(name="load_session_activity")
+        async def mock_load_session_activity(
+            input: LoadSessionInput,
+        ) -> LoadSessionResult:
+            del input
+            nonlocal load_session_call_count
+            load_session_call_count += 1
+            if load_session_call_count == 1:
+                return LoadSessionResult(found=False)
+            return LoadSessionResult(
+                found=True,
+                sdk_session_id="sdk-session",
+                sdk_session_data=None,
+            )
+
+        @activity.defn(name="record_approval_requests")
+        async def mock_record_approval_requests(input: Any) -> None:
+            del input
+            approval_request_recorded.set()
+
+        @activity.defn(name="apply_approval_decisions")
+        async def mock_apply_approval_decisions(input: Any) -> None:
+            del input
+
+        @activity.defn(name="execute_action_activity")
+        async def mock_execute_action_activity(
+            input: Any,
+            role: Role,
+        ) -> InlineObject[dict[str, str]]:
+            del input, role
+            return InlineObject(data={"status": "success"})
+
+        @activity.defn(name="reconcile_tool_results_activity")
+        async def mock_reconcile_tool_results_activity(
+            input: ReconcileToolResultsInput,
+        ) -> ReconcileToolResultsResult:
+            results = [
+                ToolExecutionResult(
+                    tool_call_id=pending.tool_call_id,
+                    tool_name=pending.tool_name,
+                    result=getattr(pending.stored_result, "data", pending.raw_result),
+                    is_error=pending.is_error,
+                )
+                for pending in input.pending_results
+            ]
+            return ReconcileToolResultsResult(results=results)
+
+        def mock_executor(input: AgentExecutorInput) -> AgentExecutorResult:
+            captured_inputs.append(input)
+            if len(captured_inputs) == 1:
+                return AgentExecutorResult(
+                    success=True,
+                    approval_requested=True,
+                    approval_items=[
+                        ToolCallContent(
+                            id="call_123",
+                            name="core__http_request",
+                            input={"url": "https://example.com", "method": "GET"},
+                        )
+                    ],
+                )
+
+            assert input.is_approval_continuation is True
+            assert input.sdk_session_id == "sdk-session"
+            assert input.sdk_session_data is None
+            return AgentExecutorResult(
+                success=True,
+                approval_requested=False,
+                output={"status": "continued"},
+            )
+
+        agent_activities = AgentActivities()
+        activities: list[Callable[..., Any]] = [
+            *agent_activities.get_activities(),
+            mock_create_session_activity,
+            mock_load_session_activity,
+            create_mock_load_session_messages_activity(),
+            mock_record_approval_requests,
+            mock_apply_approval_decisions,
+            mock_execute_action_activity,
+            mock_reconcile_tool_results_activity,
+            create_mock_run_agent_activity(mock_executor),
+        ]
+
+        workflow_args = AgentWorkflowArgs(
+            role=svc_role,
+            agent_args=RunAgentArgs(
+                session_id=session_id,
+                user_prompt="Run approved tool",
+                config=AgentConfig(
+                    model_name="claude-3-5-sonnet-20241022",
+                    model_provider="anthropic",
+                    actions=["core.http_request"],
+                    tool_approvals={"core.http_request": True},
+                ),
+            ),
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+        )
+
+        async with agent_worker_factory(
+            temporal_client, task_queue=queue, custom_activities=activities
+        ):
+            wf_handle = await temporal_client.start_workflow(
+                DurableAgentWorkflow.run,
+                workflow_args,
+                id=AgentWorkflowID(session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+
+            await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+            await wf_handle.execute_update(
+                DurableAgentWorkflow.set_approvals,
+                WorkflowApprovalSubmission(
+                    approvals={"call_123": True},
+                    approved_by=svc_role.user_id,
+                ),
+            )
+
+            result = await wf_handle.result()
+
+        assert result.output == {"status": "continued"}
+        assert [input.is_approval_continuation for input in captured_inputs] == [
+            False,
+            True,
+        ]
 
 
 class TestAgentWorkerMultiTenant:
@@ -466,7 +639,7 @@ class TestAgentWorkerMultiTenant:
             wf_handle_a = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args_a,
-                id=f"test-agent-multi-a-{session_a}",
+                id=AgentWorkflowID(session_a),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=30),
@@ -475,7 +648,7 @@ class TestAgentWorkerMultiTenant:
             wf_handle_b = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args_b,
-                id=f"test-agent-multi-b-{session_b}",
+                id=AgentWorkflowID(session_b),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=30),
@@ -533,7 +706,7 @@ class TestAgentWorkerMultiTenant:
             wf_handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
-                id=f"test-agent-single-ws-{session_id}",
+                id=AgentWorkflowID(session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=30),
@@ -595,7 +768,7 @@ class TestAgentWorkerMultiTenant:
                 await temporal_client.start_workflow(
                     DurableAgentWorkflow.run,
                     args,
-                    id=f"test-agent-concurrent-{args.agent_args.session_id}",
+                    id=AgentWorkflowID(args.agent_args.session_id),
                     task_queue=queue,
                     retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                     execution_timeout=timedelta(seconds=30),
@@ -664,7 +837,7 @@ class TestAgentWorkerThrashing:
                 handle = await temporal_client.start_workflow(
                     DurableAgentWorkflow.run,
                     args,
-                    id=f"test-agent-thrash-{session_id}",
+                    id=AgentWorkflowID(session_id),
                     task_queue=queue,
                     retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                     execution_timeout=timedelta(seconds=60),
@@ -724,7 +897,7 @@ class TestAgentWorkerThrashing:
                 handle = await temporal_client.start_workflow(
                     DurableAgentWorkflow.run,
                     args,
-                    id=f"test-agent-burst-a-{session_id}",
+                    id=AgentWorkflowID(session_id),
                     task_queue=queue,
                     retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                     execution_timeout=timedelta(seconds=60),
@@ -754,7 +927,7 @@ class TestAgentWorkerThrashing:
                 handle = await temporal_client.start_workflow(
                     DurableAgentWorkflow.run,
                     args,
-                    id=f"test-agent-burst-b-{session_id}",
+                    id=AgentWorkflowID(session_id),
                     task_queue=queue,
                     retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                     execution_timeout=timedelta(seconds=60),
@@ -815,7 +988,7 @@ class TestAgentWorkerThrashing:
                     handle = await temporal_client.start_workflow(
                         DurableAgentWorkflow.run,
                         args,
-                        id=f"test-agent-interleave-{label}-{session_id}",
+                        id=AgentWorkflowID(session_id),
                         task_queue=queue,
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         execution_timeout=timedelta(seconds=60),

@@ -11,7 +11,9 @@ from pydantic_ai.tools import ToolApproved, ToolDenied
 
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import ClaudeSDKMessageTA, ModelMessageTA, UnifiedMessage
 from tracecat.chat.enums import MessageKind
@@ -75,6 +77,27 @@ class ChatResponse(BaseModel):
 
     stream_url: str = Field(..., description="URL to connect for SSE streaming")
     chat_id: uuid.UUID = Field(..., description="Unique chat identifier")
+    active_stream_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Per-turn Redis stream ID the caller should attach to. For approval "
+            "continuations, this is a newly rotated stream containing only events "
+            "emitted after approval resumes. Callers must attach to this stream "
+            "instead of the stream that ended at the approval pause, which may "
+            "already have expired."
+        ),
+    )
+    curr_run_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Id of the turn just spawned, used as the Temporal workflow id (not "
+            "Temporal's own run_id). This bare UUID is wrapped as "
+            "'agent/<curr_run_id>' when passed to Temporal as the workflow id. "
+            "Returned so callers can build the stable bubble id without "
+            "re-reading the session row, which terminal cleanup (finalize_turn) "
+            "may have already cleared on a fast turn."
+        ),
+    )
 
 
 class ChatCreate(BaseModel):
@@ -95,6 +118,14 @@ class ChatCreate(BaseModel):
         description="Tools available to the agent for this chat",
         max_length=50,
     )
+    agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="Agent preset used for this chat, if any",
+    )
+    agent_preset_version_id: uuid.UUID | None = Field(
+        default=None,
+        description="Pinned preset version used for this chat, if any",
+    )
 
 
 class ChatReadMinimal(BaseModel):
@@ -106,14 +137,22 @@ class ChatReadMinimal(BaseModel):
     id: UUID4 = Field(..., description="Unique chat identifier")
     title: str = Field(..., description="Human-readable title for the chat")
     user_id: UUID4 = Field(..., description="ID of the user who owns the chat")
-    entity_type: str = Field(
+    entity_type: AgentSessionEntity = Field(
         ..., description="Type of entity this chat is associated with"
     )
     entity_id: UUID4 = Field(..., description="ID of the associated entity")
     tools: list[str] = Field(..., description="Tools available to the agent")
+    mcp_integrations: list[str] = Field(
+        default_factory=list,
+        description="MCP integration IDs attached to this chat",
+    )
     agent_preset_id: uuid.UUID | None = Field(
         default=None,
         description="Agent preset used for this chat, if any",
+    )
+    agent_preset_version_id: uuid.UUID | None = Field(
+        default=None,
+        description="Pinned preset version used for this chat, if any",
     )
     created_at: datetime = Field(..., description="When the chat was created")
     updated_at: datetime = Field(..., description="When the chat was last updated")
@@ -156,6 +195,10 @@ class ChatUpdate(BaseModel):
         default=None,
         description="Agent preset to use for the chat session (set to null for default instructions)",
     )
+    agent_preset_version_id: uuid.UUID | None = Field(
+        default=None,
+        description="Pinned preset version to use for the chat session",
+    )
 
 
 class ApprovalRead(BaseModel):
@@ -167,7 +210,7 @@ class ApprovalRead(BaseModel):
     tool_call_args: dict[str, Any] | None = None
     status: ApprovalStatus
     reason: str | None = None
-    decision: bool | dict[str, Any] | None = None
+    decision: PersistedApprovalDecision | None = None
     approved_by: uuid.UUID | None = None
     approved_at: datetime | None = None
     created_at: datetime
@@ -178,9 +221,11 @@ class ApprovalRead(BaseModel):
 class ChatMessage(BaseModel):
     """Model for a chat message with typed message payload.
 
-    This model supports both regular messages and approval bubbles:
+    This model supports multiple message kinds:
     - kind=CHAT_MESSAGE: Contains message field with user/assistant content
     - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
+    - kind=COMPACTION: Contains compaction field with compaction status data
+    - kind=CANCELLED: Contains cancelled field with turn-cancelled marker data
     """
 
     id: str = Field(..., description="Unique message identifier")
@@ -196,14 +241,23 @@ class ChatMessage(BaseModel):
         default=None,
         description="Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)",
     )
+    compaction: dict[str, Any] | None = Field(
+        default=None,
+        description="Compaction status data for badge rendering (for kind=COMPACTION)",
+    )
+    cancelled: dict[str, Any] | None = Field(
+        default=None,
+        description="Turn-cancelled marker data (for kind=CANCELLED)",
+    )
 
     @classmethod
     def from_db(cls, db_msg: models.ChatMessage) -> ChatMessage:
         """Deserialize a database message into a typed ChatMessage."""
+        sanitized_data = sanitize_message_tool_inputs(db_msg.data)
         if db_msg.harness == HarnessType.CLAUDE_CODE.value:
-            message = ClaudeSDKMessageTA.validate_python(db_msg.data)
+            message = ClaudeSDKMessageTA.validate_python(sanitized_data)
         else:
-            message = ModelMessageTA.validate_python(db_msg.data)
+            message = ModelMessageTA.validate_python(sanitized_data)
         return cls(id=str(db_msg.id), message=message)
 
 
@@ -235,6 +289,10 @@ class ApprovalDecision(BaseModel):
     action: Literal["approve", "override", "deny"]
     override_args: dict[str, Any] | None = None
     reason: str | None = None
+    metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional metadata captured with the decision (e.g. external actor identity).",
+    )
 
     def to_deferred_result(self) -> bool | ToolApproved | ToolDenied:
         match self.action:
@@ -253,6 +311,13 @@ class ContinueRunRequest(BaseModel):
 
     kind: Literal["continue"] = Field(default="continue", frozen=True)
     decisions: list[ApprovalDecision]
+    source: Literal["inbox", "slack"] = Field(
+        default="inbox",
+        description=(
+            "Origin of the approval decision submission. "
+            "Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions."
+        ),
+    )
 
 
 # Union type for chat requests - supports both simple and Vercel formats

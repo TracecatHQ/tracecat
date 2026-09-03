@@ -173,4 +173,7 @@ class TierService(BaseService):
             agent_addons=resolve_entitlement("agent_addons"),
             case_addons=resolve_entitlement("case_addons"),
             rbac_addons=resolve_entitlement("rbac_addons"),
+            service_accounts=resolve_entitlement("service_accounts"),
+            workspace_chat=resolve_entitlement("workspace_chat"),
+            watchtower=resolve_entitlement("watchtower"),
         )

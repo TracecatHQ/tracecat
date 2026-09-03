@@ -7,7 +7,9 @@ class ChatEntity(StrEnum):
     CASE = "case"
     AGENT_PRESET = "agent_preset"
     AGENT_PRESET_BUILDER = "agent_preset_builder"
-    COPILOT = "copilot"
+    # Keep the wire/storage value as "copilot" for rollback compatibility while
+    # exposing the product concept as WORKSPACE_CHAT in backend code.
+    WORKSPACE_CHAT = "copilot"
 
 
 class MessageKind(StrEnum):
@@ -21,3 +23,9 @@ class MessageKind(StrEnum):
         "approval-decision"  # User/operator decisions for pending approvals
     )
     INTERNAL = "internal"  # Internal messages not shown in chat history (e.g., continuation prompts, interrupt artifacts)
+    COMPACTION = (
+        "compaction"  # Compaction status badge shown when conversation is compacted
+    )
+    CANCELLED = (
+        "cancelled"  # Marker shown where the user stopped an in-flight agent turn
+    )

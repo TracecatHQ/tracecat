@@ -1,7 +1,7 @@
 """add workflow draft pins
 
 Revision ID: c5d42c1a4f8b
-Revises: 8f4f1bd13e9c
+Revises: 44d7e75b6f4c
 Create Date: 2026-03-03 12:00:00.000000
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "c5d42c1a4f8b"
-down_revision: str | None = "8f4f1bd13e9c"
+down_revision: str | None = "44d7e75b6f4c"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

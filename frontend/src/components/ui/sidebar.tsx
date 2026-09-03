@@ -30,10 +30,30 @@ const SIDEBAR_WIDTH = "14rem"
 const SIDEBAR_WIDTH_MOBILE = "16rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 
+function readSidebarCookie(): boolean | null {
+  if (typeof document === "undefined") {
+    return null
+  }
+
+  const cookie = document.cookie
+    .split(";")
+    .map((value) => value.trim())
+    .find((value) => value.startsWith(`${SIDEBAR_COOKIE_NAME}=`))
+
+  if (!cookie) {
+    return null
+  }
+
+  return cookie.split("=")[1] === "true"
+}
+
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
   open: boolean
-  setOpen: (open: boolean) => void
+  setOpen: (
+    open: boolean | ((value: boolean) => boolean),
+    options?: { persist?: boolean }
+  ) => void
   openMobile: boolean
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
@@ -76,10 +96,15 @@ const SidebarProvider = React.forwardRef<
 
     // This is the internal state of the sidebar.
     // We use openProp and setOpenProp for control from outside the component.
-    const [_open, _setOpen] = React.useState(defaultOpen)
+    const [_open, _setOpen] = React.useState(
+      () => readSidebarCookie() ?? defaultOpen
+    )
     const open = openProp ?? _open
     const setOpen = React.useCallback(
-      (value: boolean | ((value: boolean) => boolean)) => {
+      (
+        value: boolean | ((value: boolean) => boolean),
+        options?: { persist?: boolean }
+      ) => {
         const openState = typeof value === "function" ? value(open) : value
         if (setOpenProp) {
           setOpenProp(openState)
@@ -87,8 +112,12 @@ const SidebarProvider = React.forwardRef<
           _setOpen(openState)
         }
 
-        // This sets the cookie to keep the sidebar state.
-        document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+        // This sets the cookie to keep the sidebar state. Automatic
+        // collapses pass `{ persist: false }` so they never clobber the
+        // user's saved preference.
+        if (options?.persist !== false) {
+          document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+        }
       },
       [setOpenProp, open]
     )
@@ -131,7 +160,14 @@ const SidebarProvider = React.forwardRef<
               } as React.CSSProperties
             }
             className={cn(
-              "group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-zinc-50 has-[[data-variant=inset]]:dark:bg-zinc-950",
+              "group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-sidebar",
+              // Below `md` the sidebar renders as a Sheet portal, so the
+              // `has-[...]` selector above cannot match and the inset bezel
+              // would sit on a backdrop identical to its own background —
+              // leaving a hairline border instead of a bezel. Every
+              // `SidebarProvider` in the app pairs with an inset-variant
+              // sidebar, so paint the gutter unconditionally at those widths.
+              "max-md:bg-sidebar",
               className
             )}
             ref={ref}
@@ -188,7 +224,7 @@ const Sidebar = React.forwardRef<
           <SheetContent
             data-sidebar="sidebar"
             data-mobile="true"
-            className="w-[--sidebar-width] bg-zinc-50 dark:bg-zinc-950 p-0 text-sidebar-foreground [&>button]:hidden"
+            className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
             style={
               {
                 "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
@@ -218,7 +254,7 @@ const Sidebar = React.forwardRef<
         {/* This is what handles the sidebar gap on desktop */}
         <div
           className={cn(
-            "relative w-[--sidebar-width] bg-transparent transition-[width] duration-200 ease-linear",
+            "relative w-[--sidebar-width] bg-transparent",
             "group-data-[collapsible=offcanvas]:w-0",
             "group-data-[side=right]:rotate-180",
             variant === "floating" || variant === "inset"
@@ -228,7 +264,7 @@ const Sidebar = React.forwardRef<
         />
         <div
           className={cn(
-            "fixed inset-y-0 z-10 hidden h-svh w-[--sidebar-width] transition-[left,right,width] duration-200 ease-linear md:flex",
+            "fixed inset-y-0 z-10 hidden h-svh w-[--sidebar-width] md:flex",
             side === "left"
               ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
               : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
@@ -244,7 +280,7 @@ const Sidebar = React.forwardRef<
         >
           <div
             data-sidebar="sidebar"
-            className="flex h-full w-full flex-col bg-zinc-50 dark:bg-zinc-950 group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow"
+            className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow"
           >
             {children}
           </div>
@@ -296,7 +332,7 @@ const SidebarRail = React.forwardRef<
       onClick={toggleSidebar}
       title="Toggle Sidebar"
       className={cn(
-        "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=left]:-right-4 group-data-[side=right]:left-0 sm:flex",
+        "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=left]:-right-4 group-data-[side=right]:left-0 sm:flex",
         "[[data-side=left]_&]:cursor-w-resize [[data-side=right]_&]:cursor-e-resize",
         "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
         "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full group-data-[collapsible=offcanvas]:hover:bg-sidebar",
@@ -319,8 +355,15 @@ const SidebarInset = React.forwardRef<
       ref={ref}
       className={cn(
         "relative flex min-w-0 w-full flex-1 flex-col h-[calc(100vh-2*0.5rem)]",
-        // Standard inset styling with selective margins: only top/bottom plus outer edges.
-        "md:peer-data-[variant=inset]:mt-2 md:peer-data-[variant=inset]:mb-2 md:peer-data-[variant=inset]:first:ml-2 md:peer-data-[state=collapsed]:peer-data-[variant=inset]:ml-2 md:peer-data-[variant=inset]:last:mr-2 md:peer-data-[variant=inset]:rounded-lg md:peer-data-[variant=inset]:border md:peer-data-[variant=inset]:border-zinc-200 md:peer-data-[variant=inset]:dark:border-zinc-800 md:peer-data-[variant=inset]:bg-background",
+        // Standard inset styling with selective margins: only top/bottom plus
+        // outer edges. The peer selectors only ever match at `md` and up —
+        // below that the sidebar renders as a Sheet portal, so no `peer`
+        // sibling exists in the DOM — hence no `md:` gate is needed here.
+        "peer-data-[variant=inset]:mt-2 peer-data-[variant=inset]:mb-2 peer-data-[variant=inset]:first:ml-2 peer-data-[state=collapsed]:peer-data-[variant=inset]:ml-2 peer-data-[variant=inset]:last:mr-2 peer-data-[variant=inset]:rounded-lg peer-data-[variant=inset]:border peer-data-[variant=inset]:border-sidebar-border peer-data-[variant=inset]:bg-background",
+        // Below `md` apply the bezel unconditionally so it never vanishes:
+        // every SidebarInset in the app pairs with an inset-variant sidebar,
+        // and the height calc above already assumes the vertical margins.
+        "max-md:mt-2 max-md:mb-2 max-md:ml-2 max-md:mr-2 max-md:rounded-lg max-md:border max-md:border-sidebar-border max-md:bg-background",
         className
       )}
       {...props}
@@ -405,7 +448,15 @@ const SidebarContent = React.forwardRef<
       className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", className)}
       {...props}
     >
-      <ScrollArea className="h-full">
+      {/*
+        Radix gives the scroll viewport's child `display: table`, which
+        shrink-wraps to its widest content and hands descendants a width larger
+        than the viewport. `min-w-0`/`truncate` then never engage, so a single
+        long value pushes the whole column out of view. Sidebars are
+        fixed-width and never scroll horizontally, so pin the child to the
+        viewport width instead.
+      */}
+      <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full">
         <div data-sidebar="content-scroll" className="flex flex-col gap-2">
           {children}
         </div>
@@ -514,13 +565,13 @@ const SidebarMenuItem = React.forwardRef<
 SidebarMenuItem.displayName = "SidebarMenuItem"
 
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-sm py-1.5 px-2 text-left text-[13px] text-zinc-700 dark:text-zinc-300 outline-none ring-sidebar-ring transition-[width,height,padding,background-color] hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 focus-visible:ring-2 data-[state=open]:ring-0 data-[state=closed]:ring-0 active:bg-foreground/5 dark:active:bg-foreground/10 disabled:pointer-events-none disabled:opacity-50 group-has-[[data-sidebar=menu-action]]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-foreground/5 data-[active=true]:brightness-95 data-[active=true]:text-zinc-900 dark:data-[active=true]:bg-foreground/10 dark:data-[active=true]:text-zinc-100 data-[state=open]:hover:bg-zinc-100 dark:data-[state=open]:hover:bg-zinc-900 group-data-[collapsible=icon]:!size-8 group-data-[collapsible=icon]:!p-2 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+  "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-sm py-1.5 px-2 text-left text-[13px] text-sidebar-foreground outline-none ring-sidebar-ring transition-[width,height,padding,background-color] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 data-[state=open]:ring-0 data-[state=closed]:ring-0 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-[[data-sidebar=menu-action]]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:!size-8 group-data-[collapsible=icon]:!p-2 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "hover:bg-zinc-100 dark:hover:bg-zinc-900",
+        default: "hover:bg-sidebar-accent",
         outline:
-          "bg-background shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]",
+          "bg-background shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-sidebar-accent hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]",
       },
       size: {
         default: "h-7 text-[13px]",
@@ -724,8 +775,8 @@ const SidebarMenuSubButton = React.forwardRef<
       data-size={size}
       data-active={isActive}
       className={cn(
-        "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-zinc-700 dark:text-zinc-300 outline-none ring-sidebar-ring hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 focus-visible:ring-2 active:bg-foreground/5 dark:active:bg-foreground/10 disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
-        "data-[active=true]:bg-foreground/5 data-[active=true]:text-zinc-900 dark:data-[active=true]:bg-foreground/10 dark:data-[active=true]:text-zinc-100",
+        "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground outline-none ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+        "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
         size === "sm" && "text-xs",
         size === "md" && "text-sm",
         "group-data-[collapsible=icon]:hidden",

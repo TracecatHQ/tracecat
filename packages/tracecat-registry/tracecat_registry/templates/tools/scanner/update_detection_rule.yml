@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Update Scanner detection rule
+  description: Update a Scanner detection rule with API-native fields.
+  display_group: Scanner
+  doc_url: https://docs.scanner.dev/scanner/using-scanner-complete-feature-reference/developer-tools/api/detection-rules
+  namespace: tools.scanner
+  name: update_detection_rule
+  secrets:
+    - name: scanner
+      keys: ["SCANNER_API_KEY"]
+  expects:
+    detection_rule_id:
+      type: str
+      description: Unique Scanner detection rule ID.
+    updates:
+      type: dict[str, Any]
+      description: Detection rule fields to update. The rule ID is added to the request body.
+    base_url:
+      type: str | None
+      description: Scanner team API URL. Falls back to `VARS.scanner.base_url`.
+      default: null
+  steps:
+    - ref: build_detection_rule_update
+      action: core.script.run_python
+      args:
+        inputs:
+          detection_rule_id: ${{ inputs.detection_rule_id }}
+          updates: ${{ inputs.updates }}
+        script: |
+          def main(detection_rule_id, updates):
+              return {**updates, "id": detection_rule_id}
+    - ref: update_detection_rule
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.scanner.base_url }}/v1/detection_rule/${{ FN.url_encode(inputs.detection_rule_id) }}
+        method: PUT
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.scanner.SCANNER_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ steps.build_detection_rule_update.result }}
+  returns: ${{ steps.update_detection_rule.result.data }}

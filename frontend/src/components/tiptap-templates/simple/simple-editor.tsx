@@ -5,7 +5,6 @@ import { Image } from "@tiptap/extension-image"
 import { TaskItem, TaskList } from "@tiptap/extension-list"
 import { Subscript } from "@tiptap/extension-subscript"
 import { Superscript } from "@tiptap/extension-superscript"
-import { Table } from "@tiptap/extension-table"
 import { TableCell } from "@tiptap/extension-table-cell"
 import { TableHeader } from "@tiptap/extension-table-header"
 import { TableRow } from "@tiptap/extension-table-row"
@@ -13,6 +12,7 @@ import { TextAlign } from "@tiptap/extension-text-align"
 import { Typography } from "@tiptap/extension-typography"
 import { Selection } from "@tiptap/extensions"
 import { Markdown } from "@tiptap/markdown"
+import type { EditorView } from "@tiptap/pm/view"
 import {
   type Editor,
   EditorContent,
@@ -23,8 +23,15 @@ import {
 import { StarterKit } from "@tiptap/starter-kit"
 import * as React from "react"
 import { HorizontalRule } from "@/components/tiptap-node/horizontal-rule-node/horizontal-rule-node-extension"
+import { AttachmentImage } from "@/components/tiptap-node/image-node/attachment-image-node"
 // --- Tiptap Node ---
 import { ImageUploadNode } from "@/components/tiptap-node/image-upload-node/image-upload-node-extension"
+import { MermaidCodeBlock } from "@/components/tiptap-node/mermaid-code-block-node/mermaid-code-block-node"
+import {
+  canMoveTableColumnLeft,
+  canMoveTableColumnRight,
+  TracecatTable,
+} from "@/components/tiptap-node/table-node/table-node-extension"
 // --- UI Primitives ---
 import { Button, ButtonGroup } from "@/components/tiptap-ui-primitive/button"
 import { Spacer } from "@/components/tiptap-ui-primitive/spacer"
@@ -41,7 +48,14 @@ import "@/components/tiptap-node/image-node/image-node.scss"
 import "@/components/tiptap-node/heading-node/heading-node.scss"
 import "@/components/tiptap-node/paragraph-node/paragraph-node.scss"
 
+// Panel icons below are chosen for the direction their arrow points, not for
+// the panel edge in their name. In lucide, `PanelLeftOpen` draws a
+// right-pointing arrow, `PanelRightOpen` a left-pointing one, `PanelTopOpen`
+// points down and `PanelBottomOpen` points up. Users read the arrow, so the
+// name-to-command pairing looks inverted on purpose. Do not "fix" it.
 import {
+  ArrowLeftToLine,
+  ArrowRightToLine,
   BookmarkX,
   Delete as DeleteIcon,
   PanelBottomOpen,
@@ -83,8 +97,41 @@ import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
 import { useWindowSize } from "@/hooks/use-window-size"
 
 // --- Lib ---
-import { handleImageUpload, MAX_FILE_SIZE } from "@/lib/tiptap-utils"
+import {
+  createPastedImageFile,
+  extractImageFiles,
+} from "@/lib/cases/use-case-image-upload"
+import {
+  handleImageUpload,
+  MAX_FILE_SIZE,
+  sanitizeUrl,
+} from "@/lib/tiptap-utils"
 import { cn } from "@/lib/utils"
+
+/** Upload images then insert image nodes at the drop position or selection. */
+async function uploadAndInsertImages(
+  view: EditorView,
+  files: File[],
+  upload: (file: File) => Promise<string>,
+  startPos?: number
+): Promise<void> {
+  let insertPos = startPos
+  for (const file of files) {
+    try {
+      const src = await upload(file)
+      const imageType = view.state.schema.nodes.image
+      if (!imageType) {
+        continue
+      }
+      const node = imageType.create({ src, alt: file.name })
+      const pos = insertPos ?? view.state.selection.to
+      view.dispatch(view.state.tr.insert(pos, node))
+      insertPos = pos + node.nodeSize
+    } catch {
+      // Upload failures are surfaced by the upload function's own toast.
+    }
+  }
+}
 
 // --- Styles ---
 import "@/components/tiptap-templates/simple/simple-editor.scss"
@@ -108,6 +155,7 @@ type TableButton = {
 
 interface TableButtonGroups {
   insertButtons: TableButton[]
+  moveButtons: TableButton[]
   deleteButtons: TableButton[]
 }
 
@@ -116,7 +164,7 @@ const getTableButtonGroups = (
   isTableActive: boolean
 ): TableButtonGroups => {
   if (!editor.isEditable) {
-    return { insertButtons: [], deleteButtons: [] }
+    return { insertButtons: [], moveButtons: [], deleteButtons: [] }
   }
 
   const insertButtons: TableButton[] = []
@@ -128,31 +176,55 @@ const getTableButtonGroups = (
         tooltip: "Insert column to the left",
         disabled: !editor.can().addColumnBefore(),
         onClick: () => editor.chain().focus().addColumnBefore().run(),
-        icon: <PanelLeftOpen className="tiptap-button-icon" />,
+        icon: <PanelRightOpen className="tiptap-button-icon" />,
       },
       {
         key: "add-column-after",
         tooltip: "Insert column to the right",
         disabled: !editor.can().addColumnAfter(),
         onClick: () => editor.chain().focus().addColumnAfter().run(),
-        icon: <PanelRightOpen className="tiptap-button-icon" />,
+        icon: <PanelLeftOpen className="tiptap-button-icon" />,
       },
       {
         key: "add-row-before",
         tooltip: "Insert row above",
         disabled: !editor.can().addRowBefore(),
         onClick: () => editor.chain().focus().addRowBefore().run(),
-        icon: <PanelTopOpen className="tiptap-button-icon" />,
+        icon: <PanelBottomOpen className="tiptap-button-icon" />,
       },
       {
         key: "add-row-after",
         tooltip: "Insert row below",
         disabled: !editor.can().addRowAfter(),
         onClick: () => editor.chain().focus().addRowAfter().run(),
-        icon: <PanelBottomOpen className="tiptap-button-icon" />,
+        icon: <PanelTopOpen className="tiptap-button-icon" />,
       }
     )
   }
+
+  // The other buttons ask `editor.can()`, which runs their command for real
+  // against a throwaway state. That is cheap for every command here except the
+  // two moves: `moveTableColumn` transposes and rebuilds the whole table node,
+  // and this runs on every transaction while the cursor is in a table, so the
+  // two moves ask the shared boundary rule directly instead.
+  const moveButtons: TableButton[] = isTableActive
+    ? [
+        {
+          key: "move-column-left",
+          tooltip: "Move column left",
+          disabled: !canMoveTableColumnLeft(editor.state),
+          onClick: () => editor.chain().focus().moveTableColumnLeft().run(),
+          icon: <ArrowLeftToLine className="tiptap-button-icon" />,
+        },
+        {
+          key: "move-column-right",
+          tooltip: "Move column right",
+          disabled: !canMoveTableColumnRight(editor.state),
+          onClick: () => editor.chain().focus().moveTableColumnRight().run(),
+          icon: <ArrowRightToLine className="tiptap-button-icon" />,
+        },
+      ]
+    : []
 
   const deleteButtons: TableButton[] = isTableActive
     ? [
@@ -180,7 +252,7 @@ const getTableButtonGroups = (
       ]
     : []
 
-  return { insertButtons, deleteButtons }
+  return { insertButtons, moveButtons, deleteButtons }
 }
 
 const MainToolbarContent = ({
@@ -223,15 +295,17 @@ const MainToolbarContent = ({
 
     return can.insertTable({ rows: 3, cols: 2, withHeaderRow: true })
   }, [editor])
-  const tableButtonGroups = React.useMemo<TableButtonGroups>(() => {
-    if (!editor || !hasEditableEditor) {
-      return { insertButtons: [], deleteButtons: [] }
-    }
-    return getTableButtonGroups(editor, isTableActive)
-  }, [editor, hasEditableEditor, isTableActive])
-  const hasInsertButtons = tableButtonGroups.insertButtons.length > 0
-  const hasDeleteButtons = tableButtonGroups.deleteButtons.length > 0
-  const shouldShowThemeSeparator = darkMode && (isMobile || hasDeleteButtons)
+  // Deliberately computed during render rather than memoized. Every input a
+  // memo could key on is stable while the cursor stays inside one table —
+  // `editor` for its whole lifetime, `isTableActive` until the cursor leaves —
+  // so the disabled flags would freeze when the cursor entered the table and
+  // stop following the caret between columns. `useTiptapEditor` subscribes to
+  // `editorState`, which changes on every transaction and re-renders us.
+  const tableButtonGroups: TableButtonGroups =
+    editor && hasEditableEditor
+      ? getTableButtonGroups(editor, isTableActive)
+      : { insertButtons: [], moveButtons: [], deleteButtons: [] }
+  const shouldShowThemeSeparator = darkMode && (isMobile || isTableActive)
 
   const renderButtonGroup = (buttons: TableButton[]) => (
     <ButtonGroup orientation="horizontal">
@@ -271,26 +345,47 @@ const MainToolbarContent = ({
 
       <ToolbarSeparator />
 
-      <ToolbarGroup>
-        <HeadingDropdownMenu levels={[1, 2, 3, 4]} portal={isMobile} />
-        <ListDropdownMenu
-          types={["bulletList", "orderedList", "taskList"]}
-          portal={isMobile}
-        />
-        <BlockquoteButton />
-        <CodeBlockButton />
-        <Button
-          type="button"
-          data-style="ghost"
-          data-disabled={!canInsertTable}
-          disabled={!canInsertTable}
-          tooltip="Insert table"
-          aria-label="Insert table"
-          onClick={handleInsertTable}
-        >
-          <TableIcon className="tiptap-button-icon" />
-        </Button>
-      </ToolbarGroup>
+      {/* Inside a table this slot becomes the table controls. Headings, lists,
+          block quotes, code blocks and nested tables are all noise in a cell,
+          and the row/column controls are what the user actually reached for. */}
+      {isTableActive ? (
+        // Insert, move and delete are separated so nine icons read as three
+        // intents rather than one undifferentiated row.
+        <>
+          <ToolbarGroup className="simple-editor-table-controls">
+            {renderButtonGroup(tableButtonGroups.insertButtons)}
+          </ToolbarGroup>
+          <ToolbarSeparator />
+          <ToolbarGroup className="simple-editor-table-controls">
+            {renderButtonGroup(tableButtonGroups.moveButtons)}
+          </ToolbarGroup>
+          <ToolbarSeparator />
+          <ToolbarGroup className="simple-editor-table-controls">
+            {renderButtonGroup(tableButtonGroups.deleteButtons)}
+          </ToolbarGroup>
+        </>
+      ) : (
+        <ToolbarGroup>
+          <HeadingDropdownMenu levels={[1, 2, 3, 4]} portal={isMobile} />
+          <ListDropdownMenu
+            types={["bulletList", "orderedList", "taskList"]}
+            portal={isMobile}
+          />
+          <BlockquoteButton />
+          <CodeBlockButton />
+          <Button
+            type="button"
+            data-style="ghost"
+            data-disabled={!canInsertTable}
+            disabled={!canInsertTable}
+            tooltip="Insert table"
+            aria-label="Insert table"
+            onClick={handleInsertTable}
+          >
+            <TableIcon className="tiptap-button-icon" />
+          </Button>
+        </ToolbarGroup>
+      )}
 
       <ToolbarSeparator />
 
@@ -333,16 +428,6 @@ const MainToolbarContent = ({
         </>
       )}
 
-      {hasInsertButtons && (
-        <>
-          <ToolbarSeparator />
-
-          <ToolbarGroup className="simple-editor-table-controls">
-            {renderButtonGroup(tableButtonGroups.insertButtons)}
-          </ToolbarGroup>
-        </>
-      )}
-
       {images && (
         <>
           <ToolbarSeparator />
@@ -354,16 +439,6 @@ const MainToolbarContent = ({
       )}
 
       <Spacer />
-
-      {hasDeleteButtons && (
-        <>
-          <ToolbarSeparator />
-
-          <ToolbarGroup className="simple-editor-table-controls">
-            {renderButtonGroup(tableButtonGroups.deleteButtons)}
-          </ToolbarGroup>
-        </>
-      )}
 
       {shouldShowThemeSeparator && <ToolbarSeparator />}
 
@@ -460,6 +535,12 @@ export interface SimpleEditorProps {
    */
   toolbarStatus?: React.ReactNode
   /**
+   * Render Mermaid code blocks as diagrams when this editable editor is blurred.
+   * Read-only editors always render Mermaid diagrams.
+   * @default false
+   */
+  renderMermaidWhenBlurred?: boolean
+  /**
    * Auto focus behaviour.
    * @default false
    */
@@ -468,6 +549,23 @@ export interface SimpleEditorProps {
    * Optional inline styles for the wrapper.
    */
   style?: React.CSSProperties
+  /**
+   * Enable inline image support: registers the image node so `![](...)`
+   * markdown round-trips and, when combined with `onImageUpload`, enables
+   * paste/drop uploads.
+   * @default false
+   */
+  enableImages?: boolean
+  /**
+   * Workspace id used to resolve `attachment://` image srcs at render time.
+   * Required for images to display.
+   */
+  imageWorkspaceId?: string | null
+  /**
+   * Upload a pasted/dropped image and return its stable markdown src (e.g.
+   * `attachment://<caseId>/<attachmentId>`). Required to enable paste/drop.
+   */
+  onImageUpload?: (file: File) => Promise<string>
 }
 
 export function SimpleEditor({
@@ -483,8 +581,12 @@ export function SimpleEditor({
   onShortcutFallback,
   onFocus,
   toolbarStatus,
+  renderMermaidWhenBlurred = false,
   autoFocus = false,
   style,
+  enableImages = false,
+  imageWorkspaceId = null,
+  onImageUpload,
 }: SimpleEditorProps) {
   const isMobile = useIsMobile()
   const { height } = useWindowSize()
@@ -494,18 +596,27 @@ export function SimpleEditor({
   const toolbarRef = React.useRef<HTMLDivElement>(null)
   const markdownRef = React.useRef<string>(value ?? "")
   const previousEditableRef = React.useRef(editable)
+  const imageUploadRef = React.useRef(onImageUpload)
+
+  React.useEffect(() => {
+    imageUploadRef.current = onImageUpload
+  }, [onImageUpload])
 
   const extensions = React.useMemo(
     () => [
       StarterKit.configure({
         horizontalRule: false,
+        codeBlock: false,
         link: {
           openOnClick: false,
           enableClickSelection: true,
         },
       }),
       HorizontalRule,
-      Table.configure({
+      MermaidCodeBlock.configure({
+        renderWhenBlurred: renderMermaidWhenBlurred,
+      }),
+      TracecatTable.configure({
         resizable: false,
       }),
       TableRow,
@@ -520,6 +631,9 @@ export function SimpleEditor({
         ? [Highlight.configure({ multicolor: true })]
         : []),
       ...(SIMPLE_EDITOR_FEATURE_FLAGS.images ? [Image] : []),
+      ...(enableImages
+        ? [AttachmentImage.configure({ workspaceId: imageWorkspaceId })]
+        : []),
       Typography,
       ...(SIMPLE_EDITOR_FEATURE_FLAGS.superSub ? [Superscript, Subscript] : []),
       Selection,
@@ -540,7 +654,7 @@ export function SimpleEditor({
         },
       }),
     ],
-    []
+    [renderMermaidWhenBlurred, enableImages, imageWorkspaceId]
   )
 
   const editor = useEditor({
@@ -556,6 +670,52 @@ export function SimpleEditor({
         "aria-label": "Main content area, start typing to enter text.",
         class: cn("simple-editor", !editable && "simple-editor--readonly"),
         ...(placeholder ? { "data-placeholder": placeholder } : {}),
+      },
+      handleClick: (_view, _pos, event) => {
+        if (!event.metaKey && !event.ctrlKey) return false
+        const href = (event.target as HTMLElement | null)
+          ?.closest("a")
+          ?.getAttribute("href")
+        if (!href) return false
+        const safeUrl = sanitizeUrl(href, window.location.href)
+        if (safeUrl === "#") return false
+        event.preventDefault()
+        window.open(safeUrl, "_blank", "noopener,noreferrer")
+        return true
+      },
+      handlePaste: (view, event) => {
+        const upload = imageUploadRef.current
+        if (!upload) {
+          return false
+        }
+        const files = extractImageFiles(event.clipboardData)
+        if (files.length === 0) {
+          return false
+        }
+        event.preventDefault()
+        void uploadAndInsertImages(
+          view,
+          files.map(createPastedImageFile),
+          upload
+        )
+        return true
+      },
+      handleDrop: (view, event) => {
+        const upload = imageUploadRef.current
+        if (!upload) {
+          return false
+        }
+        const files = extractImageFiles(event.dataTransfer)
+        if (files.length === 0) {
+          return false
+        }
+        event.preventDefault()
+        const coords = view.posAtCoords({
+          left: event.clientX,
+          top: event.clientY,
+        })
+        void uploadAndInsertImages(view, files, upload, coords?.pos)
+        return true
       },
     },
     extensions,
@@ -700,10 +860,11 @@ export function SimpleEditor({
   const toolbarStyle = React.useMemo<
     React.CSSProperties & Record<string, string | number>
   >(() => {
+    // Leave the toolbar surface to CSS: `.simple-editor-toolbar` already
+    // defaults it to transparent, and an inline value would outrank any
+    // consumer override.
     const next: React.CSSProperties & Record<string, string | number> = {
       paddingBottom: 0,
-      "--tt-toolbar-bg-color":
-        "color-mix(in srgb, hsl(var(--muted)) 20%, hsl(var(--background)) 80%)",
     }
 
     if (isMobile) {
@@ -716,7 +877,11 @@ export function SimpleEditor({
 
   return (
     <div
-      className={cn("simple-editor-wrapper", className)}
+      className={cn(
+        "simple-editor-wrapper",
+        !editable && "simple-editor-wrapper--readonly",
+        className
+      )}
       style={wrapperStyle}
     >
       <EditorContext.Provider value={{ editor }}>
@@ -759,7 +924,10 @@ export function SimpleEditor({
         <EditorContent
           editor={editor}
           role="presentation"
-          className="simple-editor-content"
+          className={cn(
+            "simple-editor-content",
+            !editable && "simple-editor-content--readonly"
+          )}
         />
       </EditorContext.Provider>
     </div>

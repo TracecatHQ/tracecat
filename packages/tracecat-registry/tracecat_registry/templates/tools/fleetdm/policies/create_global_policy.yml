@@ -1,0 +1,70 @@
+type: action
+definition:
+  title: Create global policy
+  description: Create a global compliance policy from an osquery SQL check.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#create-policy
+  namespace: tools.fleetdm
+  name: create_global_policy
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    name:
+      type: str
+      description: Name of the policy.
+    query:
+      type: str
+      description: The osquery SQL statement that hosts must satisfy to pass.
+    description:
+      type: str | None
+      description: Human-readable description of the policy.
+      default: null
+    resolution:
+      type: str | None
+      description: Remediation guidance shown for failing hosts.
+      default: null
+    platform:
+      type: str | None
+      description: Comma-separated platforms the policy targets (e.g. darwin,windows,linux).
+      default: null
+    critical:
+      type: bool | None
+      description: Mark the policy as critical (Fleet Premium).
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          name: ${{ inputs.name }}
+          query: ${{ inputs.query }}
+          description: ${{ inputs.description }}
+          resolution: ${{ inputs.resolution }}
+          platform: ${{ inputs.platform }}
+          critical: ${{ inputs.critical }}
+        script: |
+          def main(name, query, description, resolution, platform, critical):
+              payload = {"name": name, "query": query}
+              if description is not None:
+                  payload["description"] = description
+              if resolution is not None:
+                  payload["resolution"] = resolution
+              if platform is not None:
+                  payload["platform"] = platform
+              if critical is not None:
+                  payload["critical"] = critical
+              return payload
+    - ref: create_policy
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/global/policies
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create_policy.result.data }}

@@ -1,17 +1,18 @@
 """Generate concise session titles from the first user prompt."""
 
-import asyncio
+from __future__ import annotations
 
-from pydantic_ai import Agent, UsageLimits
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.providers import get_model
+from tracecat.agent.llm import complete as llm_complete
+from tracecat.auth.types import Role
 
 TITLE_MAX_WORDS = 8
 TITLE_MAX_CHARS = 60
-TITLE_GEN_TIMEOUT_SECONDS = 8.0
+TITLE_GEN_TIMEOUT_SECONDS = 15.0
 TITLE_PROMPT_MAX_CHARS = 2000
 
-_TITLE_INSTRUCTIONS = (
+_SYSTEM_PROMPT = (
     "Generate a concise chat title from the user's first message.\n"
     "Rules:\n"
     "- Return plain text only.\n"
@@ -28,7 +29,7 @@ def sanitize_session_title(raw_title: str) -> str | None:
         return None
 
     quote_chars = "\"'`“”‘’"
-    # Strip paired surrounding quotes repeatedly (e.g., '\"title\"').
+    # Strip paired surrounding quotes repeatedly (e.g., '"title"').
     while (
         len(normalized) >= 2
         and normalized[0] in quote_chars
@@ -48,39 +49,22 @@ def sanitize_session_title(raw_title: str) -> str | None:
     return normalized or None
 
 
-def _build_title_prompt(user_prompt: str) -> str:
-    clipped = user_prompt[:TITLE_PROMPT_MAX_CHARS]
-    return f"User message:\n{clipped}"
-
-
 async def generate_session_title(
     *,
     user_prompt: str,
-    model_name: str,
-    model_provider: str,
+    session: AsyncSession,
+    role: Role,
     timeout_seconds: float = TITLE_GEN_TIMEOUT_SECONDS,
 ) -> str | None:
-    """Best-effort title generation via direct PydanticAI call."""
     prompt = user_prompt.strip()
     if not prompt:
         return None
-
-    model = get_model(model_name, model_provider)
-    agent = Agent(
-        model=model,
-        instructions=_TITLE_INSTRUCTIONS,
-        output_type=str,
-        retries=0,
-        instrument=False,
+    raw = await llm_complete(
+        prompt=f"User message:\n{prompt[:TITLE_PROMPT_MAX_CHARS]}",
+        system_prompt=_SYSTEM_PROMPT,
+        session=session,
+        role=role,
+        max_tokens=30,
+        timeout_seconds=timeout_seconds,
     )
-    usage_limits = UsageLimits(request_limit=1, tool_calls_limit=0)
-    try:
-        async with asyncio.timeout(timeout_seconds):
-            result = await agent.run(
-                _build_title_prompt(prompt),
-                usage_limits=usage_limits,
-            )
-    except TimeoutError:
-        return None
-
-    return sanitize_session_title(result.output)
+    return sanitize_session_title(raw) if raw else None

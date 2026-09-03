@@ -1,0 +1,86 @@
+type: action
+definition:
+  title: Create commit
+  description: >-
+    Create commit. Calls POST /projects/{project_id}/repository/commits directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: create_commit
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    branch:
+      type: str
+      description: Name of the branch to commit into. To create a new branch, also provide either `start_branch` or `start_sha`, and optionally `start_project`.
+    commit_message:
+      type: str
+      description: Commit message.
+    actions:
+      # Documented object shape; the `expects` grammar has no nested-object type,
+      # so the vendor's sub-keys are named in the description instead.
+      type: list[dict[str, Any]]
+      description: An array of action hashes to commit as a batch. Each action hash takes `action` (one of `create`, `delete`, `move`, `update`, or `chmod`), `file_path`, and optionally `content`, `encoding`, `execute_filemode`, `last_commit_id`, and `previous_path`. Pass an empty array with allow_empty to create an empty commit.
+    allow_empty:
+      type: bool | None
+      description: When `true`, creates an empty commit. Default is `false`.
+      default: null
+    author_email:
+      type: str | None
+      description: Specify the commit author's email address.
+      default: null
+    author_name:
+      type: str | None
+      description: Specify the commit author's name.
+      default: null
+    force:
+      type: bool | None
+      description: If `true`, overwrites `branch` with a new commit based on `start_branch` or `start_sha`, replacing the branch's existing commit history. Default is `false`.
+      default: null
+    start_branch:
+      type: str | None
+      description: Name of the branch to use as the parent for the new commit. If not provided and `start_sha` is also not provided, defaults to the value of `branch`. Mutually exclusive with `start_sha`.
+      default: null
+    start_project:
+      type: str | None
+      description: The project ID or URL-encoded path of the project to use as the source for `start_branch` or `start_sha`. Defaults to the value of `id`.
+      default: null
+    start_sha:
+      type: str | None
+      description: SHA of the commit to use as the parent for the new commit. Must be a full 40-character SHA. Mutually exclusive with `start_branch`.
+      default: null
+    stats:
+      type: bool | None
+      description: Include commit stats. Default is `true`.
+      default: null
+    base_url:
+      type: str
+      description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
+      default: https://gitlab.com/api/v4
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/repository/commits
+        method: POST
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Accept: application/json
+        payload:
+          branch: ${{ inputs.branch }}
+          commit_message: ${{ inputs.commit_message }}
+          actions: ${{ inputs.actions }}
+          allow_empty: ${{ inputs.allow_empty }}
+          author_email: ${{ inputs.author_email }}
+          author_name: ${{ inputs.author_name }}
+          force: ${{ inputs.force }}
+          start_branch: ${{ inputs.start_branch }}
+          start_project: ${{ inputs.start_project }}
+          start_sha: ${{ inputs.start_sha }}
+          stats: ${{ inputs.stats }}
+  returns: ${{ steps.request.result }}

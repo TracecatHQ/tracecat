@@ -3,7 +3,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import Image from "next/image"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { useEffect, useState } from "react"
@@ -33,12 +32,9 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
-import { useAuth, useAuthActions } from "@/hooks/use-auth"
-import {
-  sanitizeReturnUrl,
-  serializeClearPostAuthReturnUrlCookie,
-  serializePostAuthReturnUrlCookie,
-} from "@/lib/auth-return-url"
+import { useAuthActions } from "@/hooks/use-auth"
+import { setPostAuthReturnUrlCookie, startOidcLogin } from "@/lib/auth-login"
+import { sanitizeReturnUrl } from "@/lib/auth-return-url"
 import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
@@ -47,21 +43,14 @@ interface SignInProps extends React.HTMLProps<HTMLDivElement> {
   organizationSlug?: string | null
 }
 
-function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
-  const secure = window.location.protocol === "https:"
-  const sanitizedReturnUrl = sanitizeReturnUrl(returnUrl)
-  document.cookie = sanitizedReturnUrl
-    ? serializePostAuthReturnUrlCookie(sanitizedReturnUrl, secure)
-    : serializeClearPostAuthReturnUrlCookie(secure)
-}
-
 function buildSignUpPath(
   returnUrl?: string | null,
   organizationSlug?: string | null
 ): string {
   const params = new URLSearchParams()
-  if (returnUrl) {
-    params.set("returnUrl", returnUrl)
+  const sanitizedReturnUrl = sanitizeReturnUrl(returnUrl)
+  if (sanitizedReturnUrl) {
+    params.set("returnUrl", sanitizedReturnUrl)
   }
   if (organizationSlug) {
     params.set("org", organizationSlug)
@@ -91,17 +80,11 @@ export function SignIn({
   returnUrl,
   organizationSlug,
 }: SignInProps) {
-  const { user } = useAuth()
   const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo()
   const [isDiscovering, setIsDiscovering] = useState(false)
   const [discoveredMethod, setDiscoveredMethod] = useState<"basic" | null>(null)
   const [discoveredEmail, setDiscoveredEmail] = useState("")
-  const router = useRouter()
   const signUpPath = buildSignUpPath(returnUrl, organizationSlug)
-
-  if (user) {
-    router.push("/workspaces")
-  }
 
   if (appInfoIsLoading) {
     return <CenteredSpinner />
@@ -112,11 +95,9 @@ export function SignIn({
 
   const allowedAuthTypes: string[] = appInfo?.auth_allowed_types ?? []
   const showBasicAuth = allowedAuthTypes.includes("basic")
-  const showGenericOidcAuth = allowedAuthTypes.includes("oidc")
-  const showGoogleOauthAuth = allowedAuthTypes.includes("google_oauth")
-  const showOidcAuth = showGenericOidcAuth || showGoogleOauthAuth
-  const oidcProviderLabel = showGenericOidcAuth ? "Social login" : "Google"
-  const oidcProviderIcon = showGenericOidcAuth ? "login" : "google"
+  const showOidcAuth = allowedAuthTypes.includes("oidc")
+  const oidcProviderLabel = "Social login"
+  const oidcProviderIcon = "login"
   // Keep a manual SAML entry point for single-tenant self-hosted setups.
   // In multi-tenant mode, SAML login requires org context and should only be
   // initiated from org-scoped discovery `next_url` links.
@@ -148,9 +129,7 @@ export function SignIn({
         if (!showOidcAuth) {
           throw new Error("OIDC login is not enabled")
         }
-        // Fall through — show OIDC buttons so user can click
-        // (OIDC requires user-initiated navigation for OAuth redirects)
-        setDiscoveredMethod(null)
+        await startOidcLogin(returnUrl)
         return
       }
       if (data.method === "saml") {

@@ -58,7 +58,7 @@ definition:
         params:
           start: ${{ inputs.start }}
           limit: ${{ inputs.limit }}
-          expand: ${{ steps.resolve_expand.result.data }}
+          expand: ${{ steps.resolve_expand.result }}
         auth:
           username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
           password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}

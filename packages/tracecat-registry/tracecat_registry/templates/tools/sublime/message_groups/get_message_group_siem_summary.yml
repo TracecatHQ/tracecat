@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Get message group SIEM summary
+  description: Retrieve the reduced-field SIEM summary of flagged message groups.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/getmessagegroupsiemsummary
+  namespace: tools.sublime
+  name: get_message_group_siem_summary
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    cursor:
+      type: str | None
+      description: Opaque pagination cursor returned in the previous response's cursor field.
+      default: null
+    limit:
+      type: int | None
+      description: The maximum number of message groups to return.
+      default: null
+    timestamp__gte:
+      type: str | None
+      description: Inclusive lower bound on the sort timestamp (newest_created_at for type=flagged, first_reported_as_phish_at for type=reported).
+      default: null
+    timestamp__lt:
+      type: str | None
+      description: Exclusive upper bound on the sort timestamp (newest_created_at for type=flagged, first_reported_as_phish_at for type=reported).
+      default: null
+    type:
+      type: str | None
+      description: "Which timestamp the endpoint sorts/filters on: 'flagged' uses newest_created_at, 'reported' uses first_reported_as_phish_at. Possible values: flagged, reported."
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/message-groups/siem-summary
+        method: GET
+        params:
+          cursor: ${{ inputs.cursor }}
+          limit: ${{ inputs.limit }}
+          timestamp__gte: ${{ inputs.timestamp__gte }}
+          timestamp__lt: ${{ inputs.timestamp__lt }}
+          type: ${{ inputs.type }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

@@ -13,12 +13,12 @@ from pathlib import Path
 # === Agent Sandbox Config (read directly from env) === #
 
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT", "600")
+    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 3600
 )
-"""Default timeout for agent sandbox execution in seconds (10 minutes)."""
+"""Ceiling for agent execution timeouts in seconds (default one hour)."""
 
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB", "4096")
+    os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB") or 4096
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
@@ -27,22 +27,70 @@ TRACECAT__DISABLE_NSJAIL = os.environ.get(
 ).lower() in ("true", "1")
 """Disable nsjail sandbox and use the unsafe PID executor instead."""
 
-# === Well-known socket paths (internal to agent worker) === #
+_AGENT_RUNTIME_UV_PATH_ENV_VARS = (
+    ("UV_CACHE_DIR", "cache"),
+    ("UV_CREDENTIALS_DIR", "credentials"),
+    ("UV_PYTHON_INSTALL_DIR", "python"),
+    ("UV_PYTHON_BIN_DIR", "bin"),
+    ("UV_PYTHON_CACHE_DIR", "python-cache"),
+    ("UV_TOOL_DIR", "tools"),
+    ("UV_TOOL_BIN_DIR", "bin"),
+)
 
-TRUSTED_MCP_SOCKET_PATH = Path("/var/run/tracecat/mcp.sock")
+AGENT_RUNTIME_PROTECTED_ENV_VARS = frozenset(
+    {
+        "UV_LINK_MODE",
+        *(key for key, _relative_path in _AGENT_RUNTIME_UV_PATH_ENV_VARS),
+    }
+)
+"""Environment variables reserved for Tracecat's agent runtime isolation."""
+
+
+def build_agent_runtime_uv_env(uv_state_dir: Path) -> dict[str, str]:
+    """Build job-scoped environment settings for UV-managed runtime storage."""
+    env = {
+        key: str(uv_state_dir / relative_path)
+        for key, relative_path in _AGENT_RUNTIME_UV_PATH_ENV_VARS
+    }
+    env["UV_LINK_MODE"] = "copy"
+    return env
+
+
+# === Well-known runtime paths (internal to agent worker) === #
+
+AGENT_RUNTIME_DIR = Path("/run/tracecat")
+"""Tracecat-owned runtime namespace for agent sandbox mountpoints and sockets."""
+
+TRUSTED_MCP_SOCKET_PATH = AGENT_RUNTIME_DIR / "mcp.sock"
 """Path to the trusted MCP socket (shared across jobs)."""
+
+TRACECAT__AGENT_MCP_SOCKET_PATH = Path(
+    os.environ.get("TRACECAT__AGENT_MCP_SOCKET_PATH") or str(TRUSTED_MCP_SOCKET_PATH)
+)
+"""Path to the trusted MCP socket visible to the runtime shim."""
+
+TRACECAT__AGENT_MCP_BRIDGE_PORT = int(
+    os.environ.get("TRACECAT__AGENT_MCP_BRIDGE_PORT") or 4101
+)
+"""Loopback port for the in-sandbox trusted MCP HTTP bridge."""
 
 CONTROL_SOCKET_NAME = "control.sock"
 """Name of the per-job control socket."""
 
-JAILED_CONTROL_SOCKET_PATH = Path("/var/run/tracecat/control.sock")
+JAILED_CONTROL_SOCKET_PATH = AGENT_RUNTIME_DIR / "control.sock"
 """Path to the control socket inside the jail."""
 
 LLM_SOCKET_NAME = "llm.sock"
-"""Name of the LLM socket for proxied LiteLLM access."""
+"""Name of the LLM socket for proxied LLM gateway access."""
 
-JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
+JAILED_LLM_SOCKET_PATH = AGENT_RUNTIME_DIR / "llm.sock"
 """Path to the LLM socket inside the jail."""
+
+OTEL_SOCKET_NAME = "otel.sock"
+"""Name of the per-job Agent OTel relay socket."""
+
+JAILED_OTEL_SOCKET_PATH = Path("/var/run/tracecat/otel.sock")
+"""Path to the Agent OTel relay socket inside the jail."""
 
 # === Runtime socket overrides (primarily for direct subprocess mode) === #
 #
@@ -60,3 +108,18 @@ TRACECAT__AGENT_LLM_SOCKET_PATH = Path(
     os.environ.get("TRACECAT__AGENT_LLM_SOCKET_PATH", str(JAILED_LLM_SOCKET_PATH))
 )
 """Path to the orchestrator LLM socket for the runtime bridge to connect to."""
+
+TRACECAT__AGENT_OTEL_SOCKET_PATH = Path(
+    os.environ.get("TRACECAT__AGENT_OTEL_SOCKET_PATH", str(JAILED_OTEL_SOCKET_PATH))
+)
+"""Path to the orchestrator OTel relay socket for the runtime bridge to connect to."""
+
+# === Managed LiteLLM defaults === #
+
+TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
+"""Bind port for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_BASE_URL = os.environ.get(
+    "TRACECAT__LITELLM_BASE_URL", f"http://127.0.0.1:{TRACECAT__LITELLM_PORT}"
+)
+"""Internal base URL for the managed LiteLLM service."""

@@ -6,13 +6,21 @@ resource "random_id" "registry_bucket_suffix" {
   byte_length = 4
 }
 
+resource "random_id" "skills_bucket_suffix" {
+  byte_length = 4
+}
+
 resource "random_id" "workflow_bucket_suffix" {
+  byte_length = 4
+}
+
+resource "random_id" "agent_bucket_suffix" {
   byte_length = 4
 }
 
 # S3 bucket for Tracecat case attachments
 resource "aws_s3_bucket" "attachments" {
-  bucket = "tracecat-attachments-${var.tracecat_app_env}-${random_id.attachments_bucket_suffix.hex}"
+  bucket = "${var.name_prefix}-attachments-${var.tracecat_app_env}-${random_id.attachments_bucket_suffix.hex}"
 
   tags = {
     Name        = "Tracecat attachments storage"
@@ -89,7 +97,7 @@ resource "aws_s3_bucket_policy" "attachments" {
         Sid    = "AllowECSTaskAccess"
         Effect = "Allow"
         Principal = {
-          AWS = aws_iam_role.api_worker_task.arn
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
         }
         Action = [
           "s3:GetObject",
@@ -105,12 +113,10 @@ resource "aws_s3_bucket_policy" "attachments" {
         ]
       },
       {
-        Sid    = "DenyInsecureConnections"
-        Effect = "Deny"
-        Principal = {
-          AWS = aws_iam_role.api_worker_task.arn
-        }
-        Action = "s3:*"
+        Sid       = "DenyInsecureConnections"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
         Resource = [
           aws_s3_bucket.attachments.arn,
           "${aws_s3_bucket.attachments.arn}/*"
@@ -144,7 +150,7 @@ resource "aws_s3_bucket_cors_configuration" "attachments" {
 
 # S3 bucket for Tracecat registry tarballs
 resource "aws_s3_bucket" "registry" {
-  bucket = "tracecat-registry-${var.tracecat_app_env}-${random_id.registry_bucket_suffix.hex}"
+  bucket = "${var.name_prefix}-registry-${var.tracecat_app_env}-${random_id.registry_bucket_suffix.hex}"
 
   tags = {
     Name        = "Tracecat registry storage"
@@ -221,7 +227,7 @@ resource "aws_s3_bucket_policy" "registry" {
         Sid    = "AllowECSTaskAccess"
         Effect = "Allow"
         Principal = {
-          AWS = aws_iam_role.api_worker_task.arn
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
         }
         Action = [
           "s3:GetObject",
@@ -235,12 +241,10 @@ resource "aws_s3_bucket_policy" "registry" {
         ]
       },
       {
-        Sid    = "DenyInsecureConnections"
-        Effect = "Deny"
-        Principal = {
-          AWS = aws_iam_role.api_worker_task.arn
-        }
-        Action = "s3:*"
+        Sid       = "DenyInsecureConnections"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
         Resource = [
           aws_s3_bucket.registry.arn,
           "${aws_s3_bucket.registry.arn}/*"
@@ -255,9 +259,178 @@ resource "aws_s3_bucket_policy" "registry" {
   })
 }
 
+resource "aws_s3_bucket_cors_configuration" "skills" {
+  bucket = aws_s3_bucket.skills.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["GET", "HEAD", "POST", "PUT", "DELETE"]
+    allowed_origins = ["https://${var.domain_name}"]
+    expose_headers = [
+      "ETag",
+      "Content-Type",
+      "Content-Length",
+      "Content-Disposition",
+    ]
+    max_age_seconds = 3600
+  }
+}
+
+# S3 bucket for Tracecat workspace skills
+resource "aws_s3_bucket" "skills" {
+  bucket = "${var.name_prefix}-skills-${var.tracecat_app_env}-${random_id.skills_bucket_suffix.hex}"
+
+  tags = {
+    Name        = "Tracecat skills storage"
+    Environment = var.tracecat_app_env
+    Service     = "tracecat"
+    Purpose     = "skills"
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "skills" {
+  bucket = aws_s3_bucket.skills.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "skills" {
+  bucket = aws_s3_bucket.skills.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "skills" {
+  bucket = aws_s3_bucket.skills.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "skills" {
+  bucket = aws_s3_bucket.skills.id
+
+  depends_on = [aws_s3_bucket_versioning.skills]
+
+  rule {
+    id     = "expire_staged_skill_uploads"
+    status = "Enabled"
+
+    filter {
+      prefix = "skill-uploads/"
+    }
+
+    expiration {
+      days = 1
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+
+  rule {
+    id     = "remove_staged_skill_upload_delete_markers"
+    status = "Enabled"
+
+    filter {
+      prefix = "skill-uploads/"
+    }
+
+    expiration {
+      expired_object_delete_marker = true
+    }
+  }
+
+  # Canonical blobs are content-addressed (skills/<workspace>/<sha256>), so a
+  # noncurrent version is always redundant with the current one. Rollback
+  # cleanup deletes freshly published keys; on a versioned bucket that leaves a
+  # noncurrent version and a delete marker, which these two rules expire.
+  rule {
+    id     = "expire_noncurrent_skill_blob_versions"
+    status = "Enabled"
+
+    filter {
+      prefix = "skills/"
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+  }
+
+  rule {
+    id     = "remove_skill_blob_delete_markers"
+    status = "Enabled"
+
+    filter {
+      prefix = "skills/"
+    }
+
+    expiration {
+      expired_object_delete_marker = true
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "skills" {
+  bucket = aws_s3_bucket.skills.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowECSTaskAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
+        }
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "${aws_s3_bucket.skills.arn}/*",
+          aws_s3_bucket.skills.arn
+        ]
+      },
+      {
+        Sid       = "DenyInsecureConnections"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource = [
+          aws_s3_bucket.skills.arn,
+          "${aws_s3_bucket.skills.arn}/*"
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      }
+    ]
+  })
+}
+
 # S3 bucket for externalized workflow artifacts
 resource "aws_s3_bucket" "workflow" {
-  bucket = "tracecat-workflow-${var.tracecat_app_env}-${random_id.workflow_bucket_suffix.hex}"
+  bucket = "${var.name_prefix}-workflow-${var.tracecat_app_env}-${random_id.workflow_bucket_suffix.hex}"
 
   tags = {
     Name        = "Tracecat workflow storage"
@@ -331,7 +504,7 @@ resource "aws_s3_bucket_policy" "workflow" {
         Sid    = "AllowECSTaskAccess"
         Effect = "Allow"
         Principal = {
-          AWS = aws_iam_role.api_worker_task.arn
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
         }
         Action = [
           "s3:GetObject",
@@ -345,15 +518,95 @@ resource "aws_s3_bucket_policy" "workflow" {
         ]
       },
       {
-        Sid    = "DenyInsecureConnections"
-        Effect = "Deny"
-        Principal = {
-          AWS = aws_iam_role.api_worker_task.arn
-        }
-        Action = "s3:*"
+        Sid       = "DenyInsecureConnections"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
         Resource = [
           aws_s3_bucket.workflow.arn,
           "${aws_s3_bucket.workflow.arn}/*"
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      }
+    ]
+  })
+}
+
+# S3 bucket for durable agent filesystem snapshots
+resource "aws_s3_bucket" "agent" {
+  bucket = "${var.name_prefix}-agent-${var.tracecat_app_env}-${random_id.agent_bucket_suffix.hex}"
+
+  tags = {
+    Name        = "Tracecat agent filesystem storage"
+    Environment = var.tracecat_app_env
+    Service     = "tracecat"
+    Purpose     = "agent"
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "agent" {
+  bucket = aws_s3_bucket.agent.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "agent" {
+  bucket = aws_s3_bucket.agent.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "agent" {
+  bucket = aws_s3_bucket.agent.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_policy" "agent" {
+  bucket = aws_s3_bucket.agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowECSTaskAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
+        }
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "${aws_s3_bucket.agent.arn}/*",
+          aws_s3_bucket.agent.arn
+        ]
+      },
+      {
+        Sid       = "DenyInsecureConnections"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource = [
+          aws_s3_bucket.agent.arn,
+          "${aws_s3_bucket.agent.arn}/*"
         ]
         Condition = {
           Bool = {

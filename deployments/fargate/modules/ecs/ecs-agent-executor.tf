@@ -1,12 +1,12 @@
 # ECS Task Definition for Agent executor service
 resource "aws_ecs_task_definition" "agent_executor_task_definition" {
-  family                   = "TracecatAgentExecutorTaskDefinition"
+  family                   = "${var.iam_name_prefix}AgentExecutorTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.agent_executor_cpu
   memory                   = var.agent_executor_memory
   execution_role_arn       = aws_iam_role.worker_execution.arn
-  task_role_arn            = aws_iam_role.api_worker_task.arn
+  task_role_arn            = aws_iam_role.executor_task.arn
 
   runtime_platform {
     operating_system_family = "LINUX"
@@ -17,7 +17,7 @@ resource "aws_ecs_task_definition" "agent_executor_task_definition" {
     {
       name    = "TracecatAgentExecutorContainer"
       image   = "${var.tracecat_image}:${local.tracecat_image_tag}"
-      command = ["python", "-m", "tracecat.agent.worker"]
+      command = ["python", "-m", "tracecat.agent.executor_worker"]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -65,6 +65,7 @@ resource "aws_ecs_service" "tracecat_agent_executor" {
 
   depends_on = [
     aws_ecs_service.temporal_service,
-    aws_ecs_service.tracecat_api
+    aws_ecs_service.tracecat_api,
+    aws_ecs_service.tracecat_litellm
   ]
 }

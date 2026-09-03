@@ -5,16 +5,83 @@ variable "aws_region" {
   description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
-variable "aws_account_id" {
+variable "name_prefix" {
   type        = string
-  description = "(Optional) Account ID to deploy Tracecat into. Only required if deploying cross-account."
+  description = "Prefix for same-account/regional AWS resource names."
+  default     = "tracecat"
+
+  validation {
+    condition     = length(var.name_prefix) <= 23 && can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.name_prefix))
+    error_message = "name_prefix must be 23 characters or fewer, contain only lowercase letters, numbers, and hyphens, and start and end with a letter or number."
+  }
+}
+
+variable "iam_name_prefix" {
+  type        = string
+  description = "Prefix for IAM role and policy names."
+  default     = "Tracecat"
+}
+
+variable "core_db_identifier" {
+  type        = string
+  description = "RDS DB instance identifier for the core Tracecat database."
+  default     = "core-database"
+}
+
+variable "temporal_db_identifier" {
+  type        = string
+  description = "RDS DB instance identifier for the Temporal database."
+  default     = "temporal-database"
+}
+
+variable "temporal_db_parameter_group_name" {
+  type        = string
+  description = "RDS parameter group name for Temporal database compatibility settings."
+  default     = "temporal-db-compatibility"
+}
+
+variable "redis_default_user_id" {
+  type        = string
+  description = "ElastiCache Redis default ACL user ID."
+  default     = "default-user-tracecat"
+}
+
+variable "waf_attachments_endpoint_pattern_name" {
+  type        = string
+  description = "WAF regex pattern set name for attachments endpoint matching. When null, defaults to \"$${name_prefix}-attachments-endpoint-pattern\"."
   default     = null
 }
 
-variable "aws_role_name" {
+variable "waf_mcp_oauth_endpoints_pattern_name" {
   type        = string
-  description = "(Optional) AWS role name for Terraform to assume to deploy Tracecat. Only required if deploying cross-account."
+  description = "WAF regex pattern set name for MCP OAuth endpoint matching. When null, defaults to \"$${name_prefix}-mcp-oauth-endpoints-pattern\"."
   default     = null
+}
+
+variable "waf_mcp_public_endpoint_pattern_name" {
+  type        = string
+  description = "WAF regex pattern set name for MCP public endpoint matching. When null, defaults to \"$${name_prefix}-mcp-public-endpoint-pattern\"."
+  default     = null
+}
+
+### Networking
+
+variable "vpc_cidr" {
+  type        = string
+  description = "CIDR block for the Tracecat VPC"
+  default     = "10.0.0.0/16"
+}
+
+variable "public_subnet_cidrs" {
+  type        = list(string)
+  description = "CIDR blocks for public subnets"
+  default     = ["10.0.1.0/24", "10.0.2.0/24"]
+}
+
+variable "private_subnet_cidrs" {
+  type        = list(string)
+  description = "CIDR blocks for private subnets"
+  default     = ["10.0.10.0/24", "10.0.11.0/24"]
 }
 
 ### DNS
@@ -68,7 +135,19 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "1.0.0-beta.23"
+  default = "1.0.0-beta.50"
+}
+
+variable "tracecat_migrations_image" {
+  type        = string
+  description = "Docker image repository for the Tracecat migrations init container. Defaults to tracecat_image."
+  default     = null
+}
+
+variable "tracecat_migrations_image_tag" {
+  type        = string
+  description = "Docker image tag for the Tracecat migrations init container. Defaults to tracecat_image_tag."
+  default     = null
 }
 
 variable "temporal_server_image" {
@@ -129,7 +208,6 @@ variable "temporal_namespace" {
   default     = "default"
 }
 
-
 ### Container Env Vars
 # NOTE: sensitive variables are stored in secrets manager
 # and specified directly in the task definition via a secret reference
@@ -140,10 +218,45 @@ variable "tracecat_app_env" {
   default     = "production"
 }
 
+variable "platform_otel_enabled" {
+  type        = bool
+  description = "Enable platform-owned OpenTelemetry tracing for the API, worker, and executor services"
+  default     = false
+}
+
+variable "otel_exporter_otlp_endpoint" {
+  type        = string
+  description = "Base OTLP/HTTP collector endpoint for platform traces"
+  default     = null
+}
+
+variable "otel_exporter_otlp_headers_arn" {
+  type        = string
+  description = "Optional Secrets Manager ARN containing OTLP exporter headers for API and worker tracing"
+  default     = null
+}
+
+variable "audit_trusted_proxy_cidrs" {
+  type        = string
+  description = "Comma-separated CIDRs the API treats as its own proxy hops when resolving audit client IPs. Empty uses the built-in private-range default."
+  default     = ""
+}
+
 variable "log_level" {
   type        = string
   description = "Log level for the application"
   default     = "INFO"
+}
+
+variable "log_format" {
+  type        = string
+  description = "Process-wide Tracecat log rendering format"
+  default     = "json"
+
+  validation {
+    condition     = contains(["console", "json"], lower(trimspace(var.log_format)))
+    error_message = "log_format must be console or json."
+  }
 }
 
 variable "temporal_log_level" {
@@ -199,7 +312,7 @@ variable "db_max_overflow" {
 variable "db_pool_size" {
   type        = string
   description = "The size of the database connection pool"
-  default     = "30"
+  default     = "10"
 }
 
 variable "db_pool_timeout" {
@@ -211,13 +324,25 @@ variable "db_pool_timeout" {
 variable "db_pool_recycle" {
   type        = string
   description = "The time in seconds after which pool connections are recycled"
-  default     = "1800"
+  default     = "300"
+}
+
+variable "db_auth_max_overflow" {
+  type        = string
+  description = "The maximum number of connections to allow in the auth DB pool"
+  default     = "5"
+}
+
+variable "db_auth_pool_size" {
+  type        = string
+  description = "The size of the auth database connection pool"
+  default     = "5"
 }
 
 variable "db_max_overflow_executor" {
   type        = string
   description = "The maximum number of connections to allow in the DB pool"
-  default     = "30"
+  default     = "60"
 }
 
 variable "db_pool_size_executor" {
@@ -240,6 +365,24 @@ variable "context_compression_threshold_kb" {
   default     = 16
 }
 
+variable "temporal_payload_encryption_enabled" {
+  type        = bool
+  description = "Enable application-layer encryption for Temporal payloads"
+  default     = false
+}
+
+variable "temporal_payload_encryption_cache_ttl_seconds" {
+  type        = number
+  description = "In-memory cache TTL in seconds for resolved Temporal encryption keys"
+  default     = 3600
+}
+
+variable "temporal_payload_encryption_cache_max_items" {
+  type        = number
+  description = "Maximum number of cached Temporal encryption keys"
+  default     = 128
+}
+
 ### Secret ARNs
 
 variable "tracecat_db_encryption_key_arn" {
@@ -255,6 +398,12 @@ variable "tracecat_service_key_arn" {
 variable "tracecat_signing_secret_arn" {
   type        = string
   description = "The ARN of the secret containing the Tracecat signing secret"
+}
+
+variable "temporal_payload_encryption_keyring_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal payload encryption keyring"
+  default     = null
 }
 
 variable "oauth_client_id_arn" {
@@ -295,8 +444,7 @@ variable "oidc_client_secret_arn" {
 
 variable "user_auth_secret_arn" {
   type        = string
-  description = "The ARN of the secret containing USER_AUTH_SECRET (optional)"
-  default     = null
+  description = "The ARN of the secret containing USER_AUTH_SECRET"
 }
 
 variable "saml_idp_metadata_url_arn" {
@@ -309,48 +457,6 @@ variable "saml_allow_unsolicited" {
   type        = bool
   description = "Allow unsolicited SAML responses"
   default     = false
-}
-
-variable "saml_authn_requests_signed" {
-  type        = bool
-  description = "Require signed SAML authn requests"
-  default     = false
-}
-
-variable "saml_signed_assertions" {
-  type        = bool
-  description = "Require signed SAML assertions"
-  default     = true
-}
-
-variable "saml_signed_responses" {
-  type        = bool
-  description = "Require signed SAML responses"
-  default     = true
-}
-
-variable "saml_verify_ssl_entity" {
-  type        = bool
-  description = "Verify SSL certificates for SAML entity operations"
-  default     = true
-}
-
-variable "saml_verify_ssl_metadata" {
-  type        = bool
-  description = "Verify SSL certificates for SAML metadata operations"
-  default     = true
-}
-
-variable "saml_ca_certs_arn" {
-  type        = string
-  description = "The ARN of the secret containing SAML CA certs (optional)"
-  default     = null
-}
-
-variable "saml_metadata_cert_arn" {
-  type        = string
-  description = "The ARN of the secret containing SAML metadata cert (optional)"
-  default     = null
 }
 
 # Temporal UI
@@ -395,12 +501,12 @@ variable "ui_memory" {
 
 variable "api_cpu" {
   type    = string
-  default = "1024"
+  default = "2048"
 }
 
 variable "api_memory" {
   type    = string
-  default = "2048"
+  default = "4096"
 }
 
 variable "api_desired_count" {
@@ -425,6 +531,72 @@ variable "worker_desired_count" {
   default     = 2
 }
 
+variable "worker_threadpool_max_workers" {
+  type        = number
+  description = "Activity thread-pool size per DSL worker task (TEMPORAL__THREADPOOL_MAX_WORKERS). Bounds concurrent CPU-bound sync activities competing for the GIL."
+  default     = 100
+
+  validation {
+    condition     = var.worker_threadpool_max_workers > 0 && floor(var.worker_threadpool_max_workers) == var.worker_threadpool_max_workers
+    error_message = "worker_threadpool_max_workers must be a positive integer."
+  }
+}
+
+variable "worker_max_concurrent_activities" {
+  type        = number
+  description = "Max concurrent activities per DSL worker task (TEMPORAL__MAX_CONCURRENT_ACTIVITIES)."
+  default     = 100
+
+  validation {
+    condition     = var.worker_max_concurrent_activities > 0 && floor(var.worker_max_concurrent_activities) == var.worker_max_concurrent_activities
+    error_message = "worker_max_concurrent_activities must be a positive integer."
+  }
+}
+
+variable "worker_max_concurrent_workflow_tasks" {
+  type        = number
+  description = "Max concurrent workflow tasks per DSL worker task (TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS)."
+  default     = 100
+
+  validation {
+    condition     = var.worker_max_concurrent_workflow_tasks >= 2 && floor(var.worker_max_concurrent_workflow_tasks) == var.worker_max_concurrent_workflow_tasks
+    error_message = "worker_max_concurrent_workflow_tasks must be an integer greater than or equal to 2."
+  }
+}
+
+variable "agent_worker_cpu" {
+  type    = string
+  default = "2048"
+}
+
+variable "agent_worker_memory" {
+  type    = string
+  default = "4096"
+}
+
+variable "agent_worker_desired_count" {
+  type        = number
+  description = "Desired number of agent-worker instances to run"
+  default     = 2
+}
+
+variable "agent_worker_max_concurrent_activities" {
+  type        = number
+  description = "Max concurrent activities per agent-worker task (TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES)."
+  default     = 100
+
+  validation {
+    condition     = var.agent_worker_max_concurrent_activities > 0 && floor(var.agent_worker_max_concurrent_activities) == var.agent_worker_max_concurrent_activities
+    error_message = "agent_worker_max_concurrent_activities must be a positive integer."
+  }
+}
+
+variable "agent_queue" {
+  type        = string
+  description = "Task queue for agent-worker workflows"
+  default     = "shared-agent-queue"
+}
+
 variable "executor_cpu" {
   type    = string
   default = "4096"
@@ -438,12 +610,18 @@ variable "executor_memory" {
 variable "executor_desired_count" {
   type        = number
   description = "Desired number of executor instances to run"
-  default     = 1
+  default     = 2
 }
 
 variable "executor_client_timeout" {
   type    = string
   default = "900"
+}
+
+variable "agent_sandbox_timeout" {
+  type        = string
+  description = "Ceiling for agent execution timeouts in seconds"
+  default     = "3600"
 }
 
 variable "executor_queue" {
@@ -452,10 +630,59 @@ variable "executor_queue" {
   default     = "shared-action-queue"
 }
 
-variable "executor_worker_pool_size" {
-  type        = string
-  description = "Executor worker pool size (optional; auto when null)"
-  default     = null
+variable "executor_registry_cache_max_entries" {
+  type        = number
+  description = "Maximum number of entries in the executor-local registry artifact cache (TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES). Set to 0 to disable entry-count eviction."
+  default     = 64
+
+  validation {
+    condition     = var.executor_registry_cache_max_entries >= 0 && floor(var.executor_registry_cache_max_entries) == var.executor_registry_cache_max_entries
+    error_message = "executor_registry_cache_max_entries must be a non-negative integer."
+  }
+}
+
+variable "executor_registry_cache_max_bytes" {
+  type        = number
+  description = "Maximum executor-local registry artifact cache size in bytes (TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES). Set to 0 to disable size-based limits."
+  default     = 10737418240
+
+  validation {
+    condition     = var.executor_registry_cache_max_bytes >= 0 && floor(var.executor_registry_cache_max_bytes) == var.executor_registry_cache_max_bytes
+    error_message = "executor_registry_cache_max_bytes must be a non-negative integer."
+  }
+}
+
+variable "executor_max_concurrent_activities" {
+  type        = number
+  description = "Max concurrent activities per executor task (TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES)."
+  default     = 16
+
+  validation {
+    condition     = var.executor_max_concurrent_activities > 0 && floor(var.executor_max_concurrent_activities) == var.executor_max_concurrent_activities
+    error_message = "executor_max_concurrent_activities must be a positive integer."
+  }
+}
+
+variable "executor_threadpool_max_workers" {
+  type        = number
+  description = "Activity thread-pool size per executor task (TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS). Bounds concurrent CPU-bound sync activities competing for the GIL."
+  default     = 16
+
+  validation {
+    condition     = var.executor_threadpool_max_workers > 0 && floor(var.executor_threadpool_max_workers) == var.executor_threadpool_max_workers
+    error_message = "executor_threadpool_max_workers must be a positive integer."
+  }
+}
+
+variable "executor_for_each_max_concurrency" {
+  type        = number
+  description = "Max concurrent iterations within a single action's for_each loop (TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)."
+  default     = 4
+
+  validation {
+    condition     = var.executor_for_each_max_concurrency > 0 && floor(var.executor_for_each_max_concurrency) == var.executor_for_each_max_concurrency
+    error_message = "executor_for_each_max_concurrency must be a positive integer."
+  }
 }
 
 variable "agent_executor_cpu" {
@@ -465,7 +692,7 @@ variable "agent_executor_cpu" {
 
 variable "agent_executor_memory" {
   type    = string
-  default = "8192"
+  default = "16384"
 }
 
 variable "agent_executor_desired_count" {
@@ -474,32 +701,116 @@ variable "agent_executor_desired_count" {
   default     = 1
 }
 
-variable "agent_queue" {
+variable "agent_executor_queue" {
   type        = string
-  description = "Task queue for agent executor workers"
-  default     = "shared-agent-queue"
+  description = "Task queue for agent-executor workers"
+  default     = "shared-agent-executor-queue"
 }
 
-variable "agent_executor_worker_pool_size" {
+variable "agent_executor_max_concurrent_activities" {
+  type        = number
+  description = "Maximum concurrent activities per agent-executor task"
+  default     = 3
+}
+
+variable "llm_proxy_read_timeout" {
   type        = string
-  description = "Agent executor worker pool size (optional; auto when null)"
+  description = "LLM proxy read timeout in seconds (default: 600)"
+  default     = "600"
+}
+
+variable "llm_gateway_credential_cache_ttl_seconds" {
+  type        = string
+  description = "TTL for process-local LLM gateway credential cache entries in seconds"
+  default     = "60"
+}
+
+variable "llm_gateway_healthcheck_interval_seconds" {
+  type        = string
+  description = "LLM gateway readiness check interval in seconds"
+  default     = "30"
+}
+
+variable "llm_gateway_healthcheck_timeout_seconds" {
+  type        = string
+  description = "LLM gateway readiness check timeout in seconds"
+  default     = "2"
+}
+
+variable "llm_gateway_healthcheck_connect_timeout_seconds" {
+  type        = string
+  description = "LLM gateway readiness connect timeout in seconds"
   default     = null
+}
+
+variable "llm_gateway_healthcheck_read_timeout_seconds" {
+  type        = string
+  description = "LLM gateway readiness read timeout in seconds"
+  default     = null
+}
+
+variable "llm_gateway_healthcheck_write_timeout_seconds" {
+  type        = string
+  description = "LLM gateway readiness write timeout in seconds"
+  default     = null
+}
+
+variable "llm_gateway_healthcheck_pool_timeout_seconds" {
+  type        = string
+  description = "LLM gateway readiness pool timeout in seconds"
+  default     = null
+}
+
+variable "llm_gateway_healthcheck_failure_threshold" {
+  type        = string
+  description = "Consecutive LLM gateway readiness failures before failing the worker"
+  default     = "3"
+}
+
+variable "llm_gateway_status_log_interval_seconds" {
+  type        = string
+  description = "Interval between LLM gateway status heartbeat logs in seconds"
+  default     = "30"
 }
 
 variable "temporal_cpu" {
   type    = string
-  default = "2048"
+  default = "8192"
 }
 
 variable "temporal_memory" {
   type    = string
-  default = "4096"
+  default = "16384"
+}
+
+variable "temporal_db_tls_enabled" {
+  type        = bool
+  description = "Enable TLS for Temporal's PostgreSQL connections and auto-setup schema bootstrap."
+  default     = true
+}
+
+variable "temporal_db_tls_enable_host_verification" {
+  type        = bool
+  description = "Enable TLS host verification for Temporal's PostgreSQL connections. Keep false unless you mount the RDS CA bundle into the Temporal task."
+  default     = false
+}
+
+variable "temporal_db_force_ssl" {
+  type        = bool
+  description = "Whether to enforce SSL-only PostgreSQL connections for the Temporal RDS instance. Defaults to false for the bundled Fargate Temporal auto-setup deployment."
+  default     = false
 }
 
 variable "temporal_num_history_shards" {
   type        = string
   description = "Number of history shards for Temporal"
   default     = "512"
+}
+
+variable "temporal_default_namespace_retention" {
+  type        = string
+  description = "Workflow history retention for the Temporal namespace created by auto-setup. Applied at namespace creation only."
+  default     = "24h"
 }
 
 variable "caddy_cpu" {
@@ -512,14 +823,124 @@ variable "caddy_memory" {
   default = "512"
 }
 
-variable "db_instance_class" {
+### LiteLLM Service
+
+variable "litellm_cpu" {
   type    = string
-  default = "db.t4g.2xlarge"
+  default = "4096"
+}
+
+variable "litellm_memory" {
+  type    = string
+  default = "8192"
+}
+
+variable "litellm_desired_count" {
+  type        = number
+  description = "Desired number of LiteLLM service instances to run"
+  default     = 1
+}
+
+variable "litellm_num_workers" {
+  type        = string
+  description = "Number of uvicorn workers for the LiteLLM service"
+  default     = "4"
+}
+
+### MCP Service
+
+variable "enable_mcp" {
+  type        = bool
+  description = "Whether to enable the MCP server service in the deployment"
+  default     = false
+}
+
+variable "mcp_cpu" {
+  type    = string
+  default = "1024"
+}
+
+variable "mcp_memory" {
+  type    = string
+  default = "2048"
+}
+
+variable "mcp_desired_count" {
+  type        = number
+  description = "Desired number of MCP service instances to run"
+  default     = 1
+}
+
+variable "mcp_rate_limit_rps" {
+  type        = string
+  description = "Sustained requests per second per user for MCP rate limiting"
+  default     = "2.0"
+}
+
+variable "mcp_rate_limit_burst" {
+  type        = string
+  description = "Burst capacity for per-user MCP rate limiting"
+  default     = "10"
+}
+
+variable "mcp_tool_timeout_seconds" {
+  type        = string
+  description = "Maximum execution time in seconds for a single MCP tool call"
+  default     = "120"
+}
+
+variable "mcp_max_input_size_bytes" {
+  type        = string
+  description = "Maximum size in bytes for any single string argument to an MCP tool call"
+  default     = "524288"
+}
+
+variable "mcp_startup_max_attempts" {
+  type        = string
+  description = "Maximum MCP server startup attempts before failing"
+  default     = "3"
+}
+
+variable "mcp_startup_retry_delay_seconds" {
+  type        = string
+  description = "Seconds to wait between MCP startup retries"
+  default     = "2"
+}
+
+variable "tracecat_db_instance_class" {
+  type        = string
+  description = "Instance class for the Tracecat application RDS instance."
+  default     = null
+}
+
+variable "temporal_db_instance_class" {
+  type        = string
+  description = "Instance class for the Temporal RDS instance."
+  default     = null
+}
+
+variable "tracecat_db_allocated_storage" {
+  type        = number
+  description = "Allocated storage in GiB for the Tracecat application RDS instance."
+  default     = null
+}
+
+variable "temporal_db_allocated_storage" {
+  type        = number
+  description = "Allocated storage in GiB for the Temporal RDS instance."
+  default     = null
+}
+
+variable "db_instance_class" {
+  type        = string
+  description = "Deprecated shared fallback for both RDS instance classes. Prefer tracecat_db_instance_class and temporal_db_instance_class."
+  default     = null
 }
 
 variable "db_allocated_storage" {
-  type    = string
-  default = "5"
+  type        = number
+  description = "Deprecated shared fallback for both RDS storage sizes in GiB. Prefer tracecat_db_allocated_storage and temporal_db_allocated_storage."
+  default     = null
 }
 
 variable "db_engine_version" {
@@ -564,6 +985,14 @@ variable "temporal_db_snapshot_name" {
   type        = string
   description = "(Optional) Exact snapshot identifier to use when restoring the temporal database"
   default     = null
+}
+
+### Redis
+
+variable "redis_node_type" {
+  type        = string
+  description = "ElastiCache Redis node type"
+  default     = "cache.t4g.small"
 }
 
 variable "sentry_dsn" {

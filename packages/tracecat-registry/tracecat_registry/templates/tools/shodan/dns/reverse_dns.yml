@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Reverse DNS
+  description: >-
+    Look up hostnames for IP addresses. Calls GET /dns/reverse directly.
+  display_group: Shodan
+  doc_url: https://developer.shodan.io/api#dns-reverse
+  namespace: tools.shodan
+  name: reverse_dns
+  secrets:
+    - name: shodan
+      keys: ["SHODAN_API_KEY"]
+  expects:
+    ips:
+      type: str
+      description: Comma-separated list of IP addresses; example "74.125.227.230,204.79.197.200"
+    base_url:
+      type: str | None
+      description: Shodan REST API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.shodan.base_url || "https://api.shodan.io" }}/dns/reverse
+        method: GET
+        params:
+          key: ${{ SECRETS.shodan.SHODAN_API_KEY }}
+          ips: ${{ inputs.ips }}
+  returns: ${{ steps.request.result }}

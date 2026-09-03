@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
 import { useAdminRegistryStatus, useAdminRegistrySync } from "@/hooks/use-admin"
+import { getApiErrorDetail } from "@/lib/errors"
 import { getRelativeTime } from "@/lib/event-history"
 
 export function PlatformRegistryReposTable() {
@@ -37,9 +38,12 @@ export function PlatformRegistryReposTable() {
       refetch()
     } catch (error) {
       console.error("Failed to sync repository", error)
+      const detail =
+        getApiErrorDetail(error) ??
+        "Failed to sync repository. Please try again."
       toast({
         title: "Sync failed",
-        description: "Failed to sync repository. Please try again.",
+        description: detail,
         variant: "destructive",
       })
     } finally {

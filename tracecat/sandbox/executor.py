@@ -1,9 +1,9 @@
 """nsjail executor for sandboxed Python execution."""
 
-import asyncio
 import json
 import os
 import re
+import signal
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,8 +17,21 @@ from tracecat.config import (
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
-from tracecat.sandbox.exceptions import SandboxTimeoutError, SandboxValidationError
-from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
+from tracecat.sandbox.exceptions import SandboxValidationError
+from tracecat.sandbox.networking import resolve_sandbox_network_plan
+from tracecat.sandbox.nsjail_protocol import invoke_nsjail
+from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
+from tracecat.sandbox.types import (
+    ResourceLimits,
+    SandboxConfig,
+    SandboxErrorCode,
+    SandboxNetworkPurpose,
+    SandboxNetworkRequest,
+    SandboxResult,
+)
+
+RUN_PYTHON_ACTION_GATEWAY_SOCKET = Path("/var/run/tracecat/action-gateway.sock")
+"""Path visible inside run_python nsjail for executor-owned SDK calls."""
 
 
 @dataclass
@@ -34,6 +47,10 @@ class ActionSandboxConfig:
         tracecat_app_dir: Directory containing tracecat package (not mounted in untrusted mode).
         site_packages_dir: Directory containing Python site-packages (not mounted in untrusted mode).
         env_vars: Environment variables to inject (SDK context, NOT DB credentials).
+        action_gateway_socket: Optional host-side action gateway Unix socket to bind
+            into the sandbox for SDK calls.
+        action_gateway_socket_mount_path: Socket path visible inside the sandbox.
+        network: Requested outbound capability. None disables networking.
         resources: Resource limits for the sandbox.
         timeout_seconds: Maximum execution time in seconds.
     """
@@ -42,6 +59,13 @@ class ActionSandboxConfig:
     tracecat_app_dir: Path
     site_packages_dir: Path | None = None
     env_vars: dict[str, str] = field(default_factory=dict)
+    action_gateway_socket: Path | None = None
+    action_gateway_socket_mount_path: Path = Path(
+        "/var/run/tracecat/action-gateway.sock"
+    )
+    network: SandboxNetworkRequest | None = field(
+        default_factory=lambda: SandboxNetworkRequest(SandboxNetworkPurpose.ACTION)
+    )
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     timeout_seconds: float = 300
 
@@ -62,28 +86,6 @@ SANDBOX_BASE_ENV = {
     "LC_ALL": "C.UTF-8",
 }
 
-_PASTA_GATEWAY_IP = "10.255.255.1"
-
-
-def build_sandbox_resolv_conf() -> str:
-    """Build sandbox resolv.conf with pasta DNS plus host search/options lines.
-
-    In Kubernetes, short service names rely on search domains like
-    `*.svc.cluster.local` and resolver options from the pod's /etc/resolv.conf.
-    Preserve those lines while forcing nameserver to pasta's DNS gateway.
-    """
-    lines = [f"nameserver {_PASTA_GATEWAY_IP}"]
-    try:
-        host_resolv = Path("/etc/resolv.conf").read_text()
-        for line in host_resolv.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("search ") or stripped.startswith("options "):
-                lines.append(stripped)
-    except OSError:
-        pass
-    return "\n".join(lines) + "\n"
-
-
 _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(r"\bCLONE_NEWUSER\b|clone_newuser", re.IGNORECASE),
@@ -98,8 +100,8 @@ _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     ),
     (
         re.compile(r"/dev/net/tun|TUN|tun", re.IGNORECASE),
-        "Userspace networking (pasta) may require /dev/net/tun. Ensure the container/pod "
-        "has the TUN device available and passt/pasta is installed in the image.",
+        "NSTUN userspace networking requires /dev/net/tun. Ensure the container/pod "
+        "has the TUN device available.",
     ),
 ]
 
@@ -112,6 +114,94 @@ def _nsjail_failure_hint(stderr: str) -> str | None:
         if pattern.search(stderr):
             return hint
     return None
+
+
+_NSJAIL_LAUNCH_FAILURE_EXIT_CODE = 0xFF
+_NSJAIL_POLICY_VIOLATION_EXIT_CODES = {128 + signal.SIGSYS}
+_NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
+    128 + signal.SIGKILL,
+    128 + signal.SIGXCPU,
+    128 + signal.SIGXFSZ,
+}
+_WORKLOAD_LAUNCHER_NAME = ".tracecat-workload-launcher.py"
+_WORKLOAD_STARTED_MARKER = b"\x00tracecat-workload-started\x00"
+_WORKLOAD_LAUNCHER_SCRIPT = f"""\
+import os
+import sys
+
+os.write(2, {_WORKLOAD_STARTED_MARKER!r})
+os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
+"""
+
+
+def _parse_result_error_code(value: object) -> SandboxErrorCode | None:
+    """Parse an untrusted result error code without escaping the boundary."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return SandboxErrorCode.WORKLOAD_FAILURE
+    try:
+        error_code = SandboxErrorCode(value)
+    except ValueError:
+        return SandboxErrorCode.WORKLOAD_FAILURE
+    if error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+        return SandboxErrorCode.WORKLOAD_FAILURE
+    return error_code
+
+
+def _classify_missing_nsjail_result(
+    returncode: int | None,
+    *,
+    result_file_exists: bool,
+    workload_started: bool,
+) -> SandboxErrorCode:
+    """Classify an NsJail exit that did not produce a usable result.
+
+    NsJail uses ``255`` when it cannot launch its child, but also forwards a
+    child's normal ``255`` exit. Before execing the workload, an executor-owned
+    launcher writes a binary marker to the captured stderr pipe. The workload
+    cannot erase that invocation-scoped evidence after it starts.
+
+    Decision matrix:
+    - ``None`` or a negative parent return code: infrastructure failure.
+    - ``255`` without a start marker or result file: infrastructure failure.
+    - ``255`` with a start marker or result file: workload failure.
+    - Child policy/resource signals: policy or resource failure, respectively.
+    - Every other missing-result exit: workload failure.
+    """
+    if returncode is None or returncode < 0:
+        return SandboxErrorCode.INFRASTRUCTURE_FAILURE
+    if (
+        returncode == _NSJAIL_LAUNCH_FAILURE_EXIT_CODE
+        and not workload_started
+        and not result_file_exists
+    ):
+        return SandboxErrorCode.INFRASTRUCTURE_FAILURE
+    if returncode in _NSJAIL_POLICY_VIOLATION_EXIT_CODES:
+        return SandboxErrorCode.POLICY_VIOLATION
+    if returncode in _NSJAIL_RESOURCE_LIMIT_EXIT_CODES:
+        return SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED
+    return SandboxErrorCode.WORKLOAD_FAILURE
+
+
+def _missing_nsjail_result_message(
+    error_code: SandboxErrorCode,
+    *,
+    stderr: str,
+) -> str:
+    """Return a safe message for an NsJail run without a usable result."""
+    match error_code:
+        case SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+            message = "Sandbox infrastructure failed before producing a result"
+            if hint := _nsjail_failure_hint(stderr):
+                return f"{message}. {hint}"
+            return message
+        case SandboxErrorCode.POLICY_VIOLATION:
+            return "Sandbox policy blocked the workload"
+        case SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED:
+            return "Sandbox workload exceeded a resource limit"
+        case SandboxErrorCode.WORKLOAD_FAILURE | SandboxErrorCode.TIMEOUT:
+            return "Sandbox workload exited without producing a result"
 
 
 def _validate_env_key(key: str) -> None:
@@ -213,17 +303,31 @@ class NsjailExecutor:
         # Validate inputs to prevent injection into protobuf config
         _validate_path(job_dir, "job_dir")
         _validate_path(self.rootfs, "rootfs")
+        for i, python_path_dir in enumerate(config.python_path_dirs):
+            _validate_path(python_path_dir, f"python_path_dir_{i}")
+        for i, bind_mount in enumerate(config.bind_mounts):
+            _validate_path(bind_mount.source, f"bind_mount_source_{i}")
+            _validate_path(bind_mount.destination, f"bind_mount_destination_{i}")
+            if not bind_mount.destination.is_absolute():
+                raise SandboxValidationError(
+                    f"Sandbox bind mount destination must be absolute: "
+                    f"{bind_mount.destination}"
+                )
+            if not bind_mount.source.exists():
+                raise SandboxValidationError(
+                    f"Sandbox bind mount source does not exist: {bind_mount.source}"
+                )
         if cache_key:
             _validate_cache_key(cache_key)
+        if config.action_gateway_socket is not None:
+            _validate_path(config.action_gateway_socket, "action_gateway_socket")
 
-        # Determine if network should be enabled
-        # - Install phase: always enabled for package downloads
-        # - Execute phase: per config.network_enabled
-        network_enabled = phase == "install" or config.network_enabled
+        network_plan = resolve_sandbox_network_plan(job_dir, config.network)
 
         # Network behavior:
-        # - network enabled: share pod netns (no pasta) for host DNS/routing reliability
-        # - network disabled: isolate netns
+        # - always isolate the network namespace and its private loopback
+        # - network enabled: NSTUN applies the trusted outbound policy
+        # - network disabled: no user_net backend and no route out
         lines = [
             'name: "python_sandbox"',
             "mode: ONCE",
@@ -231,7 +335,7 @@ class NsjailExecutor:
             "keep_env: false",
             "",
             "# Namespace isolation",
-            f"clone_newnet: {'false' if network_enabled else 'true'}",
+            "clone_newnet: true",
             "clone_newuser: true",
             "clone_newns: true",
             "clone_newpid: true",
@@ -239,12 +343,17 @@ class NsjailExecutor:
             "clone_newuts: true",
         ]
 
+        lines.extend(network_plan.user_net_lines)
+
         lines.extend(
             [
                 "",
                 "# UID/GID mapping - map container user to current user",
                 f'uidmap {{ inside_id: "1000" outside_id: "{os.getuid()}" count: 1 }}',
                 f'gidmap {{ inside_id: "1000" outside_id: "{os.getgid()}" count: 1 }}',
+                "",
+                "# Syscall filtering",
+                f'seccomp_string: "{build_untrusted_seccomp_policy()}"',
                 "",
                 "# Rootfs mounts - read-only base system",
                 f'mount {{ src: "{self.rootfs}/usr" dst: "/usr" is_bind: true rw: false }}',
@@ -267,16 +376,7 @@ class NsjailExecutor:
                 f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
             )
 
-        if network_enabled:
-            lines.extend(
-                [
-                    "",
-                    "# DNS config - use pod resolver files directly",
-                    'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
-                    'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
-                    'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
-                ]
-            )
+        lines.extend(network_plan.dns_mount_lines)
 
         lines.extend(
             [
@@ -289,7 +389,8 @@ class NsjailExecutor:
                 "",
                 "# Temporary filesystems",
                 'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
-                'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
+                "# Fresh procfs requires Docker systempaths=unconfined for nested nsjail.",
+                'mount { dst: "/proc" fstype: "proc" rw: false }',
             ]
         )
 
@@ -319,8 +420,31 @@ class NsjailExecutor:
                     lines.append(
                         f'mount {{ src: "{cache_path}" dst: "/packages" is_bind: true rw: false }}'
                     )
+            for i, python_path_dir in enumerate(config.python_path_dirs):
+                if not python_path_dir.exists():
+                    continue
+                lines.append(
+                    f'mount {{ src: "{python_path_dir}" dst: "/pythonpath/{i}" is_bind: true rw: false }}'
+                )
             lines.append(
                 f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}'
+            )
+            if config.action_gateway_socket is not None:
+                lines.extend(
+                    [
+                        "",
+                        "# Action Gateway socket for internal Tracecat SDK calls",
+                        f'mount {{ src: "{config.action_gateway_socket}" '
+                        f'dst: "{RUN_PYTHON_ACTION_GATEWAY_SOCKET}" '
+                        "is_bind: true rw: false }",
+                    ]
+                )
+
+        for bind_mount in config.bind_mounts:
+            lines.append(
+                f'mount {{ src: "{bind_mount.source}" '
+                f'dst: "{bind_mount.destination}" is_bind: true '
+                f"rw: {str(bind_mount.writable).lower()} }}"
             )
 
         # Resource limits
@@ -337,14 +461,16 @@ class NsjailExecutor:
             ]
         )
 
-        # Execution settings - script path must be in exec_bin for config file mode
+        # Launch through an executor-owned shim that proves workload start on the
+        # invocation's captured stderr pipe before execing the requested script.
+        launcher_path = f"/work/{_WORKLOAD_LAUNCHER_NAME}"
         script_path = f"/work/{script_name}"
         lines.extend(
             [
                 "",
                 "# Execution",
                 'cwd: "/work"',
-                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{script_path}" }}',
+                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{launcher_path}" arg: "{script_path}" }}',
             ]
         )
 
@@ -358,6 +484,7 @@ class NsjailExecutor:
     ) -> dict[str, str]:
         """Construct a sanitized environment for the nsjail process."""
         env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
+        user_pythonpath = config.env_vars.get("PYTHONPATH")
 
         if phase == "install":
             env_map["UV_CACHE_DIR"] = "/uv-cache"
@@ -367,12 +494,23 @@ class NsjailExecutor:
                 env_map["UV_EXTRA_INDEX_URL"] = ",".join(
                     TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS
                 )
-        elif cache_key:
-            cache_path = self.package_cache / cache_key / "site-packages"
-            if cache_path.exists():
-                env_map["PYTHONPATH"] = "/packages"
+        else:
+            pythonpath_parts = []
+            if cache_key:
+                cache_path = self.package_cache / cache_key / "site-packages"
+                if cache_path.exists():
+                    pythonpath_parts.append("/packages")
+            for i, python_path_dir in enumerate(config.python_path_dirs):
+                if python_path_dir.exists():
+                    pythonpath_parts.append(f"/pythonpath/{i}")
+            if user_pythonpath:
+                pythonpath_parts.append(user_pythonpath)
+            if pythonpath_parts:
+                env_map["PYTHONPATH"] = ":".join(pythonpath_parts)
 
         for key, value in config.env_vars.items():
+            if key == "PYTHONPATH":
+                continue
             _validate_env_key(key)
             env_map[key] = value
 
@@ -402,71 +540,37 @@ class NsjailExecutor:
         nsjail_config = self._build_config(
             job_dir, "execute", config, cache_key, script_name
         )
-
-        # Write config to job directory
-        config_path = job_dir / "nsjail.cfg"
-        config_path.write_text(nsjail_config)
-        config_path.chmod(0o600)
-
         env_map = self._build_env_map(config, "execute", cache_key)
-        env_args: list[str] = []
-        for key in env_map:
-            env_args.extend(["--env", key])
-
-        # Build nsjail command - script is in config, no args after --
-        cmd = [
-            str(self.nsjail_path),
-            "--config",
-            str(config_path),
-            *env_args,
-        ]
 
         logger.debug(
             "Executing nsjail command",
-            cmd=cmd,
             job_dir=str(job_dir),
             cache_key=cache_key,
         )
-
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(job_dir),
+        completed = await invoke_nsjail(
+            nsjail_path=self.nsjail_path,
+            job_dir=job_dir,
+            config_text=nsjail_config,
             env=env_map,
-        )
-
-        try:
-            # Wait with timeout (add buffer for nsjail overhead)
-            timeout = config.resources.timeout_seconds + 10
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout,
-            )
-
-        except TimeoutError as e:
-            # Kill the process if it times out
-            process.kill()
-            await process.wait()
-            raise SandboxTimeoutError(
+            timeout_seconds=config.resources.timeout_seconds + 10,
+            timeout_message=(
                 f"Execution timed out after {config.resources.timeout_seconds}s"
-            ) from e
-
-        finally:
-            # Defense-in-depth: Clean up config file to avoid leaving artifacts
-            # Job dir cleanup will also handle this, but early removal is safer
-            try:
-                config_path.unlink(missing_ok=True)
-            except OSError:
-                pass  # Best effort cleanup
+            ),
+            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+            workload_started_marker=_WORKLOAD_STARTED_MARKER,
+        )
+        returncode = completed.returncode
 
         execution_time_ms = (time.time() - start_time) * 1000
-        stdout = stdout_bytes.decode("utf-8", errors="replace")
-        stderr = stderr_bytes.decode("utf-8", errors="replace")
+        stdout = completed.stdout.decode("utf-8", errors="replace")
+        stderr = completed.stderr.decode("utf-8", errors="replace")
 
         # Try to parse result.json for structured output
         result_path = job_dir / "result.json"
-        if result_path.exists():
+        result_file_exists = result_path.exists()
+        workload_started = completed.workload_started
+        if result_file_exists:
             try:
                 result_data = json.loads(result_path.read_text())
                 return SandboxResult(
@@ -475,40 +579,46 @@ class NsjailExecutor:
                     stdout=result_data.get("stdout", stdout),
                     stderr=result_data.get("stderr", stderr),
                     error=result_data.get("error"),
-                    exit_code=process.returncode,
+                    error_code=_parse_result_error_code(result_data.get("error_code")),
+                    exit_code=returncode,
                     execution_time_ms=execution_time_ms,
                 )
             except json.JSONDecodeError:
                 logger.warning("Failed to parse result.json", path=str(result_path))
 
-        # No result.json - this is an infrastructure error
-        if process.returncode != 0:
-            # Don't expose nsjail internals to users
-            hint = _nsjail_failure_hint(stderr)
-            error_msg = "Sandbox execution failed"
-            if hint:
-                error_msg = f"{error_msg}. {hint}"
-            logger.error(
-                "Sandbox execution failed",
-                returncode=process.returncode,
-                stderr=stderr[:500],
-            )
+        # Script workloads have no result-file contract: a clean zero exit is a
+        # success even without result.json. NsJail reports its own launch
+        # failures as 0xFF, so a zero exit already proves the workload ran.
+        # Only the action path (execute_action) requires a result file.
+        if returncode == 0:
             return SandboxResult(
-                success=False,
-                error=error_msg,
+                success=True,
+                output=None,
                 stdout=stdout,
-                stderr=stderr[:500],  # Truncate for debugging
-                exit_code=process.returncode,
+                stderr=stderr,
+                exit_code=returncode,
                 execution_time_ms=execution_time_ms,
             )
 
-        # Process succeeded but no result.json (shouldn't happen with wrapper)
+        error_code = _classify_missing_nsjail_result(
+            returncode,
+            result_file_exists=result_file_exists,
+            workload_started=workload_started,
+        )
+        error_msg = _missing_nsjail_result_message(error_code, stderr=stderr)
+        logger.error(
+            "Sandbox execution did not produce a usable result",
+            error_code=error_code,
+            returncode=returncode,
+            stderr=stderr[:500],
+        )
         return SandboxResult(
-            success=True,
-            output=None,
+            success=False,
+            error=error_msg,
+            error_code=error_code,
             stdout=stdout,
-            stderr=stderr,
-            exit_code=process.returncode,
+            stderr=stderr[:500],
+            exit_code=returncode,
             execution_time_ms=execution_time_ms,
         )
 
@@ -528,9 +638,9 @@ class NsjailExecutor:
         Returns:
             SandboxResult with installation outcome.
         """
-        # Create config for installation (always with network)
+        # Package installation always uses the deployment-owned install policy.
         config = SandboxConfig(
-            network_enabled=True,
+            network=SandboxNetworkRequest(SandboxNetworkPurpose.INSTALL),
             resources=ResourceLimits(
                 timeout_seconds=timeout_seconds,
                 memory_mb=2048,  # Same as execution
@@ -542,75 +652,48 @@ class NsjailExecutor:
             job_dir, "install", config, cache_key, script_name="install.py"
         )
 
-        # Write config to job directory
-        config_path = job_dir / "nsjail.cfg"
-        config_path.write_text(nsjail_config)
-        config_path.chmod(0o600)
-
         env_map = self._build_env_map(config, "install", cache_key)
-        env_args: list[str] = []
-        for key in env_map:
-            env_args.extend(["--env", key])
-
-        # Build nsjail command - script is in config
-        cmd = [
-            str(self.nsjail_path),
-            "--config",
-            str(config_path),
-            *env_args,
-        ]
-
         start_time = time.time()
 
         logger.debug(
             "Executing package installation",
-            cmd=cmd,
             job_dir=str(job_dir),
             cache_key=cache_key,
         )
-
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(job_dir),
+        completed = await invoke_nsjail(
+            nsjail_path=self.nsjail_path,
+            job_dir=job_dir,
+            config_text=nsjail_config,
             env=env_map,
-        )
-
-        try:
-            timeout = timeout_seconds + 30  # Extra buffer for package downloads
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout,
-            )
-
-        except TimeoutError as e:
-            process.kill()
-            await process.wait()
-            raise SandboxTimeoutError(
+            timeout_seconds=timeout_seconds + 30,
+            timeout_message=(
                 f"Package installation timed out after {timeout_seconds}s"
-            ) from e
-
-        finally:
-            # Defense-in-depth: Clean up config file to avoid leaving artifacts
-            try:
-                config_path.unlink(missing_ok=True)
-            except OSError:
-                pass  # Best effort cleanup
+            ),
+            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+            workload_started_marker=_WORKLOAD_STARTED_MARKER,
+        )
+        returncode = completed.returncode
 
         execution_time_ms = (time.time() - start_time) * 1000
-        stdout = stdout_bytes.decode("utf-8", errors="replace")
-        stderr = stderr_bytes.decode("utf-8", errors="replace")
+        stdout = completed.stdout.decode("utf-8", errors="replace")
+        stderr = completed.stderr.decode("utf-8", errors="replace")
 
-        success = process.returncode == 0
+        success = returncode == 0
+        error_code: SandboxErrorCode | None = None
 
         if not success:
+            error_code = _classify_missing_nsjail_result(
+                returncode,
+                result_file_exists=False,
+                workload_started=completed.workload_started,
+            )
             hint = _nsjail_failure_hint(stderr)
             if hint:
                 stderr = f"{stderr.rstrip()}\n\nnsjail hint: {hint}\n"
             logger.error(
                 "Package installation failed",
-                returncode=process.returncode,
+                returncode=returncode,
                 stderr=stderr[:1000],
             )
 
@@ -619,7 +702,8 @@ class NsjailExecutor:
             stdout=stdout,
             stderr=stderr,
             error=stderr if not success else None,
-            exit_code=process.returncode,
+            error_code=error_code,
+            exit_code=returncode,
             execution_time_ms=execution_time_ms,
         )
 
@@ -648,6 +732,14 @@ class NsjailExecutor:
         _validate_path(config.tracecat_app_dir, "tracecat_app_dir")
         if config.site_packages_dir:
             _validate_path(config.site_packages_dir, "site_packages_dir")
+        if config.action_gateway_socket is not None:
+            _validate_path(config.action_gateway_socket, "action_gateway_socket")
+            _validate_path(
+                config.action_gateway_socket_mount_path,
+                "action_gateway_socket_mount_path",
+            )
+
+        network_plan = resolve_sandbox_network_plan(job_dir, config.network)
 
         lines = [
             'name: "action_sandbox"',
@@ -655,8 +747,8 @@ class NsjailExecutor:
             'hostname: "sandbox"',
             "keep_env: false",
             "",
-            "# Namespace isolation (share pod network namespace for reliability)",
-            "clone_newnet: false",
+            "# Namespace isolation",
+            "clone_newnet: true",
             "clone_newuser: true",
             "clone_newns: true",
             "clone_newpid: true",
@@ -667,12 +759,17 @@ class NsjailExecutor:
             f'uidmap {{ inside_id: "1000" outside_id: "{os.getuid()}" count: 1 }}',
             f'gidmap {{ inside_id: "1000" outside_id: "{os.getgid()}" count: 1 }}',
             "",
+            "# Syscall filtering",
+            f'seccomp_string: "{build_untrusted_seccomp_policy()}"',
+            "",
             "# Rootfs mounts - read-only base system",
             f'mount {{ src: "{self.rootfs}/usr" dst: "/usr" is_bind: true rw: false }}',
             f'mount {{ src: "{self.rootfs}/lib" dst: "/lib" is_bind: true rw: false }}',
             f'mount {{ src: "{self.rootfs}/bin" dst: "/bin" is_bind: true rw: false }}',
             f'mount {{ src: "{self.rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
         ]
+
+        lines.extend(network_plan.user_net_lines)
 
         # Optional mounts - only include if the directories exist in rootfs
         lib64_path = self.rootfs / "lib64"
@@ -687,15 +784,7 @@ class NsjailExecutor:
                 f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
             )
 
-        lines.extend(
-            [
-                "",
-                "# DNS config - use pod resolver files directly",
-                'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
-                'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
-                'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
-            ]
-        )
+        lines.extend(network_plan.dns_mount_lines)
 
         lines.extend(
             [
@@ -708,6 +797,7 @@ class NsjailExecutor:
                 "",
                 "# Temporary filesystems",
                 'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
+                "# Fresh procfs requires Docker systempaths=unconfined for nested nsjail.",
                 'mount { dst: "/proc" fstype: "proc" rw: false }',
                 "",
                 "# Action execution mounts",
@@ -721,6 +811,15 @@ class NsjailExecutor:
                 lines.append(
                     f'mount {{ src: "{registry_path}" dst: "/packages/{i}" is_bind: true rw: false }}'
                 )
+
+        if config.action_gateway_socket is not None:
+            lines.extend(
+                [
+                    "",
+                    "# Action Gateway socket for SDK calls",
+                    f'mount {{ src: "{config.action_gateway_socket}" dst: "{config.action_gateway_socket_mount_path}" is_bind: true rw: false }}',
+                ]
+            )
 
         # NOTE: /app and /site-packages are NOT mounted in untrusted mode
         # Untrusted mode uses minimal_runner.py copied to /work, no tracecat imports
@@ -739,14 +838,15 @@ class NsjailExecutor:
             ]
         )
 
-        # Execution settings - always use minimal_runner.py (untrusted mode)
-        # minimal_runner.py is copied to /work and doesn't need tracecat imports
+        # Launch through the same executor-owned proof shim used by script and
+        # install phases. minimal_runner.py remains the actual workload.
+        launcher_path = f"/work/{_WORKLOAD_LAUNCHER_NAME}"
         lines.extend(
             [
                 "",
                 "# Execution",
                 'cwd: "/work"',
-                'exec_bin { path: "/usr/local/bin/python3" arg: "/work/minimal_runner.py" }',
+                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{launcher_path}" arg: "/work/minimal_runner.py" }}',
             ]
         )
 
@@ -795,70 +895,38 @@ class NsjailExecutor:
 
         # Generate nsjail config for action execution
         nsjail_config = self._build_action_config(job_dir, config)
-
-        # Write config to job directory
-        config_path = job_dir / "nsjail.cfg"
-        config_path.write_text(nsjail_config)
-        config_path.chmod(0o600)
-
         env_map = self._build_action_env_map(config)
-        env_args: list[str] = []
-        for key in env_map:
-            env_args.extend(["--env", key])
-
-        # Build nsjail command
-        cmd = [
-            str(self.nsjail_path),
-            "--config",
-            str(config_path),
-            *env_args,
-        ]
 
         logger.debug(
             "Executing action in nsjail sandbox",
-            cmd=cmd,
             job_dir=str(job_dir),
             registry_paths=config.registry_paths,
             tracecat_app=str(config.tracecat_app_dir),
         )
-
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(job_dir),
+        completed = await invoke_nsjail(
+            nsjail_path=self.nsjail_path,
+            job_dir=job_dir,
+            config_text=nsjail_config,
             env=env_map,
-        )
-
-        try:
-            # Wait with timeout (add buffer for nsjail overhead)
-            timeout = config.timeout_seconds + 10
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout,
-            )
-
-        except TimeoutError as e:
-            process.kill()
-            await process.wait()
-            raise SandboxTimeoutError(
+            timeout_seconds=config.timeout_seconds + 10,
+            timeout_message=(
                 f"Action execution timed out after {config.timeout_seconds}s"
-            ) from e
-
-        finally:
-            # Clean up config file
-            try:
-                config_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            ),
+            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+            workload_started_marker=_WORKLOAD_STARTED_MARKER,
+        )
+        returncode = completed.returncode
 
         execution_time_ms = (time.time() - start_time) * 1000
-        stdout = stdout_bytes.decode("utf-8", errors="replace")
-        stderr = stderr_bytes.decode("utf-8", errors="replace")
+        stdout = completed.stdout.decode("utf-8", errors="replace")
+        stderr = completed.stderr.decode("utf-8", errors="replace")
 
         # Try to parse result.json for structured output
         result_path = job_dir / "result.json"
-        if result_path.exists():
+        result_file_exists = result_path.exists()
+        workload_started = completed.workload_started
+        if result_file_exists:
             try:
                 result_data = json.loads(result_path.read_text())
                 # Log subprocess stderr for debugging (contains timing info)
@@ -878,7 +946,8 @@ class NsjailExecutor:
                     stdout=stdout,
                     stderr=stderr,
                     error=result_data.get("error"),
-                    exit_code=process.returncode,
+                    error_code=_parse_result_error_code(result_data.get("error_code")),
+                    exit_code=returncode,
                     execution_time_ms=execution_time_ms,
                 )
             except json.JSONDecodeError:
@@ -886,32 +955,24 @@ class NsjailExecutor:
                     "Failed to parse action result.json", path=str(result_path)
                 )
 
-        # No result.json - infrastructure error
-        if process.returncode != 0:
-            hint = _nsjail_failure_hint(stderr)
-            error_msg = "Action sandbox execution failed"
-            if hint:
-                error_msg = f"{error_msg}. {hint}"
-            logger.error(
-                "Action sandbox execution failed",
-                returncode=process.returncode,
-                stderr=stderr[-2000:],
-            )
-            return SandboxResult(
-                success=False,
-                error=error_msg,
-                stdout=stdout,
-                stderr=stderr[:2000],
-                exit_code=process.returncode,
-                execution_time_ms=execution_time_ms,
-            )
-
-        # Process succeeded but no result.json
+        error_code = _classify_missing_nsjail_result(
+            returncode,
+            result_file_exists=result_file_exists,
+            workload_started=workload_started,
+        )
+        error_msg = _missing_nsjail_result_message(error_code, stderr=stderr)
+        logger.error(
+            "Action sandbox execution did not produce a usable result",
+            error_code=error_code,
+            returncode=returncode,
+            stderr=stderr[-2000:],
+        )
         return SandboxResult(
-            success=True,
-            output=None,
+            success=False,
+            error=error_msg,
+            error_code=error_code,
             stdout=stdout,
-            stderr=stderr,
-            exit_code=process.returncode,
+            stderr=stderr[:2000],
+            exit_code=returncode,
             execution_time_ms=execution_time_ms,
         )

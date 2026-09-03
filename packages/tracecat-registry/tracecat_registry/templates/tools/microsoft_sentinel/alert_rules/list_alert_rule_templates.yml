@@ -3,7 +3,7 @@ definition:
   title: List alert rule templates
   description: Get all alert rule templates available in Microsoft Sentinel workspace.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/alert-rule-templates/list
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/alert-rule-templates/list?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: list_alert_rule_templates
   secrets:

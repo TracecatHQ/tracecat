@@ -1,0 +1,3308 @@
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+import os
+import platform
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import uuid
+import zipfile
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from dataclasses import dataclass, replace
+from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, TypedDict, cast
+
+import orjson
+import pytest
+from claude_agent_sdk import ClaudeAgentOptions
+
+import tracecat.agent.executor.activity as executor_activity
+import tracecat.agent.runtime.claude_code.broker as broker_module
+import tracecat.agent.runtime.claude_code.runtime as runtime_module
+import tracecat.agent.runtime.claude_code.transport as transport_module
+import tracecat.agent.runtime.session_paths as session_paths_module
+import tracecat.agent.sandbox.llm_proxy as llm_proxy_module
+import tracecat.agent.sandbox.nsjail as nsjail_module
+import tracecat.agent.sandbox.shim_entrypoint as shim_entrypoint
+import tracecat.sandbox.networking as sandbox_networking
+from tracecat import config as app_config
+from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.stream_types import (
+    StreamEventType,
+    ToolCallContent,
+    UnifiedStreamEvent,
+)
+from tracecat.agent.common.types import (
+    MCPServerConfig,
+    MCPStdioServerConfig,
+    MCPToolDefinition,
+    SandboxAgentConfig,
+    SandboxSubagentConfig,
+)
+from tracecat.agent.executor.activity import (
+    AgentExecutorInput,
+    AgentExecutorResult,
+    SandboxedAgentExecutor,
+    run_agent_activity,
+)
+from tracecat.agent.executor.loopback import (
+    LoopbackHandler,
+    LoopbackInput,
+    LoopbackResult,
+)
+from tracecat.agent.runtime.claude_code.broker import (
+    ClaudeRuntimeBroker,
+    ClaudeTurnRequest,
+)
+from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
+from tracecat.agent.sandbox.llm_proxy import (
+    LLM_SOCKET_NAME,
+    LLMRoute,
+    LLMRoutingPlan,
+)
+from tracecat.agent.skill.service import SkillService
+from tracecat.agent.skill.types import ResolvedSkillRef
+from tracecat.agent.types import AgentConfig
+from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.sandbox.types import (
+    SandboxEgressRule,
+    SandboxNetworkPolicy,
+    SandboxNetworkProtocol,
+    SandboxNetworkPurpose,
+)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def default_org() -> Iterator[None]:
+    yield
+
+
+@pytest.fixture(autouse=True, scope="session")
+def workflow_bucket() -> Iterator[None]:
+    yield
+
+
+@pytest.fixture(autouse=True)
+def clean_redis_db() -> Iterator[None]:
+    yield
+
+
+def _fake_temporal_activity() -> SimpleNamespace:
+    """Provide the Temporal APIs used when exercising the activity directly."""
+    return SimpleNamespace(
+        heartbeat=lambda _message: None,
+        info=lambda: SimpleNamespace(attempt=1, task_queue="test-agent-queue"),
+    )
+
+
+class _LiteLLMRequestPayload(TypedDict, total=False):
+    messages: list[object]
+    model: str
+    path: str
+    stream: bool
+    tools: list[str]
+
+
+class _SkillVisibilityMessage(TypedDict):
+    skill_path: str
+    skill_text: str
+
+
+class _DuckDBSmokeMessage(TypedDict):
+    duckdb_extension_count: int
+    duckdb_path: str
+
+
+_STDIO_MCP_BURST_SERVER_COUNT = 12
+_STDIO_MCP_BURST_FLOWS_PER_SERVER = 128
+_STDIO_MCP_BURST_FLOW_COUNT = (
+    _STDIO_MCP_BURST_SERVER_COUNT * _STDIO_MCP_BURST_FLOWS_PER_SERVER
+)
+_STDIO_MCP_BASH_FLOW_COUNT = 256
+_STDIO_MCP_COMBINED_FLOW_COUNT = (
+    _STDIO_MCP_BURST_FLOW_COUNT + _STDIO_MCP_BASH_FLOW_COUNT
+)
+_STDIO_MCP_BURST_PARENT_NOFILE_LIMIT = 4096
+_STDIO_MCP_BASH_TOOL_USE_ID = "toolu_tracecat_bash_network_probe"
+_STDIO_MCP_BASH_RESULT_MARKER = "TRACE_CAT_BASH_NETWORK_PROBE_OK"
+_RFC1918_NETWORKS = (
+    IPv4Network("10.0.0.0/8"),
+    IPv4Network("172.16.0.0/12"),
+    IPv4Network("192.168.0.0/16"),
+)
+_STDIO_MCP_BURST_SERVER_SOURCE = """\
+import json
+import socket
+import sys
+import time
+
+
+def respond(request_id, result):
+    payload = {"jsonrpc": "2.0", "id": request_id, "result": result}
+    print(json.dumps(payload, separators=(",", ":")), flush=True)
+
+
+def main():
+    server_id, host, raw_ports = sys.argv[1:]
+    ports = [int(port) for port in raw_ports.split(",")]
+    sockets = []
+    for port in ports:
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.sendto(b"x", (host, port))
+        sockets.append(udp_socket)
+        time.sleep(0.02)
+
+    for udp_socket in sockets:
+        udp_socket.settimeout(8)
+        if udp_socket.recv(3) != b"ack":
+            raise RuntimeError("startup UDP probe was not acknowledged")
+
+    for raw_line in sys.stdin:
+        message = json.loads(raw_line)
+        request_id = message.get("id")
+        method = message.get("method")
+        if method == "initialize":
+            params = message.get("params")
+            protocol_version = (
+                params.get("protocolVersion", "2025-06-18")
+                if isinstance(params, dict)
+                else "2025-06-18"
+            )
+            respond(
+                request_id,
+                {
+                    "protocolVersion": protocol_version,
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {
+                        "name": f"tracecat-burst-{server_id}",
+                        "version": "1.0.0",
+                    },
+                },
+            )
+        elif method == "tools/list":
+            respond(
+                request_id,
+                {
+                    "tools": [
+                        {
+                            "name": "ping",
+                            "description": "Return a deterministic test response.",
+                            "inputSchema": {"type": "object", "properties": {}},
+                        }
+                    ]
+                },
+            )
+            sockets[0].sendto(f"initialized:{server_id}".encode(), (host, ports[0]))
+        elif request_id is not None:
+            respond(request_id, {})
+
+
+if __name__ == "__main__":
+    main()
+"""
+_STDIO_MCP_BASH_PROBE_SOURCE = f"""\
+import socket
+import sys
+
+
+def main():
+    host, raw_ports = sys.argv[1:]
+    ports = [int(port) for port in raw_ports.split(",")]
+    sockets = []
+    for port in ports:
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.sendto(b"x", (host, port))
+        sockets.append(udp_socket)
+
+    for udp_socket in sockets:
+        udp_socket.settimeout(8)
+        if udp_socket.recv(3) != b"ack":
+            raise RuntimeError("Bash UDP probe was not acknowledged")
+
+    print("{_STDIO_MCP_BASH_RESULT_MARKER}", len(sockets), flush=True)
+
+
+if __name__ == "__main__":
+    main()
+"""
+
+
+@dataclass(slots=True)
+class _FakeClaudeOptions:
+    env: dict[str, str]
+    enable_file_checkpointing: bool = False
+    stderr: Callable[[str], None] | None = None
+    mcp_servers: object = None
+    agents: object = None
+    settings: str | None = None
+
+
+def _agent_config(**kwargs: Any) -> AgentConfig:
+    return cast(AgentConfig, cast(Any, AgentConfig)(**kwargs))
+
+
+def _make_executor_input(*, enable_internet_access: bool) -> AgentExecutorInput:
+    return AgentExecutorInput(
+        session_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        user_prompt="hello",
+        config=_agent_config(
+            model_name="gpt-5",
+            model_provider="openai",
+            enable_internet_access=enable_internet_access,
+        ),
+        role=Role(type="service", service_id="tracecat-agent-executor"),
+        mcp_auth_token="mcp-token",
+        llm_gateway_auth_token="llm-token",
+        agent_otel_auth_token="otel-token",
+    )
+
+
+@pytest.mark.anyio
+async def test_run_agent_activity_classifies_missing_stdio_source_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor_input = _make_executor_input(enable_internet_access=False)
+    executor_input.config.mcp_servers = [
+        {
+            "type": "stdio",
+            "name": "local-tools",
+            "command": "uvx",
+        }
+    ]
+    monkeypatch.setattr(executor_activity, "activity", _fake_temporal_activity())
+
+    result = await run_agent_activity(executor_input)
+
+    assert result.success is False
+    assert result.error == "Agent configuration is invalid"
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.USER
+    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert result.terminal_stream_error_emitted is False
+
+
+def _make_passthrough_executor_input(
+    *, enable_internet_access: bool, base_url: str = "https://customer-litellm.example"
+) -> AgentExecutorInput:
+    return AgentExecutorInput(
+        session_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        user_prompt="hello",
+        config=_agent_config(
+            model_name="customer-alias",
+            model_provider="custom-model-provider",
+            base_url=base_url,
+            passthrough=True,
+            enable_internet_access=enable_internet_access,
+        ),
+        role=Role(type="service", service_id="tracecat-agent-executor"),
+        mcp_auth_token="mcp-token",
+        llm_gateway_auth_token="llm-token",
+        agent_otel_auth_token="otel-token",
+    )
+
+
+def _agent_nsjail_available() -> bool:
+    nsjail_path = Path(app_config.TRACECAT__SANDBOX_NSJAIL_PATH)
+    rootfs_path = Path(app_config.TRACECAT__SANDBOX_ROOTFS_PATH)
+    return (
+        platform.system() == "Linux"
+        and nsjail_path.is_file()
+        and os.access(nsjail_path, os.X_OK)
+        and rootfs_path.is_dir()
+    )
+
+
+def _set_disable_nsjail_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    disable_nsjail: bool,
+) -> None:
+    monkeypatch.setattr(executor_activity, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+    monkeypatch.setattr(nsjail_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+
+
+def _docker_nsjail_fallback_enabled() -> bool:
+    return (
+        os.environ.get("TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD") != "1"
+        and shutil.which("docker") is not None
+    )
+
+
+def _private_parent_ipv4_address() -> IPv4Address:
+    parent_address = ip_address(socket.gethostbyname(socket.gethostname()))
+    if not isinstance(parent_address, IPv4Address) or not any(
+        parent_address in network for network in _RFC1918_NETWORKS
+    ):
+        pytest.skip(
+            f"agent executor address {parent_address} is not a private IPv4 address"
+        )
+    return parent_address
+
+
+def _open_private_parent_udp_sinks(
+    count: int,
+) -> tuple[tuple[socket.socket, ...], IPv4Address]:
+    """Keep one deterministic parent destination open for every startup flow."""
+    parent_address = _private_parent_ipv4_address()
+    sinks: list[socket.socket] = []
+    try:
+        for _ in range(count):
+            sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sinks.append(sink)
+            sink.bind((str(parent_address), 0))
+    except OSError as exc:
+        for sink in sinks:
+            sink.close()
+        pytest.skip(f"could not open {count} parent UDP sinks: {exc}")
+    return tuple(sinks), parent_address
+
+
+def _write_stdio_mcp_burst_wheel(
+    job_dir: Path,
+    server_index: int,
+) -> tuple[Path, str]:
+    """Build a dependency-free local wheel for one cold uvx MCP process."""
+    module_name = f"tracecat_mcp_burst_{server_index}"
+    package_name = f"tracecat-mcp-burst-{server_index}"
+    command_name = package_name
+    dist_info = f"{module_name}-1.0.0.dist-info"
+    wheel_path = job_dir / f"{module_name}-1.0.0-py3-none-any.whl"
+    files = {
+        f"{module_name}.py": _STDIO_MCP_BURST_SERVER_SOURCE,
+        f"{dist_info}/METADATA": (
+            f"Metadata-Version: 2.1\nName: {package_name}\nVersion: 1.0.0\n"
+        ),
+        f"{dist_info}/WHEEL": (
+            "Wheel-Version: 1.0\n"
+            "Generator: tracecat-test\n"
+            "Root-Is-Purelib: true\n"
+            "Tag: py3-none-any\n"
+        ),
+        f"{dist_info}/entry_points.txt": (
+            f"[console_scripts]\n{command_name} = {module_name}:main\n"
+        ),
+    }
+    record_path = f"{dist_info}/RECORD"
+    files[record_path] = "".join(f"{path},,\n" for path in (*files, record_path))
+    with zipfile.ZipFile(wheel_path, "w", compression=zipfile.ZIP_DEFLATED) as wheel:
+        for path, contents in files.items():
+            wheel.writestr(path, contents)
+    return wheel_path, command_name
+
+
+def _build_stdio_mcp_burst_servers(
+    *,
+    job_dir: Path,
+    parent_address: IPv4Address,
+    destination_ports: list[int],
+) -> list[MCPServerConfig]:
+    if len(destination_ports) != _STDIO_MCP_BURST_FLOW_COUNT:
+        raise ValueError(
+            f"expected {_STDIO_MCP_BURST_FLOW_COUNT} destination ports, "
+            f"got {len(destination_ports)}"
+        )
+
+    servers: list[MCPServerConfig] = []
+    for server_index in range(_STDIO_MCP_BURST_SERVER_COUNT):
+        start = server_index * _STDIO_MCP_BURST_FLOWS_PER_SERVER
+        server_ports = destination_ports[
+            start : start + _STDIO_MCP_BURST_FLOWS_PER_SERVER
+        ]
+        wheel_path, command_name = _write_stdio_mcp_burst_wheel(
+            job_dir,
+            server_index,
+        )
+        jailed_wheel_path = session_paths_module.JAILED_AGENT_JOB_DIR / wheel_path.name
+        server: MCPStdioServerConfig = {
+            "type": "stdio",
+            "name": f"startup-burst-{server_index}",
+            "command": "uvx",
+            "args": [
+                "--offline",
+                "--from",
+                str(jailed_wheel_path),
+                command_name,
+                str(server_index),
+                str(parent_address),
+                ",".join(str(port) for port in server_ports),
+            ],
+            "timeout": 15,
+            "id": str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"https://tracecat.invalid/mcp-startup-burst/{server_index}",
+                )
+            ),
+        }
+        servers.append(server)
+    return servers
+
+
+def _write_bash_network_probe(job_dir: Path) -> Path:
+    probe_path = job_dir / "bash_network_probe.py"
+    probe_path.write_text(_STDIO_MCP_BASH_PROBE_SOURCE)
+    return session_paths_module.JAILED_AGENT_JOB_DIR / probe_path.name
+
+
+def _make_fake_claude_options() -> _FakeClaudeOptions:
+    return _FakeClaudeOptions(env={"ANTHROPIC_AUTH_TOKEN": "fake-llm-token"})
+
+
+def _decode_litellm_request_payload(body_bytes: bytes) -> _LiteLLMRequestPayload:
+    if not body_bytes:
+        return {}
+    try:
+        decoded = json.loads(body_bytes.decode("utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(decoded, dict):
+        return {}
+
+    payload: _LiteLLMRequestPayload = {}
+    model = decoded.get("model")
+    if isinstance(model, str):
+        payload["model"] = model
+
+    stream = decoded.get("stream")
+    if isinstance(stream, bool):
+        payload["stream"] = stream
+
+    messages = decoded.get("messages")
+    if isinstance(messages, list):
+        payload["messages"] = messages
+
+    tools = decoded.get("tools")
+    if isinstance(tools, list):
+        tool_names: list[str] = []
+        for tool in tools:
+            if isinstance(tool, dict) and isinstance(name := tool.get("name"), str):
+                tool_names.append(name)
+        payload["tools"] = tool_names
+    return payload
+
+
+def _parse_skill_visibility_message(message: object) -> _SkillVisibilityMessage:
+    if not isinstance(message, dict):
+        raise AssertionError(f"expected dict skill probe, got {type(message)!r}")
+
+    skill_path = message.get("skill_path")
+    skill_text = message.get("skill_text")
+    if not isinstance(skill_path, str):
+        raise AssertionError(f"expected string skill_path, got {skill_path!r}")
+    if not isinstance(skill_text, str):
+        raise AssertionError(f"expected string skill_text, got {skill_text!r}")
+    return {
+        "skill_path": skill_path,
+        "skill_text": skill_text,
+    }
+
+
+def _parse_duckdb_smoke_message(message: object) -> _DuckDBSmokeMessage:
+    if not isinstance(message, dict):
+        raise AssertionError(f"expected dict DuckDB probe, got {type(message)!r}")
+
+    duckdb_path = message.get("duckdb_path")
+    if not isinstance(duckdb_path, str):
+        raise AssertionError(f"expected string duckdb_path, got {duckdb_path!r}")
+
+    extension_count = message.get("duckdb_extension_count")
+    if not isinstance(extension_count, int):
+        raise AssertionError(
+            f"expected int duckdb_extension_count, got {extension_count!r}"
+        )
+
+    return {
+        "duckdb_path": duckdb_path,
+        "duckdb_extension_count": extension_count,
+    }
+
+
+@pytest.fixture(
+    params=[
+        pytest.param(True, id="direct"),
+        pytest.param(
+            False,
+            id="nsjail",
+            marks=pytest.mark.skipif(
+                not _agent_nsjail_available(),
+                reason="agent nsjail binary/rootfs unavailable on this host",
+            ),
+        ),
+    ]
+)
+def disable_nsjail_mode(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> bool:
+    disable_nsjail = bool(request.param)
+    _set_disable_nsjail_mode(monkeypatch, disable_nsjail)
+    return disable_nsjail
+
+
+@pytest.fixture(
+    params=[
+        pytest.param(True, id="direct"),
+        pytest.param(False, id="nsjail"),
+    ]
+)
+def full_harness_disable_nsjail_mode(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> bool:
+    disable_nsjail = bool(request.param)
+    if (
+        not disable_nsjail
+        and not _agent_nsjail_available()
+        and not _docker_nsjail_fallback_enabled()
+    ):
+        pytest.skip(
+            "agent nsjail binary/rootfs unavailable on this host and Docker fallback is unavailable"
+        )
+    _set_disable_nsjail_mode(monkeypatch, disable_nsjail)
+    return disable_nsjail
+
+
+class _FakeLoopbackHandler:
+    def __init__(self, input: LoopbackInput) -> None:
+        self.input = input
+        self.prepared = False
+
+    async def prepare(self) -> None:
+        self.prepared = True
+
+    async def handle_connection(self, reader: object, writer: object) -> LoopbackResult:
+        del reader, writer
+        return LoopbackResult(success=True)
+
+    def build_result(self) -> LoopbackResult:
+        return LoopbackResult(success=True)
+
+    async def emit_terminal_error(self, error_msg: str) -> None:
+        raise AssertionError(f"unexpected terminal error: {error_msg}")
+
+
+class _FakeBroker:
+    def __init__(self) -> None:
+        self.requests: list[ClaudeTurnRequest] = []
+        self.cancelled_session_ids: list[str] = []
+
+    @contextlib.asynccontextmanager
+    async def session_turn_lease(self, _session_id: str) -> AsyncIterator[None]:
+        yield
+
+    async def run_turn(
+        self,
+        request: ClaudeTurnRequest,
+        handler: _FakeLoopbackHandler,
+    ) -> None:
+        async with self.session_turn_lease(str(request.init_payload.session_id)):
+            await self.run_turn_in_session_lease(request, handler)
+
+    async def run_turn_in_session_lease(
+        self,
+        request: ClaudeTurnRequest,
+        handler: _FakeLoopbackHandler,
+    ) -> None:
+        self.requests.append(request)
+        await handler.prepare()
+
+    async def cancel_turn(self, session_id: str) -> None:
+        self.cancelled_session_ids.append(session_id)
+
+
+class _FakeProxy:
+    def __init__(self) -> None:
+        self.started = False
+        self.stopped = False
+
+    async def start(self) -> None:
+        self.started = True
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+
+class _FakeLLMSocketProxy:
+    instances: list[_FakeLLMSocketProxy] = []
+    scripted_bash_command: str | None = None
+
+    def __init__(
+        self,
+        *,
+        socket_path: Path,
+        routing_plan: LLMRoutingPlan,
+        on_error: Callable[[llm_proxy_module.LLMProxyError], None] | None = None,
+    ) -> None:
+        del on_error
+        self.socket_path = socket_path
+        self.routing_plan = routing_plan
+        self.direct_routes = routing_plan.direct_routes
+        self.started = False
+        self.stopped = False
+        self.request_count = 0
+        self.message_request_count = 0
+        self.requests: list[_LiteLLMRequestPayload] = []
+        self._server: asyncio.Server | None = None
+        type(self).instances.append(self)
+
+    async def start(self) -> None:
+        self.socket_path.parent.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(FileNotFoundError):
+            self.socket_path.unlink()
+        self._server = await asyncio.start_unix_server(
+            self._handle_connection,
+            path=str(self.socket_path),
+        )
+        self.started = True
+
+    async def stop(self) -> None:
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+            self._server = None
+        with contextlib.suppress(FileNotFoundError):
+            self.socket_path.unlink()
+        self.stopped = True
+
+    async def _handle_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        headers = b""
+        while True:
+            line = await reader.readline()
+            if not line:
+                return
+            headers += line
+            if line == b"\r\n":
+                break
+
+        content_length = 0
+        for line in headers.split(b"\r\n"):
+            if line.lower().startswith(b"content-length:"):
+                content_length = int(line.split(b":", 1)[1].strip())
+                break
+        body_bytes = b""
+        if content_length:
+            body_bytes = await reader.readexactly(content_length)
+
+        self.request_count += 1
+
+        request_body = _decode_litellm_request_payload(body_bytes)
+        request_line = headers.partition(b"\r\n")[0].decode("latin1")
+        request_line_parts = request_line.split()
+        if len(request_line_parts) >= 2:
+            request_body["path"] = request_line_parts[1]
+        self.requests.append(request_body)
+
+        request_path = request_body.get("path", "")
+        is_messages_request = request_path.partition("?")[0] == "/v1/messages"
+        is_nonstream_messages_request = (
+            is_messages_request and request_body.get("stream") is not True
+        )
+        if is_nonstream_messages_request:
+            self.message_request_count += 1
+
+        if (
+            self.scripted_bash_command is not None
+            and self.message_request_count == 1
+            and is_nonstream_messages_request
+        ):
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": _STDIO_MCP_BASH_TOOL_USE_ID,
+                    "name": "Bash",
+                    "input": {
+                        "command": self.scripted_bash_command,
+                        "description": "Exercise sandbox networking after MCP startup",
+                    },
+                }
+            ]
+            stop_reason = "tool_use"
+        else:
+            content = [{"type": "text", "text": "fake claude response"}]
+            stop_reason = "end_turn"
+
+        body = json.dumps(
+            {
+                "id": f"msg_fake_{self.request_count}",
+                "type": "message",
+                "role": "assistant",
+                "model": request_body.get("model") or "customer-alias",
+                "content": content,
+                "stop_reason": stop_reason,
+                "stop_sequence": None,
+                "usage": {
+                    "input_tokens": 1,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "output_tokens": 2,
+                    "server_tool_use": None,
+                    "service_tier": "standard",
+                },
+            },
+            separators=(",", ":"),
+        ).encode()
+        writer.write(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: application/json\r\n"
+            + f"Content-Length: {len(body)}\r\n".encode()
+            + b"\r\n"
+            + body
+        )
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+
+class _FakeCompressedMCPUnixSocketProxy:
+    def __init__(self, socket_path: Path) -> None:
+        self.socket_path = socket_path
+        self.requests: list[dict[str, object]] = []
+        self.started = False
+        self.stopped = False
+        self._server: asyncio.Server | None = None
+
+    async def start(self) -> None:
+        self.socket_path.parent.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(FileNotFoundError):
+            self.socket_path.unlink()
+        self._server = await asyncio.start_unix_server(
+            self._handle_connection,
+            path=str(self.socket_path),
+        )
+        self.started = True
+
+    async def stop(self) -> None:
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+            self._server = None
+        with contextlib.suppress(FileNotFoundError):
+            self.socket_path.unlink()
+        self.stopped = True
+
+    async def _handle_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        headers_data = b""
+        while True:
+            line = await reader.readline()
+            if not line:
+                return
+            headers_data += line
+            if line == b"\r\n":
+                break
+
+        headers: dict[str, str] = {}
+        content_length = 0
+        for raw_line in headers_data.split(b"\r\n"):
+            if b":" not in raw_line:
+                continue
+            name, value = raw_line.split(b":", 1)
+            header_name = name.decode("latin1").strip().lower()
+            header_value = value.decode("latin1").strip()
+            headers[header_name] = header_value
+            if header_name == "content-length":
+                content_length = int(header_value)
+
+        body_bytes = b""
+        if content_length:
+            body_bytes = await reader.readexactly(content_length)
+
+        request_body: dict[str, object] | None = None
+        with contextlib.suppress(json.JSONDecodeError):
+            decoded = json.loads(body_bytes.decode("utf-8"))
+            if isinstance(decoded, dict):
+                request_body = decoded
+
+        accept_encoding = headers.get("accept-encoding", "")
+        self.requests.append(
+            {
+                "accept_encoding": accept_encoding,
+                "body": request_body,
+            }
+        )
+
+        if request_body is not None and "id" not in request_body:
+            writer.write(
+                b"HTTP/1.1 202 Accepted\r\n"
+                b"Content-Length: 0\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+            )
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+            return
+
+        if accept_encoding.strip().lower() != "identity":
+            body = b"(\xb5/\xfdd\x88\x04%compressed-jsonrpc"
+            writer.write(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Encoding: zstd\r\n"
+                + f"Content-Length: {len(body)}\r\n".encode()
+                + b"Connection: close\r\n"
+                + b"\r\n"
+                + body
+            )
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+            return
+
+        request_id = request_body.get("id") if request_body is not None else None
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {
+                        "name": "tracecat-test-mcp",
+                        "version": "1.0.0",
+                    },
+                },
+            },
+            separators=(",", ":"),
+        ).encode()
+        writer.write(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: application/json\r\n"
+            + f"Content-Length: {len(body)}\r\n".encode()
+            + b"Connection: close\r\n"
+            + b"\r\n"
+            + body
+        )
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+
+class _FakeAgentManagementService:
+    async def get_catalog_credentials(self, _catalog_id: uuid.UUID) -> dict[str, str]:
+        return {"CUSTOM_MODEL_PROVIDER_API_KEY": "sk-test"}
+
+    async def get_runtime_provider_credentials(
+        self,
+        _provider: str,
+    ) -> dict[str, str]:
+        return {"CUSTOM_MODEL_PROVIDER_API_KEY": "sk-test"}
+
+    async def get_workspace_provider_credentials(
+        self,
+        _provider: str,
+    ) -> dict[str, str]:
+        return {"CUSTOM_MODEL_PROVIDER_API_KEY": "sk-test"}
+
+
+def _patch_agent_management_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    @contextlib.asynccontextmanager
+    async def fake_agent_management_context(
+        _role: Role,
+    ) -> AsyncIterator[_FakeAgentManagementService]:
+        yield _FakeAgentManagementService()
+
+    monkeypatch.setattr(
+        llm_proxy_module.AgentManagementService,
+        "with_session",
+        fake_agent_management_context,
+    )
+
+
+class _InMemoryStreamSink:
+    def __init__(self) -> None:
+        self.events: list[UnifiedStreamEvent] = []
+        self.errors: list[str] = []
+        self.done_count = 0
+
+    async def append(self, event: UnifiedStreamEvent) -> None:
+        self.events.append(event)
+
+    async def error(self, error: str) -> None:
+        self.errors.append(error)
+
+    async def done(self) -> None:
+        self.done_count += 1
+
+
+class _FakeRuntimeConnectingTransport:
+    instances: list[_FakeRuntimeConnectingTransport] = []
+
+    def __init__(
+        self,
+        _handler: object,
+        *,
+        transport_factory: Callable[[_FakeClaudeOptions], SandboxedCLITransport],
+        session_home_dir: Path,
+        cwd: Path,
+        cwd_setup_path: Path,
+        system_prompt_fragments: object = (),
+    ) -> None:
+        del system_prompt_fragments
+        self.transport_factory = transport_factory
+        self.session_home_dir = session_home_dir
+        self.cwd = cwd
+        self.cwd_setup_path = cwd_setup_path
+        self.transport: SandboxedCLITransport | None = None
+        type(self).instances.append(self)
+
+    async def run(self, payload: object) -> None:
+        del payload
+        options = _make_fake_claude_options()
+        transport = self.transport_factory(options)
+        self.transport = transport
+        await transport.connect()
+        await transport.close()
+
+
+class _FakeRuntimeReadingTransport:
+    instances: list[_FakeRuntimeReadingTransport] = []
+    messages: list[_SkillVisibilityMessage] = []
+
+    def __init__(
+        self,
+        _handler: object,
+        *,
+        transport_factory: Callable[[_FakeClaudeOptions], SandboxedCLITransport],
+        session_home_dir: Path,
+        cwd: Path,
+        cwd_setup_path: Path,
+        system_prompt_fragments: object = (),
+    ) -> None:
+        del system_prompt_fragments
+        self.transport_factory = transport_factory
+        self.session_home_dir = session_home_dir
+        self.cwd = cwd
+        self.cwd_setup_path = cwd_setup_path
+        self.transport: SandboxedCLITransport | None = None
+        type(self).instances.append(self)
+
+    async def run(self, payload: object) -> None:
+        del payload
+        options = _make_fake_claude_options()
+        transport = self.transport_factory(options)
+        self.transport = transport
+        await transport.connect()
+        try:
+            async for message in transport.read_messages():
+                type(self).messages.append(_parse_skill_visibility_message(message))
+        finally:
+            await transport.close()
+
+
+class _FakeRuntimeReadingDuckDBTransport:
+    instances: list[_FakeRuntimeReadingDuckDBTransport] = []
+    messages: list[_DuckDBSmokeMessage] = []
+
+    def __init__(
+        self,
+        _handler: object,
+        *,
+        transport_factory: Callable[[_FakeClaudeOptions], SandboxedCLITransport],
+        session_home_dir: Path,
+        cwd: Path,
+        cwd_setup_path: Path,
+        system_prompt_fragments: object = (),
+    ) -> None:
+        del system_prompt_fragments
+        self.transport_factory = transport_factory
+        self.session_home_dir = session_home_dir
+        self.cwd = cwd
+        self.cwd_setup_path = cwd_setup_path
+        self.transport: SandboxedCLITransport | None = None
+        type(self).instances.append(self)
+
+    async def run(self, payload: object) -> None:
+        del payload
+        options = _make_fake_claude_options()
+        transport = self.transport_factory(options)
+        self.transport = transport
+        await transport.connect()
+        try:
+            async for message in transport.read_messages():
+                type(self).messages.append(_parse_duckdb_smoke_message(message))
+        finally:
+            await transport.close()
+
+
+class _FakeLoopbackRuntime:
+    instances: list[_FakeLoopbackRuntime] = []
+    payloads: list[RuntimeInitPayload] = []
+    script: Callable[[LoopbackHandler, RuntimeInitPayload], Awaitable[None]] | None = (
+        None
+    )
+
+    def __init__(
+        self,
+        handler: LoopbackHandler,
+        *,
+        transport_factory: Callable[[Any], SandboxedCLITransport],
+        session_home_dir: Path,
+        cwd: Path,
+        cwd_setup_path: Path,
+        system_prompt_fragments: object = (),
+    ) -> None:
+        del transport_factory, system_prompt_fragments
+        self.handler = handler
+        self.session_home_dir = session_home_dir
+        self.cwd = cwd
+        self.cwd_setup_path = cwd_setup_path
+        type(self).instances.append(self)
+
+    async def run(self, payload: RuntimeInitPayload) -> None:
+        type(self).payloads.append(payload)
+        script = type(self).script
+        if script is None:
+            raise AssertionError("Fake loopback runtime script was not configured")
+        await script(self.handler, payload)
+
+
+class _FakeAgentSessionService:
+    async def __aenter__(self) -> _FakeAgentSessionService:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        tb: object,
+    ) -> None:
+        del exc_type, exc, tb
+
+    async def list_messages(self, _session_id: uuid.UUID) -> list[object]:
+        return []
+
+
+async def _run_full_claude_harness_runtime_case(
+    *,
+    disable_nsjail_mode: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    enable_internet_access: bool = False,
+    executor_input: AgentExecutorInput | None = None,
+    job_dir: Path | None = None,
+    scripted_bash_command: str | None = None,
+) -> None:
+    _patch_agent_management_credentials(monkeypatch)
+    _FakeLLMSocketProxy.instances.clear()
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+    stream_sink = _InMemoryStreamSink()
+    persisted_session_lines: list[tuple[str, str, bool]] = []
+    if job_dir is None:
+        job_dir = Path(tempfile.mkdtemp(prefix="tcaj-", dir="/tmp"))
+    else:
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        del self
+        socket_dir = job_dir / "sockets"
+        socket_dir.mkdir(parents=True)
+        (socket_dir / "mcp.sock").touch()
+        return job_dir
+
+    async def fake_initialize_stream_sink(self: LoopbackHandler) -> _InMemoryStreamSink:
+        del self
+        return stream_sink
+
+    async def fake_persist_session_line(
+        self: LoopbackHandler,
+        sdk_session_id: str,
+        session_line: str,
+        *,
+        internal: bool = False,
+    ) -> None:
+        del self
+        persisted_session_lines.append((sdk_session_id, session_line, internal))
+
+    monkeypatch.setattr(
+        _FakeLLMSocketProxy,
+        "scripted_bash_command",
+        scripted_bash_command,
+    )
+    monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
+    monkeypatch.setattr(
+        nsjail_module,
+        "TRACECAT__AGENT_MCP_SOCKET_PATH",
+        job_dir / "sockets" / "mcp.sock",
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        LoopbackHandler,
+        "_initialize_stream_sink",
+        fake_initialize_stream_sink,
+    )
+    monkeypatch.setattr(
+        LoopbackHandler,
+        "_persist_session_line",
+        fake_persist_session_line,
+    )
+    monkeypatch.setattr(executor_activity, "get_claude_runtime_broker", lambda: broker)
+    monkeypatch.setattr(
+        session_paths_module.tempfile,
+        "gettempdir",
+        lambda: str(tmp_path / "sessions"),
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "activity",
+        _fake_temporal_activity(),
+    )
+    monkeypatch.setattr(
+        executor_activity.AgentSessionService,
+        "with_session",
+        lambda **_kwargs: _FakeAgentSessionService(),
+    )
+
+    try:
+        result = await run_agent_activity(
+            executor_input
+            or _make_passthrough_executor_input(
+                enable_internet_access=enable_internet_access
+            )
+        )
+    finally:
+        await broker.stop()
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+    assert result.success is True
+    assert result.error is None
+    assert result.output == "fake claude response"
+    assert result.result_num_turns == (2 if scripted_bash_command else 1)
+    assert result.messages is None
+
+    assert len(_FakeLLMSocketProxy.instances) == 1
+    proxy = _FakeLLMSocketProxy.instances[0]
+    assert proxy.request_count >= 1
+    assert proxy.started is True
+    assert proxy.stopped is True
+    assert any(request.get("model") == "customer-alias" for request in proxy.requests)
+
+    assert stream_sink.errors == []
+    # Terminal END is emitted by the workflow, not the executor loopback.
+    assert stream_sink.done_count == 0
+
+
+async def _run_stdio_mcp_startup_burst_case(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Initialize many MCPs, then make the agent use Bash under retained load."""
+    if not 1024 < _STDIO_MCP_BURST_FLOW_COUNT < _STDIO_MCP_COMBINED_FLOW_COUNT:
+        raise AssertionError("MCP startup must exceed the old 1024-flow budget")
+    if _STDIO_MCP_COMBINED_FLOW_COUNT >= 2048:
+        raise AssertionError("combined MCP and Bash burst must fit the new budget")
+
+    udp_sinks, parent_address = _open_private_parent_udp_sinks(
+        _STDIO_MCP_COMBINED_FLOW_COUNT
+    )
+    mcp_destination_ports = [
+        sink.getsockname()[1] for sink in udp_sinks[:_STDIO_MCP_BURST_FLOW_COUNT]
+    ]
+    bash_destination_ports = [
+        sink.getsockname()[1] for sink in udp_sinks[_STDIO_MCP_BURST_FLOW_COUNT:]
+    ]
+    job_dir = tmp_path / "stdio-mcp-startup-burst"
+    job_dir.mkdir(parents=True)
+    mcp_servers = _build_stdio_mcp_burst_servers(
+        job_dir=job_dir,
+        parent_address=parent_address,
+        destination_ports=mcp_destination_ports,
+    )
+    bash_probe_path = _write_bash_network_probe(job_dir)
+    bash_command = f"python3 {bash_probe_path} {parent_address} " + ",".join(
+        str(port) for port in bash_destination_ports
+    )
+    base_input = _make_passthrough_executor_input(enable_internet_access=False)
+    executor_input = base_input.model_copy(
+        update={
+            "config": replace(base_input.config, mcp_servers=mcp_servers),
+        }
+    )
+
+    original_network_policy = sandbox_networking.configured_sandbox_network_policy
+
+    def network_policy_with_udp_fixture(
+        purpose: SandboxNetworkPurpose,
+    ) -> SandboxNetworkPolicy:
+        policy = original_network_policy(purpose)
+        return replace(
+            policy,
+            allowed_rules=(
+                SandboxEgressRule(
+                    destination=ip_network(f"{parent_address}/32"),
+                    protocol=SandboxNetworkProtocol.UDP,
+                ),
+                *policy.allowed_rules,
+            ),
+        )
+
+    async def passthrough_stdio_env(
+        servers: list[MCPServerConfig] | None,
+        *,
+        role: Role,
+    ) -> list[MCPServerConfig] | None:
+        del role
+        return servers
+
+    monkeypatch.setattr(
+        sandbox_networking,
+        "configured_sandbox_network_policy",
+        network_policy_with_udp_fixture,
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "_hydrate_stdio_env",
+        passthrough_stdio_env,
+    )
+
+    received_packets = 0
+    initialized_servers: set[str] = set()
+    loop = asyncio.get_running_loop()
+
+    def echo_startup_packet(sink: socket.socket) -> None:
+        nonlocal received_packets
+        try:
+            data, source = sink.recvfrom(128)
+        except BlockingIOError:
+            return
+        if data == b"x":
+            received_packets += 1
+        elif data.startswith(b"initialized:"):
+            initialized_servers.add(data.decode().partition(":")[2])
+        sink.sendto(b"ack", source)
+
+    for sink in udp_sinks:
+        sink.setblocking(False)
+        loop.add_reader(sink.fileno(), echo_startup_packet, sink)
+
+    try:
+        await _run_full_claude_harness_runtime_case(
+            disable_nsjail_mode=False,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+            executor_input=executor_input,
+            job_dir=job_dir,
+            scripted_bash_command=bash_command,
+        )
+        await asyncio.sleep(0.1)
+    finally:
+        for sink in udp_sinks:
+            loop.remove_reader(sink.fileno())
+            sink.close()
+
+    assert received_packets == _STDIO_MCP_COMBINED_FLOW_COUNT, received_packets
+    expected_initialized_servers = {
+        str(server_index) for server_index in range(_STDIO_MCP_BURST_SERVER_COUNT)
+    }
+    assert initialized_servers == expected_initialized_servers, initialized_servers
+
+    [proxy] = _FakeLLMSocketProxy.instances
+    message_requests = [
+        request
+        for request in proxy.requests
+        if request.get("path", "").partition("?")[0] == "/v1/messages"
+        and request.get("stream") is not True
+    ]
+    assert len(message_requests) == 2, message_requests
+    assert "Bash" in message_requests[0].get("tools", [])
+    # Web tools execute provider-side, so assert that the agent can select them
+    # without miscounting them as jailed NSTUN flows.
+    advertised_tools = json.dumps(message_requests[0].get("messages", []))
+    assert "WebFetch" in advertised_tools
+    assert "WebSearch" in advertised_tools
+    bash_result = json.dumps(message_requests[1].get("messages", []))
+    assert _STDIO_MCP_BASH_TOOL_USE_ID in bash_result
+    assert _STDIO_MCP_BASH_RESULT_MARKER in bash_result
+
+
+async def _run_mcp_compression_initialize_case(
+    *,
+    disable_nsjail_mode: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    expect_success: bool,
+) -> AgentExecutorResult:
+    _patch_agent_management_credentials(monkeypatch)
+    _FakeLLMSocketProxy.instances.clear()
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+    stream_sink = _InMemoryStreamSink()
+    job_dir = Path(tempfile.mkdtemp(prefix="tcaj-mcp-compression-", dir="/tmp"))
+    session_root = Path(tempfile.mkdtemp(prefix="tcaj-mcp-sessions-", dir="/tmp"))
+    mcp_proxy: _FakeCompressedMCPUnixSocketProxy | None = None
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        del self
+        nonlocal mcp_proxy
+        socket_dir = job_dir / "sockets"
+        socket_dir.mkdir(parents=True)
+        mcp_proxy = _FakeCompressedMCPUnixSocketProxy(socket_dir / "mcp.sock")
+        await mcp_proxy.start()
+        monkeypatch.setattr(
+            nsjail_module,
+            "TRACECAT__AGENT_MCP_SOCKET_PATH",
+            mcp_proxy.socket_path,
+        )
+        return job_dir
+
+    async def fake_initialize_stream_sink(self: LoopbackHandler) -> _InMemoryStreamSink:
+        del self
+        return stream_sink
+
+    async def fake_persist_session_line(
+        self: LoopbackHandler,
+        sdk_session_id: str,
+        session_line: str,
+        *,
+        internal: bool = False,
+    ) -> None:
+        del self, sdk_session_id, session_line, internal
+
+    async def fake_build_claude_command(self: SandboxedCLITransport) -> list[str]:
+        python_bin = sys.executable if disable_nsjail_mode else "/usr/local/bin/python3"
+        mcp_servers = self._options.mcp_servers
+        if not isinstance(mcp_servers, dict):
+            raise AssertionError("expected trusted MCP server config")
+        server_config = mcp_servers["tracecat-registry"]
+        if not isinstance(server_config, dict):
+            raise AssertionError("expected trusted MCP server dict config")
+        http_server_config = cast(dict[str, object], server_config)
+        url = http_server_config.get("url")
+        headers = http_server_config.get("headers", {})
+        if not isinstance(url, str) or not isinstance(headers, dict):
+            raise AssertionError("expected HTTP MCP URL and headers")
+        code = "\n".join(
+            [
+                "import json, sys, time, urllib.request",
+                f"MCP_URL = {url!r}",
+                f"MCP_HEADERS = {json.dumps(headers)!r}",
+                "",
+                "def initialize_mcp():",
+                "    headers = json.loads(MCP_HEADERS)",
+                "    headers.setdefault('Accept-Encoding', 'gzip, deflate, br, zstd')",
+                "    headers['Content-Type'] = 'application/json'",
+                "    body = json.dumps({",
+                "        'jsonrpc': '2.0',",
+                "        'id': 1,",
+                "        'method': 'initialize',",
+                "        'params': {",
+                "            'protocolVersion': '2025-11-25',",
+                "            'capabilities': {},",
+                "            'clientInfo': {'name': 'tracecat-test', 'version': '1.0.0'},",
+                "        },",
+                "    }).encode()",
+                "    request = urllib.request.Request(",
+                "        MCP_URL,",
+                "        data=body,",
+                "        headers=headers,",
+                "        method='POST',",
+                "    )",
+                "    response_body = urllib.request.urlopen(request, timeout=2).read()",
+                "    json.loads(response_body)",
+                "",
+                "def emit(payload):",
+                "    print(json.dumps(payload), flush=True)",
+                "",
+                "control_line = sys.stdin.readline()",
+                "control = json.loads(control_line)",
+                "request_id = control['request_id']",
+                "try:",
+                "    initialize_mcp()",
+                "except Exception as exc:",
+                "    print('Error parsing JSON response', file=sys.stderr, flush=True)",
+                "    print(f'Invalid JSON: {exc}', file=sys.stderr, flush=True)",
+                "    time.sleep(2)",
+                "    raise SystemExit(0)",
+                "emit({",
+                "    'type': 'control_response',",
+                "    'response': {",
+                "        'request_id': request_id,",
+                "        'subtype': 'initialize',",
+                "        'response': {'supported_commands': []},",
+                "    },",
+                "})",
+                "sys.stdin.readline()",
+                "emit({",
+                "    'type': 'result',",
+                "    'subtype': 'success',",
+                "    'duration_ms': 1,",
+                "    'duration_api_ms': 1,",
+                "    'is_error': False,",
+                "    'num_turns': 1,",
+                "    'session_id': 'sdk-session-compression-smoke',",
+                "    'result': 'mcp initialized',",
+                "    'usage': {'input_tokens': 1, 'output_tokens': 1},",
+                "})",
+            ]
+        )
+        return [python_bin, "-c", code]
+
+    from claude_agent_sdk._internal.query import Query
+
+    original_send_control_request = Query._send_control_request
+
+    async def fast_send_control_request(
+        self: Query,
+        request: dict[str, Any],
+        timeout: float = 60.0,
+    ) -> dict[str, Any]:
+        if request.get("subtype") == "initialize":
+            timeout = 1.0
+        return await original_send_control_request(self, request, timeout=timeout)
+
+    executor_input = _make_passthrough_executor_input(
+        enable_internet_access=False
+    ).model_copy(
+        update={
+            "allowed_actions": {
+                "core.http_request": MCPToolDefinition(
+                    name="core.http_request",
+                    description="Make an HTTP request",
+                    parameters_json_schema={
+                        "type": "object",
+                        "properties": {},
+                    },
+                )
+            }
+        }
+    )
+
+    monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        LoopbackHandler,
+        "_initialize_stream_sink",
+        fake_initialize_stream_sink,
+    )
+    monkeypatch.setattr(
+        LoopbackHandler,
+        "_persist_session_line",
+        fake_persist_session_line,
+    )
+    monkeypatch.setattr(executor_activity, "get_claude_runtime_broker", lambda: broker)
+    monkeypatch.setattr(
+        transport_module.SandboxedCLITransport,
+        "_build_claude_command",
+        fake_build_claude_command,
+    )
+    monkeypatch.setattr(Query, "_send_control_request", fast_send_control_request)
+    monkeypatch.setattr(
+        session_paths_module.tempfile,
+        "gettempdir",
+        lambda: str(session_root),
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "activity",
+        _fake_temporal_activity(),
+    )
+    monkeypatch.setattr(
+        executor_activity.AgentSessionService,
+        "with_session",
+        lambda **_kwargs: _FakeAgentSessionService(),
+    )
+
+    try:
+        result = await run_agent_activity(executor_input)
+    finally:
+        await broker.stop()
+        if mcp_proxy is not None:
+            await mcp_proxy.stop()
+        shutil.rmtree(job_dir, ignore_errors=True)
+        shutil.rmtree(session_root, ignore_errors=True)
+
+    assert mcp_proxy is not None
+    assert mcp_proxy.started is True
+    assert mcp_proxy.stopped is True
+    assert mcp_proxy.requests
+
+    if expect_success:
+        assert result.success is True
+        assert result.error is None
+        assert result.output == "mcp initialized"
+        assert any(
+            request["accept_encoding"] == "identity" for request in mcp_proxy.requests
+        )
+        assert stream_sink.errors == []
+        # Terminal END is emitted by the workflow, not the executor loopback.
+        assert stream_sink.done_count == 0
+    else:
+        assert result.success is False
+        assert result.error == "Unexpected error: Control request timeout: initialize"
+        assert all(
+            request["accept_encoding"] != "identity" for request in mcp_proxy.requests
+        )
+
+    return result
+
+
+async def _run_mcp_compression_initialize_repro_case(
+    *,
+    disable_nsjail_mode: bool,
+    tmp_path: Path,
+) -> None:
+    with pytest.MonkeyPatch.context() as legacy_monkeypatch:
+        _set_disable_nsjail_mode(legacy_monkeypatch, disable_nsjail_mode)
+
+        def legacy_trusted_mcp_server_config(auth_token: str) -> dict[str, object]:
+            return {
+                "type": "http",
+                "url": runtime_module.TRUSTED_MCP_BRIDGE_URL,
+                "headers": {"Authorization": f"Bearer {auth_token}"},
+            }
+
+        legacy_monkeypatch.setattr(
+            runtime_module.ClaudeAgentRuntime,
+            "_trusted_mcp_server_config",
+            staticmethod(legacy_trusted_mcp_server_config),
+        )
+        await _run_mcp_compression_initialize_case(
+            disable_nsjail_mode=disable_nsjail_mode,
+            monkeypatch=legacy_monkeypatch,
+            tmp_path=tmp_path / "legacy",
+            expect_success=False,
+        )
+
+    with pytest.MonkeyPatch.context() as fixed_monkeypatch:
+        _set_disable_nsjail_mode(fixed_monkeypatch, disable_nsjail_mode)
+        await _run_mcp_compression_initialize_case(
+            disable_nsjail_mode=disable_nsjail_mode,
+            monkeypatch=fixed_monkeypatch,
+            tmp_path=tmp_path / "fixed",
+            expect_success=True,
+        )
+
+
+def _run_nsjail_harness_in_docker_or_skip(
+    *,
+    cli_flag: str = "--run-nsjail-harness-smoke",
+    failure_label: str = "Dockerized nsjail harness fallback failed.",
+    requires_tun: bool = False,
+    parent_nofile_limit: int | None = None,
+) -> None:
+    if os.environ.get("TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD") == "1":
+        pytest.skip("nsjail unavailable inside Docker fallback child")
+    if shutil.which("docker") is None:
+        pytest.skip("Docker CLI unavailable for nsjail fallback")
+
+    docker_info = subprocess.run(
+        ["docker", "info"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if docker_info.returncode != 0:
+        pytest.skip("Docker daemon unavailable for nsjail fallback")
+
+    repo_root = Path(__file__).resolve().parents[2]
+    compose_env = os.environ.copy()
+    compose_env.setdefault(
+        "TRACECAT__LOCAL_REPOSITORY_PATH",
+        str(repo_root / "packages"),
+    )
+    compose_env.setdefault("TRACECAT__LOCAL_REPOSITORY_ENABLED", "false")
+    compose_env.setdefault("PUBLIC_APP_PORT", "80")
+    compose_env.setdefault("BASE_DOMAIN", ":80")
+    compose_env.setdefault("ADDRESS", "0.0.0.0")
+    compose_env.setdefault("LOG_LEVEL", "INFO")
+    compose_env.setdefault("TRACECAT__APP_ENV", "development")
+    tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
+    device_lines = (
+        [
+            "    devices:",
+            "      - /dev/net/tun:/dev/net/tun",
+        ]
+        if requires_tun
+        else []
+    )
+    privileged_lines = ["    privileged: true"] if requires_tun else []
+    ulimit_lines = (
+        [
+            "    ulimits:",
+            "      nofile:",
+            f"        soft: {parent_nofile_limit}",
+            f"        hard: {parent_nofile_limit}",
+        ]
+        if parent_nofile_limit is not None
+        else []
+    )
+    override_path = Path(
+        tempfile.mkstemp(prefix="tracecat-agent-nsjail-test-", suffix=".yml")[1]
+    )
+    override_path.write_text(
+        "\n".join(
+            [
+                "services:",
+                "  api:",
+                "    build:",
+                "      target: test",
+                *privileged_lines,
+                "    cap_add:",
+                "      - SYS_ADMIN",
+                "    security_opt:",
+                "      - seccomp:unconfined",
+                "      - systempaths=unconfined",
+                *ulimit_lines,
+                *device_lines,
+                "    volumes:",
+                f"      - {json.dumps(tests_mount)}",
+                "    environment:",
+                '      TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD: "1"',
+                '      TRACECAT__DISABLE_NSJAIL: "false"',
+                '      TRACECAT__SANDBOX_NSJAIL_PATH: "/usr/local/bin/nsjail"',
+                '      TRACECAT__SANDBOX_ROOTFS_PATH: "/var/lib/tracecat/sandbox-rootfs"',
+                '      PYTHONDONTWRITEBYTECODE: "1"',
+                "",
+            ]
+        )
+    )
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(repo_root / "docker-compose.dev.yml"),
+                "-f",
+                str(override_path),
+                "run",
+                "--rm",
+                "--no-deps",
+                "--build",
+                "-T",
+                "--entrypoint",
+                "sh",
+                "api",
+                "-lc",
+                f"uv run python -m tests.unit.test_agent_sandbox_litellm {cli_flag}",
+            ],
+            cwd=repo_root,
+            env=compose_env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+    finally:
+        override_path.unlink(missing_ok=True)
+
+    if result.returncode != 0:
+        pytest.fail(
+            f"{failure_label}\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+        )
+
+
+def _run_nsjail_harness_smoke_from_cli() -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-smoke-"))
+        try:
+            _set_disable_nsjail_mode(monkeypatch, False)
+            await _run_full_claude_harness_runtime_case(
+                disable_nsjail_mode=False,
+                monkeypatch=monkeypatch,
+                tmp_path=tmp_path,
+            )
+        finally:
+            monkeypatch.undo()
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+def _run_nsjail_nstun_smoke_from_cli() -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-nstun-"))
+        try:
+            _set_disable_nsjail_mode(monkeypatch, False)
+            await _run_full_claude_harness_runtime_case(
+                disable_nsjail_mode=False,
+                monkeypatch=monkeypatch,
+                tmp_path=tmp_path,
+                enable_internet_access=True,
+            )
+        finally:
+            monkeypatch.undo()
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+def _run_nsjail_stdio_mcp_burst_smoke_from_cli() -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-stdio-mcp-burst-"))
+        try:
+            _set_disable_nsjail_mode(monkeypatch, False)
+            await _run_stdio_mcp_startup_burst_case(
+                monkeypatch=monkeypatch,
+                tmp_path=tmp_path,
+            )
+        finally:
+            monkeypatch.undo()
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+def _run_nsjail_skills_smoke_from_cli() -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-skills-"))
+        try:
+            _set_disable_nsjail_mode(monkeypatch, False)
+            await _run_attached_skills_visible_case(
+                disable_nsjail_mode=False,
+                monkeypatch=monkeypatch,
+                tmp_path=tmp_path,
+            )
+        finally:
+            monkeypatch.undo()
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+def _run_nsjail_mcp_compression_smoke_from_cli() -> None:
+    async def run() -> None:
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-mcp-"))
+        try:
+            await _run_mcp_compression_initialize_repro_case(
+                disable_nsjail_mode=False,
+                tmp_path=tmp_path,
+            )
+        finally:
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+def _run_nsjail_duckdb_smoke_from_cli() -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-duckdb-"))
+        try:
+            _set_disable_nsjail_mode(monkeypatch, False)
+            await _run_duckdb_cli_available_case(
+                monkeypatch=monkeypatch,
+                tmp_path=tmp_path,
+            )
+        finally:
+            monkeypatch.undo()
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+async def _run_executor_with_fake_broker(
+    *,
+    executor_input: AgentExecutorInput,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[AgentExecutorResult, list[Path], _FakeProxy, _FakeBroker]:
+    monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
+
+    created_socket_paths: list[Path] = []
+    fake_proxy = _FakeProxy()
+    fake_broker = _FakeBroker()
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        del self
+        socket_dir = tmp_path / "sockets"
+        socket_dir.mkdir(parents=True)
+        return tmp_path
+
+    async def fake_create_llm_socket_proxy(
+        self: SandboxedAgentExecutor,
+        socket_path: Path,
+    ) -> _FakeProxy:
+        del self
+        created_socket_paths.append(socket_path)
+        return fake_proxy
+
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_llm_socket_proxy",
+        fake_create_llm_socket_proxy,
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "get_claude_runtime_broker",
+        lambda: fake_broker,
+    )
+
+    executor = SandboxedAgentExecutor(input=executor_input)
+    result = await executor.run()
+
+    return result, created_socket_paths, fake_proxy, fake_broker
+
+
+async def _run_activity_with_fake_loopback_runtime(
+    *,
+    executor_input: AgentExecutorInput,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    script: Callable[[LoopbackHandler, RuntimeInitPayload], Awaitable[None]],
+) -> tuple[
+    AgentExecutorResult,
+    _InMemoryStreamSink,
+    list[tuple[str, str, bool]],
+    _FakeProxy,
+    list[RuntimeInitPayload],
+    list[_FakeLoopbackRuntime],
+]:
+    _FakeLoopbackRuntime.instances.clear()
+    _FakeLoopbackRuntime.payloads.clear()
+    _FakeLoopbackRuntime.script = script
+
+    stream_sink = _InMemoryStreamSink()
+    persisted_session_lines: list[tuple[str, str, bool]] = []
+    fake_proxy = _FakeProxy()
+    broker = ClaudeRuntimeBroker()
+    job_dir = tmp_path / "job"
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        del self
+        (job_dir / "sockets").mkdir(parents=True, exist_ok=True)
+        return job_dir
+
+    async def fake_create_llm_socket_proxy(
+        self: SandboxedAgentExecutor,
+        socket_path: Path,
+    ) -> _FakeProxy:
+        del self, socket_path
+        return fake_proxy
+
+    async def fake_initialize_stream_sink(self: LoopbackHandler) -> _InMemoryStreamSink:
+        del self
+        return stream_sink
+
+    async def fake_persist_session_line(
+        self: LoopbackHandler,
+        sdk_session_id: str,
+        session_line: str,
+        *,
+        internal: bool = False,
+    ) -> None:
+        del self
+        persisted_session_lines.append((sdk_session_id, session_line, internal))
+
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_llm_socket_proxy",
+        fake_create_llm_socket_proxy,
+    )
+    monkeypatch.setattr(
+        LoopbackHandler,
+        "_initialize_stream_sink",
+        fake_initialize_stream_sink,
+    )
+    monkeypatch.setattr(
+        LoopbackHandler,
+        "_persist_session_line",
+        fake_persist_session_line,
+    )
+    monkeypatch.setattr(executor_activity, "get_claude_runtime_broker", lambda: broker)
+    monkeypatch.setattr(broker_module, "ClaudeAgentRuntime", _FakeLoopbackRuntime)
+    monkeypatch.setattr(
+        session_paths_module.tempfile,
+        "gettempdir",
+        lambda: str(tmp_path / "sessions"),
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "activity",
+        _fake_temporal_activity(),
+    )
+    monkeypatch.setattr(
+        executor_activity.AgentSessionService,
+        "with_session",
+        lambda **_kwargs: _FakeAgentSessionService(),
+    )
+
+    await broker.start()
+    try:
+        result = await run_agent_activity(executor_input)
+    finally:
+        await broker.stop()
+        _FakeLoopbackRuntime.script = None
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+    return (
+        result,
+        stream_sink,
+        persisted_session_lines,
+        fake_proxy,
+        list(_FakeLoopbackRuntime.payloads),
+        list(_FakeLoopbackRuntime.instances),
+    )
+
+
+@pytest.mark.anyio
+async def test_run_agent_activity_with_fake_runtime_exercises_loopback_approval_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _set_disable_nsjail_mode(monkeypatch, True)
+    executor_input = _make_executor_input(enable_internet_access=False)
+
+    async def approval_script(
+        handler: LoopbackHandler,
+        payload: RuntimeInitPayload,
+    ) -> None:
+        assert payload.session_id == executor_input.session_id
+        assert payload.is_fork is False
+        assert payload.is_approval_continuation is False
+        await handler.send_stream_event(
+            UnifiedStreamEvent.approval_request_event(
+                [
+                    ToolCallContent(
+                        id="call_approval",
+                        name="core__http_request",
+                        input={"url": "https://example.com", "method": "GET"},
+                    )
+                ]
+            )
+        )
+        await handler.send_stream_event(
+            UnifiedStreamEvent.tool_result_event(
+                tool_call_id="call_approval",
+                tool_name="core__http_request",
+                output=["Request interrupted by user"],
+                is_error=True,
+            )
+        )
+        await handler.send_done()
+
+    (
+        result,
+        stream_sink,
+        persisted_session_lines,
+        fake_proxy,
+        payloads,
+        runtimes,
+    ) = await _run_activity_with_fake_loopback_runtime(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        script=approval_script,
+    )
+
+    assert result.success is True
+    assert result.error is None
+    assert result.approval_requested is True
+    assert result.approval_items == [
+        ToolCallContent(
+            id="call_approval",
+            name="core__http_request",
+            input={"url": "https://example.com", "method": "GET"},
+        )
+    ]
+    assert result.messages is None
+
+    assert [event.type for event in stream_sink.events] == [
+        StreamEventType.APPROVAL_REQUEST
+    ]
+    assert stream_sink.errors == []
+    # Approval-pause END is emitted by the workflow, not the executor loopback.
+    assert stream_sink.done_count == 0
+    assert persisted_session_lines == []
+
+    assert fake_proxy.started is True
+    assert fake_proxy.stopped is True
+    assert len(payloads) == 1
+    assert len(runtimes) == 1
+
+
+@pytest.mark.parametrize(
+    ("disable_nsjail", "is_fork", "is_approval_continuation"),
+    [
+        pytest.param(True, True, False, id="fork-direct"),
+        pytest.param(False, True, False, id="fork-nsjail"),
+        pytest.param(True, False, True, id="approval-continuation-direct"),
+    ],
+)
+@pytest.mark.anyio
+async def test_run_agent_activity_with_fake_runtime_plumbs_resume_flags_to_loopback(
+    disable_nsjail: bool,
+    is_fork: bool,
+    is_approval_continuation: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _set_disable_nsjail_mode(monkeypatch, disable_nsjail)
+    executor_input = _make_executor_input(enable_internet_access=False).model_copy(
+        update={
+            "sdk_session_id": "parent-sdk-session",
+            "sdk_session_data": '{"type":"user","message":{"content":"parent"}}\n',
+            "is_fork": is_fork,
+            "is_approval_continuation": is_approval_continuation,
+        }
+    )
+    session_line = (
+        '{"uuid":"line-1","type":"assistant","message":{"role":"assistant",'
+        '"content":[{"type":"text","text":"resumed"}]}}\n'
+    )
+
+    async def resume_script(
+        handler: LoopbackHandler,
+        payload: RuntimeInitPayload,
+    ) -> None:
+        assert payload.sdk_session_id == "parent-sdk-session"
+        assert payload.sdk_session_data == executor_input.sdk_session_data
+        assert payload.is_fork is is_fork
+        assert payload.is_approval_continuation is is_approval_continuation
+        await handler.send_stream_event(
+            UnifiedStreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                part_id=0,
+                text="resumed",
+            )
+        )
+        await handler.send_session_line("child-sdk-session", session_line)
+        await handler.send_result(
+            usage={"input_tokens": 3, "output_tokens": 5},
+            num_turns=2,
+            duration_ms=10,
+            output={"status": "continued"},
+        )
+        await handler.send_done()
+
+    (
+        result,
+        stream_sink,
+        persisted_session_lines,
+        _fake_proxy,
+        payloads,
+        runtimes,
+    ) = await _run_activity_with_fake_loopback_runtime(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        script=resume_script,
+    )
+
+    assert result.success is True
+    assert result.error is None
+    assert result.output == {"status": "continued"}
+    assert result.result_usage == {"input_tokens": 3, "output_tokens": 5}
+    assert result.result_num_turns == 2
+    assert result.messages is None
+
+    assert [event.type for event in stream_sink.events] == [StreamEventType.TEXT_DELTA]
+    assert stream_sink.errors == []
+    # Terminal END is emitted by the workflow, not the executor loopback.
+    assert stream_sink.done_count == 0
+    assert persisted_session_lines == [
+        ("child-sdk-session", session_line, False),
+    ]
+
+    assert len(payloads) == 1
+    assert payloads[0].is_fork is is_fork
+    assert payloads[0].is_approval_continuation is is_approval_continuation
+    assert len(runtimes) == 1
+    if disable_nsjail:
+        assert runtimes[0].cwd == runtimes[0].cwd_setup_path
+        assert runtimes[0].cwd.is_relative_to(tmp_path / "sessions")
+    else:
+        assert runtimes[0].cwd == Path("/work")
+        assert runtimes[0].cwd_setup_path.is_relative_to(tmp_path / "sessions")
+
+
+@pytest.mark.parametrize(
+    "disable_nsjail",
+    [
+        pytest.param(True, id="direct"),
+        pytest.param(False, id="nsjail"),
+    ],
+)
+@pytest.mark.anyio
+async def test_run_agent_activity_plumbs_subagents_to_runtime_in_each_sandbox_mode(
+    disable_nsjail: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _set_disable_nsjail_mode(monkeypatch, disable_nsjail)
+    child_actions = {
+        "core.lookup_ip": MCPToolDefinition(
+            name="core.lookup_ip",
+            description="Lookup IP",
+            parameters_json_schema={"type": "object"},
+        )
+    }
+    child_config = _agent_config(
+        model_name="gpt-5-mini",
+        model_provider="openai",
+        enable_internet_access=False,
+        tool_approvals={"core.lookup_ip": True},
+    )
+    executor_input = _make_executor_input(enable_internet_access=False).model_copy(
+        update={
+            "config": _agent_config(
+                model_name="gpt-5",
+                model_provider="openai",
+                agents=cast(
+                    Any,
+                    {"enabled": True, "subagents": [{"preset": "analyst"}]},
+                ),
+            ),
+            "subagents": [
+                SandboxSubagentConfig(
+                    alias="analyst",
+                    description="Use for enrichment analysis.",
+                    prompt="Analyze enrichment data.",
+                    config=SandboxAgentConfig.from_agent_config(child_config),
+                    mcp_auth_token="child-mcp-token",
+                    allowed_actions=child_actions,
+                )
+            ],
+        }
+    )
+
+    async def subagent_script(
+        handler: LoopbackHandler,
+        payload: RuntimeInitPayload,
+    ) -> None:
+        assert payload.config.agents.enabled is True
+        assert payload.config.agents.subagents[0].preset == "analyst"
+        [subagent] = payload.subagents
+        assert subagent.alias == "analyst"
+        assert subagent.mcp_auth_token == "child-mcp-token"
+        assert subagent.config.model_name == "gpt-5-mini"
+        assert subagent.config.model_provider == "openai"
+        assert subagent.allowed_actions == child_actions
+        await handler.send_result(output="subagents-ready")
+        await handler.send_done()
+
+    (
+        result,
+        _stream_sink,
+        _persisted_session_lines,
+        _fake_proxy,
+        payloads,
+        runtimes,
+    ) = await _run_activity_with_fake_loopback_runtime(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        script=subagent_script,
+    )
+
+    assert result.success is True
+    assert result.output == "subagents-ready"
+    assert len(payloads) == 1
+    assert len(runtimes) == 1
+    if disable_nsjail:
+        assert runtimes[0].cwd == runtimes[0].cwd_setup_path
+    else:
+        assert runtimes[0].cwd == Path("/work")
+
+
+@pytest.mark.anyio
+async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_each_sandbox_mode(
+    disable_nsjail_mode: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_agent_management_credentials(monkeypatch)
+    _FakeLLMSocketProxy.instances.clear()
+    _FakeRuntimeConnectingTransport.instances.clear()
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+    job_dir = Path(tempfile.mkdtemp(prefix="tc-agent-"))
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        del self
+        (job_dir / "sockets").mkdir(parents=True)
+        return job_dir
+
+    async def fake_build_claude_command(self: SandboxedCLITransport) -> list[str]:
+        del self
+        python_bin = sys.executable if disable_nsjail_mode else "/usr/local/bin/python3"
+        code = ";".join(
+            [
+                "import os, sys, urllib.request",
+                "req = urllib.request.Request("
+                "os.environ['ANTHROPIC_BASE_URL'] + '/v1/messages', "
+                "data=b'{}', "
+                "headers={'Content-Type': 'application/json'}, "
+                "method='POST')",
+                "urllib.request.urlopen(req, timeout=5).read()",
+                "sys.stdin.buffer.read()",
+            ]
+        )
+        return [python_bin, "-c", code]
+
+    monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
+    monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(executor_activity, "get_claude_runtime_broker", lambda: broker)
+    monkeypatch.setattr(
+        broker_module,
+        "ClaudeAgentRuntime",
+        _FakeRuntimeConnectingTransport,
+    )
+    monkeypatch.setattr(
+        transport_module.SandboxedCLITransport,
+        "_build_claude_command",
+        fake_build_claude_command,
+    )
+    monkeypatch.setattr(
+        session_paths_module.tempfile,
+        "gettempdir",
+        lambda: str(tmp_path / "sessions"),
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "activity",
+        _fake_temporal_activity(),
+    )
+    monkeypatch.setattr(
+        executor_activity.AgentSessionService,
+        "with_session",
+        lambda **_kwargs: _FakeAgentSessionService(),
+    )
+
+    try:
+        result = await run_agent_activity(
+            _make_passthrough_executor_input(enable_internet_access=False),
+        )
+    finally:
+        await broker.stop()
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+    assert result.success is True
+    assert len(_FakeLLMSocketProxy.instances) == 1
+    proxy = _FakeLLMSocketProxy.instances[0]
+    assert proxy.started is True
+    assert proxy.stopped is True
+    assert (
+        proxy.routing_plan.managed_route.base_url
+        == app_config.TRACECAT__LITELLM_BASE_URL
+    )
+    # The executor now passes a routing plan: managed LiteLLM is the fallback,
+    # and the root passthrough model is a direct route inside that plan.
+    assert proxy.direct_routes == {
+        "customer-alias": LLMRoute(
+            base_url="https://customer-litellm.example",
+            model_provider="custom-model-provider",
+            authorization="Bearer sk-test",
+        )
+    }
+    assert proxy.routing_plan is not None
+    assert proxy.routing_plan.managed_route.model_provider == "custom-model-provider"
+    assert proxy.routing_plan.managed_route.local_provider_cleanup is True
+    assert proxy.request_count == 1
+
+    assert len(_FakeRuntimeConnectingTransport.instances) == 1
+    runtime = _FakeRuntimeConnectingTransport.instances[0]
+    assert runtime.transport is not None
+    if disable_nsjail_mode:
+        assert runtime.cwd == runtime.cwd_setup_path
+        assert runtime.cwd.is_relative_to(tmp_path / "sessions")
+    else:
+        assert runtime.cwd == Path("/work")
+
+
+async def _run_attached_skills_visible_case(
+    *,
+    disable_nsjail_mode: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_agent_management_credentials(monkeypatch)
+    _FakeLLMSocketProxy.instances.clear()
+    _FakeRuntimeReadingTransport.instances.clear()
+    _FakeRuntimeReadingTransport.messages.clear()
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+
+    cached_dir = tmp_path / "cached-skill"
+    cached_dir.mkdir(parents=True)
+    skill_content = "---\nname: skill-a\n---\n\n# Skill A\n"
+    (cached_dir / "SKILL.md").write_text(skill_content)
+
+    async def fake_ensure_cached_skill_dir(
+        self: SandboxedAgentExecutor,
+        *,
+        service: SkillService,
+        manifest_sha256: str,
+        skill_version_id: uuid.UUID,
+    ) -> Path:
+        del self, service, manifest_sha256, skill_version_id
+        return cached_dir
+
+    @contextlib.asynccontextmanager
+    async def fake_skill_service_context(*, role: Role) -> AsyncIterator[object]:
+        del role
+        yield cast(SkillService, object())
+
+    async def fake_build_claude_command(self: SandboxedCLITransport) -> list[str]:
+        del self
+        python_bin = sys.executable if disable_nsjail_mode else "/usr/local/bin/python3"
+        code = "\n".join(
+            [
+                "import json",
+                "from pathlib import Path",
+                "skill = Path.home() / '.claude' / 'skills' / 'skill-a' / 'SKILL.md'",
+                "payload = {",
+                "    'skill_path': str(skill),",
+                "    'skill_text': skill.read_text(),",
+                "}",
+                "print(json.dumps(payload), flush=True)",
+            ]
+        )
+        return [python_bin, "-c", code]
+
+    original_create_job_directory = SandboxedAgentExecutor._create_job_directory
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        job_dir = await original_create_job_directory(self)
+        mcp_socket_path = job_dir / "sockets" / "mcp.sock"
+        mcp_socket_path.touch()
+        monkeypatch.setattr(
+            nsjail_module,
+            "TRACECAT__AGENT_MCP_SOCKET_PATH",
+            mcp_socket_path,
+        )
+        return job_dir
+
+    base_input = _make_passthrough_executor_input(enable_internet_access=False)
+    executor_input = base_input.model_copy(
+        update={
+            "config": replace(
+                base_input.config,
+                resolved_skills=[
+                    ResolvedSkillRef(
+                        skill_id=uuid.uuid4(),
+                        skill_name="skill-a",
+                        skill_version_id=uuid.uuid4(),
+                        manifest_sha256="manifest-sha",
+                    )
+                ],
+            )
+        }
+    )
+
+    monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
+    monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        executor_activity.SkillService,
+        "with_session",
+        lambda role: fake_skill_service_context(role=role),
+    )
+    monkeypatch.setattr(
+        executor_activity.AgentSessionService,
+        "with_session",
+        lambda **_kwargs: _FakeAgentSessionService(),
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_ensure_cached_skill_dir",
+        fake_ensure_cached_skill_dir,
+    )
+    monkeypatch.setattr(executor_activity, "get_claude_runtime_broker", lambda: broker)
+    monkeypatch.setattr(
+        broker_module,
+        "ClaudeAgentRuntime",
+        _FakeRuntimeReadingTransport,
+    )
+    monkeypatch.setattr(
+        transport_module.SandboxedCLITransport,
+        "_build_claude_command",
+        fake_build_claude_command,
+    )
+    monkeypatch.setattr(
+        session_paths_module.tempfile,
+        "gettempdir",
+        lambda: str(tmp_path / "sessions"),
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "activity",
+        _fake_temporal_activity(),
+    )
+
+    try:
+        result = await run_agent_activity(executor_input)
+    finally:
+        await broker.stop()
+
+    assert result.success is True
+    assert result.error is None
+
+    assert len(_FakeLLMSocketProxy.instances) == 1
+    proxy = _FakeLLMSocketProxy.instances[0]
+    assert proxy.started is True
+    assert proxy.stopped is True
+    assert proxy.request_count == 0
+
+    assert len(_FakeRuntimeReadingTransport.instances) == 1
+    runtime = _FakeRuntimeReadingTransport.instances[0]
+    assert runtime.transport is not None
+
+    assert len(_FakeRuntimeReadingTransport.messages) == 1
+    message = _FakeRuntimeReadingTransport.messages[0]
+    assert message["skill_text"] == skill_content
+    if disable_nsjail_mode:
+        skill_path = message["skill_path"]
+        assert skill_path.startswith(str(tmp_path / "sessions"))
+        assert skill_path.endswith("/.claude/skills/skill-a/SKILL.md")
+    else:
+        assert message["skill_path"] == "/home/agent/.claude/skills/skill-a/SKILL.md"
+
+
+async def _run_duckdb_cli_available_case(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_agent_management_credentials(monkeypatch)
+    _FakeLLMSocketProxy.instances.clear()
+    _FakeRuntimeReadingDuckDBTransport.instances.clear()
+    _FakeRuntimeReadingDuckDBTransport.messages.clear()
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+
+    async def fake_build_claude_command(self: SandboxedCLITransport) -> list[str]:
+        del self
+        code = "\n".join(
+            [
+                "import json",
+                "import shutil",
+                "import subprocess",
+                "",
+                "duckdb_path = shutil.which('duckdb')",
+                "if duckdb_path is None:",
+                "    raise SystemExit('duckdb CLI not found')",
+                'query = """',
+                "SELECT count(*)",
+                "FROM duckdb_extensions()",
+                "WHERE extension_name IN (",
+                "    'json',",
+                "    'httpfs',",
+                "    'inet',",
+                "    'fts'",
+                ")",
+                "AND installed",
+                "AND loaded;",
+                '"""',
+                "extension_count = subprocess.check_output(",
+                "    [duckdb_path, '-csv', '-noheader', '-c', query],",
+                "    text=True,",
+                ").strip()",
+                "print(",
+                "    json.dumps(",
+                "        {",
+                "            'duckdb_path': duckdb_path,",
+                "            'duckdb_extension_count': int(extension_count),",
+                "        },",
+                "        separators=(',', ':'),",
+                "    ),",
+                "    flush=True,",
+                ")",
+            ]
+        )
+        return ["/usr/local/bin/python3", "-c", code]
+
+    original_create_job_directory = SandboxedAgentExecutor._create_job_directory
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        job_dir = await original_create_job_directory(self)
+        mcp_socket_path = job_dir / "sockets" / "mcp.sock"
+        mcp_socket_path.touch()
+        monkeypatch.setattr(
+            nsjail_module,
+            "TRACECAT__AGENT_MCP_SOCKET_PATH",
+            mcp_socket_path,
+        )
+        return job_dir
+
+    monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
+    monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(executor_activity, "get_claude_runtime_broker", lambda: broker)
+    monkeypatch.setattr(
+        broker_module,
+        "ClaudeAgentRuntime",
+        _FakeRuntimeReadingDuckDBTransport,
+    )
+    monkeypatch.setattr(
+        transport_module.SandboxedCLITransport,
+        "_build_claude_command",
+        fake_build_claude_command,
+    )
+    monkeypatch.setattr(
+        session_paths_module.tempfile,
+        "gettempdir",
+        lambda: str(tmp_path / "sessions"),
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "activity",
+        _fake_temporal_activity(),
+    )
+    monkeypatch.setattr(
+        executor_activity.AgentSessionService,
+        "with_session",
+        lambda **_kwargs: _FakeAgentSessionService(),
+    )
+
+    try:
+        result = await run_agent_activity(
+            _make_passthrough_executor_input(enable_internet_access=False)
+        )
+    finally:
+        await broker.stop()
+
+    assert result.success is True
+    assert result.error is None
+
+    assert len(_FakeLLMSocketProxy.instances) == 1
+    proxy = _FakeLLMSocketProxy.instances[0]
+    assert proxy.started is True
+    assert proxy.stopped is True
+    assert proxy.request_count == 0
+
+    assert len(_FakeRuntimeReadingDuckDBTransport.instances) == 1
+    runtime = _FakeRuntimeReadingDuckDBTransport.instances[0]
+    assert runtime.transport is not None
+    assert runtime.cwd == Path("/work")
+
+    assert _FakeRuntimeReadingDuckDBTransport.messages == [
+        {"duckdb_path": "/usr/local/bin/duckdb", "duckdb_extension_count": 4}
+    ]
+
+
+@pytest.mark.anyio
+async def test_run_agent_activity_makes_attached_skills_visible_in_each_sandbox_mode(
+    full_harness_disable_nsjail_mode: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not full_harness_disable_nsjail_mode and not _agent_nsjail_available():
+        _run_nsjail_harness_in_docker_or_skip(
+            cli_flag="--run-nsjail-skills-smoke",
+            failure_label="Dockerized nsjail skills smoke fallback failed.",
+        )
+        return
+
+    await _run_attached_skills_visible_case(
+        disable_nsjail_mode=full_harness_disable_nsjail_mode,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+
+@pytest.mark.anyio
+async def test_agent_nsjail_runtime_has_duckdb_cli(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not _agent_nsjail_available():
+        _run_nsjail_harness_in_docker_or_skip(
+            cli_flag="--run-nsjail-duckdb-smoke",
+            failure_label="Dockerized nsjail DuckDB smoke fallback failed.",
+        )
+        return
+
+    _set_disable_nsjail_mode(monkeypatch, False)
+    await _run_duckdb_cli_available_case(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+
+@pytest.mark.anyio
+async def test_run_agent_activity_spawns_full_claude_harness_runtime_in_each_sandbox_mode(
+    full_harness_disable_nsjail_mode: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not full_harness_disable_nsjail_mode and not _agent_nsjail_available():
+        _run_nsjail_harness_in_docker_or_skip()
+        return
+
+    await _run_full_claude_harness_runtime_case(
+        disable_nsjail_mode=full_harness_disable_nsjail_mode,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+
+@pytest.mark.anyio
+async def test_run_agent_activity_spawns_full_claude_harness_runtime_with_nstun_in_nsjail(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not _agent_nsjail_available():
+        _run_nsjail_harness_in_docker_or_skip(
+            cli_flag="--run-nsjail-nstun-smoke",
+            failure_label="Dockerized nsjail NSTUN smoke fallback failed.",
+            requires_tun=True,
+        )
+        return
+    if not Path("/dev/net/tun").exists():
+        pytest.skip("agent nsjail NSTUN smoke requires /dev/net/tun")
+
+    _set_disable_nsjail_mode(monkeypatch, False)
+    await _run_full_claude_harness_runtime_case(
+        disable_nsjail_mode=False,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        enable_internet_access=True,
+    )
+
+
+@pytest.mark.anyio
+async def test_agent_nsjail_handles_stdio_mcp_startup_and_bash_network_burst(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not _agent_nsjail_available():
+        _run_nsjail_harness_in_docker_or_skip(
+            cli_flag="--run-nsjail-stdio-mcp-burst-smoke",
+            failure_label="Dockerized stdio MCP startup burst smoke failed.",
+            requires_tun=True,
+            parent_nofile_limit=_STDIO_MCP_BURST_PARENT_NOFILE_LIMIT,
+        )
+        return
+    if not Path("/dev/net/tun").exists():
+        pytest.skip("agent stdio MCP startup burst smoke requires /dev/net/tun")
+
+    _set_disable_nsjail_mode(monkeypatch, False)
+    await _run_stdio_mcp_startup_burst_case(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+
+@pytest.mark.anyio
+async def test_run_agent_activity_reproduces_mcp_compression_initialize_timeout_in_each_sandbox_mode(
+    full_harness_disable_nsjail_mode: bool,
+    tmp_path: Path,
+) -> None:
+    if not full_harness_disable_nsjail_mode and not _agent_nsjail_available():
+        _run_nsjail_harness_in_docker_or_skip(
+            cli_flag="--run-nsjail-mcp-compression-smoke",
+            failure_label="Dockerized nsjail MCP compression smoke fallback failed.",
+        )
+        return
+
+    await _run_mcp_compression_initialize_repro_case(
+        disable_nsjail_mode=full_harness_disable_nsjail_mode,
+        tmp_path=tmp_path,
+    )
+
+
+@pytest.mark.anyio
+async def test_executor_always_starts_llm_socket_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The executor always creates the LLM socket proxy, even with internet access enabled."""
+    (
+        result,
+        created_socket_paths,
+        fake_proxy,
+        fake_broker,
+    ) = await _run_executor_with_fake_broker(
+        executor_input=_make_executor_input(enable_internet_access=True),
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is True
+    assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
+    assert fake_proxy.started is True
+    assert fake_proxy.stopped is True
+    assert len(fake_broker.requests) == 1
+    assert fake_broker.requests[0].llm_socket_path == (
+        tmp_path / "sockets" / LLM_SOCKET_NAME
+    )
+    assert fake_broker.requests[0].enable_internet_access is True
+
+
+@pytest.mark.anyio
+async def test_executor_starts_llm_socket_proxy_for_isolated_passthrough_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (
+        result,
+        created_socket_paths,
+        fake_proxy,
+        fake_broker,
+    ) = await _run_executor_with_fake_broker(
+        executor_input=_make_executor_input(enable_internet_access=False),
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is True
+    assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
+    assert fake_proxy.started is True
+    assert fake_proxy.stopped is True
+    assert len(fake_broker.requests) == 1
+    assert fake_broker.requests[0].llm_socket_path == (
+        tmp_path / "sockets" / LLM_SOCKET_NAME
+    )
+    assert fake_broker.requests[0].enable_internet_access is False
+
+
+@pytest.mark.anyio
+async def test_executor_enables_runtime_network_when_subagent_has_stdio_mcp(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    subagent = SandboxSubagentConfig(
+        alias="analyst",
+        description="Use for local MCP analysis.",
+        prompt="Analyze with local MCP tools.",
+        config=SandboxAgentConfig(
+            model_name="gpt-5-mini",
+            model_provider="openai",
+            enable_internet_access=False,
+            mcp_servers=[
+                {
+                    "type": "stdio",
+                    "name": "local-tools",
+                    "command": "uvx",
+                    "args": ["example-mcp"],
+                }
+            ],
+        ),
+        mcp_auth_token="child-mcp-token",
+    )
+    executor_input = _make_executor_input(enable_internet_access=False).model_copy(
+        update={"subagents": [subagent]}
+    )
+
+    (
+        result,
+        _created_socket_paths,
+        _fake_proxy,
+        fake_broker,
+    ) = await _run_executor_with_fake_broker(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is True
+    assert len(fake_broker.requests) == 1
+    assert fake_broker.requests[0].init_payload.config.enable_internet_access is True
+    assert fake_broker.requests[0].enable_internet_access is True
+
+
+@pytest.mark.anyio
+async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_internet_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (
+        result,
+        created_socket_paths,
+        fake_proxy,
+        fake_broker,
+    ) = await _run_executor_with_fake_broker(
+        executor_input=_make_passthrough_executor_input(enable_internet_access=True),
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is True
+    assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
+    assert fake_proxy.started is True
+    assert fake_proxy.stopped is True
+    assert len(fake_broker.requests) == 1
+    assert fake_broker.requests[0].llm_socket_path == (
+        tmp_path / "sockets" / LLM_SOCKET_NAME
+    )
+    assert fake_broker.requests[0].enable_internet_access is True
+
+
+async def _run_executor_through_route_materialization(
+    *,
+    executor_input: AgentExecutorInput,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> AgentExecutorResult:
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        del self
+        (tmp_path / "sockets").mkdir()
+        return tmp_path
+
+    async def fake_resolve_agent_otel_config(
+        self: SandboxedAgentExecutor,
+    ) -> SimpleNamespace:
+        del self
+        return SimpleNamespace(enabled=False)
+
+    async def fake_cleanup(self: SandboxedAgentExecutor) -> None:
+        del self
+
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_resolve_agent_otel_config",
+        fake_resolve_agent_otel_config,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_cleanup",
+        fake_cleanup,
+    )
+    return await SandboxedAgentExecutor(input=executor_input).run()
+
+
+@pytest.mark.anyio
+async def test_executor_classifies_passthrough_without_base_url_as_invalid_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    valid_input = _make_passthrough_executor_input(enable_internet_access=False)
+    executor_input = valid_input.model_copy(
+        update={"config": replace(valid_input.config, base_url=None)}
+    )
+
+    result = await _run_executor_through_route_materialization(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is False
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.USER
+    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_executor_classifies_revoked_passthrough_catalog_as_invalid_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    catalog_id = uuid.uuid4()
+    valid_input = _make_passthrough_executor_input(enable_internet_access=False)
+    executor_input = valid_input.model_copy(
+        update={"config": replace(valid_input.config, catalog_id=catalog_id)}
+    )
+
+    class _RevokedCatalogService(_FakeAgentManagementService):
+        async def get_catalog_credentials(
+            self, requested_catalog_id: uuid.UUID
+        ) -> dict[str, str]:
+            assert requested_catalog_id == catalog_id
+            raise TracecatAuthorizationError("catalog access revoked")
+
+    @contextlib.asynccontextmanager
+    async def fake_agent_management_context(
+        _role: Role,
+    ) -> AsyncIterator[_RevokedCatalogService]:
+        yield _RevokedCatalogService()
+
+    monkeypatch.setattr(
+        llm_proxy_module.AgentManagementService,
+        "with_session",
+        fake_agent_management_context,
+    )
+
+    result = await _run_executor_through_route_materialization(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is False
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.USER
+    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert "catalog access revoked" not in result.classification.message
+
+
+@pytest.mark.anyio
+async def test_executor_skips_artifact_working_set_without_scoped_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_with_session(**_kwargs: object) -> object:
+        raise AssertionError("unscoped executor role should not load artifacts")
+
+    monkeypatch.setattr(
+        executor_activity.AgentSessionService,
+        "with_session",
+        fail_with_session,
+    )
+
+    executor = SandboxedAgentExecutor(
+        input=_make_executor_input(enable_internet_access=False)
+    )
+
+    assert await executor._load_artifact_working_set() is None
+
+
+@pytest.mark.anyio
+async def test_executor_keeps_direct_passthrough_available_for_root_with_subagents(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_agent_management_credentials(monkeypatch)
+    subagent = SandboxSubagentConfig(
+        alias="analyst",
+        description="Use for enrichment analysis.",
+        prompt="Analyze enrichment data.",
+        config=SandboxAgentConfig(
+            model_name="gpt-5-mini",
+            model_provider="openai",
+        ),
+        mcp_auth_token="child-mcp-token",
+    )
+    executor_input = _make_passthrough_executor_input(
+        enable_internet_access=False
+    ).model_copy(update={"subagents": [subagent]})
+    executor = SandboxedAgentExecutor(input=executor_input)
+
+    proxy = await executor._create_llm_socket_proxy(tmp_path / LLM_SOCKET_NAME)
+
+    assert proxy.routing_plan.managed_route.base_url == (
+        app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
+    )
+    assert proxy.routing_plan.managed_route.local_provider_cleanup is False
+    # Root passthrough remains direct even when the run also has subagents.
+    assert proxy.routing_plan.direct_routes == {
+        "customer-alias": LLMRoute(
+            base_url="https://customer-litellm.example",
+            model_provider="custom-model-provider",
+            authorization="Bearer sk-test",
+        )
+    }
+
+
+@pytest.mark.anyio
+async def test_executor_routes_passthrough_subagent_by_its_own_model_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_agent_management_credentials(monkeypatch)
+    subagent = SandboxSubagentConfig(
+        alias="analyst",
+        description="Use for enrichment analysis.",
+        prompt="Analyze enrichment data.",
+        config=SandboxAgentConfig(
+            model_name="child-alias",
+            model_provider="custom-model-provider",
+            base_url="https://child-litellm.example/v1",
+            passthrough=True,
+        ),
+        mcp_auth_token="child-mcp-token",
+        model_route="child-alias::tracecat-subagent::analyst",
+    )
+    executor_input = _make_passthrough_executor_input(
+        enable_internet_access=False
+    ).model_copy(update={"subagents": [subagent]})
+    executor = SandboxedAgentExecutor(input=executor_input)
+
+    proxy = await executor._create_llm_socket_proxy(tmp_path / LLM_SOCKET_NAME)
+
+    # The subagent's own passthrough config adds a second direct route keyed by
+    # the scoped model string that the runtime sends for that subagent.
+    assert proxy.routing_plan.managed_route.local_provider_cleanup is False
+    assert proxy.routing_plan.direct_routes == {
+        "customer-alias": LLMRoute(
+            base_url="https://customer-litellm.example",
+            model_provider="custom-model-provider",
+            authorization="Bearer sk-test",
+        ),
+        "child-alias::tracecat-subagent::analyst": LLMRoute(
+            base_url="https://child-litellm.example",
+            model_provider="custom-model-provider",
+            upstream_model_name="child-alias",
+            authorization="Bearer sk-test",
+        ),
+    }
+
+
+class _DummyBridge:
+    instances: list[_DummyBridge] = []
+
+    def __init__(self, **kwargs: object) -> None:
+        self.kwargs = kwargs
+        self.socket_path = kwargs.get("socket_path")
+        self.port = kwargs.get("port")
+        self.listener_fd = kwargs.get("listener_fd")
+        self.started = False
+        self.stopped = False
+        type(self).instances.append(self)
+
+    async def start(self) -> int:
+        self.started = True
+        return self.port if isinstance(self.port, int) and self.port else 4312
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+
+class _FakeProcess:
+    stdin = object()
+    stdout = object()
+    stderr = object()
+    returncode = 0
+
+    async def wait(self) -> int:
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.returncode = -15
+
+
+class _ClosablePipe:
+    def close(self) -> None:
+        pass
+
+
+class _ConnectedFakeProcess:
+    stdin = _ClosablePipe()
+    stdout = object()
+    stderr = None
+    returncode = 0
+    pid = 12345
+
+
+@pytest.mark.anyio
+async def test_transport_shim_init_payload_excludes_otel_auth_token_field(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The shim init payload no longer carries agent_otel_auth_token.
+
+    The host injects the JWT into the sandbox env as OTEL_EXPORTER_OTLP_HEADERS
+    (built by the executor activity), so the shim has nothing OTel-specific
+    to know about beyond the env it's given.
+    """
+    captured: dict[str, Path] = {}
+    path_mapping = session_paths_module.AgentSandboxPathMapping(
+        host_home_dir=tmp_path / "home",
+        host_work_dir=tmp_path / "project",
+        runtime_home_dir=tmp_path / "home",
+        runtime_work_dir=tmp_path / "project",
+    )
+    transport = SandboxedCLITransport(
+        options=ClaudeAgentOptions(env={"ANTHROPIC_AUTH_TOKEN": "fake-llm-token"}),
+        session_id="session-1",
+        socket_dir=tmp_path / "sockets",
+        llm_socket_path=tmp_path / "sockets" / "llm.sock",
+        job_dir=tmp_path,
+        path_mapping=path_mapping,
+        enable_internet_access=False,
+        use_jailed_paths=False,
+    )
+    (tmp_path / "sockets").mkdir()
+
+    async def fake_build_claude_command(self: SandboxedCLITransport) -> list[str]:
+        del self
+        return ["claude", "--print"]
+
+    async def fake_spawn_jailed_runtime(**kwargs: object) -> object:
+        init_payload_path = kwargs["init_payload_path"]
+        assert isinstance(init_payload_path, Path)
+        captured["init_payload_path"] = init_payload_path
+        return nsjail_module.SpawnedRuntime(
+            process=cast(Any, _ConnectedFakeProcess()),
+            job_dir=None,
+        )
+
+    monkeypatch.setattr(
+        transport_module.SandboxedCLITransport,
+        "_build_claude_command",
+        fake_build_claude_command,
+    )
+    monkeypatch.setattr(
+        transport_module,
+        "spawn_jailed_runtime",
+        fake_spawn_jailed_runtime,
+    )
+
+    await transport.connect()
+    await transport.close()
+
+    init_payload = orjson.loads(captured["init_payload_path"].read_bytes())
+    assert "agent_otel_auth_token" not in init_payload
+    assert set(init_payload.keys()) == {
+        "command",
+        "env",
+        "cwd",
+        "mcp_bridge_port",
+        "mcp_bridge_fd",
+    }
+
+
+@pytest.mark.anyio
+async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _DummyBridge.instances.clear()
+    captured: dict[str, object] = {}
+
+    init_path = tmp_path / "shim-init.json"
+    init_path.write_bytes(
+        orjson.dumps(
+            {
+                "command": ["claude", "--print"],
+                "env": {"ANTHROPIC_AUTH_TOKEN": "llm-token"},
+                "cwd": str(tmp_path),
+                "mcp_bridge_port": 4313,
+            }
+        )
+    )
+    monkeypatch.setenv(shim_entrypoint.INIT_PAYLOAD_ENV_VAR, str(init_path))
+    monkeypatch.setenv(
+        shim_entrypoint.LLM_SOCKET_ENV_VAR,
+        str(tmp_path / "llm.sock"),
+    )
+    monkeypatch.setenv(
+        shim_entrypoint.MCP_SOCKET_ENV_VAR,
+        str(tmp_path / "mcp.sock"),
+    )
+
+    async def fake_create_subprocess_exec(*args: str, **kwargs: object) -> _FakeProcess:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        shim_entrypoint.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(shim_entrypoint, "SandboxSocketBridge", _DummyBridge)
+
+    async def fake_pump_stream(*_args: object) -> None:
+        return None
+
+    async def fake_pump_stdin_to_process(_stdin: object) -> None:
+        return None
+
+    monkeypatch.setattr(shim_entrypoint, "_pump_stream", fake_pump_stream)
+    monkeypatch.setattr(
+        shim_entrypoint,
+        "_pump_stdin_to_process",
+        fake_pump_stdin_to_process,
+    )
+
+    # The shim merges os.environ into child_env, so clear these to keep the
+    # "not in child_env" assertions independent of the host environment.
+    monkeypatch.delenv("agent_otel_auth_token", raising=False)
+    monkeypatch.delenv("TRACECAT__AGENT_OTEL_AUTH_TOKEN", raising=False)
+
+    await shim_entrypoint.run_sandboxed_claude_shim()
+
+    assert len(_DummyBridge.instances) == 2
+    llm_bridge, mcp_bridge = _DummyBridge.instances
+    assert llm_bridge.socket_path == tmp_path / "llm.sock"
+    assert llm_bridge.port == 0
+    assert llm_bridge.started is True
+    assert llm_bridge.stopped is True
+    assert mcp_bridge.socket_path == tmp_path / "mcp.sock"
+    assert mcp_bridge.port == 4313
+    assert mcp_bridge.started is True
+    assert mcp_bridge.stopped is True
+    assert captured["args"] == ("claude", "--print")
+    kwargs = captured["kwargs"]
+    assert isinstance(kwargs, dict)
+    child_env = kwargs["env"]
+    assert isinstance(child_env, dict)
+    assert child_env["ANTHROPIC_AUTH_TOKEN"] == "llm-token"
+    assert child_env["TRACECAT__LLM_BRIDGE_PORT"] == "4312"
+    assert child_env["TRACECAT__MCP_BRIDGE_PORT"] == "4313"
+    assert child_env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4312"
+    assert "agent_otel_auth_token" not in child_env
+    assert "TRACECAT__AGENT_OTEL_AUTH_TOKEN" not in child_env
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["--run-nsjail-harness-smoke"]:
+        _run_nsjail_harness_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-nstun-smoke"]:
+        _run_nsjail_nstun_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-stdio-mcp-burst-smoke"]:
+        _run_nsjail_stdio_mcp_burst_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-skills-smoke"]:
+        _run_nsjail_skills_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-mcp-compression-smoke"]:
+        _run_nsjail_mcp_compression_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-duckdb-smoke"]:
+        _run_nsjail_duckdb_smoke_from_cli()
+    else:
+        raise SystemExit(
+            "Usage: python -m tests.unit.test_agent_sandbox_litellm "
+            "[--run-nsjail-harness-smoke|--run-nsjail-nstun-smoke|"
+            "--run-nsjail-stdio-mcp-burst-smoke|"
+            "--run-nsjail-skills-smoke|--run-nsjail-mcp-compression-smoke|"
+            "--run-nsjail-duckdb-smoke]"
+        )

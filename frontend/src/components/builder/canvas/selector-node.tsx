@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from "react"
 import type { GraphOperation, RegistryActionReadMinimal } from "@/client"
 import { isEphemeral } from "@/components/builder/canvas/canvas"
 import { getIcon } from "@/components/icons"
+import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import {
   Command,
   CommandEmpty,
@@ -51,12 +52,38 @@ const SEARCH_KEY_INDEX: Record<(typeof SEARCH_KEYS)[number], number> =
     {} as Record<(typeof SEARCH_KEYS)[number], number>
   )
 
-function filterActions(actions: RegistryActionReadMinimal[], search: string) {
+function isLockedAction(action: RegistryActionReadMinimal): boolean {
+  return action.availability?.locked ?? false
+}
+
+type ActionFilterResult = {
+  action: RegistryActionReadMinimal
+  actionResult: Fuzzysort.Result | null
+  titleResult: Fuzzysort.Result | null
+}
+
+function filterActions(
+  actions: RegistryActionReadMinimal[],
+  search: string
+): ActionFilterResult[] {
+  const normalizedSearch = search.trim()
+  if (!normalizedSearch) {
+    return actions.map((action) => ({
+      action,
+      actionResult: null,
+      titleResult: null,
+    }))
+  }
+
   const results = fuzzysort.go<RegistryActionReadMinimal>(search, actions, {
     all: true,
     keys: SEARCH_KEYS as unknown as (keyof RegistryActionReadMinimal)[],
   })
-  return results
+  return results.map((result) => ({
+    action: result.obj,
+    actionResult: result[SEARCH_KEY_INDEX.action] ?? null,
+    titleResult: result[SEARCH_KEY_INDEX.default_title] ?? null,
+  }))
 }
 
 /**
@@ -213,7 +240,17 @@ function ActionCommandSelector({
   inputValue: string
 }) {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
-    useBuilderRegistryActions()
+    useBuilderRegistryActions({ includeLocked: true })
+  const sortedActions = useMemo(() => {
+    if (!registryActions) {
+      return []
+    }
+    return [...registryActions].sort((a, b) => a.action.localeCompare(b.action))
+  }, [registryActions])
+  const filterResults = useMemo(
+    () => filterActions(sortedActions, inputValue),
+    [sortedActions, inputValue]
+  )
 
   if (!registryActions || registryActionsIsLoading) {
     return (
@@ -245,12 +282,11 @@ function ActionCommandSelector({
 
   return (
     <ScrollArea className="h-full overflow-y-auto">
-      {filterActions(registryActions, inputValue).length > 0 && (
+      {filterResults.length > 0 && (
         <ActionCommandGroup
           group="Suggestions"
           nodeId={nodeId}
-          registryActions={registryActions}
-          inputValue={inputValue}
+          filterResults={filterResults}
         />
       )}
     </ScrollArea>
@@ -260,13 +296,11 @@ function ActionCommandSelector({
 function ActionCommandGroup({
   group,
   nodeId,
-  registryActions,
-  inputValue,
+  filterResults,
 }: {
   group: string
   nodeId: string
-  registryActions: RegistryActionReadMinimal[]
-  inputValue: string
+  filterResults: ActionFilterResult[]
 }) {
   const {
     workspaceId,
@@ -301,17 +335,14 @@ function ActionCommandGroup({
     [actionPanelRef, setSelectedNodeId]
   )
 
-  // Move sortedActions and filterResults logic here
-  const sortedActions = useMemo(() => {
-    return [...registryActions].sort((a, b) => a.action.localeCompare(b.action))
-  }, [registryActions])
-
-  const filterResults = useMemo(() => {
-    return filterActions(sortedActions, inputValue)
-  }, [sortedActions, inputValue])
+  const [lockedFeatureOpen, setLockedFeatureOpen] = React.useState(false)
 
   const handleSelect = useCallback(
     async (registryAction: RegistryActionReadMinimal) => {
+      if (isLockedAction(registryAction)) {
+        setLockedFeatureOpen(true)
+        return
+      }
       if (!workflowId) {
         return
       }
@@ -465,48 +496,60 @@ function ActionCommandGroup({
   )
 
   return (
-    <CommandGroup heading={group} className="text-xs">
-      {filterResults.map((result) => {
-        const action = result.obj
+    <>
+      <LockedFeatureModal
+        open={lockedFeatureOpen}
+        onOpenChange={setLockedFeatureOpen}
+      />
+      <CommandGroup heading={group} className="text-xs">
+        {filterResults.map((result) => {
+          const { action, actionResult, titleResult } = result
+          const isLocked = isLockedAction(action)
 
-        if (highlight) {
-          // Get fuzzysort results by key name (resilient to SEARCH_KEYS reordering)
-          const actionResult = result[SEARCH_KEY_INDEX.action]
-          const titleResult = result[SEARCH_KEY_INDEX.default_title]
+          if (highlight) {
+            return (
+              <CommandItem
+                key={action.action}
+                className={cn(
+                  "flex w-full items-center gap-3 py-2 text-xs",
+                  isLocked && "text-muted-foreground"
+                )}
+                onSelect={async () => await handleSelect(action)}
+              >
+                {getIcon(action.action, {
+                  className: "size-8 rounded-md border p-1.5",
+                })}
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-xs font-medium">
+                    <HighlightedText
+                      result={titleResult}
+                      text={action.default_title ?? action.action}
+                    />
+                  </span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    <HighlightedText
+                      result={actionResult}
+                      text={action.action}
+                    />
+                  </span>
+                </div>
+              </CommandItem>
+            )
+          }
 
           return (
             <CommandItem
               key={action.action}
-              className="flex items-center gap-3 py-2 text-xs"
+              className={cn(
+                "flex w-full items-center gap-3 py-2 text-xs",
+                isLocked && "text-muted-foreground"
+              )}
               onSelect={async () => await handleSelect(action)}
             >
               {getIcon(action.action, {
                 className: "size-8 rounded-md border p-1.5",
               })}
-              <div className="flex min-w-0 flex-col">
-                <span className="truncate text-xs font-medium">
-                  <HighlightedText
-                    result={titleResult}
-                    text={action.default_title ?? action.action}
-                  />
-                </span>
-                <span className="truncate text-xs text-muted-foreground">
-                  <HighlightedText result={actionResult} text={action.action} />
-                </span>
-              </div>
-            </CommandItem>
-          )
-        } else {
-          return (
-            <CommandItem
-              key={action.action}
-              className="flex items-center gap-3 py-2 text-xs"
-              onSelect={async () => await handleSelect(action)}
-            >
-              {getIcon(action.action, {
-                className: "size-8 rounded-md border p-1.5",
-              })}
-              <div className="flex min-w-0 flex-col">
+              <div className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate text-xs font-medium">
                   {action.default_title}
                 </span>
@@ -516,8 +559,8 @@ function ActionCommandGroup({
               </div>
             </CommandItem>
           )
-        }
-      })}
-    </CommandGroup>
+        })}
+      </CommandGroup>
+    </>
   )
 }

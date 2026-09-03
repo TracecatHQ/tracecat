@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: Delete Drive file
+  description: Move a file or folder to trash
+  display_group: Google Drive
+  doc_url: https://developers.google.com/workspace/drive/api/reference/rest/v3/files/update
+  namespace: tools.google_drive
+  name: delete_file
+  secrets:
+    - type: oauth
+      provider_id: google_drive
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_drive
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  # Legacy: ported from the tools.google_drive Python UDF. Inputs and output shape are a
+  # published contract; do not rename or reshape them. Not a pattern for new actions.
+  expects:
+    file_id:
+      type: str
+      description: The file or folder ID to delete
+    fields:
+      type: str
+      description: 'Fields to return (''*'' for all)'
+      default: "*"
+  steps:
+    - ref: delete_file
+      action: tools.google_api.call_api
+      args:
+        service_name: drive
+        version: v3
+        resource: files
+        method_name: update
+        access_token: ${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/drive"]
+        params:
+          fileId: ${{ inputs.file_id }}
+          fields: ${{ inputs.fields }}
+          supportsAllDrives: true
+          body:
+            trashed: true
+  returns: ${{ steps.delete_file.result }}

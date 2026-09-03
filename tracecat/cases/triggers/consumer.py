@@ -8,21 +8,30 @@ from datetime import UTC, datetime
 from time import monotonic
 from typing import Any
 
+from pydantic import ValidationError
 from redis.exceptions import ResponseError
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import selectinload
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from tenacity import RetryError
 
 from tracecat import config
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import Case, CaseEvent, CaseTrigger, Workspace
+from tracecat.cases.enums import CaseEventType
+from tracecat.cases.schemas import CaseCommentWorkflowStatus
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.models import Case, CaseComment, CaseEvent, CaseTrigger, Workspace
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import TracecatDSLError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -32,7 +41,11 @@ class CaseTriggerConsumer:
     """Consume case events and dispatch workflows based on configured triggers."""
 
     def __init__(
-        self, client: RedisClient, *, consumer_name: str | None = None
+        self,
+        client: RedisClient,
+        *,
+        consumer_name: str | None = None,
+        stop_event: asyncio.Event | None = None,
     ) -> None:
         self.client = client
         self.stream_key = config.TRACECAT__CASE_TRIGGERS_STREAM_KEY
@@ -45,6 +58,11 @@ class CaseTriggerConsumer:
         self.consumer_name = consumer_name or f"{socket.gethostname()}:{os.getpid()}"
         self._workspace_role_cache: dict[uuid.UUID, Role] = {}
         self._pending_check_interval = max(self.claim_idle_ms / 1000.0, 30.0)
+        self._stop_event = stop_event
+
+    def _stop_signalled(self) -> bool:
+        """Whether a graceful shutdown signal has been received."""
+        return self._stop_event is not None and self._stop_event.is_set()
 
     async def run(self) -> None:
         if not config.TRACECAT__CASE_TRIGGERS_ENABLED:
@@ -60,7 +78,7 @@ class CaseTriggerConsumer:
         )
         last_pending_check = monotonic()
         try:
-            while True:
+            while not self._stop_signalled():
                 try:
                     messages = await self.client.xreadgroup(
                         group_name=self.group,
@@ -86,7 +104,14 @@ class CaseTriggerConsumer:
                             await self._handle_message(message_id, fields)
                 else:
                     now = monotonic()
-                    if now - last_pending_check >= self._pending_check_interval:
+                    # Do not start pending-message recovery past the stop
+                    # signal: recovery claims fresh work the terminating pod
+                    # never had in flight, and a claimed batch can exceed the
+                    # drain deadline.
+                    if (
+                        not self._stop_signalled()
+                        and now - last_pending_check >= self._pending_check_interval
+                    ):
                         await self._claim_idle_messages()
                         last_pending_check = now
                 await asyncio.sleep(0)
@@ -96,6 +121,8 @@ class CaseTriggerConsumer:
         except Exception as e:
             logger.error("Case trigger consumer stopped due to error", error=str(e))
             raise
+        else:
+            logger.info("Case trigger consumer stopped gracefully")
 
     def _is_nogroup_error(self, error: Exception) -> bool:
         if isinstance(error, ResponseError):
@@ -148,7 +175,7 @@ class CaseTriggerConsumer:
             logger.warning("Invalid IDs in case trigger message", fields=fields)
             return True
 
-        async with get_async_session_context_manager() as session:
+        async with get_async_session_bypass_rls_context_manager() as session:
             event = await self._load_event(
                 session, event_uuid, case_uuid, workspace_uuid
             )
@@ -170,15 +197,43 @@ class CaseTriggerConsumer:
             if case is None:
                 return True
 
-            triggers = await self._load_triggers(session, workspace_uuid, event_type)
-            if not triggers:
-                return True
-
-            case_tag_refs = {tag.ref for tag in case.tags}
             role = await self._get_service_role(session, workspace_uuid)
+            explicit_workflow_id = self._parse_optional_uuid(fields.get("workflow_id"))
+            explicit_comment_id = self._parse_optional_uuid(fields.get("comment_id"))
 
             should_ack = True
+            if explicit_workflow_id is not None:
+                explicit_processed = await self._process_explicit_workflow(
+                    session=session,
+                    role=role,
+                    case=case,
+                    event=event,
+                    fields=fields,
+                    event_id=event_id,
+                    workflow_id=explicit_workflow_id,
+                    comment_id=explicit_comment_id,
+                )
+                should_ack = should_ack and explicit_processed
+
+            if not await self._has_case_addons_entitlement(session, role):
+                logger.info(
+                    "Skipping configured case trigger dispatch; entitlement missing",
+                    event_id=event_id,
+                    workspace_id=workspace_id,
+                    organization_id=str(role.organization_id),
+                    entitlement=Entitlement.CASE_ADDONS.value,
+                )
+                await session.commit()
+                return should_ack
+
+            triggers = await self._load_triggers(session, workspace_uuid, event_type)
+            case_tag_refs = {tag.ref for tag in case.tags}
             for trigger in triggers:
+                if (
+                    explicit_workflow_id is not None
+                    and trigger.workflow_id == explicit_workflow_id
+                ):
+                    continue
                 if trigger.tag_filters:
                     if not case_tag_refs.intersection(trigger.tag_filters):
                         continue
@@ -225,7 +280,62 @@ class CaseTriggerConsumer:
                 finally:
                     await self.client.delete(lock_key)
 
+            await session.commit()
             return should_ack
+
+    def _parse_optional_uuid(self, value: str | None) -> uuid.UUID | None:
+        if not value:
+            return None
+        try:
+            return uuid.UUID(value)
+        except ValueError:
+            return None
+
+    async def _process_explicit_workflow(
+        self,
+        *,
+        session,
+        role: Role,
+        case: Case,
+        event: CaseEvent,
+        fields: dict[str, str],
+        event_id: str,
+        workflow_id: uuid.UUID,
+        comment_id: uuid.UUID | None,
+    ) -> bool:
+        done_key = f"case-trigger:done:{event_id}:{workflow_id}"
+        lock_key = f"case-trigger:lock:{event_id}:{workflow_id}"
+
+        if await self.client.exists(done_key):
+            return True
+
+        lock_acquired = await self.client.set_if_not_exists(
+            lock_key,
+            value="1",
+            expire_seconds=self.lock_ttl,
+        )
+        if not lock_acquired:
+            return False
+
+        try:
+            dispatched = await self._dispatch_selected_workflow(
+                session=session,
+                role=role,
+                workflow_id=workflow_id,
+                case=case,
+                event=event,
+                fields=fields,
+                comment_id=comment_id,
+            )
+            await session.commit()
+            await self.client.set(
+                done_key,
+                value="1",
+                expire_seconds=self.dedup_ttl,
+            )
+            return dispatched
+        finally:
+            await self.client.delete(lock_key)
 
     async def _load_event(
         self,
@@ -259,10 +369,34 @@ class CaseTriggerConsumer:
     async def _load_triggers(
         self, session, workspace_id: uuid.UUID, event_type: str
     ) -> list[CaseTrigger]:
+        try:
+            normalized_event_type = CaseEventType(event_type)
+        except ValueError:
+            logger.warning("Unknown case event type, skipping", event_type=event_type)
+            return []
+        # Cases emit `case_closed` / `case_reopened` instead of `status_changed`
+        # for those transitions, so exact trigger lookup would otherwise skip
+        # workflows subscribed to `status_changed`. Expand the incoming event to
+        # include that subscription without changing the stored event type.
+        if normalized_event_type in (
+            CaseEventType.CASE_CLOSED,
+            CaseEventType.CASE_REOPENED,
+        ):
+            matching_event_types = (
+                normalized_event_type.value,
+                CaseEventType.STATUS_CHANGED.value,
+            )
+        else:
+            matching_event_types = (normalized_event_type.value,)
         stmt = select(CaseTrigger).where(
             CaseTrigger.workspace_id == workspace_id,
             CaseTrigger.status == "online",
-            CaseTrigger.event_types.contains([event_type]),
+            or_(
+                *[
+                    CaseTrigger.event_types.contains([matching_event_type])
+                    for matching_event_type in matching_event_types
+                ]
+            ),
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())
@@ -286,41 +420,92 @@ class CaseTriggerConsumer:
         self._workspace_role_cache[workspace_id] = role
         return role
 
-    async def _dispatch_workflow(
+    async def _has_case_addons_entitlement(self, session, role: Role) -> bool:
+        organization_id = role.organization_id
+        if organization_id is None:
+            logger.warning(
+                "Skipping configured case trigger dispatch; service role has no organization",
+                workspace_id=str(role.workspace_id),
+            )
+            return False
+        return await is_org_entitled(session, organization_id, Entitlement.CASE_ADDONS)
+
+    def _get_audit_role(
+        self,
+        role: Role,
+        *,
+        triggered_by_user_id: uuid.UUID | None,
+        triggered_by_service_id: str | None,
+    ) -> Role | None:
+        if triggered_by_user_id is None:
+            return None
+        return role.model_copy(
+            update={
+                "user_id": triggered_by_user_id,
+                "service_id": triggered_by_service_id or role.service_id,
+            }
+        )
+
+    async def _audit_workflow_execution_event(
         self,
         *,
         session,
-        role: Role,
-        trigger: CaseTrigger,
+        role: Role | None,
+        status: AuditEventStatus,
+        workflow_id: uuid.UUID,
+        case_id: uuid.UUID,
+        comment_id: uuid.UUID | None,
+        parent_id: uuid.UUID | None,
+        wf_exec_id: str | None,
+    ) -> None:
+        if role is None:
+            return
+        async with AuditService.with_session(role=role, session=session) as svc:
+            await svc.create_event(
+                resource_type="workflow_execution",
+                action="create",
+                resource_id=workflow_id,
+                status=status,
+                data={
+                    "case_id": str(case_id),
+                    "comment_id": str(comment_id) if comment_id is not None else None,
+                    "parent_id": str(parent_id) if parent_id is not None else None,
+                    "workflow_id": str(workflow_id),
+                    "wf_exec_id": wf_exec_id,
+                    "trigger_type": "case",
+                },
+            )
+
+    async def _set_comment_workflow_status(
+        self,
+        session,
+        *,
+        workspace_id: uuid.UUID,
+        comment_id: uuid.UUID | None,
+        status: CaseCommentWorkflowStatus,
+    ) -> None:
+        if comment_id is None:
+            return
+        await session.execute(
+            update(CaseComment)
+            .where(
+                CaseComment.workspace_id == workspace_id,
+                CaseComment.id == comment_id,
+            )
+            .values(workflow_status=status.value)
+        )
+
+    def _build_case_trigger_payload(
+        self,
+        *,
         case: Case,
         event: CaseEvent,
-    ) -> bool:
-        defn_service = WorkflowDefinitionsService(session, role=role)
-        wf_id = WorkflowUUID.new(trigger.workflow_id)
-        defn = await defn_service.get_definition_by_workflow_id(wf_id)
-        if not defn:
-            logger.warning(
-                "No workflow definition found for workflow",
-                workflow_id=str(trigger.workflow_id),
-                event_id=str(event.id),
-            )
-            return False
-        if not defn.content:
-            logger.warning(
-                "Workflow definition content missing",
-                workflow_id=str(trigger.workflow_id),
-                event_id=str(event.id),
-            )
-            return False
-
-        dsl = DSLInput.model_validate(defn.content)
-        workflow_service = await WorkflowExecutionsService.connect(role=role)
-
+    ) -> dict[str, Any]:
         created_at = event.created_at or datetime.now(UTC)
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=UTC)
 
-        payload: dict[str, Any] = {
+        return {
             "case_id": str(case.id),
             "event": {
                 "id": str(event.id),
@@ -344,14 +529,285 @@ class CaseTriggerConsumer:
             "workspace_id": str(case.workspace_id),
         }
 
+    def _build_explicit_comment_payload(
+        self,
+        *,
+        case: Case,
+        event: CaseEvent,
+        fields: dict[str, str],
+        comment_id: uuid.UUID | None,
+    ) -> dict[str, Any]:
+        created_at = event.created_at or datetime.now(UTC)
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
+
+        triggered_by_user_id = fields.get("triggered_by_user_id")
+        triggered_by_service_id = fields.get("triggered_by_service_id")
+        parent_id = fields.get("parent_id")
+        comment = fields.get("comment") or fields.get("text", "")
+        thread_root_id = parent_id or (
+            str(comment_id) if comment_id is not None else None
+        )
+
+        return {
+            "case_id": str(case.id),
+            "comment": comment,
+            "comment_id": str(comment_id) if comment_id is not None else None,
+            "parent_id": parent_id,
+            "thread_root_id": thread_root_id,
+            "is_reply": parent_id is not None,
+            "text": comment,
+            "workspace_id": str(case.workspace_id),
+            "triggered_by": {
+                "type": fields.get("triggered_by_type") or "service",
+                "user_id": triggered_by_user_id,
+                "service_id": triggered_by_service_id,
+            },
+            "event": {
+                "id": str(event.id),
+                "type": event.type.value
+                if hasattr(event.type, "value")
+                else event.type,
+                "created_at": created_at.isoformat(),
+                "user_id": str(event.user_id) if event.user_id else None,
+            },
+            "tags": [
+                {
+                    "id": str(tag.id),
+                    "ref": tag.ref,
+                    "name": tag.name,
+                    "color": tag.color,
+                }
+                for tag in case.tags
+            ],
+        }
+
+    async def _dispatch_workflow(
+        self,
+        *,
+        session,
+        role: Role,
+        trigger: CaseTrigger,
+        case: Case,
+        event: CaseEvent,
+    ) -> bool:
+        defn_service = WorkflowDefinitionsService(session, role=role)
+        wf_id = WorkflowUUID.new(trigger.workflow_id)
+        defn = await defn_service.get_definition_by_workflow_id(wf_id)
+        if not defn:
+            logger.warning(
+                "No workflow definition found for workflow",
+                workflow_id=str(trigger.workflow_id),
+                event_id=str(event.id),
+            )
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="missing workflow definition",
+            )
+            return True
+        if defn.workflow is None or defn.workflow.version != defn.version:
+            logger.warning(
+                "Current workflow definition missing for case trigger",
+                workflow_id=str(trigger.workflow_id),
+                event_id=str(event.id),
+                definition_version=defn.version,
+                workflow_version=defn.workflow.version if defn.workflow else None,
+            )
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="current workflow definition missing",
+            )
+            return True
+        if not defn.content:
+            logger.warning(
+                "Workflow definition content missing",
+                workflow_id=str(trigger.workflow_id),
+                event_id=str(event.id),
+            )
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="missing workflow definition content",
+            )
+            return True
+
+        try:
+            dsl = DSLInput.model_validate(defn.content)
+        except (ValidationError, TracecatDSLError):
+            logger.warning(
+                "Workflow definition content invalid",
+                workflow_id=str(trigger.workflow_id),
+                event_id=str(event.id),
+            )
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="invalid workflow definition content",
+            )
+            return True
+        workflow_service = await WorkflowExecutionsService.connect(role=role)
+
         workflow_service.create_workflow_execution_nowait(
             dsl=dsl,
             wf_id=wf_id,
-            payload=payload,
+            payload=self._build_case_trigger_payload(case=case, event=event),
             trigger_type=TriggerType.CASE,
             registry_lock=RegistryLock.model_validate(defn.registry_lock)
             if defn.registry_lock
             else None,
+        )
+        return True
+
+    async def _disable_invalid_case_trigger(
+        self,
+        *,
+        session,
+        trigger: CaseTrigger,
+        event: CaseEvent,
+        reason: str,
+    ) -> None:
+        logger.warning(
+            "Disabling invalid case trigger",
+            workflow_id=str(trigger.workflow_id),
+            event_id=str(event.id),
+            reason=reason,
+        )
+        trigger.status = "offline"
+        session.add(trigger)
+        await session.flush()
+
+    async def _dispatch_selected_workflow(
+        self,
+        *,
+        session,
+        role: Role,
+        workflow_id: uuid.UUID,
+        case: Case,
+        event: CaseEvent,
+        fields: dict[str, str],
+        comment_id: uuid.UUID | None,
+    ) -> bool:
+        defn_service = WorkflowDefinitionsService(session, role=role)
+        wf_id = WorkflowUUID.new(workflow_id)
+        defn = await defn_service.get_definition_by_workflow_id(wf_id)
+        wf_exec_id = fields.get("wf_exec_id")
+        parent_id = self._parse_optional_uuid(fields.get("parent_id"))
+        audit_role = self._get_audit_role(
+            role,
+            triggered_by_user_id=self._parse_optional_uuid(
+                fields.get("triggered_by_user_id")
+            ),
+            triggered_by_service_id=fields.get("triggered_by_service_id"),
+        )
+
+        if not wf_exec_id:
+            await self._set_comment_workflow_status(
+                session,
+                workspace_id=case.workspace_id,
+                comment_id=comment_id,
+                status=CaseCommentWorkflowStatus.FAILED,
+            )
+            await self._audit_workflow_execution_event(
+                session=session,
+                role=audit_role,
+                status=AuditEventStatus.FAILURE,
+                workflow_id=workflow_id,
+                case_id=case.id,
+                comment_id=comment_id,
+                parent_id=parent_id,
+                wf_exec_id=None,
+            )
+            return True
+        if not defn or not defn.content:
+            logger.warning(
+                "Explicit case comment workflow definition missing",
+                workflow_id=str(workflow_id),
+                event_id=str(event.id),
+            )
+            await self._set_comment_workflow_status(
+                session,
+                workspace_id=case.workspace_id,
+                comment_id=comment_id,
+                status=CaseCommentWorkflowStatus.FAILED,
+            )
+            await self._audit_workflow_execution_event(
+                session=session,
+                role=audit_role,
+                status=AuditEventStatus.FAILURE,
+                workflow_id=workflow_id,
+                case_id=case.id,
+                comment_id=comment_id,
+                parent_id=parent_id,
+                wf_exec_id=wf_exec_id,
+            )
+            return True
+
+        dsl = DSLInput.model_validate(defn.content)
+        workflow_service = await WorkflowExecutionsService.connect(role=role)
+
+        try:
+            await workflow_service.create_workflow_execution_wait_for_start(
+                dsl=dsl,
+                wf_id=wf_id,
+                wf_exec_id=wf_exec_id,
+                payload=self._build_explicit_comment_payload(
+                    case=case,
+                    event=event,
+                    fields=fields,
+                    comment_id=comment_id,
+                ),
+                trigger_type=TriggerType.CASE,
+                registry_lock=RegistryLock.model_validate(defn.registry_lock)
+                if defn.registry_lock
+                else None,
+            )
+        except WorkflowAlreadyStartedError:
+            logger.info(
+                "Explicit case comment workflow already started; treating replay as success",
+                workflow_id=str(workflow_id),
+                event_id=str(event.id),
+                wf_exec_id=wf_exec_id,
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to dispatch explicit case comment workflow",
+                error=str(e),
+                workflow_id=str(workflow_id),
+                event_id=str(event.id),
+            )
+            await self._set_comment_workflow_status(
+                session,
+                workspace_id=case.workspace_id,
+                comment_id=comment_id,
+                status=CaseCommentWorkflowStatus.FAILED,
+            )
+            await self._audit_workflow_execution_event(
+                session=session,
+                role=audit_role,
+                status=AuditEventStatus.FAILURE,
+                workflow_id=workflow_id,
+                case_id=case.id,
+                comment_id=comment_id,
+                parent_id=parent_id,
+                wf_exec_id=wf_exec_id,
+            )
+            return True
+
+        await self._audit_workflow_execution_event(
+            session=session,
+            role=audit_role,
+            status=AuditEventStatus.SUCCESS,
+            workflow_id=workflow_id,
+            case_id=case.id,
+            comment_id=comment_id,
+            parent_id=parent_id,
+            wf_exec_id=wf_exec_id,
         )
         return True
 
@@ -364,6 +820,8 @@ class CaseTriggerConsumer:
             count=self.batch,
             idle=self.claim_idle_ms,
         )
+        if self._stop_signalled():
+            return
         if not pending:
             return
 
@@ -391,7 +849,16 @@ class CaseTriggerConsumer:
             await self._handle_message(message_id, fields)
 
 
-async def start_case_trigger_consumer() -> None:
+async def start_case_trigger_consumer(
+    stop_event: asyncio.Event | None = None,
+) -> None:
+    """Run the case trigger consumer until cancelled or stopped.
+
+    The stop event enables graceful shutdown: setting it finishes the current
+    batch (including acks) and exits the loop without cancellation, so the
+    pod's terminating consumer does not strand messages in the pending list
+    during rolling upgrades.
+    """
     client = await get_redis_client()
-    consumer = CaseTriggerConsumer(client)
+    consumer = CaseTriggerConsumer(client, stop_event=stop_event)
     await consumer.run()

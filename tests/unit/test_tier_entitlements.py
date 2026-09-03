@@ -93,6 +93,7 @@ async def test_specific_tier_entitlements_drive_effective_values(
         entitlements={
             "case_addons": True,
             "agent_addons": False,
+            "workspace_chat": True,
             "git_sync": True,
         },
     )
@@ -102,6 +103,7 @@ async def test_specific_tier_entitlements_drive_effective_values(
 
     assert effective.case_addons is True
     assert effective.agent_addons is False
+    assert effective.workspace_chat is True
     assert effective.git_sync is True
 
 

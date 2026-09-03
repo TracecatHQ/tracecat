@@ -17,6 +17,7 @@ repos:
         exclude: ^deployments/helm/.*/templates/
       - id: end-of-file-fixer
       - id: trailing-whitespace
+        exclude: \.patch$
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.7
     hooks:
@@ -36,8 +37,6 @@ repos:
     hooks:
       # Keep uv.lock in sync with changes to pyproject.toml
       - id: uv-lock
-      # Optionally export a requirements.txt reflecting uv.lock
-      - id: uv-export
   - repo: local
     hooks:
       - id: gen-client
@@ -66,5 +65,12 @@ repos:
         entry: bash -c "pnpm -C frontend run typecheck"
         language: system
         files: ^frontend/
+        pass_filenames: false
+        require_serial: true
+      - id: gen-mcp-docs
+        name: generate mcp docs
+        entry: just gen-mcp-docs
+        language: system
+        files: ^tracecat/mcp/server\.py$
         pass_filenames: false
         require_serial: true

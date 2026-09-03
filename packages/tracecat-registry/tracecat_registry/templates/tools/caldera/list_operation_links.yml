@@ -3,7 +3,7 @@ definition:
   title: List operation links
   description: List links for a specific Caldera operation.
   display_group: MITRE Caldera
-  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#operations
+  doc_url: https://caldera.readthedocs.io/en/latest/The-REST-API.html
   namespace: tools.caldera
   name: list_operation_links
   secrets:

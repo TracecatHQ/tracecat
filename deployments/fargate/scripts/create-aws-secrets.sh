@@ -9,9 +9,10 @@ if [ -z "$AWS_DEFAULT_REGION" ]; then
     exit 1
 fi
 
-# Create service key and signing secret
+# Create service key, signing secret, and user auth secret
 SERVICE_KEY=$(openssl rand -hex 32)
 SIGNING_SECRET=$(openssl rand -hex 32)
+USER_AUTH_SECRET=$(openssl rand -hex 32)
 
 # Create database encryption key
 DB_ENCRYPTION_KEY=$(openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_')
@@ -20,13 +21,16 @@ DB_ENCRYPTION_KEY=$(openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_')
 DB_ENCRYPTION_KEY_NAME=${DB_ENCRYPTION_KEY_NAME:-"${APP_ENV:-prod}/tracecat/db-encryption-key"}
 SERVICE_KEY_NAME=${SERVICE_KEY_NAME:-"${APP_ENV:-prod}/tracecat/service-key"}
 SIGNING_SECRET_NAME=${SIGNING_SECRET_NAME:-"${APP_ENV:-prod}/tracecat/signing-secret"}
+USER_AUTH_SECRET_NAME=${USER_AUTH_SECRET_NAME:-"${APP_ENV:-prod}/tracecat/user-auth-secret"}
 
 # Create AWS Secrets
 aws secretsmanager create-secret --name "$DB_ENCRYPTION_KEY_NAME" --secret-string "$DB_ENCRYPTION_KEY" --region "$AWS_DEFAULT_REGION" --no-cli-pager
 aws secretsmanager create-secret --name "$SERVICE_KEY_NAME" --secret-string "$SERVICE_KEY" --region "$AWS_DEFAULT_REGION" --no-cli-pager
 aws secretsmanager create-secret --name "$SIGNING_SECRET_NAME" --secret-string "$SIGNING_SECRET" --region "$AWS_DEFAULT_REGION" --no-cli-pager
+aws secretsmanager create-secret --name "$USER_AUTH_SECRET_NAME" --secret-string "$USER_AUTH_SECRET" --region "$AWS_DEFAULT_REGION" --no-cli-pager
 
 echo "AWS Secrets created successfully."
 echo "DB_ENCRYPTION_KEY_NAME: $DB_ENCRYPTION_KEY_NAME"
 echo "SERVICE_KEY_NAME: $SERVICE_KEY_NAME"
 echo "SIGNING_SECRET_NAME: $SIGNING_SECRET_NAME"
+echo "USER_AUTH_SECRET_NAME: $USER_AUTH_SECRET_NAME"

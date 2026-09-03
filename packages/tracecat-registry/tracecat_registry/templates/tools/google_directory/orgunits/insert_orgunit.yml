@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Insert organizational unit
+  description: Adds an organizational unit.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/orgunits/insert
+  namespace: tools.google_directory
+  name: insert_orgunit
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    customer_id:
+      type: str
+      description: >-
+        The unique ID for the customer's Google Workspace account. As an account administrator,
+        you can also use the `my_customer` alias to represent your account's `customerId`.
+      default: my_customer
+    body:
+      # Generic: the vendor rejects `null` on optional body fields, and a literal map cannot omit
+      # an unset optional because values inside a request body are not null-pruned.
+      type: dict[str, Any]
+      description: >-
+        OrgUnit resource to create. See
+        https://developers.google.com/workspace/admin/directory/reference/rest/v1/orgunits for
+        the full field list. Writable fields: `name` (required), `parentOrgUnitPath` (required,
+        unless `parentOrgUnitId` is set), `parentOrgUnitId`, `description`.
+  steps:
+    - ref: insert_orgunit
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: orgunits
+        method_name: insert
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.orgunit"]
+        params:
+          customerId: ${{ inputs.customer_id }}
+          body: ${{ inputs.body }}
+  returns: ${{ steps.insert_orgunit.result }}

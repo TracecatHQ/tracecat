@@ -1,0 +1,56 @@
+type: action
+definition:
+  title: Get multiple documents
+  description: Get multiple OpenSearch documents with an API-native multi-get request.
+  display_group: OpenSearch
+  doc_url: https://docs.opensearch.org/latest/api-reference/document-apis/multi-get/
+  namespace: tools.opensearch
+  name: multi_get_documents
+  secrets:
+    - name: opensearch
+      keys: ["OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"]
+  expects:
+    payload:
+      type: dict[str, Any]
+      description: API-native multi-get request body containing docs or ids.
+    index:
+      type: str | None
+      description: Optional default index for documents in the request.
+      default: null
+    params:
+      type: dict[str, Any] | None
+      description: Optional native multi-get query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: OpenSearch base URL (e.g. https://localhost:9200).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          index: ${{ inputs.index }}
+        script: |
+          from urllib.parse import quote
+
+          def main(index):
+              if index:
+                  return f"/{quote(index, safe='*,-_')}/_mget"
+              return "/_mget"
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.opensearch.base_url }}${{ steps.build_path.result }}
+        method: POST
+        params: ${{ inputs.params }}
+        payload: ${{ inputs.payload }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.opensearch.OPENSEARCH_USERNAME + ":" + SECRETS.opensearch.OPENSEARCH_PASSWORD) }}
+          Content-Type: application/json
+  returns: ${{ steps.request.result.data }}

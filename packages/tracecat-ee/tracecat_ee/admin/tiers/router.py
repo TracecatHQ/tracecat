@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
 from tracecat.auth.credentials import SuperuserRole
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.tiers.exceptions import (
     CannotDeleteDefaultTierError,
     OrganizationNotFoundError,
@@ -42,7 +42,7 @@ def _require_multi_tenant() -> None:
 @router.get("", response_model=list[TierRead])
 async def list_tiers(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     include_inactive: bool = Query(
         False, description="Include inactive tiers in results"
     ),
@@ -55,7 +55,7 @@ async def list_tiers(
 @router.post("", response_model=TierRead, status_code=status.HTTP_201_CREATED)
 async def create_tier(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     params: TierCreate,
 ) -> TierRead:
     """Create a new tier."""
@@ -70,7 +70,7 @@ async def create_tier(
 @router.get("/organizations", response_model=list[OrganizationTierRead])
 async def list_org_tiers(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_ids: list[uuid.UUID] | None = Query(
         default=None,
         description="Optional list of organization IDs to filter results",
@@ -84,7 +84,7 @@ async def list_org_tiers(
 @router.get("/{tier_id}", response_model=TierRead)
 async def get_tier(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     tier_id: uuid.UUID,
 ) -> TierRead:
     """Get tier by ID."""
@@ -98,7 +98,7 @@ async def get_tier(
 @router.patch("/{tier_id}", response_model=TierRead)
 async def update_tier(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     tier_id: uuid.UUID,
     params: TierUpdate,
 ) -> TierRead:
@@ -114,7 +114,7 @@ async def update_tier(
 @router.delete("/{tier_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_tier(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     tier_id: uuid.UUID,
 ) -> None:
     """Delete a tier (only if no orgs are assigned to it)."""
@@ -134,7 +134,7 @@ async def delete_tier(
 @router.get("/organizations/{org_id}", response_model=OrganizationTierRead)
 async def get_org_tier(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
 ) -> OrganizationTierRead:
     """Get tier assignment for an organization."""
@@ -148,7 +148,7 @@ async def get_org_tier(
 @router.patch("/organizations/{org_id}", response_model=OrganizationTierRead)
 async def update_org_tier(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     params: OrganizationTierUpdate,
 ) -> OrganizationTierRead:

@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Create channel canvas
+  description: Create a Slack channel canvas for a channel.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/conversations.canvases.create/
+  namespace: tools.slack
+  name: create_channel_canvas
+  expects:
+    channel_id:
+      type: str
+      description: ID of the channel where the canvas will be tabbed.
+    document_content:
+      type: dict[str, Any] | None
+      description: Structure describing the type and value of the content to create.
+      default: null
+    title:
+      type: str | None
+      description: Title of the newly created canvas.
+      default: null
+  steps:
+    - ref: create_channel_canvas
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: conversations.canvases.create
+        params:
+          channel_id: ${{ inputs.channel_id }}
+          document_content: ${{ inputs.document_content }}
+          title: ${{ inputs.title }}
+  returns: ${{ steps.create_channel_canvas.result }}

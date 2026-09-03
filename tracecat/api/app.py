@@ -1,9 +1,15 @@
-import asyncio
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
-import tracecat_registry
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
@@ -13,27 +19,47 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
+from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.admin.agent.router import router as admin_agent_router
+from tracecat.admin.maintenance.router import router as admin_maintenance_router
 from tracecat.admin.registry.router import router as admin_registry_router
-from tracecat.agent.internal_router import router as internal_agent_router
-from tracecat.agent.preset.internal_router import (
-    router as internal_agent_preset_router,
+from tracecat.agent.access.router import router as agent_model_access_router
+from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
+from tracecat.agent.catalog.router import router as agent_catalog_router
+from tracecat.agent.channels.management_router import (
+    router as agent_channels_management_router,
 )
+from tracecat.agent.channels.router import router as agent_channels_router
+from tracecat.agent.folders.router import router as agent_folders_router
 from tracecat.agent.preset.router import router as agent_preset_router
+from tracecat.agent.provider.router import router as agent_custom_provider_router
 from tracecat.agent.router import router as agent_router
+from tracecat.agent.router import workspace_router as agent_workspace_router
 from tracecat.agent.session.router import router as agent_session_router
+from tracecat.agent.skill.router import router as agent_skill_router
+from tracecat.agent.tags.definitions_router import (
+    router as agent_tag_definitions_router,
+)
+from tracecat.agent.tags.router import router as agent_preset_tags_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
+    auth_pool_exhausted_exception_handler,
     bootstrap_role,
     custom_generate_unique_id,
     generic_exception_handler,
+    http_exception_handler,
+    query_overflow_exception_handler,
+    query_timeout_exception_handler,
     tracecat_exception_handler,
 )
+from tracecat.api.lifespan import LifespanTaskSupervisor
 from tracecat.auth.credentials import authenticated_user_only
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
+    require_workspace_id_path,
 )
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
@@ -41,6 +67,7 @@ from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enab
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
+from tracecat.auth.secrets import get_user_auth_secret
 from tracecat.auth.types import Role
 from tracecat.auth.users import (
     FastAPIUsersException,
@@ -54,40 +81,36 @@ from tracecat.authz.rbac.router import (
 )
 from tracecat.authz.rbac.router import user_scopes_router
 from tracecat.authz.seeding import seed_all_system_data
-from tracecat.cases.attachments.internal_router import (
-    router as internal_case_attachments_router,
-)
 from tracecat.cases.attachments.router import router as case_attachments_router
 from tracecat.cases.dropdowns.router import definitions_router as case_dropdowns_router
 from tracecat.cases.dropdowns.router import values_router as case_dropdown_values_router
+from tracecat.cases.durations.consumer import start_case_duration_sync_consumer
 from tracecat.cases.durations.router import router as case_durations_router
-from tracecat.cases.internal_router import (
-    comments_router as internal_comments_router,
-)
-from tracecat.cases.internal_router import (
-    router as internal_cases_router,
-)
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
-from tracecat.cases.rows.internal_router import (
-    router as internal_case_rows_router,
-)
 from tracecat.cases.rows.router import router as case_rows_router
-from tracecat.cases.tag_definitions.internal_router import (
-    router as internal_case_tag_definitions_router,
-)
 from tracecat.cases.tag_definitions.router import (
     router as case_tag_definitions_router,
 )
-from tracecat.cases.tags.internal_router import router as internal_case_tags_router
 from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.cases.triggers.consumer import start_case_trigger_consumer
+from tracecat.cases.versions.router import router as case_versions_router
 from tracecat.contexts import ctx_role
-from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.dependencies import AsyncDBSessionBypass
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+)
+from tracecat.db.exceptions import AuthPoolExhaustedError
+from tracecat.db.rls import set_rls_context_from_role
+from tracecat.db.soft_delete import assert_soft_delete_listener_registered
 from tracecat.editor.router import router as editor_router
-from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
-from tracecat.feature_flags import FlagLike, is_feature_enabled
+from tracecat.exceptions import (
+    EntitlementRequired,
+    ScopeDeniedError,
+    TracecatAuthorizationError,
+    TracecatException,
+)
+from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.inbox.router import router as inbox_router
 from tracecat.integrations.router import (
@@ -95,39 +118,64 @@ from tracecat.integrations.router import (
     mcp_router,
     providers_router,
 )
+from tracecat.integrations.router import (
+    oauth_router as integrations_oauth_router,
+)
 from tracecat.logger import logger
+from tracecat.mcp.oidc import router as mcp_oidc_router
+from tracecat.mcp.personal_access_tokens.router import (
+    router as mcp_personal_access_tokens_router,
+)
 from tracecat.middleware import (
     AuthorizationCacheMiddleware,
     RequestLoggingMiddleware,
 )
 from tracecat.middleware.security import SecurityHeadersMiddleware
+from tracecat.observability.otel import (
+    TRACE_ID_HEADER,
+    TRACE_SAMPLED_HEADER,
+    instrument_fastapi_app,
+    shutdown_platform_tracing,
+)
 from tracecat.organization.management import (
     ensure_default_organization,
     get_default_organization_id,
 )
 from tracecat.organization.router import router as org_router
+from tracecat.query.errors import (
+    TracecatQueryOverflowError,
+    TracecatQueryTimeoutError,
+)
 from tracecat.registry.actions.router import router as registry_actions_router
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
-from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
+from tracecat.service_accounts.router import (
+    org_router as org_service_accounts_router,
+)
+from tracecat.service_accounts.router import (
+    workspace_router as workspace_service_accounts_router,
+)
 from tracecat.settings.router import router as org_settings_router
 from tracecat.settings.service import SettingsService, get_setting_override
-from tracecat.storage.blob import configure_bucket_lifecycle, ensure_bucket_exists
-from tracecat.tables.internal_router import router as internal_tables_router
+from tracecat.storage.blob import (
+    close_storage_client_cache,
+    configure_bucket_lifecycle,
+    ensure_bucket_exists,
+)
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
-from tracecat.variables.internal_router import router as internal_variables_router
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
 from tracecat.workflow.actions.router import router as workflow_actions_router
-from tracecat.workflow.executions.internal_router import (
-    router as internal_workflows_router,
+from tracecat.workflow.executions.router import (
+    router as workflow_executions_router,
 )
-from tracecat.workflow.executions.router import router as workflow_executions_router
+from tracecat.workflow.executions.router import (
+    workflow_router as workflow_executions_workflow_router,
+)
 from tracecat.workflow.graph.router import router as workflow_graph_router
 from tracecat.workflow.management.folders.router import (
     router as workflow_folders_router,
@@ -142,14 +190,19 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Temporal
-    # Run in background to avoid blocking startup
-    asyncio.create_task(add_temporal_search_attributes())
-    logger.debug("Spawned lifespan task to add temporal search attributes")
+    # USER_AUTH_SECRET is required for all auth types — UserManager uses it
+    # for password reset and email verification token signing. Validated here
+    # (not in create_app) because the app module is imported at collection time
+    # by tests and OpenAPI generation, before secrets are available.
+    get_user_auth_secret()
+    assert_soft_delete_listener_registered()
 
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
+    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS)
+    if is_feature_enabled(FeatureFlag.AGENT_FS_PERSISTENCE):
+        await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT)
 
     # Workflow bucket with lifecycle expiration
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW)
@@ -161,70 +214,63 @@ async def lifespan(app: FastAPI):
 
     await ensure_default_organization()
 
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         await setup_rbac_defaults(session)
+
+    # All in-process background tasks run under a lifespan-owned supervisor.
+    # On SIGTERM, uvicorn drains ASGI requests but not these tasks; the
+    # supervisor keeps strong references to them and drains them in a bounded
+    # period so they are not silently dropped or garbage collected at
+    # shutdown. Critical work must still checkpoint to durable storage.
+    supervisor = LifespanTaskSupervisor(
+        drain_timeout=config.TRACECAT__API_TASK_DRAIN_TIMEOUT
+    )
+
+    # Temporal Cloud runtime credentials may not have operator-service access
+    # to inspect or register namespace search attributes. Keep registration
+    # supervised and visible without making that administrative permission a
+    # prerequisite for API availability.
+    supervisor.spawn(
+        add_temporal_search_attributes(),
+        name="temporal_search_attribute_registration",
+        kind="finite",
+    )
 
     # Spawn platform registry sync as background task (non-blocking)
     # Uses leader election to prevent race conditions across multiple API processes
-    registry_sync_task = asyncio.create_task(
+    supervisor.spawn(
         sync_platform_registry_on_startup(),
         name="platform_registry_sync",
+        kind="finite",
     )
-    logger.debug("Spawned background task for platform registry sync")
+    supervisor.spawn(
+        load_platform_catalog_on_startup(),
+        name="platform_catalog_load",
+        kind="finite",
+    )
 
-    case_trigger_task = None
     if config.TRACECAT__CASE_TRIGGERS_ENABLED:
-        case_trigger_task = asyncio.create_task(
-            start_case_trigger_consumer(),
+        supervisor.spawn_stoppable(
+            start_case_trigger_consumer,
             name="case_trigger_consumer",
         )
-        logger.debug("Spawned background task for case trigger consumer")
+
+    supervisor.spawn_stoppable(
+        start_case_duration_sync_consumer,
+        name="case_duration_sync_consumer",
+    )
 
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
     )
+    logger.info("RLS mode", rls_mode=config.TRACECAT__RLS_MODE.value)
     logger.info("API startup complete")
 
     yield
 
-    # Gracefully handle the registry sync task during shutdown
-    if not registry_sync_task.done():
-        logger.info("Waiting for platform registry sync task to complete...")
-        try:
-            # Give the task a reasonable time to complete
-            await asyncio.wait_for(registry_sync_task, timeout=10.0)
-            logger.info("Platform registry sync task completed")
-        except TimeoutError:
-            logger.warning(
-                "Platform registry sync task did not complete in time, cancelling"
-            )
-            registry_sync_task.cancel()
-            try:
-                await registry_sync_task
-            except asyncio.CancelledError:
-                logger.debug("Platform registry sync task cancelled")
-        except Exception as e:
-            logger.warning(
-                "Platform registry sync task failed during shutdown", error=e
-            )
-    else:
-        # Task already completed - retrieve result to surface any exceptions
-        try:
-            registry_sync_task.result()
-            logger.debug("Platform registry sync task had already completed")
-        except Exception as e:
-            logger.warning(
-                "Platform registry sync task failed before shutdown", error=e
-            )
-
-    if case_trigger_task is not None:
-        case_trigger_task.cancel()
-        try:
-            await case_trigger_task
-        except asyncio.CancelledError:
-            logger.debug("Case trigger consumer task cancelled")
-        except Exception as e:
-            logger.warning("Case trigger consumer stopped with error", error=e)
+    await supervisor.drain()
+    await close_storage_client_cache()
+    shutdown_platform_tracing()
 
 
 async def setup_org_settings(session: AsyncSession, admin_role: Role):
@@ -317,6 +363,32 @@ def entitlement_exception_handler(request: Request, exc: Exception) -> Response:
     )
 
 
+def authorization_exception_handler(request: Request, exc: Exception) -> Response:
+    """Handle TracecatAuthorizationError exceptions with a 403 Forbidden response.
+
+    Without this, authorization denials fall through to the generic
+    TracecatException handler, which returns 500.
+
+    The body is deliberately fixed. Subtypes such as TracecatRLSViolationError
+    carry internal state (table, operation, org/workspace IDs) on ``detail``,
+    and denial messages may embed identifiers, so nothing derived from the
+    exception is serialized here. Subtypes that need a structured body must
+    register their own handler with an explicitly chosen payload, as
+    ScopeDeniedError does.
+    """
+    logger.warning(
+        "Authorization denied",
+        path=request.url.path,
+        role=ctx_role.get(),
+        exception_type=type(exc).__name__,
+        detail=exc.detail if isinstance(exc, TracecatException) else None,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={"detail": "Forbidden"},
+    )
+
+
 def scope_denied_exception_handler(request: Request, exc: Exception) -> Response:
     """Handle ScopeDeniedError exceptions with a 403 Forbidden response.
 
@@ -365,6 +437,15 @@ def feature_flag_dep(flag: FlagLike) -> Callable[..., None]:
     return _is_feature_enabled
 
 
+def _include_workspace_scoped_router(app: FastAPI, router: APIRouter) -> None:
+    app.include_router(router, include_in_schema=False)
+    app.include_router(
+        router,
+        prefix="/workspaces/{workspace_id}",
+        dependencies=[Depends(require_workspace_id_path)],
+    )
+
+
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
@@ -372,7 +453,9 @@ def create_app(**kwargs) -> FastAPI:
         allow_origins = ["*"]
     app = FastAPI(
         title="Tracecat API",
-        description=("Tracecat is the open source automation platform for enterprise."),
+        description=(
+            "The open source AI automation platform for security teams and agents."
+        ),
         summary="Tracecat API",
         version="1",
         terms_of_service="https://docs.google.com/document/d/e/2PACX-1vQvDe3SoVAPoQc51MgfGCP71IqFYX_rMVEde8zC4qmBCec5f8PLKQRdxa6tsUABT8gWAR9J-EVs2CrQ/pub",
@@ -403,45 +486,65 @@ def create_app(**kwargs) -> FastAPI:
 
     # Routers
     app.include_router(webhook_router)
+    app.include_router(agent_channels_router)
     app.include_router(workspaces_router)
-    app.include_router(workflow_management_router)
-    app.include_router(workflow_graph_router)
-    app.include_router(workflow_executions_router)
-    app.include_router(workflow_actions_router)
-    app.include_router(workflow_tags_router)
-    app.include_router(workflow_store_router)
-    app.include_router(secrets_router)
-    app.include_router(variables_router)
-    app.include_router(schedules_router)
-    app.include_router(tags_router)
+    app.include_router(workspace_service_accounts_router)
+    app.include_router(mcp_personal_access_tokens_router)
+    _include_workspace_scoped_router(app, workflow_management_router)
+    _include_workspace_scoped_router(app, workflow_executions_workflow_router)
+    _include_workspace_scoped_router(app, workflow_graph_router)
+    _include_workspace_scoped_router(app, workflow_executions_router)
+    _include_workspace_scoped_router(app, workflow_actions_router)
+    _include_workspace_scoped_router(app, workflow_tags_router)
+    _include_workspace_scoped_router(app, workflow_store_router)
+    _include_workspace_scoped_router(app, secrets_router)
+    _include_workspace_scoped_router(app, variables_router)
+    _include_workspace_scoped_router(app, schedules_router)
+    _include_workspace_scoped_router(app, tags_router)
     app.include_router(users_router)
     app.include_router(org_router)
+    app.include_router(org_service_accounts_router)
     app.include_router(agent_router)
-    app.include_router(agent_preset_router)
-    app.include_router(agent_session_router)
-    app.include_router(approvals_router)
+    app.include_router(agent_catalog_router)
+    app.include_router(agent_model_access_router)
+    app.include_router(agent_custom_provider_router)
+    _include_workspace_scoped_router(app, agent_workspace_router)
+    _include_workspace_scoped_router(app, agent_channels_management_router)
+    _include_workspace_scoped_router(app, agent_preset_router)
+    _include_workspace_scoped_router(app, agent_preset_tags_router)
+    _include_workspace_scoped_router(app, agent_folders_router)
+    _include_workspace_scoped_router(app, agent_tag_definitions_router)
+    _include_workspace_scoped_router(app, agent_skill_router)
+    _include_workspace_scoped_router(app, agent_session_router)
+    _include_workspace_scoped_router(app, approvals_router)
+    app.include_router(watchtower_router)
     app.include_router(admin_router)
+    app.include_router(admin_agent_router, prefix="/admin")
+    app.include_router(admin_maintenance_router, prefix="/admin")
     app.include_router(admin_registry_router, prefix="/admin")
-    app.include_router(inbox_router)
-    app.include_router(editor_router)
+    _include_workspace_scoped_router(app, inbox_router)
+    _include_workspace_scoped_router(app, editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
     app.include_router(org_settings_router)
     app.include_router(org_secrets_router)
-    app.include_router(tables_router)
-    app.include_router(cases_router)
-    app.include_router(case_rows_router)
-    app.include_router(case_fields_router)
-    app.include_router(case_tags_router)
-    app.include_router(case_tag_definitions_router)
-    app.include_router(case_attachments_router)
-    app.include_router(case_dropdowns_router)
-    app.include_router(case_dropdown_values_router)
-    app.include_router(case_durations_router)
-    app.include_router(workflow_folders_router)
-    app.include_router(integrations_router)
-    app.include_router(providers_router)
-    app.include_router(mcp_router)
+    _include_workspace_scoped_router(app, tables_router)
+    _include_workspace_scoped_router(app, cases_router)
+    _include_workspace_scoped_router(app, case_versions_router)
+    _include_workspace_scoped_router(app, case_rows_router)
+    _include_workspace_scoped_router(app, case_fields_router)
+    _include_workspace_scoped_router(app, case_tags_router)
+    _include_workspace_scoped_router(app, case_tag_definitions_router)
+    _include_workspace_scoped_router(app, case_attachments_router)
+    _include_workspace_scoped_router(app, case_dropdowns_router)
+    _include_workspace_scoped_router(app, case_dropdown_values_router)
+    _include_workspace_scoped_router(app, case_durations_router)
+    _include_workspace_scoped_router(app, workflow_folders_router)
+    app.include_router(integrations_oauth_router)
+    _include_workspace_scoped_router(app, integrations_router)
+    _include_workspace_scoped_router(app, providers_router)
+    _include_workspace_scoped_router(app, mcp_router)
+    app.include_router(mcp_oidc_router)
     app.include_router(feature_flags_router)
     app.include_router(vcs_router)
     # RBAC routers - user scopes + role listing + user role assignments are always included (OSS)
@@ -473,19 +576,6 @@ def create_app(**kwargs) -> FastAPI:
         tags=["users"],
         dependencies=[Depends(authenticated_user_only)],
     )
-    # Internal routers
-    app.include_router(internal_agent_router)
-    app.include_router(internal_agent_preset_router)
-    app.include_router(internal_case_attachments_router)
-    app.include_router(internal_cases_router)
-    app.include_router(internal_case_rows_router)
-    app.include_router(internal_comments_router)
-    app.include_router(internal_case_tags_router)
-    app.include_router(internal_case_tag_definitions_router)
-    app.include_router(internal_tables_router)
-    app.include_router(internal_variables_router)
-    app.include_router(internal_workflows_router)
-
     if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
         app.include_router(
             fastapi_users.get_auth_router(auth_backend),
@@ -517,7 +607,7 @@ def create_app(**kwargs) -> FastAPI:
             fastapi_users.get_oauth_router(
                 oauth_client,
                 auth_backend,
-                config.USER_AUTH_SECRET,
+                get_user_auth_secret(),
                 # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
                 associate_by_email=True,
                 is_verified_by_default=True,
@@ -526,9 +616,7 @@ def create_app(**kwargs) -> FastAPI:
             ),
             prefix="/auth/oauth",
             tags=["auth"],
-            dependencies=[
-                require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
-            ],
+            dependencies=[require_any_auth_type_enabled([AuthType.OIDC])],
         )
     # Keep SAML auth-type checks on endpoint handlers, not the entire router.
     # The ACS callback resolves org context from RelayState, so requiring
@@ -546,14 +634,32 @@ def create_app(**kwargs) -> FastAPI:
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
+    app.add_exception_handler(
+        AuthPoolExhaustedError,
+        auth_pool_exhausted_exception_handler,
+    )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(
+        TracecatQueryTimeoutError,
+        query_timeout_exception_handler,
+    )
+    app.add_exception_handler(
+        TracecatQueryOverflowError,
+        query_overflow_exception_handler,
+    )
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(
         FastAPIUsersException,
         fastapi_users_auth_exception_handler,
     )
     app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)
+    # Registered before ScopeDeniedError for readability only; Starlette dispatches
+    # on the exception MRO, so the subclass handler still wins.
+    app.add_exception_handler(
+        TracecatAuthorizationError, authorization_exception_handler
+    )
     app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
+    app.add_exception_handler(HTTPException, http_exception_handler)
 
     # Middleware
     # Add authorization cache middleware first so it's available for all requests
@@ -567,7 +673,9 @@ def create_app(**kwargs) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[TRACE_ID_HEADER, TRACE_SAMPLED_HEADER],
     )
+    instrument_fastapi_app(app, service_name="tracecat-api")
 
     logger.info(
         "App started",
@@ -585,17 +693,6 @@ class HealthResponse(BaseModel):
     status: str
 
 
-class RegistryStatus(BaseModel):
-    synced: bool
-    expected_version: str
-    current_version: str | None
-
-
-class ReadinessResponse(BaseModel):
-    status: str
-    registry: RegistryStatus
-
-
 @app.get("/", include_in_schema=False)
 def root() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -611,7 +708,7 @@ class AppInfo(BaseModel):
 
 
 @app.get("/info", include_in_schema=False)
-async def info(session: AsyncDBSession) -> AppInfo:
+async def info(session: AsyncDBSessionBypass) -> AppInfo:
     """Non-sensitive information about the platform, for frontend configuration."""
 
     keys = {"saml_enabled", "saml_enforced"}
@@ -619,11 +716,17 @@ async def info(session: AsyncDBSession) -> AppInfo:
     # Use default organization for platform-level settings.
     # Org-specific auth routing is handled by the /auth/discover endpoint.
     org_id = await get_default_organization_id(session)
-    service = SettingsService(session, role=bootstrap_role(org_id))
+    role = bootstrap_role(org_id)
+    await set_rls_context_from_role(session, role)
+    service = SettingsService(session, role=role)
     settings = await service.list_org_settings(keys=keys)
     keyvalues = {s.key: service.get_value(s) for s in settings}
     for key in keys:
-        keyvalues[key] = get_setting_override(key) or keyvalues[key]
+        override_val = get_setting_override(key)
+        if override_val is not None:
+            keyvalues[key] = override_val
+        else:
+            keyvalues[key] = keyvalues.get(key, False)
     return AppInfo(
         version=APP_VERSION,
         public_app_url=config.TRACECAT__PUBLIC_APP_URL,
@@ -635,49 +738,5 @@ async def info(session: AsyncDBSession) -> AppInfo:
 
 
 @app.get("/health", tags=["public"])
-def check_health() -> HealthResponse:
+async def check_health() -> HealthResponse:
     return HealthResponse(status="ok")
-
-
-@app.get("/ready", tags=["public"])
-async def check_ready(session: AsyncDBSession) -> ReadinessResponse:
-    """Readiness check - returns 200 only after startup and registry sync complete.
-
-    Use this endpoint for Docker healthchecks to ensure the API has finished
-    initializing and the platform registry is synced before accepting traffic.
-
-    Returns a detailed response including registry sync status.
-    """
-    expected_version = tracecat_registry.__version__
-
-    # Check registry sync status
-    repos_service = PlatformRegistryReposService(session)
-    repo = await repos_service.get_repository(DEFAULT_REGISTRY_ORIGIN)
-
-    if repo is None or repo.current_version is None:
-        registry_status = RegistryStatus(
-            synced=False,
-            expected_version=expected_version,
-            current_version=None,
-        )
-    else:
-        registry_status = RegistryStatus(
-            synced=repo.current_version.version == expected_version,
-            expected_version=expected_version,
-            current_version=repo.current_version.version,
-        )
-
-    # Not ready if registry is not synced
-    if not registry_status.synced:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=ReadinessResponse(
-                status="not_ready",
-                registry=registry_status,
-            ).model_dump(),
-        )
-
-    return ReadinessResponse(
-        status="ready",
-        registry=registry_status,
-    )

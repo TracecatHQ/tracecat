@@ -8,10 +8,13 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, is_cancelled_exception
 
 from tracecat.auth.types import Role
 from tracecat.dsl.action import ScatterActionInput
+
+_SCHEDULER_TASK_SPAWN_YIELD_EVERY = 16
+"""Yield while spawning ready task coroutines to avoid long workflow activations."""
 
 with workflow.unsafe.imports_passed_through():
     from pydantic_core import to_json
@@ -40,6 +43,10 @@ with workflow.unsafe.imports_passed_through():
         SkipStrategy,
         StreamErrorHandlingStrategy,
     )
+    from tracecat.dsl.error_transport import (
+        ActionErrorTransportDetail,
+        parse_classified_action_error_payload,
+    )
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
         ActionStatement,
@@ -53,7 +60,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.types import (
         ActionErrorInfo,
-        ActionErrorInfoAdapter,
         Task,
         TaskExceptionInfo,
     )
@@ -61,6 +67,13 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
+    from tracecat.runtime.errors import (
+        RetryDisposition,
+        RuntimeErrorClassification,
+        RuntimeErrorKind,
+        RuntimeErrorOwner,
+        select_error_classification,
+    )
     from tracecat.storage.object import (
         CollectionObject,
         InlineObject,
@@ -69,6 +82,12 @@ with workflow.unsafe.imports_passed_through():
         action_collection_prefix,
         action_key,
     )
+    from tracecat.temporal.errors import (
+        application_error_from_classification,
+        build_error_transport_detail,
+        extract_error_classification,
+    )
+    from tracecat.temporal.patches import WorkflowPatch
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -86,6 +105,85 @@ def _get_collection_size(stored: StoredObject) -> int:
                 f"Expected CollectionObject or InlineObject with list data, "
                 f"got {type(stored).__name__}"
             )
+
+
+def _loop_limit_error(message: str) -> ApplicationError:
+    """Build a user-attributed failure for a workflow loop safety limit."""
+    return application_error_from_classification(
+        RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.WORKFLOW_LOOP_LIMIT_EXCEEDED,
+            message=message,
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+        )
+    )
+
+
+def _classified_action_error_info(
+    error: ApplicationError,
+    *,
+    ref: str,
+    stream_id: StreamID,
+) -> tuple[ActionErrorInfo, RuntimeErrorClassification] | None:
+    """Adapt a classified activity failure into the scheduler error shape."""
+    classification = extract_error_classification(error)
+    if classification is None:
+        return None
+
+    for detail in error.details:
+        match parse_classified_action_error_payload(detail):
+            case ActionErrorTransportDetail(diagnostic=ActionErrorInfo() as info):
+                return (
+                    info.model_copy(update={"ref": ref, "stream_id": stream_id}),
+                    classification,
+                )
+            case dict() as transport_map if transport_map:
+                # A child workflow's terminal ``{ref: detail}`` map. Ownership
+                # aggregates platform-wins across entries so a platform-owned
+                # child failure is never hidden behind an earlier user entry.
+                map_classification = select_error_classification(
+                    transport_detail.classification
+                    for transport_detail in transport_map.values()
+                )
+                children = [
+                    _action_error_from_transport_detail(child_ref, transport_detail)
+                    for child_ref, transport_detail in transport_map.items()
+                ]
+                return (
+                    ActionErrorInfo(
+                        ref=ref,
+                        message=map_classification.message,
+                        type=error.type or error.__class__.__name__,
+                        stream_id=stream_id,
+                        children=children,
+                    ),
+                    map_classification,
+                )
+            case _:
+                continue
+
+    return (
+        ActionErrorInfo(
+            ref=ref,
+            message=classification.message,
+            type=error.type or error.__class__.__name__,
+            stream_id=stream_id,
+        ),
+        classification,
+    )
+
+
+def _action_error_from_transport_detail(
+    ref: str,
+    transport_detail: ActionErrorTransportDetail,
+) -> ActionErrorInfo:
+    """Unwrap action diagnostics, synthesizing them when absent."""
+    if transport_detail.diagnostic is not None:
+        return transport_detail.diagnostic
+    return ActionErrorInfo(
+        ref=ref,
+        message=transport_detail.classification.message,
+        type=transport_detail.classification.kind.value,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +209,14 @@ class LoopRegion:
     end_ref: str
     scope_ref: str
     members: frozenset[str]
+
+
+class PlatformExecutionError(Exception):
+    """Marks legacy platform work that must bypass stream error handling."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__(str(error))
+        self.error = error
 
 
 class DSLScheduler:
@@ -158,6 +264,9 @@ class DSLScheduler:
         # Mut
         self.task_exceptions: dict[str, TaskExceptionInfo] = {}
         self.stream_exceptions: dict[StreamID, TaskExceptionInfo] = {}
+        self.stream_error_classifications: dict[
+            StreamID, RuntimeErrorClassification
+        ] = {}
 
         # Build adjacency list with sets for efficient construction
         adj_temp: dict[str, set[AdjDst]] = defaultdict(set)
@@ -249,16 +358,9 @@ class DSLScheduler:
 
         return frozenset(skip_domain - set(pinned_refs))
 
-    def _scope_is_descendant(self, scope: str, ancestor_scope: str) -> bool:
-        curr_scope = scope
-        while curr_scope is not None:
-            if curr_scope == ancestor_scope:
-                return True
-            curr_scope = self.scope_hierarchy.get(curr_scope)
-        return False
-
     def _build_loop_regions(self) -> dict[str, LoopRegion]:
-        regions: dict[str, LoopRegion] = {}
+        # Phase 1: validate each loop.end and map loop scope -> end ref.
+        loop_end_by_scope: dict[str, str] = {}
         for stmt in self.dsl.actions:
             if stmt.action != PlatformAction.LOOP_END:
                 continue
@@ -284,23 +386,37 @@ class DSLScheduler:
                 raise RuntimeError(
                     f"Loop end action {stmt.ref!r} does not match a loop start action"
                 )
-            if loop_scope in regions:
+            if loop_scope in loop_end_by_scope:
                 raise RuntimeError(
                     f"Loop start action {loop_scope!r} has multiple loop end actions"
                 )
+            loop_end_by_scope[loop_scope] = stmt.ref
 
-            members = frozenset(
-                ref
-                for ref, scope in self.action_scopes.items()
-                if self._scope_is_descendant(scope, loop_scope)
-            )
-            regions[loop_scope] = LoopRegion(
+        # Phase 2: assign membership in a single pass over all actions. Walk each
+        # action's scope chain upward once; every loop scope on the chain claims
+        # the action. O(actions x depth) total, vs O(loops x actions x depth)
+        # from re-walking the chain per loop.
+        members_by_scope: dict[str, set[str]] = {
+            scope: set() for scope in loop_end_by_scope
+        }
+        for ref, scope in self.action_scopes.items():
+            curr_scope: str | None = scope
+            while curr_scope is not None:
+                if (members := members_by_scope.get(curr_scope)) is not None:
+                    members.add(ref)
+                curr_scope = self.scope_hierarchy.get(curr_scope)
+
+        return {
+            loop_scope: LoopRegion(
                 start_ref=loop_scope,
-                end_ref=stmt.ref,
+                end_ref=end_ref,
                 scope_ref=loop_scope,
-                members=members | {stmt.ref},
+                # The end ref's own scope is the parent (it closes the loop scope),
+                # so it never appears in members_by_scope via the walk above.
+                members=frozenset(members_by_scope[loop_scope] | {end_ref}),
             )
-        return regions
+            for loop_scope, end_ref in loop_end_by_scope.items()
+        }
 
     @staticmethod
     def _stream_within(stream_id: StreamID, base_stream_id: StreamID) -> bool:
@@ -430,7 +546,9 @@ class DSLScheduler:
     def __repr__(self) -> str:
         return to_json(self.__dict__, fallback=str, indent=2).decode()
 
-    async def _handle_error_path(self, task: Task, exc: Exception) -> None:
+    async def _handle_error_path(
+        self, task: Task, exc: Exception, *, fail_workflow: bool = False
+    ) -> None:
         ref = task.ref
 
         self.logger.info(
@@ -445,13 +563,32 @@ class DSLScheduler:
             for dst, edge_type in self.adj[ref]
             if edge_type != EdgeType.ERROR
         }
-        if len(non_err_edges) < len(self.adj[ref]):
+        if len(non_err_edges) < len(self.adj[ref]) and not fail_workflow:
             await self._queue_tasks(task, unreachable=non_err_edges)
         else:
-            self.logger.info("Task failed with no error paths", task=task)
+            if fail_workflow:
+                self.logger.warning(
+                    "Task failed through the replay-compatible platform path",
+                    task=task,
+                    error=exc,
+                )
+            else:
+                self.logger.info("Task failed with no error paths", task=task)
             # XXX: This can sometimes return null because the exception isn't an ApplicationError
             # But rather a ChildWorkflowError or CancelledError
-            if isinstance(exc, ApplicationError) and exc.details:
+            if isinstance(exc, ApplicationError) and (
+                classified := _classified_action_error_info(
+                    exc,
+                    ref=ref,
+                    stream_id=task.stream_id,
+                )
+            ):
+                details, classification = classified
+                # Recorded so a later gather failure can aggregate ownership
+                # across its classified children; never pruned (bounded by
+                # failed tasks) so it survives stream cleanup.
+                self.stream_error_classifications[task.stream_id] = classification
+            elif isinstance(exc, ApplicationError) and exc.details:
                 self.logger.info(
                     "Task failed with application error",
                     ref=ref,
@@ -486,7 +623,7 @@ class DSLScheduler:
                     # it's of shape ActionErrorInfo()
                     try:
                         # This is normal action error
-                        details = ActionErrorInfo(**details)
+                        details = ActionErrorInfo.model_validate(details)
                     except Exception as e:
                         self.logger.info(
                             "Failed to parse regular application error details",
@@ -517,7 +654,7 @@ class DSLScheduler:
                     # try get the first element
                     try:
                         val = list(details.values())[0]
-                        details = ActionErrorInfo(**val)
+                        details = ActionErrorInfo.model_validate(val)
                     except Exception as e:
                         self.logger.info(
                             "Failed to parse child wf application error details",
@@ -563,10 +700,8 @@ class DSLScheduler:
                     type=exc.__class__.__name__,
                     stream_id=task.stream_id,
                 )
-            if task.stream_id == ROOT_STREAM:
-                self.logger.debug(
-                    "Setting task exception in root stream", task=task, details=details
-                )
+            if task.stream_id == ROOT_STREAM or fail_workflow:
+                self.logger.debug("Setting task exception", task=task, details=details)
                 self.task_exceptions[ref] = TaskExceptionInfo(
                     exception=exc, details=details
                 )
@@ -689,7 +824,21 @@ class DSLScheduler:
             ctx_stream_id.reset(token)
 
     async def _schedule_task(self, task: Task) -> None:
-        """Schedule a task for execution."""
+        """Schedule a task for execution.
+
+        Notes:
+            We evaluate ``run_if`` before the reachability check when possible so a
+            branch-local guard can self-skip before a mixed visited/skipped parent
+            set is treated as unreachable.
+
+            This early evaluation must be defensive. A ``run_if`` expression can
+            reference context that is not populated yet, such as a skipped or
+            otherwise unavailable upstream result. In that case ``_task_should_skip``
+            raises ``ApplicationError``. We defer that error until after the
+            reachability check so we do not replace a genuine ``TaskUnreachable``
+            outcome with a premature expression failure for a task that was never
+            runnable.
+        """
         ref = task.ref
         stmt = self.tasks[ref]
         self.logger.debug("Scheduling task", task=task)
@@ -717,15 +866,24 @@ class DSLScheduler:
                 self.logger.debug("Using pinned action result", task=task)
                 return await self._handle_success_path(task)
 
-            # 3) Then we check if the task is reachable
+            # 3) Evaluate `run_if` early when possible so branch-local guards can
+            # self-skip before mixed visited/skipped parents are treated as unreachable.
+            run_if_error: ApplicationError | None = None
+            if stmt.run_if is not None:
+                try:
+                    if await self._task_should_skip(task, stmt):
+                        self.logger.debug("Task should self-skip", task=task)
+                        return await self._handle_skip_path(task, stmt)
+                except ApplicationError as e:
+                    run_if_error = e
+
+            # 4) Then we check if the task is reachable
             if not self._is_reachable(task, stmt):
                 self.logger.debug("Task cannot proceed, unreachable", task=task)
                 raise TaskUnreachable(f"Task {task} is unreachable")
 
-            # 4) Check if the task should self-skip based on its `run_if` condition
-            if await self._task_should_skip(task, stmt):
-                self.logger.debug("Task should self-skip", task=task)
-                return await self._handle_skip_path(task, stmt)
+            if run_if_error is not None:
+                raise run_if_error
 
             # 5) If we made it here, the task is reachable and not force-skipped.
 
@@ -757,12 +915,21 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
+            if is_cancelled_exception(e) and workflow.patched(
+                WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION
+            ):
+                raise
+            exc = e.error if isinstance(e, PlatformExecutionError) else e
+            fail_workflow = isinstance(e, PlatformExecutionError)
             kind = e.__class__.__name__
-            non_retryable = getattr(e, "non_retryable", True)
+            non_retryable = getattr(exc, "non_retryable", True)
             self.logger.warning(
-                f"{kind} in DSLScheduler", ref=ref, error=e, non_retryable=non_retryable
+                f"{kind} in DSLScheduler",
+                ref=ref,
+                error=exc,
+                non_retryable=non_retryable,
             )
-            await self._handle_error_path(task, e)
+            await self._handle_error_path(task, exc, fail_workflow=fail_workflow)
         finally:
             # 5) Regardless of the outcome, the task is now complete
             self.logger.debug("Task completed", task=task)
@@ -776,7 +943,38 @@ class DSLScheduler:
             if indegree == 0:
                 self.queue.put_nowait(task_instance)
 
-        pending_tasks: set[asyncio.Task[None]] = set()
+        pending_tasks: dict[asyncio.Task[None], None] = {}
+
+        def reap_done_tasks() -> None:
+            # Workflow code must choose among concurrently completed tasks
+            # deterministically. Dict insertion order is their spawn order.
+            done_tasks = [task for task in pending_tasks if task.done()]
+            for done_task in done_tasks:
+                pending_tasks.pop(done_task)
+            first_error: BaseException | None = None
+            first_cancellation: BaseException | None = None
+            preserve_cancellation = False
+            for done_task in done_tasks:
+                try:
+                    task_error = done_task.exception()
+                except BaseException as error:
+                    task_error = error
+                if task_error is None:
+                    continue
+                if is_cancelled_exception(task_error):
+                    preserve_cancellation = (
+                        workflow.patched(WorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION)
+                        or preserve_cancellation
+                    )
+                    if first_cancellation is None:
+                        first_cancellation = task_error
+                    continue
+                if first_error is None:
+                    first_error = task_error
+            if first_error is not None:
+                raise first_error
+            if first_cancellation is not None and preserve_cancellation:
+                raise first_cancellation
 
         while not self.task_exceptions and (not self.queue.empty() or pending_tasks):
             self.logger.trace(
@@ -786,16 +984,28 @@ class DSLScheduler:
             )
 
             # Clean up completed tasks
-            done_tasks = {t for t in pending_tasks if t.done()}
-            pending_tasks.difference_update(done_tasks)
+            reap_done_tasks()
 
+            spawned_since_yield = 0
             while (
-                not self.queue.empty() and len(pending_tasks) < self.max_pending_tasks
+                not self.task_exceptions
+                and not self.queue.empty()
+                and len(pending_tasks) < self.max_pending_tasks
             ):
                 task_instance = await self.queue.get()
                 self.logger.debug("Scheduling task", task=task_instance)
                 task = asyncio.create_task(self._schedule_task(task_instance))
-                pending_tasks.add(task)
+                pending_tasks[task] = None
+                spawned_since_yield += 1
+                if spawned_since_yield % _SCHEDULER_TASK_SPAWN_YIELD_EVERY == 0:
+                    # High-fanout scatters can enqueue many ready tasks at once.
+                    # Checkpoint while spawning them so workflow activations do not
+                    # monopolize the event loop long enough to trip Temporal's
+                    # deadlock detector.
+                    await asyncio.sleep(0)
+                    reap_done_tasks()
+            if self.task_exceptions:
+                break
             if not self.queue.empty() and len(pending_tasks) >= self.max_pending_tasks:
                 self.logger.debug(
                     "Scheduler throttled by max pending task cap",
@@ -1023,12 +1233,9 @@ class DSLScheduler:
             isinstance(raw_max_iterations, int)
             and raw_max_iterations > MAX_DO_WHILE_ITERATIONS
         ):
-            raise ApplicationError(
-                (
-                    "Loop max_iterations exceeds platform cap: "
-                    f"{raw_max_iterations} > {MAX_DO_WHILE_ITERATIONS}."
-                ),
-                non_retryable=True,
+            raise _loop_limit_error(
+                "Loop max_iterations exceeds platform cap: "
+                f"{raw_max_iterations} > {MAX_DO_WHILE_ITERATIONS}."
             )
         args = LoopEndArgs(**stmt.args)
         loop_key = (region.start_ref, task.stream_id)
@@ -1064,12 +1271,9 @@ class DSLScheduler:
         if should_continue:
             next_index = current_index + 1
             if next_index >= args.max_iterations:
-                raise ApplicationError(
-                    (
-                        f"Loop '{task.ref}' exceeded max_iterations={args.max_iterations}. "
-                        "Update `condition` or increase `max_iterations`."
-                    ),
-                    non_retryable=True,
+                raise _loop_limit_error(
+                    f"Loop '{task.ref}' exceeded max_iterations={args.max_iterations}. "
+                    "Update `condition` or increase `max_iterations`."
                 )
             self._reset_loop_iteration_state(region, task.stream_id)
             self.loop_indices[loop_key] = next_index
@@ -1230,7 +1434,7 @@ class DSLScheduler:
             # Do not pass the full object as some exceptions aren't serializable
             # Access the raw list via get_data() and modify in place
             parent_action_context[gather_ref].get_data()[stream_idx] = InlineObject(
-                data=ActionErrorInfoAdapter.dump_python(err_info.details)
+                data=err_info.details.model_dump()
             )
             self.logger.debug("Set error object as result", task=task)
         else:
@@ -1553,11 +1757,45 @@ class DSLScheduler:
                 children=finalized.errors,
                 stream_id=parent_stream_id,
             )
-            app_error = ApplicationError(
-                message,
-                {gather_ref: ActionErrorInfoAdapter.dump_python(gather_error)},
-                non_retryable=True,
-            )
+            child_classifications = [
+                self.stream_error_classifications.get(child.stream_id)
+                for child in finalized.errors
+            ]
+            if all(
+                classification is not None for classification in child_classifications
+            ):
+                # Every child failure was classified: attribute the gather using
+                # the canonical platform-wins selection policy.
+                selected_child_classification = select_error_classification(
+                    classification
+                    for classification in child_classifications
+                    if classification is not None
+                )
+                build = (
+                    RuntimeErrorClassification.platform
+                    if selected_child_classification.owner is RuntimeErrorOwner.PLATFORM
+                    else RuntimeErrorClassification.user
+                )
+                gather_classification = build(
+                    kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+                    message=message,
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                )
+                app_error = application_error_from_classification(
+                    gather_classification,
+                    {
+                        gather_ref: build_error_transport_detail(
+                            gather_classification,
+                            gather_error,
+                        ).model_dump(mode="json")
+                    },
+                )
+            else:
+                app_error = ApplicationError(
+                    message,
+                    {gather_ref: gather_error.model_dump()},
+                    non_retryable=True,
+                )
             self.logger.warning(
                 "Raising gather error", errors=finalized.errors, app_error=app_error
             )

@@ -1,7 +1,8 @@
 import json
+import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import Literal
 
 import orjson
 import yaml
@@ -11,6 +12,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Path,
     Query,
     Response,
     UploadFile,
@@ -20,21 +22,32 @@ from pydantic import ValidationError
 from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.audit.logger import (
+    AuditEventDetails,
+    audit_log,
+)
 from tracecat.auth.api_keys import generate_api_key
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import (
+    WorkspaceActorRouteRole,
+    WorkspaceUserRouteRole,
+)
+from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import Webhook, WebhookApiKey, Workflow
-from tracecat.dsl.common import DSLInput
+from tracecat.db.models import WebhookApiKey, Workflow
 from tracecat.dsl.schemas import DSLConfig
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
-from tracecat.registry.lock.service import RegistryLockService
 from tracecat.settings.service import get_setting
 from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import (
@@ -42,7 +55,7 @@ from tracecat.validation.schemas import (
     ValidationResult,
     ValidationResultType,
 )
-from tracecat.validation.service import validate_dsl, validate_entrypoint_expects
+from tracecat.validation.service import validate_entrypoint_expects
 from tracecat.webhooks import service as webhook_service
 from tracecat.webhooks.schemas import (
     WebhookApiKeyGenerateResponse,
@@ -56,6 +69,7 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerCreate,
     CaseTriggerRead,
     CaseTriggerUpdate,
+    is_case_trigger_configured,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -70,6 +84,7 @@ from tracecat.workflow.management.schemas import (
     WorkflowDraftPins,
     WorkflowEntrypointValidationRequest,
     WorkflowEntrypointValidationResponse,
+    WorkflowLayout,
     WorkflowMoveToFolder,
     WorkflowRead,
     WorkflowReadMinimal,
@@ -89,7 +104,7 @@ router = APIRouter(prefix="/workflows")
 @router.get("", tags=["workflows"])
 @require_scope("workflow:read")
 async def list_workflows(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     filter_tags: list[str] | None = Query(
         default=None,
@@ -143,7 +158,7 @@ async def list_workflows(
 @router.post("/validate-entrypoint", tags=["workflows"])
 @require_scope("workflow:read")
 async def validate_workflow_entrypoint(
-    _role: WorkspaceUserRole,
+    _role: WorkspaceActorRouteRole,
     payload: WorkflowEntrypointValidationRequest,
 ) -> WorkflowEntrypointValidationResponse:
     """Validate a workflow entrypoint expects definition."""
@@ -210,7 +225,7 @@ def wfs_and_defns_to_response(
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["workflows"])
 @require_scope("workflow:create")
 async def create_workflow(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     title: str | None = Form(default=None, min_length=1, max_length=100),
     description: str | None = Form(default=None, max_length=1000),
@@ -268,6 +283,27 @@ async def create_workflow(
             workflow = await service.create_workflow_from_external_definition(
                 external_defn_data, use_workflow_id=use_workflow_id
             )
+        except BuiltinRegistryHasNoSelectionError as e:
+            error = ValidationResult.new(
+                type=ValidationResultType.DSL,
+                status="error",
+                msg=str(e),
+                detail=[
+                    ValidationDetail(
+                        type="registry.builtin_sync_pending",
+                        msg=str(e),
+                        loc=("registry_lock",),
+                    )
+                ],
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "status": "failure",
+                    "message": "1 validation error(s)",
+                    "errors": [error.root.model_dump(mode="json", exclude_none=True)],
+                },
+            ) from e
         except ValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -305,7 +341,7 @@ async def create_workflow(
 @router.get("/{workflow_id}", tags=["workflows"])
 @require_scope("workflow:read")
 async def get_workflow(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WorkflowRead:
@@ -349,6 +385,7 @@ async def get_workflow(
         alias=workflow.alias,
         git_sync_branch=workflow.git_sync_branch,
         error_handler=workflow.error_handler,
+        folder_id=workflow.folder_id,
         trigger_position_x=workflow.trigger_position_x,
         trigger_position_y=workflow.trigger_position_y,
         graph_version=workflow.graph_version,
@@ -365,7 +402,7 @@ async def get_workflow(
 )
 @require_scope("workflow:update")
 async def update_workflow(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WorkflowUpdate,
@@ -402,7 +439,7 @@ async def update_workflow(
 )
 @require_scope("workflow:delete")
 async def delete_workflow(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> None:
@@ -420,124 +457,45 @@ async def delete_workflow(
 @router.post("/{workflow_id}/commit", tags=["workflows"])
 @require_scope("workflow:update")
 async def commit_workflow(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WorkflowCommitResponse:
     """Commit a workflow.
 
-    This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
-
-    # XXX: This is actually the logical equivalent of creating a workflow definition (deployment)
-    # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
+    This deploys the workflow and updates its version, delegating to the shared
+    ``WorkflowsManagementService.publish_workflow`` so the build/validate/lock/
+    commit orchestration lives in one place (also used by the MCP publish tool
+    and the internal publish route)."""
 
     mgmt_service = WorkflowsManagementService(session, role=role)
-    workflow = await mgmt_service.get_workflow(workflow_id)
-    if not workflow:
+    try:
+        result = await mgmt_service.publish_workflow(workflow_id)
+    except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Could not find workflow"
-        )
+        ) from e
 
-    # Perform Tiered Validation
-    # Tier 1: DSLInput validation
-    # Verify that the workflow DSL is structurally sound
-    construction_errors: list[ValidationResult] = []
-    dsl: DSLInput | None = None
-    try:
-        # Convert the workflow into a WorkflowDefinition
-        # XXX: When we commit from the workflow, we have action IDs
-        dsl = await mgmt_service.build_dsl_from_workflow(workflow)
-    except TracecatValidationError as e:
-        logger.info("Custom validation error in DSL", e=e)
-        construction_errors.append(
-            ValidationResult.new(
-                type=ValidationResultType.DSL,
-                status="error",
-                msg=str(e),
-                detail=e.detail,
-            )
-        )
-    except ValidationError as e:
-        logger.info("Pydantic validation error in DSL", e=e)
-        construction_errors.append(
-            ValidationResult.new(
-                type=ValidationResultType.DSL,
-                status="error",
-                msg=str(e),
-                detail=ValidationDetail.list_from_pydantic(e),
-            )
-        )
-
-    if construction_errors:
+    if not result.ok:
         return WorkflowCommitResponse(
             workflow_id=workflow_id.short(),
             status="failure",
-            message=f"Workflow definition construction failed with {len(construction_errors)} errors",
-            errors=construction_errors,
+            message=f"{len(result.errors)} validation error(s)",
+            errors=result.errors,
         )
-
-    if dsl is None:
-        raise ValueError("dsl should be defined if no construction errors")
-    # When we're here, we've verified that the workflow DSL is structurally sound
-    # Now, we have to ensure that the arguments are sound
-
-    if val_errors := await validate_dsl(session=session, dsl=dsl, role=role):
-        logger.info("Validation errors", errors=val_errors)
-        return WorkflowCommitResponse(
-            workflow_id=workflow_id.short(),
-            status="failure",
-            message=f"{len(val_errors)} validation error(s)",
-            errors=list(val_errors),
-        )
-
-    # Validation is complete. We can now construct the workflow definition
-    # Phase 1: Create workflow definition
-    # Workflow definition uses action.refs to refer to actions
-    # We should only instantiate action refs at workflow runtime
-    service = WorkflowDefinitionsService(session, role=role)
-
-    # Always resolve registry_lock from current DSL actions
-    # This ensures the lock reflects the actual actions in the workflow, not stale data
-    lock_service = RegistryLockService(session, role)
-    action_names = {action.action for action in dsl.actions}
-    registry_lock = await lock_service.resolve_lock_with_bindings(action_names)
-    # Update the workflow with the newly computed lock
-    workflow.registry_lock = registry_lock.model_dump()
-
-    # Creating a workflow definition only uses refs
-    # Copy the alias from the draft workflow to the committed definition
-    # Pass the registry_lock to freeze it with this definition
-    defn = await service.create_workflow_definition(
-        workflow_id,
-        dsl,
-        alias=workflow.alias,
-        registry_lock=registry_lock,
-        commit=False,
-    )
-
-    # Update Workflow
-    # We don't need to backpropagate the graph to the workflow beacuse the workflow is the source of truth
-    # We only need to update the workflow definition version
-    workflow.version = defn.version
-
-    session.add(workflow)
-    session.add(defn)
-    await session.commit()
-    await session.refresh(workflow)
-    await session.refresh(defn)
 
     return WorkflowCommitResponse(
         workflow_id=workflow_id.short(),
         status="success",
         message="Workflow committed successfully.",
-        metadata={"version": defn.version},
+        metadata={"version": result.version},
     )
 
 
 @router.get("/{workflow_id}/export", tags=["workflows"])
 @require_scope("workflow:read")
 async def export_workflow(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     format: Literal["json", "yaml"] = Query(
@@ -599,19 +557,26 @@ async def export_workflow(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot export draft: {e}",
             ) from e
-        external_defn = ExternalWorkflowDefinition(
-            workspace_id=workflow.workspace_id,
-            workflow_id=WorkflowUUID.new(workflow.id),
-            definition=dsl,
-            case_trigger=CaseTriggerConfig.model_validate(
+        case_trigger = None
+        if workflow.case_trigger and is_case_trigger_configured(
+            status=workflow.case_trigger.status,
+            event_types=workflow.case_trigger.event_types,
+            tag_filters=workflow.case_trigger.tag_filters,
+        ):
+            case_trigger = CaseTriggerConfig.model_validate(
                 {
                     "status": workflow.case_trigger.status,
                     "event_types": workflow.case_trigger.event_types,
                     "tag_filters": workflow.case_trigger.tag_filters,
                 }
             )
-            if workflow.case_trigger
-            else None,
+
+        external_defn = ExternalWorkflowDefinition(
+            workspace_id=workflow.workspace_id,
+            workflow_id=WorkflowUUID.new(workflow.id),
+            definition=dsl,
+            layout=WorkflowLayout.from_workflow(workflow),
+            case_trigger=case_trigger,
         )
     else:
         # Existing behavior: fetch from WorkflowDefinition
@@ -651,7 +616,7 @@ async def export_workflow(
 @router.get("/{workflow_id}/definitions", tags=["workflows"])
 @require_scope("workflow:read")
 async def list_workflow_definitions(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> list[WorkflowDefinitionRead]:
@@ -661,10 +626,66 @@ async def list_workflow_definitions(
     return WorkflowDefinitionRead.list_adapter().validate_python(defns)
 
 
+@router.post(
+    "/{workflow_id}/definitions/{version}/restore",
+    tags=["workflows"],
+    response_model=WorkflowRead,
+)
+@require_scope("workflow:update")
+async def restore_workflow_definition(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+    version: int = Path(..., ge=1),
+) -> WorkflowRead:
+    """Restore a saved workflow definition as the current published version."""
+    mgmt_service = WorkflowsManagementService(session, role=role)
+    workflow = await mgmt_service.get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    defn_service = WorkflowDefinitionsService(session, role=role)
+    definition = await defn_service.get_definition_by_workflow_id(
+        workflow_id, version=version
+    )
+    if definition is None or definition.workflow_id != workflow.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow definition not found",
+        )
+
+    try:
+        await mgmt_service.restore_workflow_definition(workflow, definition)
+    except (TracecatValidationError, ValidationError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except IntegrityError as e:
+        while cause := e.__cause__:
+            e = cause
+        if isinstance(
+            e, UniqueViolationError
+        ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(e):
+            logger.warning("Unique violation error", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Workflow already exists",
+        ) from e
+    return await get_workflow(role=role, session=session, workflow_id=workflow_id)
+
+
 @router.get("/{workflow_id}/definition", tags=["workflows"])
 @require_scope("workflow:read")
 async def get_workflow_definition(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     version: int | None = None,
@@ -684,7 +705,7 @@ async def get_workflow_definition(
 @router.post("/{workflow_id}/definition", tags=["workflows"])
 @require_scope("workflow:create")
 async def create_workflow_definition(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WorkflowDefinitionRead:
@@ -695,6 +716,71 @@ async def create_workflow_definition(
 # ----- Workflow Webhooks ----- #
 
 
+async def _get_webhook_key_audit_target(
+    role: Role,
+    session: AsyncSession,
+    workflow_id: WorkflowUUID,
+) -> tuple[uuid.UUID | None, uuid.UUID | None]:
+    if role.workspace_id is None:
+        return None, None
+    webhook = await webhook_service.get_webhook(
+        session=session,
+        workspace_id=role.workspace_id,
+        workflow_id=workflow_id,
+    )
+    if webhook is None:
+        return None, None
+    api_key_id = await session.scalar(
+        select(WebhookApiKey.id).where(WebhookApiKey.webhook_id == webhook.id)
+    )
+    return webhook.id, api_key_id
+
+
+async def _generate_webhook_key_audit_details(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> AuditEventDetails:
+    webhook_id, api_key_id = await _get_webhook_key_audit_target(
+        role, session, workflow_id
+    )
+    return AuditEventDetails(
+        action="create" if api_key_id is None else "rotate",
+        resource_id=api_key_id,
+        data={
+            "webhook_id": str(webhook_id) if webhook_id is not None else None,
+        },
+    )
+
+
+# Shared by revoke and delete: both endpoints have identical signatures, so
+# one callback satisfies both decorators.
+async def _webhook_key_target_audit_details(
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> AuditEventDetails:
+    webhook_id, api_key_id = await _get_webhook_key_audit_target(
+        role, session, workflow_id
+    )
+    return AuditEventDetails(
+        resource_id=api_key_id,
+        data={
+            "webhook_id": str(webhook_id) if webhook_id is not None else None,
+        },
+    )
+
+
+async def _webhook_key_audit_result(
+    _result: WebhookApiKeyGenerateResponse,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> AuditEventDetails:
+    _, api_key_id = await _get_webhook_key_audit_target(role, session, workflow_id)
+    return AuditEventDetails(resource_id=api_key_id)
+
+
 @router.post(
     "/{workflow_id}/webhook",
     status_code=status.HTTP_201_CREATED,
@@ -702,7 +788,7 @@ async def create_workflow_definition(
 )
 @require_scope("workflow:update")
 async def create_webhook(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WebhookCreate,
@@ -712,17 +798,12 @@ async def create_webhook(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
-
-    webhook = Webhook(
-        workspace_id=role.workspace_id,
-        methods=cast(list[str], params.methods),
+    await webhook_service.create_webhook(
+        role=role,
+        session=session,
         workflow_id=workflow_id,
-        status=params.status,
-        allowlisted_cidrs=params.allowlisted_cidrs,
+        params=params,
     )
-    session.add(webhook)
-    await session.commit()
-    await session.refresh(webhook)
 
 
 @router.get(
@@ -731,7 +812,7 @@ async def create_webhook(
 )
 @require_scope("workflow:read")
 async def get_webhook(
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WebhookRead:
@@ -759,34 +840,21 @@ async def get_webhook(
 )
 @require_scope("workflow:update")
 async def update_webhook(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WebhookUpdate,
 ) -> None:
     """Update the webhook for a workflow. We currently supprt only one webhook per workflow."""
-    result = await session.execute(
-        select(Workflow).where(
-            Workflow.workspace_id == role.workspace_id,
-            Workflow.id == workflow_id,
-        )
-    )
     try:
-        workflow = result.scalar_one()
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
-
-    webhook = workflow.webhook
-
-    for key, value in params.model_dump(exclude_unset=True).items():
-        # Safety: params have been validated
-        setattr(webhook, key, value)
-
-    session.add(webhook)
-    await session.commit()
-    await session.refresh(webhook)
+        await webhook_service.update_webhook(
+            role=role,
+            session=session,
+            workflow_id=workflow_id,
+            params=params,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 # ----- Workflow Case Triggers ----- #
@@ -800,7 +868,7 @@ async def update_webhook(
 )
 @require_scope("workflow:create")
 async def create_case_trigger(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: CaseTriggerCreate,
@@ -825,7 +893,7 @@ async def create_case_trigger(
 )
 @require_scope("workflow:read")
 async def get_case_trigger(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> CaseTriggerRead:
@@ -845,7 +913,7 @@ async def get_case_trigger(
 )
 @require_scope("workflow:update")
 async def update_case_trigger(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: CaseTriggerUpdate,
@@ -868,8 +936,14 @@ async def update_case_trigger(
     status_code=status.HTTP_201_CREATED,
 )
 @require_scope("workflow:update")
+@audit_log(
+    resource_type="webhook_api_key",
+    action="create",
+    attempt_metadata=_generate_webhook_key_audit_details,
+    terminal_metadata=_webhook_key_audit_result,
+)
 async def generate_webhook_api_key(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WebhookApiKeyGenerateResponse:
@@ -879,7 +953,9 @@ async def generate_webhook_api_key(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
     webhook = await webhook_service.get_webhook(
-        session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
+        session=session,
+        workspace_id=role.workspace_id,
+        workflow_id=workflow_id,
     )
     if webhook is None:
         raise HTTPException(
@@ -922,8 +998,13 @@ async def generate_webhook_api_key(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 @require_scope("workflow:update")
+@audit_log(
+    resource_type="webhook_api_key",
+    action="revoke",
+    attempt_metadata=_webhook_key_target_audit_details,
+)
 async def revoke_webhook_api_key(
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> None:
@@ -933,7 +1014,9 @@ async def revoke_webhook_api_key(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
     webhook = await webhook_service.get_webhook(
-        session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
+        session=session,
+        workspace_id=role.workspace_id,
+        workflow_id=workflow_id,
     )
     if webhook is None:
         raise HTTPException(
@@ -941,9 +1024,7 @@ async def revoke_webhook_api_key(
         )
     now = datetime.now(UTC)
     api_key = webhook.api_key
-    if api_key is None:
-        return
-    if api_key.revoked_at is not None:
+    if api_key is None or api_key.revoked_at is not None:
         return
     api_key.revoked_at = now
     api_key.revoked_by = role.user_id
@@ -958,8 +1039,13 @@ async def revoke_webhook_api_key(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 @require_scope("workflow:delete")
+@audit_log(
+    resource_type="webhook_api_key",
+    action="delete",
+    attempt_metadata=_webhook_key_target_audit_details,
+)
 async def delete_webhook_api_key(
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> None:
@@ -969,7 +1055,9 @@ async def delete_webhook_api_key(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
     webhook = await webhook_service.get_webhook(
-        session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
+        session=session,
+        workspace_id=role.workspace_id,
+        workflow_id=workflow_id,
     )
     if webhook is None:
         raise HTTPException(
@@ -988,7 +1076,7 @@ async def delete_webhook_api_key(
 )
 @require_scope("workflow:update")
 async def move_workflow_to_folder(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WorkflowMoveToFolder,

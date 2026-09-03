@@ -1,0 +1,60 @@
+type: action
+definition:
+  title: Run job
+  description: Start a run of an existing job.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/jobs/jobs.html#databricks.sdk.service.jobs.JobsExt.run_now
+  namespace: tools.databricks
+  name: run_job
+  expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
+    job_id:
+      type: int
+      description: Identifier of the job to run.
+    idempotency_token:
+      type: str | None
+      description: Token used to guarantee idempotency of the run request.
+      default: null
+    job_parameters:
+      # Free-form: parameter names are defined by the target Databricks job.
+      type: dict[str, str] | None
+      description: Job-level parameter values for the run.
+      default: null
+    notebook_params:
+      # Free-form: parameter names are defined by the target notebook task.
+      type: dict[str, str] | None
+      description: Parameters to pass to notebook tasks.
+      default: null
+    python_named_params:
+      # Free-form: parameter names are defined by the target Python wheel task.
+      type: dict[str, str] | None
+      description: Named parameters to pass to Python wheel tasks.
+      default: null
+    python_params:
+      type: list[str] | None
+      description: Parameters to pass to Python tasks.
+      default: null
+    sql_params:
+      # Free-form: parameter names are defined by the target SQL task.
+      type: dict[str, str] | None
+      description: Parameters to pass to SQL tasks.
+      default: null
+  steps:
+    - ref: run_job
+      action: tools.databricks_sdk.call_method
+      args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
+        service: jobs
+        method_name: run_now
+        params:
+          job_id: ${{ inputs.job_id }}
+          idempotency_token: ${{ inputs.idempotency_token }}
+          job_parameters: ${{ inputs.job_parameters }}
+          notebook_params: ${{ inputs.notebook_params }}
+          python_named_params: ${{ inputs.python_named_params }}
+          python_params: ${{ inputs.python_params }}
+          sql_params: ${{ inputs.sql_params }}
+  returns: ${{ steps.run_job.result }}

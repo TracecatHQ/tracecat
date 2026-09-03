@@ -24,6 +24,8 @@ export const TRACECAT_COMPONENT_KEY = "x-tracecat-component" as const
 
 export type TcJsonSchemaExtra = {
   [TRACECAT_COMPONENT_KEY]?: TracecatEditorComponent[]
+  deprecated?: boolean
+  "x-tracecat-deprecation-message"?: string
 }
 
 export function isTracecatJsonSchema(

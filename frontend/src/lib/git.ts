@@ -1,10 +1,39 @@
 import { z } from "zod"
 
 export const GIT_SSH_URL_REGEX =
-  /^git\+ssh:\/\/git@(?<hostname>[^/:]+)(?::(?<port>\d+))?\/(?<path>[^/@]+(?:\/[^/@]+)+)(?:\.git)?(?:@(?<ref>[^/@]+))?$/
+  /^git\+ssh:\/\/(?<user>[^/@:]+)@(?<hostname>[^/:]+)(?::(?<port>\d+))?\/(?<path>[^/@]+(?:\/[^/@]+)+)(?:\.git)?(?:@(?<ref>[^@]+))?$/
 
 // Mirrors the backend validation in tracecat/git/constants.py but enforces at least
 // an <org>/<repo> path structure on the client.
+
+/**
+ * Extract the `<org>/<repo>` display name from a Git SSH URL.
+ *
+ * @param url - A `git+ssh://` repository URL.
+ * @returns The `<org>/<repo>` path without the `.git` suffix, or `null` if the
+ *   URL cannot be parsed.
+ */
+export function getRepoDisplayName(
+  url: string | null | undefined
+): string | null {
+  if (!url) return null
+  const match = GIT_SSH_URL_REGEX.exec(url)
+  const path = match?.groups?.path
+  if (!path) return null
+  // The `path` capture group is greedy and includes a trailing `.git`.
+  return path.replace(/\.git$/, "")
+}
+
+/**
+ * Extract the `@ref` suffix from a Git SSH URL.
+ *
+ * @param url - A `git+ssh://` repository URL.
+ * @returns The branch, tag, or commit after `@`, or `null` when the URL has
+ *   no ref or cannot be parsed.
+ */
+export function getRepoRef(url: string): string | null {
+  return GIT_SSH_URL_REGEX.exec(url)?.groups?.ref ?? null
+}
 
 export function validateGitSshUrl(
   url: string | null | undefined,
@@ -22,15 +51,17 @@ export function validateGitSshUrl(
     return
   }
 
-  if (!url.includes("git@")) {
+  const protocolWithoutScheme = url.replace("git+ssh://", "")
+
+  if (!protocolWithoutScheme.includes("@")) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "URL must include 'git@' user specification",
+      message: "URL must include an SSH user (e.g., git@ or someuser@)",
     })
     return
   }
 
-  const afterProtocol = url.replace("git+ssh://git@", "")
+  const afterProtocol = protocolWithoutScheme
   const firstSlashIndex = afterProtocol.indexOf("/")
 
   if (firstSlashIndex === -1) {
@@ -88,6 +119,6 @@ export function validateGitSshUrl(
   ctx.addIssue({
     code: z.ZodIssueCode.custom,
     message:
-      "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)",
+      "Must be a valid Git SSH URL (e.g., git+ssh://<user>@github.com/org/repo.git)",
   })
 }

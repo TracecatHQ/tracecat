@@ -1,15 +1,42 @@
+from typing import Any
+from unittest.mock import AsyncMock
+
 import pytest
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.cases.enums import CaseEventType
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import CaseTrigger, Workflow
+from tracecat.db.models import CaseTrigger, Workflow, WorkflowDefinition
+from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig, CaseTriggerUpdate
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+def _runnable_definition_content() -> dict[str, Any]:
+    dsl = DSLInput.model_validate(
+        {
+            "title": "Runnable workflow",
+            "description": "Test workflow",
+            "entrypoint": {"ref": "start"},
+            "actions": [
+                {
+                    "ref": "start",
+                    "action": "core.transform.reshape",
+                    "args": {"value": "ok"},
+                }
+            ],
+        }
+    )
+    return dsl.model_dump(exclude_unset=True)
+
+
+def _case_closed_event_types() -> list[CaseEventType]:
+    return [CaseEventType.CASE_CLOSED]
 
 
 @pytest.mark.anyio
@@ -46,6 +73,158 @@ async def test_case_trigger_update_requires_events_when_online(
         await service.update_case_trigger(
             WorkflowUUID.new(workflow.id), CaseTriggerUpdate(status="online")
         )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_update_requires_published_definition_when_online(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Draft",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.flush()
+
+    case_trigger = CaseTrigger(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=workflow.id,
+        status="offline",
+        event_types=[],
+        tag_filters=[],
+    )
+    session.add(case_trigger)
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    with pytest.raises(TracecatValidationError, match="Publish the workflow"):
+        await service.update_case_trigger(
+            WorkflowUUID.new(workflow.id),
+            CaseTriggerUpdate(status="online", event_types=_case_closed_event_types()),
+        )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_update_requires_current_definition_when_online(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Missing Current Definition",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+        version=2,
+    )
+    session.add(workflow)
+    await session.flush()
+
+    session.add(
+        WorkflowDefinition(
+            workspace_id=svc_role.workspace_id,
+            workflow_id=workflow.id,
+            version=1,
+            content=_runnable_definition_content(),
+        )
+    )
+    session.add(
+        CaseTrigger(
+            workspace_id=svc_role.workspace_id,
+            workflow_id=workflow.id,
+            status="offline",
+            event_types=[],
+            tag_filters=[],
+        )
+    )
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    with pytest.raises(TracecatValidationError, match="Publish the workflow"):
+        await service.update_case_trigger(
+            WorkflowUUID.new(workflow.id),
+            CaseTriggerUpdate(status="online", event_types=_case_closed_event_types()),
+        )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_update_allows_online_with_current_definition(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Published",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+        version=1,
+    )
+    session.add(workflow)
+    await session.flush()
+
+    session.add(
+        WorkflowDefinition(
+            workspace_id=svc_role.workspace_id,
+            workflow_id=workflow.id,
+            version=1,
+            content=_runnable_definition_content(),
+        )
+    )
+    session.add(
+        CaseTrigger(
+            workspace_id=svc_role.workspace_id,
+            workflow_id=workflow.id,
+            status="offline",
+            event_types=[],
+            tag_filters=[],
+        )
+    )
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    updated = await service.update_case_trigger(
+        WorkflowUUID.new(workflow.id),
+        CaseTriggerUpdate(status="online", event_types=_case_closed_event_types()),
+    )
+
+    assert updated.status == "online"
+    assert updated.event_types == ["case_closed"]
+
+
+@pytest.mark.anyio
+async def test_sync_case_trigger_allows_online_without_entitlement_check(
+    session: AsyncSession, svc_role, monkeypatch: pytest.MonkeyPatch
+):
+    workflow = Workflow(
+        title="Synced Case Trigger",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+        version=1,
+    )
+    session.add(workflow)
+    await session.flush()
+
+    session.add(
+        WorkflowDefinition(
+            workspace_id=svc_role.workspace_id,
+            workflow_id=workflow.id,
+            version=1,
+            content=_runnable_definition_content(),
+        )
+    )
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    mock_require_entitlement = AsyncMock(side_effect=AssertionError)
+    monkeypatch.setattr(service, "require_entitlement", mock_require_entitlement)
+    updated = await service.sync_case_trigger(
+        WorkflowUUID.new(workflow.id),
+        CaseTriggerConfig(status="online", event_types=_case_closed_event_types()),
+    )
+
+    assert updated.status == "online"
+    assert updated.event_types == ["case_closed"]
+    mock_require_entitlement.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -143,3 +322,96 @@ async def test_case_trigger_update_clears_tag_filters_on_null(
     )
 
     assert updated.tag_filters == []
+
+
+@pytest.mark.anyio
+async def test_get_case_trigger_backfills_missing_default(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Backfill",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    case_trigger = await service.get_case_trigger(WorkflowUUID.new(workflow.id))
+
+    assert case_trigger.workflow_id == workflow.id
+    assert case_trigger.status == "offline"
+    assert case_trigger.event_types == []
+    assert case_trigger.tag_filters == []
+
+
+@pytest.mark.anyio
+async def test_get_case_trigger_commit_false_does_not_persist_on_rollback(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Rollback",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+    workflow_id = workflow.id
+
+    service = CaseTriggersService(session, role=svc_role)
+    case_trigger = await service._ensure_case_trigger_exists(
+        WorkflowUUID.new(workflow_id), commit=False
+    )
+
+    assert case_trigger.workflow_id == workflow_id
+    first_trigger_id = case_trigger.id
+
+    await session.rollback()
+
+    reloaded_service = CaseTriggersService(session, role=svc_role)
+    refreshed = await reloaded_service._ensure_case_trigger_exists(
+        WorkflowUUID.new(workflow_id), commit=False
+    )
+
+    assert refreshed.id != first_trigger_id
+
+
+@pytest.mark.anyio
+async def test_update_case_trigger_acquires_workflow_lock(
+    session: AsyncSession, svc_role, monkeypatch
+):
+    workflow = Workflow(
+        title="Case Trigger Lock",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.flush()
+
+    case_trigger = CaseTrigger(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=workflow.id,
+        status="offline",
+        event_types=[],
+        tag_filters=[],
+    )
+    session.add(case_trigger)
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    locked_workflow_ids: list[WorkflowUUID] = []
+
+    async def _lock_workflow(workflow_id: WorkflowUUID) -> None:
+        locked_workflow_ids.append(WorkflowUUID.new(workflow_id))
+
+    monkeypatch.setattr(service, "_lock_workflow", _lock_workflow)
+    await service.update_case_trigger(
+        WorkflowUUID.new(workflow.id),
+        CaseTriggerUpdate(status="offline"),
+        commit=False,
+    )
+
+    assert locked_workflow_ids == [WorkflowUUID.new(workflow.id)]

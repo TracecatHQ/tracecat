@@ -3,7 +3,7 @@ definition:
   title: Search events
   description: Search events from Splunk.
   display_group: Splunk
-  doc_url: https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTsearch#search.2Fjobs
+  doc_url: https://help.splunk.com/en?resourceId=Splunk_RESTREF_RESTsearch&version=splunk-9_4#search.2Fjobs
   name: search_events
   namespace: tools.splunk
   secrets:
@@ -35,6 +35,10 @@ definition:
       type: bool
       description: Whether to verify SSL certificates.
       default: true
+    include_headers:
+      type: bool
+      description: Include headers in the response?
+      default: false
   steps:
     - ref: search_job
       action: core.http_request
@@ -53,4 +57,4 @@ definition:
           output_mode: json
           max_count: ${{ inputs.limit }}
           count: 0
-  returns: ${{ steps.search_job.result.data }}
+  returns: ${{ inputs.include_headers && steps.search_job.result || steps.search_job.result.data }}

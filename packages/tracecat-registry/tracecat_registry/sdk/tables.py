@@ -51,6 +51,46 @@ class TablesClient:
         """Get table metadata and columns by name."""
         return await self._client.get(f"/tables/{name}/metadata")
 
+    async def update_table(
+        self,
+        *,
+        name: str,
+        new_name: str,
+    ) -> types.TableRead:
+        """Rename a table by name."""
+        return await self._client.patch(f"/tables/{name}", json={"name": new_name})
+
+    async def create_column(
+        self,
+        *,
+        table: str,
+        column: dict[str, Any],
+    ) -> types.TableRead:
+        """Create a column on a table by name."""
+        return await self._client.post(f"/tables/{table}/columns", json=column)
+
+    async def update_column(
+        self,
+        *,
+        table: str,
+        column: str,
+        update: dict[str, Any],
+    ) -> types.TableRead:
+        """Update a column on a table by table and column name."""
+        return await self._client.patch(
+            f"/tables/{table}/columns/{column}",
+            json=update,
+        )
+
+    async def delete_column(
+        self,
+        *,
+        table: str,
+        column: str,
+    ) -> types.TableRead:
+        """Delete a column from a table by table and column name."""
+        return await self._client.delete(f"/tables/{table}/columns/{column}")
+
     async def lookup(
         self,
         *,

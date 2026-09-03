@@ -13,32 +13,42 @@ from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
+from temporalio.client import WorkflowFailureError
 
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_role
-from tracecat.registry.actions.schemas import RegistryActionCreate
+from tracecat.exceptions import TracecatNotFoundError
+from tracecat.registry.actions.schemas import (
+    RegistryActionCreate,
+    RegistryActionValidationErrorInfo,
+)
+from tracecat.registry.artifact_keys import get_artifact_s3_key
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
+    REGISTRY_GIT_SSH_KEY_SECRET_NAME,
 )
+from tracecat.registry.sync.artifact import (
+    RegistryArtifactBuildError,
+    RegistryArtifactBuildResult,
+    build_artifact_from_git,
+    build_artifact_from_path,
+    build_builtin_registry_artifact,
+    upload_squashfs_venv,
+)
+from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
 from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
-from tracecat.registry.sync.tarball import (
-    TarballBuildError,
-    TarballVenvBuildResult,
-    build_builtin_registry_tarball_venv,
-    build_tarball_venv_from_git,
-    build_tarball_venv_from_path,
-    get_tarball_venv_s3_key,
-    upload_tarball_venv,
-)
 from tracecat.registry.versions.schemas import (
     RegistryVersionCreate,
     RegistryVersionManifest,
 )
+from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseService
 from tracecat.storage import blob
+from tracecat.temporal.errors import extract_error_classifications
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -89,9 +99,9 @@ class VersionsServiceProtocol[VersionT: VersionProtocol](Protocol):
 
 @dataclass
 class ArtifactsBuildResult:
-    """Result of building and uploading tarball artifacts."""
+    """Result of building and uploading execution artifacts."""
 
-    tarball_uri: str
+    artifact_uri: str
 
 
 @dataclass
@@ -100,7 +110,7 @@ class BaseSyncResult[VersionT: VersionProtocol]:
 
     version: VersionT
     actions: list[RegistryActionCreate]
-    tarball_uri: str
+    artifact_uri: str
     commit_sha: str | None = None
 
     @property
@@ -227,10 +237,43 @@ class BaseRegistrySyncService[
         return version, None
 
     def _generate_collision_version(self, base_version: str) -> str:
-        """Generate a unique dev version for same-version manifest changes."""
+        """Append a unique local collision label without changing the release."""
         suffix = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
-        tiebreaker = uuid.uuid4().int % 1_000_000
-        return f"{base_version}.dev{suffix}{tiebreaker:06d}"
+        tiebreaker = cast(int, uuid.uuid4().int) % 1_000_000
+        collision_label = f"collision.{suffix}.{tiebreaker:06d}"
+        separator = "." if "+" in base_version else "+"
+        return f"{base_version}{separator}{collision_label}"
+
+    def _build_validation_failure_message(
+        self,
+        validation_errors: dict[str, list[RegistryActionValidationErrorInfo]],
+    ) -> str:
+        total_errors = sum(len(errs) for errs in validation_errors.values())
+        action_name = next(iter(validation_errors), "<unknown>")
+        first_error = (
+            validation_errors[action_name][0]
+            if validation_errors[action_name]
+            else None
+        )
+
+        first_detail = ""
+        if first_error is not None:
+            details = getattr(first_error, "details", None)
+            if isinstance(details, list) and details:
+                first_detail = str(details[0])
+
+        suffix = (
+            f" First error in '{action_name}': {first_detail}" if first_detail else ""
+        )
+        return f"Registry sync validation failed with {total_errors} error(s).{suffix}"
+
+    def _raise_if_validation_errors(
+        self,
+        validation_errors: dict[str, list[RegistryActionValidationErrorInfo]],
+    ) -> None:
+        if validation_errors:
+            message = self._build_validation_failure_message(validation_errors)
+            raise self._sync_error_cls()(message)
 
     async def sync_repository_v2(
         self,
@@ -242,6 +285,8 @@ class BaseRegistrySyncService[
         git_repo_package_name: str | None = None,
         commit: bool = True,
         bypass_temporal: bool = False,
+        defer_artifact_build: bool = False,
+        promote: bool = True,
     ) -> BaseSyncResult[VersionT]:
         """Sync a repository and create a versioned snapshot.
 
@@ -253,11 +298,29 @@ class BaseRegistrySyncService[
             git_repo_package_name: Optional package name override for git repos.
             commit: Whether to commit the transaction.
             bypass_temporal: If True, always use subprocess sync instead of Temporal
-                workflow, even when sandbox mode is enabled. Use this for platform
-                registry startup sync where Temporal may not be available yet.
+                workflow, even when executor-hosted sync is enabled. Use this for
+                platform registry startup sync where Temporal may not be available yet.
+            defer_artifact_build: If True, create the registry version using the
+                deterministic artifact URI without building the artifact inline.
+                This is only safe for builtin startup sync because the current
+                registry version executes from the installed package while the
+                artifact build runs in the background.
+            promote: If True, set the synced version as the repository's current
+                version before returning. If False, create the version and index
+                entries without exposing it as current.
         """
         origin = str(db_repo.origin)
+        if defer_artifact_build and origin != DEFAULT_REGISTRY_ORIGIN:
+            raise self._sync_error_cls()(
+                "Deferred registry artifact builds are only supported for the builtin registry"
+            )
         repo_id = db_repo.id
+        origin_type = self._get_origin_type(origin)
+        if target_version is None and origin_type == "builtin":
+            target_version = self._generate_version_string(
+                origin=origin,
+                commit_sha=target_commit_sha,
+            )
 
         use_temporal = (
             config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED and not bypass_temporal
@@ -271,6 +334,8 @@ class BaseRegistrySyncService[
             sandbox_enabled=config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED,
             bypass_temporal=bypass_temporal,
             use_temporal=use_temporal,
+            defer_artifact_build=defer_artifact_build,
+            promote=promote,
         )
 
         if use_temporal:
@@ -281,31 +346,69 @@ class BaseRegistrySyncService[
                 ssh_env=ssh_env,
                 git_repo_package_name=git_repo_package_name,
                 commit=commit,
+                promote=promote,
             )
 
-        # Pass organization_id to subprocess so it can access org-scoped secrets (e.g., SSH keys)
-        org_id = self.role.organization_id if isinstance(self.role, Role) else None
-        sync_result = await fetch_actions_from_subprocess(
+        # Prefer release-built builtin metadata; fall back to subprocess discovery.
+        prebuilt_manifest = load_prebuilt_builtin_registry_manifest(
             origin=origin,
-            repository_id=repo_id,
-            commit_sha=target_commit_sha,
-            validate=True,
-            git_repo_package_name=git_repo_package_name,
-            organization_id=org_id,
+            target_version=target_version,
+            storage_namespace=self._get_storage_namespace(),
         )
-        actions = sync_result.actions
-        commit_sha = sync_result.commit_sha
+        actions: list[RegistryActionCreate] | None = None
+        manifest: RegistryVersionManifest | None = None
+        commit_sha: str | None = None
+        if prebuilt_manifest is not None:
+            try:
+                manifest = prebuilt_manifest
+                actions = manifest.to_action_creates(
+                    repository_id=repo_id,
+                    origin=origin,
+                )
+                commit_sha = target_commit_sha
+                self.logger.info(
+                    "Loaded prebuilt builtin registry manifest",
+                    num_actions=len(actions),
+                    target_version=target_version,
+                )
+            except Exception as e:
+                self.logger.warning(
+                    "Ignoring prebuilt registry manifest that could not be converted",
+                    origin=origin,
+                    target_version=target_version,
+                    error=str(e),
+                )
+                prebuilt_manifest = None
+
+        if actions is None:
+            org_id = self.role.organization_id if isinstance(self.role, Role) else None
+            sync_result = await fetch_actions_from_subprocess(
+                origin=origin,
+                repository_id=repo_id,
+                commit_sha=target_commit_sha,
+                validate=True,
+                git_repo_package_name=git_repo_package_name,
+                organization_id=org_id,
+            )
+            self._raise_if_validation_errors(sync_result.validation_errors)
+            actions = sync_result.actions
+            commit_sha = sync_result.commit_sha
+
+            self.logger.info(
+                "Fetched actions from repository",
+                num_actions=len(actions),
+                commit_sha=commit_sha,
+            )
+
+            manifest = RegistryVersionManifest.from_actions(actions)
+
+        if manifest is None:
+            raise self._sync_error_cls()(
+                f"Failed to build registry manifest for repository {origin}"
+            )
 
         if not actions:
             raise self._sync_error_cls()(f"No actions found in repository {origin}")
-
-        self.logger.info(
-            "Fetched actions from repository",
-            num_actions=len(actions),
-            commit_sha=commit_sha,
-        )
-
-        manifest = RegistryVersionManifest.from_actions(actions)
 
         if target_version is None:
             target_version = self._generate_version_string(
@@ -321,10 +424,10 @@ class BaseRegistrySyncService[
             manifest=manifest,
         )
         if existing_version:
-            tarball_uri = cast(str | None, existing_version.tarball_uri)
-            if tarball_uri is None:
+            existing_artifact_uri = cast(str | None, existing_version.tarball_uri)
+            if existing_artifact_uri is None:
                 raise self._sync_error_cls()(
-                    f"Version {target_version} exists but has no tarball artifact. "
+                    f"Version {target_version} exists but has no execution artifact. "
                     + "Delete the version and re-sync to create a valid version."
                 )
             self.logger.info(
@@ -332,26 +435,34 @@ class BaseRegistrySyncService[
                 version=target_version,
                 version_id=str(existing_version.id),
             )
-            return self._make_result(
+            return self._result_cls()(
                 version=existing_version,
                 actions=actions,
-                tarball_uri=tarball_uri,
+                artifact_uri=existing_artifact_uri,
                 commit_sha=commit_sha,
             )
 
-        artifacts = await self._build_and_upload_artifacts(
-            origin=origin,
-            version_string=target_version,
-            commit_sha=commit_sha,
-            ssh_env=ssh_env,
-        )
+        if defer_artifact_build:
+            artifacts = ArtifactsBuildResult(
+                artifact_uri=self._artifact_uri_for_version(
+                    origin=origin,
+                    version_string=target_version,
+                )
+            )
+        else:
+            artifacts = await self._build_and_upload_artifacts(
+                origin=origin,
+                version_string=target_version,
+                commit_sha=commit_sha,
+                ssh_env=ssh_env,
+            )
 
         version_create = RegistryVersionCreate(
             repository_id=repo_id,
             version=target_version,
             commit_sha=commit_sha,
             manifest=manifest,
-            tarball_uri=artifacts.tarball_uri,
+            tarball_uri=artifacts.artifact_uri,
         )
         version = await versions_service.create_version(version_create, commit=False)
 
@@ -359,12 +470,13 @@ class BaseRegistrySyncService[
             "Created registry version",
             version_id=str(version.id),
             version=target_version,
-            tarball_uri=artifacts.tarball_uri,
+            artifact_uri=artifacts.artifact_uri,
         )
 
-        # Auto-promote: set new version as current
-        db_repo.current_version_id = version.id
-        self.session.add(db_repo)
+        if promote:
+            # Auto-promote: set new version as current
+            db_repo.current_version_id = version.id
+            self.session.add(db_repo)
 
         _ = await versions_service.populate_index_from_manifest(version, commit=False)
 
@@ -380,33 +492,18 @@ class BaseRegistrySyncService[
             version_id=str(version.id),
             version=target_version,
             num_actions=len(actions),
-            tarball_uri=artifacts.tarball_uri,
+            artifact_uri=artifacts.artifact_uri,
         )
 
-        return self._make_result(
+        return self._result_cls()(
             version=version,
             actions=actions,
-            tarball_uri=artifacts.tarball_uri,
+            artifact_uri=artifacts.artifact_uri,
             commit_sha=commit_sha,
         )
 
     def _get_versions_service(self) -> VersionsServiceProtocol[VersionT]:
         return self._versions_service_cls()(self.session, self.role)
-
-    def _make_result(
-        self,
-        *,
-        version: VersionT,
-        actions: list[RegistryActionCreate],
-        tarball_uri: str,
-        commit_sha: str | None,
-    ) -> BaseSyncResult[VersionT]:
-        return self._result_cls()(
-            version=version,
-            actions=actions,
-            tarball_uri=tarball_uri,
-            commit_sha=commit_sha,
-        )
 
     def _get_storage_namespace(self) -> str:
         """Get storage namespace for blob storage.
@@ -423,6 +520,16 @@ class BaseRegistrySyncService[
             )
         return namespace
 
+    def _artifact_uri_for_version(self, *, origin: str, version_string: str) -> str:
+        """Return the deterministic SquashFS artifact URI for a registry version."""
+        bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
+        key = get_artifact_s3_key(
+            organization_id=self._get_storage_namespace(),
+            repository_origin=origin,
+            version=version_string,
+        )
+        return f"s3://{bucket}/{key}"
+
     async def _build_and_upload_artifacts(
         self,
         *,
@@ -431,32 +538,46 @@ class BaseRegistrySyncService[
         commit_sha: str | None,
         ssh_env: SshEnv | None = None,
     ) -> ArtifactsBuildResult:
+        storage_namespace = self._get_storage_namespace()
+        bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
+        await blob.ensure_bucket_exists(bucket)
+        artifact_key = get_artifact_s3_key(
+            organization_id=storage_namespace,
+            repository_origin=origin,
+            version=version_string,
+        )
+        artifact_uri = f"s3://{bucket}/{artifact_key}"
+        if await blob.file_exists(key=artifact_key, bucket=bucket):
+            self.logger.info(
+                "Using existing registry execution artifact",
+                artifact_uri=artifact_uri,
+            )
+            return ArtifactsBuildResult(artifact_uri=artifact_uri)
+
         async with aiofiles.tempfile.TemporaryDirectory(
-            prefix="tracecat_tarball_"
+            prefix="tracecat_registry_artifact_"
         ) as temp_dir:
             output_dir = Path(temp_dir)
-            tarball_result: TarballVenvBuildResult
+            artifact_result: RegistryArtifactBuildResult
 
             if origin == DEFAULT_REGISTRY_ORIGIN:
-                tarball_result = await build_builtin_registry_tarball_venv(output_dir)
+                artifact_result = await build_builtin_registry_artifact(output_dir)
 
             elif origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
                 local_path = Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH)
-                tarball_result = await build_tarball_venv_from_path(
-                    local_path, output_dir
-                )
+                artifact_result = await build_artifact_from_path(local_path, output_dir)
 
             elif origin.startswith("git+ssh://"):
                 if commit_sha is None:
-                    raise TarballBuildError(
+                    raise RegistryArtifactBuildError(
                         "commit_sha is required for git repositories"
                     )
 
                 self.logger.info(
-                    "Building tarball venv for git repository",
+                    "Building registry artifact for git repository",
                     origin=origin,
                 )
-                tarball_result = await build_tarball_venv_from_git(
+                artifact_result = await build_artifact_from_git(
                     git_url=origin,
                     commit_sha=commit_sha,
                     env=ssh_env,
@@ -464,30 +585,22 @@ class BaseRegistrySyncService[
                 )
 
             else:
-                raise TarballBuildError(
+                raise RegistryArtifactBuildError(
                     f"Unsupported origin for artifact building: {origin}"
                 )
 
-            bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
-            await blob.ensure_bucket_exists(bucket)
-
-            tarball_s3_key = get_tarball_venv_s3_key(
-                organization_id=self._get_storage_namespace(),
-                repository_origin=origin,
-                version=version_string,
-            )
-            tarball_uri = await upload_tarball_venv(
-                tarball_path=tarball_result.tarball_path,
-                key=tarball_s3_key,
+            artifact_uri = await upload_squashfs_venv(
+                squashfs_path=artifact_result.squashfs_path,
+                key=artifact_key,
                 bucket=bucket,
             )
             self.logger.info(
-                "Tarball venv uploaded",
-                tarball_uri=tarball_uri,
-                compressed_size_bytes=tarball_result.compressed_size_bytes,
+                "Registry execution artifact uploaded",
+                artifact_uri=artifact_uri,
+                artifact_size_bytes=artifact_result.artifact_size_bytes,
             )
 
-            return ArtifactsBuildResult(tarball_uri=tarball_uri)
+            return ArtifactsBuildResult(artifact_uri=artifact_uri)
 
     def _generate_version_string(
         self,
@@ -509,6 +622,11 @@ class BaseRegistrySyncService[
         if origin == DEFAULT_REGISTRY_ORIGIN:
             return "builtin"
         if origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
+            if not config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+                raise self._sync_error_cls()(
+                    "Local repository is not enabled on this instance. "
+                    "Please set TRACECAT__LOCAL_REPOSITORY_ENABLED=true."
+                )
             return "local"
         if origin.startswith("git+ssh://"):
             return "git"
@@ -523,6 +641,7 @@ class BaseRegistrySyncService[
         ssh_env: SshEnv | None = None,
         git_repo_package_name: str | None = None,
         commit: bool = True,
+        promote: bool = True,
     ) -> BaseSyncResult[VersionT]:
         from temporalio.common import RetryPolicy
 
@@ -544,26 +663,32 @@ class BaseRegistrySyncService[
         )
 
         origin_type = self._get_origin_type(origin)
+        workflow_target_version = target_version
+        if workflow_target_version is None and origin_type == "builtin":
+            workflow_target_version = self._generate_version_string(
+                origin=origin,
+                commit_sha=target_commit_sha,
+            )
 
-        ssh_key: str | None = None
         if origin_type == "git":
-            # Git origins require SSH key for authentication
-            if not isinstance(self.role, Role):
+            # Git origins require org context so the worker can fetch the SSH key.
+            role = self.role
+            if not isinstance(role, Role) or role.organization_id is None:
                 raise self._sync_error_cls()(
                     "Git repository sync requires organization context (Role with organization_id)"
                 )
 
-            from tracecat.secrets.service import SecretsService
-
-            secrets_service = SecretsService(self.session, role=self.role)
+            # Validate that the key exists before scheduling the workflow.
+            # The worker fetches the value again and the key is not serialized.
+            secrets_service = SecretsService(self.session, role=role)
             try:
-                secret = await secrets_service.get_ssh_key(target="registry")
-                ssh_key = secret.get_secret_value()
-            except Exception as exc:
-                # SSH key is required for git repos - fail fast with clear error
+                await secrets_service.get_org_secret_by_name(
+                    REGISTRY_GIT_SSH_KEY_SECRET_NAME
+                )
+            except TracecatNotFoundError as exc:
                 raise self._sync_error_cls()(
-                    f"Failed to retrieve SSH key for git operations: {exc}. "
-                    "Ensure a 'github-ssh-key' secret exists in your organization."
+                    "Git repository sync requires a "
+                    f"'{REGISTRY_GIT_SSH_KEY_SECRET_NAME}' organization secret."
                 ) from exc
 
         request = RegistrySyncRequest(
@@ -572,8 +697,8 @@ class BaseRegistrySyncService[
             origin_type=origin_type,
             git_url=origin if origin_type == "git" else None,
             commit_sha=target_commit_sha,
+            target_version=workflow_target_version,
             git_repo_package_name=git_repo_package_name,
-            ssh_key=ssh_key,
             validate_actions=True,
             storage_namespace=self._get_storage_namespace(),
             organization_id=self.role.organization_id
@@ -599,6 +724,30 @@ class BaseRegistrySyncService[
                     initial_interval=timedelta(seconds=5),
                 ),
             )
+        except WorkflowFailureError as exc:
+            validation_failure = next(
+                (
+                    classification
+                    for classification in extract_error_classifications(
+                        exc,
+                        include_implicit_context=False,
+                    )
+                    if classification.kind
+                    is RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED
+                ),
+                None,
+            )
+            if validation_failure is not None:
+                raise self._sync_error_cls()(validation_failure.message) from exc
+
+            self.logger.error(
+                "Registry sync workflow failed",
+                repository=origin,
+                error=str(exc),
+            )
+            raise self._sync_error_cls()(
+                f"Registry sync workflow failed: {exc}"
+            ) from exc
         except Exception as exc:
             self.logger.error(
                 "Registry sync workflow failed",
@@ -610,7 +759,8 @@ class BaseRegistrySyncService[
             ) from exc
 
         actions = workflow_result.actions
-        tarball_uri = workflow_result.tarball_uri
+        self._raise_if_validation_errors(workflow_result.validation_errors)
+        artifact_uri = workflow_result.artifact_uri
         commit_sha = workflow_result.commit_sha
 
         if not actions:
@@ -619,14 +769,14 @@ class BaseRegistrySyncService[
         self.logger.info(
             "Workflow completed, processing results",
             num_actions=len(actions),
-            tarball_uri=tarball_uri,
+            artifact_uri=artifact_uri,
             commit_sha=commit_sha,
         )
 
         manifest = RegistryVersionManifest.from_actions(actions)
 
         if target_version is None:
-            target_version = self._generate_version_string(
+            target_version = workflow_target_version or self._generate_version_string(
                 origin=origin, commit_sha=commit_sha
             )
 
@@ -639,10 +789,10 @@ class BaseRegistrySyncService[
             manifest=manifest,
         )
         if existing_version:
-            existing_tarball_uri = cast(str | None, existing_version.tarball_uri)
-            if existing_tarball_uri is None:
+            existing_artifact_uri = cast(str | None, existing_version.tarball_uri)
+            if existing_artifact_uri is None:
                 raise self._sync_error_cls()(
-                    f"Version {target_version} exists but has no tarball artifact. "
+                    f"Version {target_version} exists but has no execution artifact. "
                     + "Delete the version and re-sync to create a valid version."
                 )
             self.logger.info(
@@ -650,10 +800,10 @@ class BaseRegistrySyncService[
                 version=target_version,
                 version_id=str(existing_version.id),
             )
-            return self._make_result(
+            return self._result_cls()(
                 version=existing_version,
                 actions=actions,
-                tarball_uri=existing_tarball_uri,
+                artifact_uri=existing_artifact_uri,
                 commit_sha=commit_sha,
             )
 
@@ -662,7 +812,7 @@ class BaseRegistrySyncService[
             version=target_version,
             commit_sha=commit_sha,
             manifest=manifest,
-            tarball_uri=tarball_uri,
+            tarball_uri=artifact_uri,
         )
         version = await versions_service.create_version(version_create, commit=False)
 
@@ -670,12 +820,13 @@ class BaseRegistrySyncService[
             "Created registry version",
             version_id=str(version.id),
             version=target_version,
-            tarball_uri=tarball_uri,
+            artifact_uri=artifact_uri,
         )
 
-        # Auto-promote: set new version as current
-        db_repo.current_version_id = version.id
-        self.session.add(db_repo)
+        if promote:
+            # Auto-promote: set new version as current
+            db_repo.current_version_id = version.id
+            self.session.add(db_repo)
 
         _ = await versions_service.populate_index_from_manifest(version, commit=False)
 
@@ -691,12 +842,12 @@ class BaseRegistrySyncService[
             version_id=str(version.id),
             version=target_version,
             num_actions=len(actions),
-            tarball_uri=tarball_uri,
+            artifact_uri=artifact_uri,
         )
 
-        return self._make_result(
+        return self._result_cls()(
             version=version,
             actions=actions,
-            tarball_uri=tarball_uri,
+            artifact_uri=artifact_uri,
             commit_sha=commit_sha,
         )

@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Patch list
+  description: Update a Sublime list with an API-native patch body.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/patchlist-1
+  namespace: tools.sublime
+  name: patch_list
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: List ID.
+    description:
+      type: str
+      description: Description of list
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/lists/${{ FN.url_encode(inputs.id) }}
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload:
+          description: ${{ inputs.description }}
+  returns: ${{ steps.request.result.data }}

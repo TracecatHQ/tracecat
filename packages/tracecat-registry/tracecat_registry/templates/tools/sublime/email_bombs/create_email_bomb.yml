@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Create email bomb
+  description: Declare a mailbox time range as a Sublime email bomb.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/createemailbomb
+  namespace: tools.sublime
+  name: create_email_bomb
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    mailbox_id:
+      type: str
+      description: ID of the mailbox to declare the email bomb for
+    start_time:
+      type: datetime
+      description: Start of the email bomb time range
+    end_time:
+      type: datetime
+      description: End of the email bomb time range (must not be in the future)
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/messages/bombs
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload:
+          mailbox_id: ${{ inputs.mailbox_id }}
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
+  returns: ${{ steps.request.result.data }}

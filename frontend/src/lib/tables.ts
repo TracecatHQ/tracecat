@@ -7,7 +7,6 @@ export const SqlTypeEnum = [
   "NUMERIC",
   "BOOLEAN",
   "DATE",
-  "TIMESTAMP",
   "TIMESTAMPTZ",
   "JSONB",
   "SELECT",

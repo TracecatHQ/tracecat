@@ -12,19 +12,39 @@ Objectives
 """
 
 import datetime
+import hashlib
+import uuid
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
+import orjson
 import pytest
-from temporalio.api.enums.v1 import EventType, PendingActivityState
+from pydantic import BaseModel
+from temporalio.api.enums.v1 import EventType, ParentClosePolicy, PendingActivityState
+from temporalio.api.failure.v1 import Failure
+from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import Client, WorkflowHandle
+from temporalio.converter import DefaultPayloadConverter
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import Workspace
-from tracecat.dsl.common import DSLInput
-from tracecat.dsl.schemas import StreamID
-from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowUUID
+from tracecat.dsl.common import AgentActionMemo, ChildWorkflowMemo, DSLInput
+from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext, StreamID
+from tracecat.identifiers.workflow import (
+    ExecutionUUID,
+    WorkflowExecutionID,
+    WorkflowUUID,
+)
+from tracecat.pagination import CursorPaginationParams
+from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    InlineObject,
+    ObjectRef,
+)
+from tracecat.workflow.executions.common import UnreadableTemporalPayload
 from tracecat.workflow.executions.enums import (
     TriggerType,
     WorkflowEventType,
@@ -37,7 +57,9 @@ from tracecat.workflow.executions.schemas import (
 from tracecat.workflow.executions.service import (
     WF_COMPLETED_REF,
     WF_FAILURE_REF,
+    WF_TRIGGER_REF,
     WorkflowExecutionsService,
+    _sanitize_action_result,
 )
 from tracecat.workspaces.service import WorkspaceService
 
@@ -93,7 +115,11 @@ def workflow_executions_service(
     mock_client: Mock, mock_role: Role
 ) -> WorkflowExecutionsService:
     """Create a WorkflowExecutionsService instance with mocked client."""
-    return WorkflowExecutionsService(client=mock_client, role=mock_role)
+    service = WorkflowExecutionsService(client=mock_client, role=mock_role)
+    # Event-compaction tests in this module focus on history transformation, not
+    # workspace visibility behavior (covered in dedicated workspace-scoping tests).
+    service._is_execution_visible_in_workspace = Mock(return_value=True)
+    return service
 
 
 def create_mock_history_event(
@@ -106,13 +132,10 @@ def create_mock_history_event(
     event = Mock()
     event.event_id = event_id
     event.event_type = event_type
+    event.task_id = attributes.get("task_id", event_id)
 
     # Mock timestamp
-    mock_timestamp = Mock()
-    mock_timestamp.ToDatetime.return_value = datetime.datetime.fromtimestamp(
-        event_time_seconds, tz=datetime.UTC
-    )
-    event.event_time = mock_timestamp
+    event.event_time = create_mock_timestamp(event_time_seconds)
 
     # Add attributes based on event type
     if event_type == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
@@ -150,6 +173,68 @@ def create_mock_history_event(
         completed_attrs.scheduled_event_id = attributes.get("scheduled_event_id", 1)
         event.activity_task_completed_event_attributes = completed_attrs
 
+    elif event_type == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
+        started_attrs = Mock()
+        started_attrs.input = attributes.get("workflow_input", Mock())
+        event.workflow_execution_started_event_attributes = started_attrs
+
+    return event
+
+
+def create_mock_timestamp(event_time_seconds: int = 1640995200) -> Mock:
+    """Create a mock Temporal timestamp."""
+    mock_timestamp = Mock()
+    mock_timestamp.ToDatetime.return_value = datetime.datetime.fromtimestamp(
+        event_time_seconds, tz=datetime.UTC
+    )
+    return mock_timestamp
+
+
+def create_mock_child_workflow_initiated_event(
+    event_id: int,
+    *,
+    workflow_type_name: str = "DSLWorkflow",
+    workflow_id: WorkflowExecutionID | None = None,
+) -> Mock:
+    """Create a mock child workflow initiated event."""
+    if workflow_id is None:
+        wf_id = WorkflowUUID.new_uuid4()
+        exec_id = ExecutionUUID.new_uuid4()
+        workflow_id = cast(WorkflowExecutionID, f"{wf_id.short()}/{exec_id.short()}")
+
+    event = Mock()
+    event.event_id = event_id
+    event.event_type = EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
+    event.task_id = event_id
+    event.event_time = create_mock_timestamp()
+
+    attrs = Mock()
+    attrs.workflow_id = workflow_id
+    attrs.workflow_type = Mock()
+    attrs.workflow_type.name = workflow_type_name
+    attrs.parent_close_policy = ParentClosePolicy.PARENT_CLOSE_POLICY_TERMINATE
+    attrs.memo = Mock()
+    attrs.input = Mock()
+    event.start_child_workflow_execution_initiated_event_attributes = attrs
+    return event
+
+
+def create_mock_child_workflow_completed_event(
+    event_id: int,
+    *,
+    initiated_event_id: int,
+) -> Mock:
+    """Create a mock child workflow completed event."""
+    event = Mock()
+    event.event_id = event_id
+    event.event_type = EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED
+    event.task_id = event_id
+    event.event_time = create_mock_timestamp()
+
+    attrs = Mock()
+    attrs.initiated_event_id = initiated_event_id
+    attrs.result = Mock()
+    event.child_workflow_execution_completed_event_attributes = attrs
     return event
 
 
@@ -191,7 +276,8 @@ class TestWorkflowExecutionEvents:
 
         # Mock EventFailure.from_history_event
         with patch(
-            "tracecat.workflow.executions.service.EventFailure.from_history_event"
+            "tracecat.workflow.executions.service.EventFailure.from_history_event",
+            new_callable=AsyncMock,
         ) as mock_event_failure:
             mock_failure = EventFailure(
                 message="Workflow execution failed due to timeout",
@@ -225,7 +311,7 @@ class TestWorkflowExecutionEvents:
             assert event.close_time == expected_time
 
             # Verify EventFailure.from_history_event was called
-            mock_event_failure.assert_called_once_with(failure_event)
+            mock_event_failure.assert_awaited_once_with(failure_event)
 
     async def test_workflow_completed_synthetic_event_creation(
         self,
@@ -277,6 +363,273 @@ class TestWorkflowExecutionEvents:
             assert event.close_time == expected_time
 
             mock_get_result.assert_awaited_once_with(completed_event)
+
+    async def test_workflow_trigger_synthetic_event_creation(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Test that workflow start creates a synthetic trigger event."""
+        started_event = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield started_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        trigger_payload = {"case_id": "case-123", "severity": "high"}
+        trigger_inputs = InlineObject(data=trigger_payload, typename="dict")
+
+        with (
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.DSLRunArgs",
+                return_value=Mock(trigger_inputs=trigger_inputs),
+            ),
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+        assert len(events) == 1
+        event = events[0]
+
+        expected_time = datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC)
+        assert event.action_ref == WF_TRIGGER_REF
+        assert event.action_name == WF_TRIGGER_REF
+        assert event.curr_event_type == WorkflowEventType.WORKFLOW_EXECUTION_STARTED
+        assert event.status == WorkflowExecutionEventStatus.COMPLETED
+        assert event.action_input == trigger_payload
+        assert event.schedule_time == expected_time
+        assert event.start_time == expected_time
+        assert event.close_time == expected_time
+
+    async def test_workflow_trigger_synthetic_event_creation_without_inputs(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Test that workflow trigger event is still emitted when inputs are empty."""
+        started_event = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield started_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.DSLRunArgs",
+                return_value=Mock(trigger_inputs=None),
+            ),
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+        assert len(events) == 1
+        event = events[0]
+        assert event.action_ref == WF_TRIGGER_REF
+        assert event.action_input is None
+
+    async def test_workflow_trigger_unreadable_payload_emits_sentinel(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Unreadable encrypted trigger payloads should not break compact history."""
+        started_event = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield started_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="TemporalPayloadCodecError",
+            encoding="binary/tracecat-aes256gcm",
+            payload_size_bytes=42,
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value=unreadable),
+            ),
+            patch("tracecat.workflow.executions.service.DSLRunArgs") as mock_run_args,
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+        mock_run_args.assert_not_called()
+        assert len(events) == 1
+        event = events[0]
+        assert event.action_ref == WF_TRIGGER_REF
+        assert event.action_input == unreadable
+
+    async def test_workflow_trigger_externalized_payload_uses_ref_backend(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Trigger payload resolution uses the backend encoded in the object ref."""
+        started_event = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield started_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        trigger_payload = {"case_id": "case-123", "severity": "high"}
+        serialized_payload = orjson.dumps(trigger_payload)
+        trigger_inputs = ExternalObject(
+            ref=ObjectRef(
+                bucket="workflow-results",
+                key="workspace-123/run-123/trigger.json",
+                size_bytes=len(serialized_payload),
+                sha256=hashlib.sha256(serialized_payload).hexdigest(),
+            ),
+            typename="dict",
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.DSLRunArgs",
+                return_value=Mock(trigger_inputs=trigger_inputs),
+            ),
+            patch(
+                "tracecat.storage.backends.s3.cached_blob_download",
+                AsyncMock(return_value=serialized_payload),
+            ) as mock_cached_blob_download,
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+        assert len(events) == 1
+        assert events[0].action_input == trigger_payload
+        mock_cached_blob_download.assert_awaited_once()
+
+    async def test_compact_trigger_event_sorts_before_later_actions(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Test trigger sentinel ordering relative to later action events."""
+        started_event = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,  # type: ignore
+        )
+        scheduled_event = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="body-1",
+            activity_name="test_action",
+            event_time_seconds=1640995260,
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield started_event
+            yield scheduled_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        action_event = WorkflowExecutionEventCompact(
+            source_event_id=2,
+            schedule_time=datetime.datetime.fromtimestamp(1640995260, tz=datetime.UTC),
+            start_time=datetime.datetime.fromtimestamp(1640995260, tz=datetime.UTC),
+            close_time=datetime.datetime.fromtimestamp(1640995261, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_COMPLETED,
+            status=WorkflowExecutionEventStatus.COMPLETED,
+            action_name="core.test",
+            action_ref="body",
+            action_input=None,
+            action_result={"ok": True},
+            stream_id=StreamID("<root>"),
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.DSLRunArgs",
+                return_value=Mock(trigger_inputs=None),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event",
+                AsyncMock(return_value=action_event),
+            ),
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+        assert [event.action_ref for event in events] == [WF_TRIGGER_REF, "body"]
 
     async def test_workflow_execution_without_failures_no_synthetic_events(
         self,
@@ -436,7 +789,8 @@ class TestWorkflowExecutionEvents:
 
             # Mock EventFailure.from_history_event
             with patch(
-                "tracecat.workflow.executions.service.EventFailure.from_history_event"
+                "tracecat.workflow.executions.service.EventFailure.from_history_event",
+                new_callable=AsyncMock,
             ) as mock_event_failure:
                 mock_action_failure = EventFailure(message="Action failed", cause=None)
                 mock_workflow_failure = EventFailure(
@@ -544,7 +898,8 @@ class TestWorkflowExecutionEvents:
 
         # Mock EventFailure.from_history_event
         with patch(
-            "tracecat.workflow.executions.service.EventFailure.from_history_event"
+            "tracecat.workflow.executions.service.EventFailure.from_history_event",
+            new_callable=AsyncMock,
         ) as mock_event_failure:
             mock_failure = EventFailure(message="Custom failure message", cause=None)
             mock_event_failure.return_value = mock_failure
@@ -630,7 +985,8 @@ class TestWorkflowExecutionEvents:
 
         # Mock EventFailure.from_history_event
         with patch(
-            "tracecat.workflow.executions.service.EventFailure.from_history_event"
+            "tracecat.workflow.executions.service.EventFailure.from_history_event",
+            new_callable=AsyncMock,
         ) as mock_event_failure:
             mock_failure = EventFailure(
                 message="Database operation failed", cause=complex_cause
@@ -872,6 +1228,572 @@ class TestWorkflowExecutionEvents:
                     event.curr_event_type == WorkflowEventType.ACTIVITY_TASK_COMPLETED
                 )
 
+    async def test_compact_scheduled_activity_preserves_mask_output_metadata(
+        self,
+    ) -> None:
+        """Compact events keep redaction metadata while exposing only task args."""
+        scheduled = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="masked-action",
+            activity_name="execute_action_activity",
+        )
+        action_name = "core.transform.reshape"
+        wf_id = WorkflowUUID.new_uuid4()
+        exec_id = ExecutionUUID.new_uuid4()
+        run_input = RunActionInput(
+            task=ActionStatement(
+                action=action_name,
+                args={"value": "visible-input"},
+                ref="masked_action",
+                mask_output=True,
+            ),
+            exec_context={"ACTIONS": {}, "TRIGGER": None},
+            run_context=RunContext(
+                wf_id=wf_id,
+                wf_exec_id=f"{wf_id.short()}/{exec_id.short()}",
+                wf_run_id=uuid.uuid4(),
+                environment="test",
+                logical_time=datetime.datetime.now(datetime.UTC),
+            ),
+            registry_lock=RegistryLock(
+                origins={"tracecat_registry": "test-version"},
+                actions={action_name: "tracecat_registry"},
+            ),
+        )
+
+        with patch(
+            "tracecat.workflow.executions.schemas.extract_first",
+            AsyncMock(return_value=run_input.model_dump(mode="json")),
+        ):
+            event = await WorkflowExecutionEventCompact.from_scheduled_activity(
+                scheduled
+            )
+
+        assert event is not None
+        assert event.action_input == {"value": "visible-input"}
+        assert event.should_mask_output is True
+
+    async def test_compact_child_workflow_preserves_mask_output_metadata(
+        self,
+    ) -> None:
+        """Child workflow compact events restore redaction metadata from memo."""
+        initiated = create_mock_child_workflow_initiated_event(event_id=1)
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.ChildWorkflowMemo.from_temporal",
+                new_callable=AsyncMock,
+            ) as mock_memo,
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_extract_first,
+        ):
+            mock_memo.return_value = ChildWorkflowMemo(
+                action_ref="masked_child",
+                mask_output=True,
+            )
+            mock_extract_first.return_value = unreadable
+
+            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                initiated
+            )
+
+        assert event is not None
+        assert event.action_ref == "masked_child"
+        assert event.should_mask_output is True
+
+    async def test_compact_child_workflow_defaults_masked_when_memo_parse_fails(
+        self,
+    ) -> None:
+        """Malformed child workflow memo metadata should fail closed for results."""
+        initiated = create_mock_child_workflow_initiated_event(event_id=1)
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.ChildWorkflowMemo.from_temporal",
+                AsyncMock(side_effect=ValueError("bad memo")),
+            ),
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                AsyncMock(return_value=unreadable),
+            ),
+        ):
+            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                initiated
+            )
+
+        assert event is not None
+        assert event.action_ref == "Unknown Child Workflow"
+        assert event.should_mask_output is True
+
+    async def test_compact_agent_workflow_preserves_mask_output_metadata(
+        self,
+    ) -> None:
+        """Agent compact events restore redaction metadata from memo."""
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1,
+            workflow_type_name="DurableAgentWorkflow",
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
+                new_callable=AsyncMock,
+            ) as mock_memo,
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_extract_first,
+        ):
+            mock_memo.return_value = AgentActionMemo(
+                action_ref="masked_agent",
+                mask_output=True,
+            )
+            mock_extract_first.return_value = unreadable
+
+            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                initiated
+            )
+
+        assert event is not None
+        assert event.action_ref == "masked_agent"
+        assert event.should_mask_output is True
+
+    async def test_compact_agent_workflow_defaults_masked_when_memo_parse_fails(
+        self,
+    ) -> None:
+        """Malformed agent memo metadata should fail closed for results."""
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1,
+            workflow_type_name="DurableAgentWorkflow",
+            workflow_id=cast(WorkflowExecutionID, f"agent/{uuid.uuid4()}"),
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
+                AsyncMock(side_effect=ValueError("bad memo")),
+            ),
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                AsyncMock(return_value=unreadable),
+            ),
+        ):
+            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                initiated
+            )
+
+        assert event is not None
+        assert event.action_ref == "unknown_agent_action"
+        assert event.should_mask_output is True
+
+    async def test_compact_masked_action_result_redacts_leaf_values(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Masked action results preserve shape for JSONPath copy flows."""
+        scheduled = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="masked-action",
+            activity_name="execute_action_activity",
+        )
+        completed = create_mock_history_event(
+            event_id=11,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=1,
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield scheduled
+            yield completed
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        root_stream = StreamID.new("<root>", 0)
+
+        source = WorkflowExecutionEventCompact(
+            source_event_id=1,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="masked_action",
+            action_input={"value": "visible-input"},
+            stream_id=root_stream,
+        )
+        source.set_mask_output(True)
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event"
+        ) as mock_from_source:
+            mock_from_source.return_value = source
+            with patch(
+                "tracecat.workflow.executions.service.get_result"
+            ) as mock_get_result:
+                mock_get_result.return_value = {
+                    "secret": "hidden-output",
+                    "nested": {
+                        "token": "secret-token",
+                        "none_value": None,
+                        "empty_object": {},
+                        "items": [
+                            "first",
+                            {"id": 123, "enabled": True},
+                            [],
+                        ],
+                    },
+                }
+
+                events = await workflow_executions_service.list_workflow_execution_events_compact(
+                    workflow_exec_id
+                )
+
+                assert len(events) == 1
+                event = events[0]
+                assert event.action_input == {"value": "visible-input"}
+                assert event.action_result == {
+                    "secret": "[REDACTED]",
+                    "nested": {
+                        "token": "[REDACTED]",
+                        "none_value": "[REDACTED]",
+                        "empty_object": {},
+                        "items": [
+                            "[REDACTED]",
+                            {"id": "[REDACTED]", "enabled": "[REDACTED]"},
+                            [],
+                        ],
+                    },
+                }
+
+    async def test_masked_object_backed_results_preserve_object_shape(self) -> None:
+        """Masked StoredObject handles stay structured for API consumers."""
+        external = ExternalObject(
+            ref=ObjectRef(
+                bucket="test-bucket",
+                key="wf/test/result.json",
+                size_bytes=128,
+                sha256="abc123",
+                content_type="application/json",
+            ),
+        )
+        collection = CollectionObject(
+            manifest_ref=ObjectRef(
+                bucket="test-bucket",
+                key="wf/test/manifest.json",
+                size_bytes=256,
+                sha256="def456",
+            ),
+            count=3,
+            chunk_size=256,
+            element_kind="stored_object",
+        )
+
+        redacted = _sanitize_action_result(
+            True,
+            {
+                "external": external,
+                "collection": collection,
+            },
+        )
+
+        assert set(redacted["external"]) == set(external.model_dump(mode="json"))
+        assert redacted["external"]["ref"]["bucket"] == "[REDACTED]"
+        assert set(redacted["collection"]) == set(collection.model_dump(mode="json"))
+        assert redacted["collection"]["manifest_ref"]["key"] == "[REDACTED]"
+
+    async def test_masked_model_results_preserve_python_container_shape(self) -> None:
+        """Pydantic model fields should be redacted before JSON conversion."""
+
+        class ModelResult(BaseModel):
+            values: tuple[str, int]
+            nested: dict[str, tuple[str, str]]
+
+        redacted = _sanitize_action_result(
+            True,
+            ModelResult(
+                values=("secret", 123),
+                nested={"tokens": ("first", "second")},
+            ),
+        )
+
+        assert redacted == {
+            "values": ("[REDACTED]", "[REDACTED]"),
+            "nested": {"tokens": ("[REDACTED]", "[REDACTED]")},
+        }
+
+    async def test_non_compact_masked_activity_result_redacts_leaf_values(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Masked activity outputs are redacted in the standard execution view."""
+        scheduled = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="masked-action",
+            activity_name="execute_action_activity",
+        )
+        completed = create_mock_history_event(
+            event_id=11,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=1,
+        )
+        mock_handle = Mock(spec=WorkflowHandle)
+        mock_handle.fetch_history = AsyncMock(
+            return_value=Mock(events=[scheduled, completed])
+        )
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        action_name = "core.transform.reshape"
+        wf_id = WorkflowUUID.new_uuid4()
+        exec_id = ExecutionUUID.new_uuid4()
+        run_input = RunActionInput(
+            task=ActionStatement(
+                action=action_name,
+                args={"value": "visible-input"},
+                ref="masked_action",
+                mask_output=True,
+            ),
+            exec_context={"ACTIONS": {}, "TRIGGER": None},
+            run_context=RunContext(
+                wf_id=wf_id,
+                wf_exec_id=f"{wf_id.short()}/{exec_id.short()}",
+                wf_run_id=uuid.uuid4(),
+                environment="test",
+                logical_time=datetime.datetime.now(datetime.UTC),
+            ),
+            registry_lock=RegistryLock(
+                origins={"tracecat_registry": "test-version"},
+                actions={action_name: "tracecat_registry"},
+            ),
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_source_extract_first,
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_result_extract_first,
+        ):
+            mock_source_extract_first.return_value = run_input.model_dump(mode="json")
+            mock_result_extract_first.return_value = {
+                "secret": "hidden-output",
+                "nested": {"token": "secret-token"},
+            }
+
+            events = await workflow_executions_service.list_workflow_execution_events(
+                workflow_exec_id
+            )
+
+        completed_event = next(
+            event
+            for event in events
+            if event.event_type == WorkflowEventType.ACTIVITY_TASK_COMPLETED
+        )
+        assert completed_event.result == {
+            "secret": "[REDACTED]",
+            "nested": {"token": "[REDACTED]"},
+        }
+
+    async def test_non_compact_masked_child_workflow_result_redacts_leaf_values(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Masked child workflow outputs are redacted in the standard execution view."""
+        initiated = create_mock_child_workflow_initiated_event(event_id=1)
+        completed = create_mock_child_workflow_completed_event(
+            event_id=11,
+            initiated_event_id=1,
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+        mock_handle = Mock(spec=WorkflowHandle)
+        mock_handle.fetch_history = AsyncMock(
+            return_value=Mock(events=[initiated, completed])
+        )
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.ChildWorkflowMemo.from_temporal",
+                new_callable=AsyncMock,
+            ) as mock_memo,
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_source_extract_first,
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_result_extract_first,
+        ):
+            mock_memo.return_value = ChildWorkflowMemo(
+                action_ref="masked_child",
+                mask_output=True,
+            )
+            mock_source_extract_first.return_value = unreadable
+            mock_result_extract_first.return_value = {"secret": "child-output"}
+
+            events = await workflow_executions_service.list_workflow_execution_events(
+                workflow_exec_id
+            )
+
+        completed_event = next(
+            event
+            for event in events
+            if event.event_type == WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED
+        )
+        assert completed_event.result == {"secret": "[REDACTED]"}
+
+    async def test_list_events_defaults_masked_when_child_memo_parse_fails(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Malformed child workflow memo metadata should fail closed for results."""
+        initiated = create_mock_child_workflow_initiated_event(event_id=1)
+        completed = create_mock_child_workflow_completed_event(
+            event_id=2,
+            initiated_event_id=1,
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+        mock_handle = Mock(spec=WorkflowHandle)
+        mock_handle.fetch_history = AsyncMock(
+            return_value=Mock(events=[initiated, completed])
+        )
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.ChildWorkflowMemo.from_temporal",
+                AsyncMock(side_effect=ValueError("bad memo")),
+            ),
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                AsyncMock(return_value=unreadable),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value={"secret": "child-output"}),
+            ),
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events(
+                workflow_exec_id
+            )
+
+        completed_event = next(
+            event
+            for event in events
+            if event.event_type == WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED
+        )
+        assert completed_event.result == {"secret": "[REDACTED]"}
+        assert completed_event.event_group is not None
+
+    async def test_list_events_defaults_masked_when_agent_memo_parse_fails(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Malformed agent memo metadata should fail closed for results."""
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1,
+            workflow_type_name="DurableAgentWorkflow",
+            workflow_id=cast(WorkflowExecutionID, f"agent/{uuid.uuid4()}"),
+        )
+        completed = create_mock_child_workflow_completed_event(
+            event_id=2,
+            initiated_event_id=1,
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+        mock_handle = Mock(spec=WorkflowHandle)
+        mock_handle.fetch_history = AsyncMock(
+            return_value=Mock(events=[initiated, completed])
+        )
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
+                AsyncMock(side_effect=ValueError("bad memo")),
+            ),
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                AsyncMock(return_value=unreadable),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value={"secret": "agent-output"}),
+            ),
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events(
+                workflow_exec_id
+            )
+
+        completed_event = next(
+            event
+            for event in events
+            if event.event_type == WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED
+        )
+        assert completed_event.result == {"secret": "[REDACTED]"}
+        assert completed_event.event_group is not None
+
     async def test_compact_duplicate_actions_latest_failure_wins(
         self,
         workflow_executions_service: WorkflowExecutionsService,
@@ -947,7 +1869,8 @@ class TestWorkflowExecutionEvents:
             ) as mock_get_result:
                 mock_get_result.return_value = "ok"
                 with patch(
-                    "tracecat.workflow.executions.service.EventFailure.from_history_event"
+                    "tracecat.workflow.executions.service.EventFailure.from_history_event",
+                    new_callable=AsyncMock,
                 ) as mock_event_failure:
                     mock_event_failure.return_value = EventFailure(
                         message="Body failed on latest iteration",
@@ -1466,7 +2389,8 @@ def test_event_failure_extract_root_cause_message_handles_empty_and_cycles() -> 
     assert result == "Top-level failure"
 
 
-def test_event_failure_from_history_event_populates_root_cause_message() -> None:
+@pytest.mark.anyio
+async def test_event_failure_from_history_event_populates_root_cause_message() -> None:
     failure_cause = Mock()
     event = create_mock_history_event(
         event_id=1,
@@ -1486,14 +2410,56 @@ def test_event_failure_from_history_event_populates_root_cause_message() -> None
         "tracecat.workflow.executions.schemas.MessageToDict",
         return_value=nested_cause,
     ):
-        failure = EventFailure.from_history_event(event)
+        failure = await EventFailure.from_history_event(event)
 
     assert failure.message == "Workflow execution failed"
     assert failure.cause is None
     assert failure.root_cause_message == "Workflow alias 'invalid' not found"
 
 
-def test_event_failure_from_history_event_sanitizes_sensitive_data() -> None:
+@pytest.mark.anyio
+async def test_event_failure_from_history_event_decodes_encoded_attribute_messages() -> (
+    None
+):
+    failure_proto = Failure(message="Encoded failure")
+    failure_proto.application_failure_info.type = "EncodedFailure"
+    failure_proto.encoded_attributes.CopyFrom(
+        DefaultPayloadConverter().to_payloads(
+            [
+                {
+                    "message": "Outer failure with Authorization: Bearer abc123",
+                    "stack_trace": "",
+                }
+            ]
+        )[0]
+    )
+    failure_proto.cause.message = "Encoded failure"
+    failure_proto.cause.application_failure_info.type = "RootFailure"
+    failure_proto.cause.encoded_attributes.CopyFrom(
+        DefaultPayloadConverter().to_payloads(
+            [
+                {
+                    "message": "Root failure with api_key=topsecret",
+                    "stack_trace": "",
+                }
+            ]
+        )[0]
+    )
+    event = HistoryEvent(
+        event_id=1,
+        event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,
+    )
+    event.workflow_execution_failed_event_attributes.failure.CopyFrom(failure_proto)
+
+    failure = await EventFailure.from_history_event(event)
+
+    assert failure.message == "Outer failure with Authorization: Bearer [REDACTED]"
+    assert failure.root_cause_message == "Root failure with api_key=[REDACTED]"
+    assert failure.cause is None
+
+
+@pytest.mark.anyio
+async def test_event_failure_from_history_event_sanitizes_sensitive_data() -> None:
     failure_cause = Mock()
     event = create_mock_history_event(
         event_id=1,
@@ -1513,14 +2479,15 @@ def test_event_failure_from_history_event_sanitizes_sensitive_data() -> None:
         "tracecat.workflow.executions.schemas.MessageToDict",
         return_value=nested_cause,
     ):
-        failure = EventFailure.from_history_event(event)
+        failure = await EventFailure.from_history_event(event)
 
     assert failure.message == "Request failed with Authorization: Bearer [REDACTED]"
     assert failure.root_cause_message == "postgresql://user:[REDACTED]@localhost/db"
     assert failure.cause is None
 
 
-def test_event_failure_from_history_event_include_raw_cause() -> None:
+@pytest.mark.anyio
+async def test_event_failure_from_history_event_include_raw_cause() -> None:
     failure_cause = Mock()
     event = create_mock_history_event(
         event_id=1,
@@ -1534,7 +2501,7 @@ def test_event_failure_from_history_event_include_raw_cause() -> None:
         "tracecat.workflow.executions.schemas.MessageToDict",
         return_value=nested_cause,
     ):
-        failure = EventFailure.from_history_event(event, include_raw_cause=True)
+        failure = await EventFailure.from_history_event(event, include_raw_cause=True)
 
     assert failure.cause == nested_cause
 
@@ -1578,3 +2545,60 @@ class TestWorkflowStartAcknowledgement:
         assert (
             mock_client.start_workflow.await_args.kwargs["id"] == response["wf_exec_id"]
         )
+
+
+@pytest.mark.anyio
+async def test_list_executions_paginated_emits_prev_cursor_history(
+    workflow_executions_service: WorkflowExecutionsService,
+    mock_client: Mock,
+) -> None:
+    first_page_items = [Mock(id="wf_first/exec_1")]
+    second_page_items = [Mock(id="wf_first/exec_2")]
+    calls: list[bytes | None] = []
+
+    class _Iterator:
+        def __init__(self, items: list[Any], next_page_token: bytes | None) -> None:
+            self.current_page = items
+            self.next_page_token = next_page_token
+
+        async def fetch_next_page(self, *, page_size: int) -> None:
+            assert page_size == 1
+
+    def _list_workflows(
+        *,
+        query: str | None = None,
+        page_size: int,
+        next_page_token: bytes | None = None,
+    ) -> _Iterator:
+        _ = query
+        assert page_size == 1
+        calls.append(next_page_token)
+        if next_page_token is None:
+            return _Iterator(first_page_items, b"page-2")
+        if next_page_token == b"page-2":
+            return _Iterator(second_page_items, b"page-3")
+        raise AssertionError(f"Unexpected page token: {next_page_token!r}")
+
+    mock_client.list_workflows = Mock(side_effect=_list_workflows)
+
+    first_page = await workflow_executions_service.list_executions_paginated(
+        pagination=CursorPaginationParams(limit=1),
+    )
+    assert first_page.prev_cursor is None
+    assert first_page.has_previous is False
+    assert first_page.next_cursor is not None
+
+    second_page = await workflow_executions_service.list_executions_paginated(
+        pagination=CursorPaginationParams(limit=1, cursor=first_page.next_cursor),
+    )
+    assert second_page.items == second_page_items
+    assert second_page.prev_cursor is not None
+    assert second_page.has_previous is True
+
+    rewound_page = await workflow_executions_service.list_executions_paginated(
+        pagination=CursorPaginationParams(limit=1, cursor=second_page.prev_cursor),
+    )
+    assert rewound_page.items == first_page_items
+    assert rewound_page.has_previous is False
+    assert rewound_page.prev_cursor is None
+    assert calls == [None, b"page-2", None]

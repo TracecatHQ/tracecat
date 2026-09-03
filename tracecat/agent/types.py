@@ -7,9 +7,7 @@ from typing import (
     Annotated,
     Any,
     Literal,
-    NotRequired,
     Protocol,
-    TypedDict,
     runtime_checkable,
 )
 
@@ -18,7 +16,14 @@ from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
+from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
+from tracecat.agent.skill.types import ResolvedSkillRef
+from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.config import (
+    TRACECAT__AGENT_MAX_RETRIES,
+    TRACECAT__AGENT_SANDBOX_TIMEOUT,
+)
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
@@ -33,44 +38,31 @@ else:
     CustomToolList = list[Any]
 
 
-class MCPServerConfig(TypedDict):
-    """Configuration for a user-defined MCP server.
+def clamp_agent_timeout_seconds(timeout_seconds: int | None) -> int:
+    """Clamp an agent timeout to the deployment ceiling.
 
-    Users can connect custom MCP servers to their agents - whether running as
-    Docker containers, local processes, or remote services. The server must
-    expose an HTTP or SSE endpoint.
-
-    Example:
-        {
-            "name": "internal-tools",
-            "url": "http://host.docker.internal:8080",
-            "transport": "http",
-            "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
-        }
+    ``None`` inherits the hardcoded default; explicit values clamp to
+    [default, ceiling]. Never rejects: out-of-bounds values clamp.
     """
-
-    name: str
-    """Required: Unique identifier for the server. Tools will be prefixed with mcp__{name}__."""
-
-    url: str
-    """Required: HTTP/SSE endpoint URL for the MCP server."""
-
-    headers: NotRequired[dict[str, str]]
-    """Optional: Auth headers (can reference Tracecat secrets)."""
-
-    transport: NotRequired[Literal["http", "sse"]]
-    """Optional: Transport type. Defaults to 'http'."""
+    ceiling = TRACECAT__AGENT_SANDBOX_TIMEOUT
+    floor = min(AGENT_TIMEOUT_SECONDS_DEFAULT, ceiling)
+    if timeout_seconds is None:
+        return floor
+    return min(max(timeout_seconds, floor), ceiling)
 
 
 class StreamKey(str):
     def __new__(
         cls,
-        workspace_id: uuid.UUID | str,
-        session_id: uuid.UUID | str,
+        *,
+        workspace_id: uuid.UUID,
+        session_id: uuid.UUID,
+        stream_id: uuid.UUID | None = None,
     ) -> StreamKey:
+        base = f"agent-stream:{workspace_id}:{session_id}"
         return super().__new__(
             cls,
-            f"agent-stream:{str(workspace_id)}:{str(session_id)}",
+            f"{base}:{stream_id}" if stream_id else base,
         )
 
 
@@ -145,7 +137,13 @@ class AgentConfig:
     # Model
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = None
+    """Catalog row backing this model selection. When set, credentials and
+    (for cloud/custom providers) the invocation target resolve from
+    ``agent_catalog.encrypted_config`` instead of the legacy
+    ``agent-{provider}-credentials`` secret."""
     base_url: str | None = None
+    passthrough: bool = False
     # Agent
     instructions: str | None = None
     output_type: str | dict[str, Any] | None = None
@@ -156,11 +154,26 @@ class AgentConfig:
     # MCP
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
+    # Subagents
+    agents: AgentSubagentsConfig = field(default_factory=AgentSubagentsConfig)
     retries: int = TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None
     # Sandbox
+    enable_thinking: bool = True
     enable_internet_access: bool = False
+    resolved_skills: list[ResolvedSkillRef] | None = None
+    builtin_skills: list[str] | None = None
+    """Names of built-in platform skills to stage into the agent's skills
+    directory, independent of preset-bound ``resolved_skills``. Names only (not
+    host paths) so the value is Temporal-replay-safe; the executor resolves each
+    name to a packaged skill directory at stage time.
+
+    Unlike ``resolved_skills``, these carry no version or manifest digest:
+    built-in skills ship inside the ``tracecat_ee`` package, so their content
+    is pinned by the deployed code version itself. A name here always stages
+    whatever the executor's installed package contains — there is no separate
+    artifact to pin or verify."""
 
 
 # --- Tool Types (Harness-Agnostic) ---

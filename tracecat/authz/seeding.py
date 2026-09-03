@@ -89,6 +89,30 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "delete",
         "Delete roles, scopes, groups, and assignments",
     ),
+    ScopeDefinition(
+        "org:service_account:read",
+        "org:service_account",
+        "read",
+        "View organization service accounts",
+    ),
+    ScopeDefinition(
+        "org:service_account:create",
+        "org:service_account",
+        "create",
+        "Create organization service accounts",
+    ),
+    ScopeDefinition(
+        "org:service_account:update",
+        "org:service_account",
+        "update",
+        "Update organization service accounts",
+    ),
+    ScopeDefinition(
+        "org:service_account:disable",
+        "org:service_account",
+        "disable",
+        "Disable or enable organization service accounts",
+    ),
     # Org settings management
     ScopeDefinition(
         "org:settings:read",
@@ -182,9 +206,45 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "manage",
         "Manage workspace role assignments and group permissions",
     ),
+    ScopeDefinition(
+        "workspace:service_account:read",
+        "workspace:service_account",
+        "read",
+        "View workspace service accounts",
+    ),
+    ScopeDefinition(
+        "workspace:service_account:create",
+        "workspace:service_account",
+        "create",
+        "Create workspace service accounts",
+    ),
+    ScopeDefinition(
+        "workspace:service_account:update",
+        "workspace:service_account",
+        "update",
+        "Update workspace service accounts",
+    ),
+    ScopeDefinition(
+        "workspace:service_account:disable",
+        "workspace:service_account",
+        "disable",
+        "Disable or enable workspace service accounts",
+    ),
     # Workflow scopes
     ScopeDefinition(
         "workflow:read", "workflow", "read", "View workflows and their details"
+    ),
+    ScopeDefinition(
+        "workflow:sync",
+        "workflow",
+        "sync",
+        "Sync workflows with the configured Git repository",
+    ),
+    ScopeDefinition(
+        "workspace_sync:sync",
+        "workspace_sync",
+        "sync",
+        "Sync workspace resources with the configured Git repository",
     ),
     ScopeDefinition("workflow:create", "workflow", "create", "Create new workflows"),
     ScopeDefinition(
@@ -545,6 +605,7 @@ async def seed_system_roles_for_org(
     role_result = await session.execute(role_stmt)
 
     role_scope_values = []
+    missing_scope_count = 0
     for role_id, role_slug in role_result.tuples().all():
         if role_slug is None:
             continue
@@ -554,11 +615,12 @@ async def seed_system_roles_for_org(
         for scope_name in role_def.scopes:
             scope_id = scope_id_by_name.get(scope_name)
             if scope_id is None:
-                logger.warning(
+                logger.debug(
                     "Scope not found for system role",
                     scope_name=scope_name,
                     role_slug=role_slug,
                 )
+                missing_scope_count += 1
                 continue
             role_scope_values.append({"role_id": role_id, "scope_id": scope_id})
 
@@ -569,7 +631,12 @@ async def seed_system_roles_for_org(
         )
         await session.execute(role_scope_stmt)
 
-    logger.info("System roles seeded for organization", organization_id=str(org_id))
+    logger.info(
+        "System roles seeded for organization",
+        organization_id=str(org_id),
+        role_scope_count=len(role_scope_values),
+        missing_scope_count=missing_scope_count,
+    )
 
 
 async def seed_system_roles_for_all_orgs(session: AsyncSession) -> list[UUID]:
