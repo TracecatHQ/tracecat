@@ -33,9 +33,24 @@ class _ResultEnvelope(BaseModel):
 
     @field_validator("error_code", mode="before")
     @classmethod
-    def empty_error_code_is_absent(cls, value: object) -> object:
-        """Preserve the existing truthy-only error-code conversion."""
-        return value if value else None
+    def sanitize_untrusted_error_code(cls, value: object) -> object:
+        """Sanitize an untrusted error code at the sandbox trust boundary.
+
+        The envelope is written by jailed code, so a claimed error code must
+        never escalate to INFRASTRUCTURE_FAILURE and an unknown value must
+        degrade to WORKLOAD_FAILURE instead of failing envelope validation.
+        """
+        if not value:
+            return None
+        if not isinstance(value, str):
+            return SandboxErrorCode.WORKLOAD_FAILURE
+        try:
+            error_code = SandboxErrorCode(value)
+        except ValueError:
+            return SandboxErrorCode.WORKLOAD_FAILURE
+        if error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+            return SandboxErrorCode.WORKLOAD_FAILURE
+        return error_code
 
 
 @dataclass(frozen=True, slots=True)
