@@ -720,7 +720,7 @@ def test_compiler_clears_base_limit_and_offset() -> None:
 
 
 @pytest.mark.parametrize("distinct_on", [False, True])
-def test_compiler_clears_base_distinct(distinct_on: bool) -> None:
+def test_compiler_rejects_base_distinct(distinct_on: bool) -> None:
     entity_id = sa.column("entity_id", sa.Integer())
     statement = _base_statement()
     if distinct_on:
@@ -728,17 +728,13 @@ def test_compiler_clears_base_distinct(distinct_on: bool) -> None:
     else:
         statement = statement.distinct()
 
-    sql = _sql(
+    with pytest.raises(TracecatValidationError, match="must not use DISTINCT"):
         compile_aggregation(
             statement,
             AggregationSpec(group_by=[]),
             {},
             limit=25,
         )
-    )
-
-    assert not sql.startswith("SELECT DISTINCT")
-    assert "ORDER BY count DESC NULLS LAST" in sql
 
 
 def test_unknown_aggregation_field_is_a_semantic_error() -> None:

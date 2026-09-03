@@ -82,6 +82,13 @@ def compile_aggregation(
     """
     if limit < 1:
         raise TracecatValidationError("Aggregation limit must be at least 1")
+    # SQLAlchemy has no public Select API for inspecting or removing DISTINCT.
+    # Dropping it would silently change the entity set for join-backed queries,
+    # while retaining DISTINCT ON can conflict with aggregation ordering.
+    if statement._distinct:
+        raise TracecatValidationError(
+            "Aggregation base statement must not use DISTINCT or DISTINCT ON"
+        )
 
     resolved_groups = [
         (group, _resolve_aggregation_field(group.field, resolved_fields))
@@ -135,12 +142,6 @@ def compile_aggregation(
         *agg_expressions,
         maintain_column_froms=True,
     )
-    # SQLAlchemy has no public generative API for removing DISTINCT. Since
-    # ``with_only_columns`` returned a clone, clear its inherited state without
-    # mutating the caller's base statement. In particular, leaving DISTINCT ON
-    # here can make PostgreSQL reject our aggregate-first ORDER BY.
-    compiled._distinct = False
-    compiled._distinct_on = ()
     compiled = compiled.group_by(None).order_by(None).limit(None).offset(None)
     if group_expressions:
         compiled = compiled.group_by(*group_expressions)
