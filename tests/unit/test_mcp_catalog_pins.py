@@ -159,7 +159,6 @@ def test_unavailable_qa_integrations_are_coming_soon_without_specs() -> None:
     public_servers = _public_catalog_servers()
 
     for slug in (
-        "splunk-mcp",
         "hashicorp-vault-mcp",
         "palo-alto-mcp",
         "terraform-mcp",
