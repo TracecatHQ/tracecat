@@ -266,6 +266,94 @@ def test_sentry_contexts_are_filtered_by_context_and_field() -> None:
     assert _SENSITIVE_VALUE not in json.dumps(sanitized)
 
 
+def test_sentry_event_allowlist_drops_unknown_payload_fields() -> None:
+    event = cast(
+        Event,
+        {
+            "fingerprint": ["tracecat-runtime-v1"],
+            "message": _SENSITIVE_VALUE,
+            "logentry": {"message": _SENSITIVE_VALUE},
+            "threads": {
+                "values": [
+                    {"stacktrace": {"frames": [{"vars": {"token": _SENSITIVE_VALUE}}]}}
+                ]
+            },
+            "stacktrace": {"vars": {"token": _SENSITIVE_VALUE}},
+            "transaction": _SENSITIVE_VALUE,
+            "unknown": {"payload": _SENSITIVE_VALUE},
+            "tags": {SentryTag.ERROR_OWNER.value: "platform"},
+            "contexts": {},
+            "exception": {
+                "values": [
+                    {
+                        "type": "RuntimeError",
+                        "module": "builtins",
+                        "value": _SENSITIVE_VALUE,
+                        "unknown": _SENSITIVE_VALUE,
+                        "stacktrace": {
+                            "frames": [
+                                {
+                                    "filename": "workflow.py",
+                                    "function": "run",
+                                    "module": "tracecat.dsl.workflow",
+                                    "lineno": 42,
+                                    "colno": 7,
+                                    "in_app": True,
+                                    "abs_path": _SENSITIVE_VALUE,
+                                    "context_line": _SENSITIVE_VALUE,
+                                    "vars": {"token": _SENSITIVE_VALUE},
+                                }
+                            ],
+                            "registers": {"secret": _SENSITIVE_VALUE},
+                        },
+                        "mechanism": {
+                            "type": "generic",
+                            "handled": False,
+                            "synthetic": False,
+                            "data": {"secret": _SENSITIVE_VALUE},
+                            "description": _SENSITIVE_VALUE,
+                        },
+                    }
+                ]
+            },
+        },
+    )
+
+    sanitized = _sanitize_platform_event(event, cast(Hint, {}))
+
+    assert sanitized is not None
+    assert sanitized is not event
+    assert set(sanitized) == {"contexts", "exception", "fingerprint", "tags"}
+    exception = sanitized.get("exception")
+    assert exception == {
+        "values": [
+            {
+                "type": "RuntimeError",
+                "module": "builtins",
+                "value": "Tracecat platform failure (unclassified)",
+                "stacktrace": {
+                    "frames": [
+                        {
+                            "filename": "workflow.py",
+                            "function": "run",
+                            "module": "tracecat.dsl.workflow",
+                            "lineno": 42,
+                            "colno": 7,
+                            "in_app": True,
+                        }
+                    ]
+                },
+                "mechanism": {
+                    "type": "generic",
+                    "handled": False,
+                    "synthetic": False,
+                },
+            }
+        ]
+    }
+    assert _SENSITIVE_VALUE not in json.dumps(sanitized)
+
+
 @pytest.mark.anyio
 async def test_marker_free_history_preserves_original_failure(
     monkeypatch: pytest.MonkeyPatch,

@@ -5,7 +5,7 @@ from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 import sentry_sdk
 from sentry_sdk.integrations import Integration
@@ -79,6 +79,30 @@ _API_ALLOWED_CONTEXT_FIELDS = {
 _SAFE_HTTP_METHODS = frozenset(
     {"CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"}
 )
+_BASE_ALLOWED_EVENT_FIELDS = frozenset(
+    {
+        "environment",
+        "event_id",
+        "level",
+        "platform",
+        "release",
+        "server_name",
+        "timestamp",
+    }
+)
+_WORKER_ALLOWED_EVENT_FIELDS = _BASE_ALLOWED_EVENT_FIELDS | {"fingerprint"}
+_API_ALLOWED_EVENT_FIELDS = _BASE_ALLOWED_EVENT_FIELDS | {"transaction"}
+_ALLOWED_EXCEPTION_STRING_FIELDS = frozenset({"module", "type"})
+_ALLOWED_MECHANISM_STRING_FIELDS = frozenset({"type"})
+_ALLOWED_MECHANISM_BOOLEAN_FIELDS = frozenset(
+    {"handled", "is_exception_group", "synthetic"}
+)
+_ALLOWED_MECHANISM_INTEGER_FIELDS = frozenset({"exception_id", "parent_id"})
+_ALLOWED_FRAME_STRING_FIELDS = frozenset(
+    {"filename", "function", "module", "package", "platform"}
+)
+_ALLOWED_FRAME_INTEGER_FIELDS = frozenset({"colno", "instruction_offset", "lineno"})
+_ALLOWED_FRAME_BOOLEAN_FIELDS = frozenset({"in_app"})
 
 type _BeforeSend = Callable[[Event, Hint], Event | None]
 type _ContextFieldPolicy = Mapping[str, frozenset[str]]
@@ -215,42 +239,127 @@ def _enrich_api_request_event(
     event["contexts"] = dict(contexts)
 
 
+def _sanitize_stacktrace(stacktrace: object) -> dict[str, object] | None:
+    """Copy only privacy-reviewed stack-frame metadata."""
+    if not isinstance(stacktrace, Mapping):
+        return None
+    values = stacktrace.get("frames")
+    if not isinstance(values, list):
+        return None
+
+    frames: list[dict[str, object]] = []
+    for value in values:
+        if not isinstance(value, Mapping):
+            continue
+        frame: dict[str, object] = {}
+        for field in _ALLOWED_FRAME_STRING_FIELDS:
+            if isinstance(field_value := value.get(field), str):
+                frame[field] = field_value
+        for field in _ALLOWED_FRAME_INTEGER_FIELDS:
+            if isinstance(field_value := value.get(field), int) and not isinstance(
+                field_value, bool
+            ):
+                frame[field] = field_value
+        for field in _ALLOWED_FRAME_BOOLEAN_FIELDS:
+            if isinstance(field_value := value.get(field), bool):
+                frame[field] = field_value
+        frames.append(frame)
+    return {"frames": frames}
+
+
+def _sanitize_mechanism(mechanism: object) -> dict[str, object] | None:
+    """Copy only non-payload exception-mechanism metadata."""
+    if not isinstance(mechanism, Mapping):
+        return None
+
+    sanitized: dict[str, object] = {}
+    for field in _ALLOWED_MECHANISM_STRING_FIELDS:
+        if isinstance(field_value := mechanism.get(field), str):
+            sanitized[field] = field_value
+    for field in _ALLOWED_MECHANISM_BOOLEAN_FIELDS:
+        if isinstance(field_value := mechanism.get(field), bool):
+            sanitized[field] = field_value
+    for field in _ALLOWED_MECHANISM_INTEGER_FIELDS:
+        if isinstance(field_value := mechanism.get(field), int) and not isinstance(
+            field_value, bool
+        ):
+            sanitized[field] = field_value
+    return sanitized or None
+
+
+def _sanitize_exception(
+    exception: object, *, safe_value: str
+) -> dict[Literal["values"], list[dict[str, Any]]] | None:
+    """Rebuild exception values without copying open-ended payload fields."""
+    if not isinstance(exception, Mapping):
+        return None
+    values = exception.get("values")
+    if not isinstance(values, list):
+        return None
+
+    # Sentry models exception values as dict[str, Any]. Validate every copied
+    # field here before matching that SDK wire type.
+    sanitized_values: list[dict[str, Any]] = []
+    for value in values:
+        if not isinstance(value, Mapping):
+            continue
+        sanitized_value: dict[str, object] = {"value": safe_value}
+        for field in _ALLOWED_EXCEPTION_STRING_FIELDS:
+            if isinstance(field_value := value.get(field), str):
+                sanitized_value[field] = field_value
+        if stacktrace := _sanitize_stacktrace(value.get("stacktrace")):
+            sanitized_value["stacktrace"] = stacktrace
+        if mechanism := _sanitize_mechanism(value.get("mechanism")):
+            sanitized_value["mechanism"] = mechanism
+        sanitized_values.append(sanitized_value)
+
+    if not sanitized_values:
+        return None
+    return {"values": sanitized_values}
+
+
 def _sanitize_event(
     event: Event,
     *,
     safe_value: str,
+    allowed_event_fields: frozenset[str],
     allowed_tags: frozenset[str],
     allowed_context_fields: _ContextFieldPolicy,
 ) -> Event:
     """Reduce a Sentry event to the shared privacy-reviewed schema."""
-    tags = cast(MutableMapping[str, Any], event.get("tags") or {})
-    event["tags"] = {key: value for key, value in tags.items() if key in allowed_tags}
-    contexts = cast(MutableMapping[str, Any], event.get("contexts") or {})
-    sanitized_contexts: dict[str, dict[str, Any]] = {}
-    for context_name, allowed_fields in allowed_context_fields.items():
-        context = contexts.get(context_name)
-        if not isinstance(context, MutableMapping):
-            continue
-        sanitized_contexts[context_name] = {
-            key: value for key, value in context.items() if key in allowed_fields
+    sanitized_event = cast(
+        Event,
+        {key: event[key] for key in allowed_event_fields if key in event},
+    )
+
+    tags = event.get("tags")
+    sanitized_event["tags"] = (
+        {
+            key: value
+            for key, value in tags.items()
+            if key in allowed_tags and isinstance(value, str)
         }
-    event["contexts"] = sanitized_contexts
-    for field in ("breadcrumbs", "extra", "request", "user"):
-        event.pop(field, None)
-
-    exception = cast(MutableMapping[str, Any], event.get("exception") or {})
-    values = exception.get("values")
-    if isinstance(values, list):
-        for value in values:
-            if not isinstance(value, MutableMapping):
+        if isinstance(tags, Mapping)
+        else {}
+    )
+    contexts = event.get("contexts")
+    sanitized_contexts: dict[str, dict[str, Any]] = {}
+    if isinstance(contexts, Mapping):
+        for context_name, allowed_fields in allowed_context_fields.items():
+            context = contexts.get(context_name)
+            if not isinstance(context, Mapping):
                 continue
-            value["value"] = safe_value
-            value.pop("raw_stacktrace", None)
-            mechanism = value.get("mechanism")
-            if isinstance(mechanism, MutableMapping):
-                mechanism.pop("data", None)
+            sanitized_contexts[context_name] = {
+                key: value
+                for key, value in context.items()
+                if key in allowed_fields and isinstance(value, (bool, float, int, str))
+            }
+    sanitized_event["contexts"] = sanitized_contexts
 
-    return event
+    if exception := _sanitize_exception(event.get("exception"), safe_value=safe_value):
+        sanitized_event["exception"] = exception
+
+    return sanitized_event
 
 
 def _sanitize_platform_event(event: Event, hint: Hint) -> Event | None:
@@ -263,6 +372,7 @@ def _sanitize_platform_event(event: Event, hint: Hint) -> Event | None:
     return _sanitize_event(
         event,
         safe_value=f"Tracecat platform failure ({kind})",
+        allowed_event_fields=_WORKER_ALLOWED_EVENT_FIELDS,
         allowed_tags=_WORKER_ALLOWED_TAGS,
         allowed_context_fields=_WORKER_ALLOWED_CONTEXT_FIELDS,
     )
@@ -283,6 +393,7 @@ def _sanitize_api_event(
     return _sanitize_event(
         event,
         safe_value="Tracecat API failure",
+        allowed_event_fields=_API_ALLOWED_EVENT_FIELDS,
         allowed_tags=_API_ALLOWED_TAGS,
         allowed_context_fields=_API_ALLOWED_CONTEXT_FIELDS,
     )
