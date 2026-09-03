@@ -15,9 +15,11 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 from tracecat.db.tenant_rls import (
+    disable_assignment_split_table_rls,
     disable_org_optional_workspace_table_rls,
     disable_org_table_rls,
     disable_workspace_table_rls,
+    enable_assignment_split_table_rls,
     enable_org_optional_workspace_table_rls,
     enable_org_table_rls,
     enable_workspace_table_rls,
@@ -31,7 +33,7 @@ depends_on: str | Sequence[str] | None = None
 
 logger = logging.getLogger("alembic.runtime.migration")
 
-RECLASSIFIED_TABLES = ("user_role_assignment", "group_role_assignment")
+SPLIT_POLICY_TABLES = ("user_role_assignment", "group_role_assignment")
 
 # Backfill a workspace-editor assignment for every workspace membership that no
 # assignment path already covers. Rows whose org lacks the system role are
@@ -201,11 +203,11 @@ def upgrade() -> None:
     backfill_assignments(connection)
     assert_no_membership_dropped(connection)
 
-    # 2. Assignments become plain org-scoped: the optional-workspace clause hid
-    # other-workspace rows from the view's org-presence reads.
-    for table in RECLASSIFIED_TABLES:
+    # 2. Assignments gain an org-wide read policy so org-presence queries see
+    # other-workspace rows; writes stay pinned to the session's workspace.
+    for table in SPLIT_POLICY_TABLES:
         op.execute(disable_org_optional_workspace_table_rls(table))
-        op.execute(enable_org_table_rls(table))
+        op.execute(enable_assignment_split_table_rls(table))
 
     # 3. Drop the legacy membership tables.
     op.execute(disable_workspace_table_rls("membership"))
@@ -290,6 +292,6 @@ def downgrade() -> None:
     op.execute(enable_workspace_table_rls("membership"))
     op.execute(enable_org_table_rls("organization_membership"))
 
-    for table in RECLASSIFIED_TABLES:
-        op.execute(disable_org_table_rls(table))
+    for table in SPLIT_POLICY_TABLES:
+        op.execute(disable_assignment_split_table_rls(table))
         op.execute(enable_org_optional_workspace_table_rls(table))

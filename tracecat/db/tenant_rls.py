@@ -67,8 +67,9 @@ INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "group_role_assignment",
 )
 
-# Reclassified so org-presence queries can read assignments from other workspaces.
-RECLASSIFIED_TO_ORG_SCOPED_TABLES = (
+# Assignment tables need org-wide reads for org-presence queries, but writes must
+# stay workspace-scoped. They carry a split policy instead of a plain org policy.
+ASSIGNMENT_SPLIT_POLICY_TABLES = (
     "user_role_assignment",
     "group_role_assignment",
 )
@@ -110,7 +111,12 @@ POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
 )
 
 SPECIAL_TENANT_POLICY_TABLES = frozenset(
-    {"agent_tag_link", "service_account_api_key", "service_account_scope"}
+    {
+        "agent_tag_link",
+        "service_account_api_key",
+        "service_account_scope",
+        *ASSIGNMENT_SPLIT_POLICY_TABLES,
+    }
 )
 
 # Workspace and oauth_state carry custom policy SQL. scope and agent_catalog
@@ -125,7 +131,6 @@ CURRENT_WORKSPACE_SCOPED_TABLES = (
 CURRENT_ORG_SCOPED_TABLES = (
     *INITIAL_ORG_SCOPED_TABLES,
     *POST_RLS_ORG_SCOPED_TABLES,
-    *RECLASSIFIED_TO_ORG_SCOPED_TABLES,
 )
 CURRENT_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = tuple(
     table
@@ -133,7 +138,7 @@ CURRENT_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = tuple(
         *INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES,
         *POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES,
     )
-    if table not in RECLASSIFIED_TO_ORG_SCOPED_TABLES
+    if table not in ASSIGNMENT_SPLIT_POLICY_TABLES
 )
 
 WORKSPACE_POLICY_TABLES = frozenset(CURRENT_WORKSPACE_SCOPED_TABLES)
@@ -264,6 +269,60 @@ def enable_org_optional_workspace_table_rls(table: str) -> str:
 
 def disable_org_optional_workspace_table_rls(table: str) -> str:
     return disable_org_table_rls(table)
+
+
+def _assignment_org_read_policy(table: str) -> str:
+    return f"{policy_name(table)}_org_read"
+
+
+def enable_assignment_split_table_rls(table: str) -> str:
+    # Split policy so org-presence queries can read assignments in every
+    # workspace while writes stay pinned to the session's workspace. The FOR ALL
+    # policy keeps the original org+optional-workspace clause; the additive
+    # FOR SELECT policy widens reads to the whole org (permissive policies OR).
+    return f"""
+        ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {policy_name(table)} ON "{table}"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR (
+                    organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+                    AND (
+                        workspace_id IS NULL
+                        OR workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                        OR NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL
+                    )
+                )
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR (
+                    organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+                    AND (
+                        workspace_id IS NULL
+                        OR workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                        OR NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL
+                    )
+                )
+            );
+
+        CREATE POLICY {_assignment_org_read_policy(table)} ON "{table}"
+            FOR SELECT
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            );
+    """
+
+
+def disable_assignment_split_table_rls(table: str) -> str:
+    return f"""
+        DROP POLICY IF EXISTS {_assignment_org_read_policy(table)} ON "{table}";
+        DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
+        ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
+    """
 
 
 def enable_scope_table_rls() -> str:

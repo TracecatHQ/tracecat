@@ -12,14 +12,15 @@ from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import Base, Membership
 from tracecat.db.tenant_rls import (
     ALL_TENANT_RLS_TABLES,
+    ASSIGNMENT_SPLIT_POLICY_TABLES,
     ORG_OPTIONAL_WORKSPACE_POLICY_TABLES,
     ORG_POLICY_TABLES,
-    RECLASSIFIED_TO_ORG_SCOPED_TABLES,
     SPECIAL_ORG_POLICY_TABLES,
     SPECIAL_TENANT_POLICY_TABLES,
     SPECIAL_WORKSPACE_POLICY_TABLES,
     WORKSPACE_POLICY_TABLES,
     enable_agent_tag_link_table_rls,
+    enable_assignment_split_table_rls,
 )
 from tracecat.tables.service import TablesService
 
@@ -60,9 +61,9 @@ def test_all_workspace_keyed_models_are_registered_for_tenant_rls() -> None:
         WORKSPACE_POLICY_TABLES
         | ORG_OPTIONAL_WORKSPACE_POLICY_TABLES
         | SPECIAL_WORKSPACE_POLICY_TABLES
-        # Assignments are org-owned; the org clause alone isolates tenants and
-        # keeps other-workspace rows visible to org-presence reads.
-        | frozenset(RECLASSIFIED_TO_ORG_SCOPED_TABLES)
+        # Assignments carry a split policy: workspace-scoped writes plus an
+        # additive org-wide read for org-presence queries.
+        | frozenset(ASSIGNMENT_SPLIT_POLICY_TABLES)
     )
 
     missing_workspace_coverage = workspace_keyed_tables - covered_workspace_tables
@@ -79,6 +80,7 @@ def test_all_org_keyed_models_are_registered_for_tenant_rls() -> None:
         ORG_POLICY_TABLES
         | ORG_OPTIONAL_WORKSPACE_POLICY_TABLES
         | SPECIAL_ORG_POLICY_TABLES
+        | frozenset(ASSIGNMENT_SPLIT_POLICY_TABLES)
     )
 
     missing_org_coverage = org_keyed_tables - covered_org_tables
@@ -104,10 +106,30 @@ def test_membership_selectable_is_not_registered_for_tenant_rls() -> None:
     assert not isinstance(Membership.__table__, Table)
 
 
-def test_assignment_tables_use_plain_org_policy() -> None:
-    for table in RECLASSIFIED_TO_ORG_SCOPED_TABLES:
-        assert table in ORG_POLICY_TABLES
+def test_assignment_tables_use_split_policy() -> None:
+    for table in ASSIGNMENT_SPLIT_POLICY_TABLES:
+        assert table in SPECIAL_TENANT_POLICY_TABLES
+        assert table not in ORG_POLICY_TABLES
         assert table not in ORG_OPTIONAL_WORKSPACE_POLICY_TABLES
+
+
+def test_assignment_split_policy_keeps_writes_workspace_scoped() -> None:
+    for table in ASSIGNMENT_SPLIT_POLICY_TABLES:
+        policy_sql = enable_assignment_split_table_rls(table)
+
+        assert f'ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY' in policy_sql
+        assert f"CREATE POLICY rls_policy_{table} ON" in policy_sql
+        assert f"CREATE POLICY rls_policy_{table}_org_read ON" in policy_sql
+        assert "FOR SELECT" in policy_sql
+        # The FOR ALL policy must still pin writes to the session workspace.
+        for_all_policy = policy_sql.split("FOR SELECT")[0]
+        assert for_all_policy.count("WITH CHECK") == 1
+        assert for_all_policy.count("app.current_workspace_id") == 4
+        # The additive read policy is org-only, with the bypass clause.
+        org_read_policy = policy_sql.split("_org_read")[1]
+        assert "app.current_workspace_id" not in org_read_policy
+        assert "app.rls_bypass" in org_read_policy
+        assert "WITH CHECK" not in org_read_policy
 
 
 def test_agent_tag_link_is_registered_for_tenant_rls() -> None:
