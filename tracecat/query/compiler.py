@@ -89,6 +89,10 @@ def compile_aggregation(
         raise TracecatValidationError(
             "Aggregation base statement must not use DISTINCT or DISTINCT ON"
         )
+    if statement._group_by_clauses or statement._having_criteria:
+        raise TracecatValidationError(
+            "Aggregation base statement must not use GROUP BY or HAVING"
+        )
 
     resolved_groups = [
         (group, _resolve_aggregation_field(group.field, resolved_fields))

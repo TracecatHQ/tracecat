@@ -737,6 +737,26 @@ def test_compiler_rejects_base_distinct(distinct_on: bool) -> None:
         )
 
 
+@pytest.mark.parametrize("clause", ["group_by", "having"])
+def test_compiler_rejects_grouped_or_having_base(clause: str) -> None:
+    entity_id = sa.column("entity_id", sa.Integer())
+    statement = _base_statement()
+    if clause == "group_by":
+        statement = statement.group_by(entity_id)
+    else:
+        statement = statement.having(sa.func.count() > 1)
+
+    with pytest.raises(
+        TracecatValidationError, match="must not use GROUP BY or HAVING"
+    ):
+        compile_aggregation(
+            statement,
+            AggregationSpec(group_by=[]),
+            {},
+            limit=25,
+        )
+
+
 def test_unknown_aggregation_field_is_a_semantic_error() -> None:
     spec = AggregationSpec(group_by=[GroupBySpec(field="missing")])
 
