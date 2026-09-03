@@ -968,6 +968,7 @@ class NsjailExecutor:
             execution_time_ms=execution_time_ms,
             max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
             stream_source="process",
+            include_error_code=True,
         )
         if outcome is not None:
             # Log subprocess stderr for debugging (contains timing info)
