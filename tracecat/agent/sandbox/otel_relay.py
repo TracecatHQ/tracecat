@@ -346,17 +346,12 @@ def tenant_signal_enabled(collector_env: Mapping[str, str], path: SignalPath) ->
 
 @dataclass(frozen=True, slots=True)
 class OtelTarget:
-    """One resolved destination a single signal is delivered to.
-
-    Attributes:
-        url: Full collector URL for this signal.
-        headers: Outbound headers, already unwrapped from their secrets. Hidden
-            from repr so exporter credentials are not logged through dataclass
-            rendering.
-    """
+    """One resolved destination a single signal is delivered to."""
 
     url: str
+    """Full collector URL for this signal."""
     headers: Mapping[str, str] = field(repr=False)
+    """Outbound headers, already unwrapped from their secrets."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,19 +369,16 @@ class OtelDestinations:
 
 @dataclass(frozen=True, slots=True)
 class OtelRoute:
-    """The tenant's own collector, resolved to one endpoint per signal.
-
-    Attributes:
-        endpoints: Collector URL per signal path the tenant opted in to. A path
-            missing from this mapping has no tenant copy, which is how a
-            per-signal opt-out and an unconfigured signal are both expressed.
-        headers: Outbound exporter headers, already unwrapped from their
-            secrets. Hidden from repr so credentials are not logged through
-            dataclass rendering.
-    """
+    """The tenant's own collector, resolved to one endpoint per signal."""
 
     endpoints: Mapping[SignalPath, str]
+    """Collector URL per signal path the tenant opted in to.
+
+    A path missing from this mapping has no tenant copy, which is how a
+    per-signal opt-out and an unconfigured signal are both expressed.
+    """
     headers: Mapping[str, str] = field(repr=False)
+    """Outbound exporter headers, already unwrapped from their secrets."""
 
     def url_for(self, path: SignalPath) -> str | None:
         """Return this route's collector URL for one signal path, if any."""
@@ -400,19 +392,20 @@ class OtelRoutingPlan:
     The executor turns org OTel settings and the host's trace context into this
     plan before the sandbox starts; the receiver only asks it where a signal
     goes.
-
-    Attributes:
-        tenant: The org's own collector, or None when it resolves no endpoint.
-        platform_endpoint: Tracecat's internal gateway traces URL, or None when
-            platform tracing is off for this turn. Traces-only and headerless.
-        trace_parent: Trusted host span. Both the source of the correlation
-            attributes stamped onto the tenant copy and the parent the platform
-            copy is joined to, so it outlives ``platform`` being None.
     """
 
     tenant: OtelRoute | None
+    """The org's own collector, or None when it resolves no endpoint."""
     platform_endpoint: str | None
+    """Tracecat's internal gateway traces URL, or None when platform tracing is
+    off for this turn. Traces-only and headerless."""
     trace_parent: PlatformTraceParent | None
+    """Trusted host span.
+
+    Both the source of the correlation attributes stamped onto the tenant copy
+    and the parent the platform copy is joined to, so it outlives
+    ``platform_endpoint`` being None.
+    """
 
     @classmethod
     def build(
