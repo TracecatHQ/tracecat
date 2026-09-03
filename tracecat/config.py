@@ -227,6 +227,16 @@ TRACECAT__AGENT_SKILL_CACHE_DIR = os.environ.get(
 )
 """Directory for caching extracted published skills on executor workers."""
 
+TRACECAT__COPILOT_SKILLS_DIR = (
+    os.environ.get("TRACECAT__COPILOT_SKILLS_DIR") or "/var/lib/tracecat/copilot-skills"
+)
+"""Directory holding the built-in workspace-chat skills vendored from the public
+`tracecat-plugins` repository at image build time.
+
+Deliberately outside the Python package tree. These are markdown the agent reads,
+not code that gets imported, and keeping them out of `packages/` means neither the
+wheel build nor a development bind mount can serve a stale copy."""
+
 TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS = int(
     os.environ.get("TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS") or 8
 )

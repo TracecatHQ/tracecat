@@ -19,6 +19,11 @@ from tracecat.agent.common.types import (
     MCPToolDefinition,
     is_http_mcp_server,
 )
+from tracecat.agent.error_policy import (
+    agent_preparation_failed,
+    invalid_agent_configuration,
+    tenant_entitlement_denied,
+)
 from tracecat.agent.mcp.internal_tools import (
     BUILDER_BUNDLED_ACTIONS,
     BUILDER_INTERNAL_TOOL_NAMES,
@@ -35,11 +40,13 @@ from tracecat.agent.tools import build_agent_tools
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.tiers.entitlements import Entitlement, EntitlementService
+from tracecat.temporal.errors import raise_application_error_from_classification
+from tracecat.tiers.entitlements import EntitlementService
+from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.service import TierService
 
 if TYPE_CHECKING:
@@ -216,10 +223,16 @@ class AgentActivities:
     async def _check_tool_approval_entitlement(role: Role) -> None:
         if role.organization_id is None:
             raise ValueError("Role must have organization_id to validate entitlements")
-        async with TierService.with_session() as tier_service:
-            entitlement_service = EntitlementService(tier_service)
-            await entitlement_service.check_entitlement(
-                role.organization_id, Entitlement.AGENT_ADDONS
+        try:
+            async with TierService.with_session() as tier_service:
+                entitlement_service = EntitlementService(tier_service)
+                await entitlement_service.check_entitlement(
+                    role.organization_id, Entitlement.AGENT_ADDONS
+                )
+        except EntitlementRequired as exc:
+            raise_application_error_from_classification(
+                tenant_entitlement_denied(exc),
+                exc.detail,
             )
 
     async def _build_scope_tool_definitions(
@@ -251,11 +264,7 @@ class AgentActivities:
                 tool_approvals=args.tool_approvals,
             )
         except ValueError as e:
-            raise ApplicationError(
-                str(e),
-                type="AgentToolDefinitionError",
-                non_retryable=True,
-            ) from e
+            raise_application_error_from_classification(invalid_agent_configuration(e))
         # Convert to dict[str, MCPToolDefinition] keyed by canonical action name
         # Tools already have canonical names (with dots, e.g., "core.cases.list_cases")
         defs: dict[str, MCPToolDefinition] = {}
@@ -431,12 +440,9 @@ class AgentActivities:
                     server_count=len(hydrated_servers),
                 )
                 if args.fail_on_mcp_discovery_error:
-                    raise ApplicationError(
-                        "Failed to discover configured MCP tools for agent scope",
-                        str(e),
-                        type="AgentToolDefinitionError",
-                        non_retryable=True,
-                    ) from e
+                    raise_application_error_from_classification(
+                        invalid_agent_configuration(e)
+                    )
                 # Continue without user MCP tools - don't fail the whole operation
             finally:
                 # Defensive: ensure hydrated configs (with headers) drop out
@@ -466,6 +472,11 @@ class AgentActivities:
                 e.detail,
                 type=e.__class__.__name__,
             ) from e
+        except EntitlementRequired as e:
+            raise_application_error_from_classification(
+                tenant_entitlement_denied(e),
+                e.detail,
+            )
 
         return BuildToolDefsResult(
             tool_definitions=defs,
@@ -514,9 +525,8 @@ class AgentActivities:
         results: dict[str, BuildToolDefsResult] = {}
         for scope in args.scopes:
             if scope.scope in results:
-                raise ApplicationError(
-                    f"Duplicate agent compile scope '{scope.scope}'",
-                    non_retryable=True,
+                raise_application_error_from_classification(
+                    agent_preparation_failed(retryable=False)
                 )
             results[scope.scope] = await self._build_scope_tool_definitions(
                 scope,

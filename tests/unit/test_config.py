@@ -482,6 +482,23 @@ def test_action_gateway_socket_uses_default_for_empty_string(
         importlib.reload(tracecat_config)
 
 
+def test_copilot_skills_dir_uses_default_for_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__COPILOT_SKILLS_DIR", "")
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert (
+                reloaded_config.TRACECAT__COPILOT_SKILLS_DIR
+                == "/var/lib/tracecat/copilot-skills"
+            )
+    finally:
+        importlib.reload(tracecat_config)
+
+
 @pytest.mark.parametrize(
     ("sandbox_timeout", "expected_drain_timeout"),
     [(None, 3660), (900, 960), (7200, 7260)],

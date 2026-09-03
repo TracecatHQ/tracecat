@@ -47,7 +47,7 @@ Google API version, e.g. `v3` or `v4`.
 
 <ParamField path="access_token" type="string | null">
 
-OAuth access token from a Tracecat OAuth integration, e.g. `$&#123;&#123; SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN &#125;&#125;`. When set it is used as-is and `scopes`/`subject` are ignored.
+OAuth access token from a Tracecat OAuth integration, e.g. `$&#123;&#123; SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN &#125;&#125;`. Use the secret key for the configured grant; a fallback expression is valid only when both grants are connected. When set it is used as-is and `scopes`/`subject` are ignored.
 
 Default: `null`.
 
@@ -136,7 +136,7 @@ Google API version, e.g. `v3` or `v4`.
 
 <ParamField path="access_token" type="string | null">
 
-OAuth access token from a Tracecat OAuth integration, e.g. `$&#123;&#123; SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN &#125;&#125;`. When set it is used as-is and `scopes`/`subject` are ignored.
+OAuth access token from a Tracecat OAuth integration, e.g. `$&#123;&#123; SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN &#125;&#125;`. Use the secret key for the configured grant; a fallback expression is valid only when both grants are connected. When set it is used as-is and `scopes`/`subject` are ignored.
 
 Default: `null`.
 

@@ -9,7 +9,6 @@ import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 from enum import StrEnum
-from importlib.resources import as_file, files
 from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
@@ -32,7 +31,10 @@ from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__DISABLE_NSJAIL,
 )
-from tracecat.agent.common.exceptions import AgentSandboxExecutionError
+from tracecat.agent.common.exceptions import (
+    AgentSandboxExecutionError,
+    AgentSandboxValidationError,
+)
 from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import ToolCallContent
@@ -43,6 +45,12 @@ from tracecat.agent.common.types import (
     SandboxSubagentConfig,
     is_stdio_mcp_server,
     requires_sandbox_internet_access,
+)
+from tracecat.agent.error_policy import (
+    agent_executor_protocol_failed,
+    agent_executor_timed_out,
+    agent_executor_unavailable,
+    invalid_agent_configuration,
 )
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
@@ -75,6 +83,7 @@ from tracecat.agent.runtime.session_paths import build_agent_sandbox_path_mappin
 from tracecat.agent.runtime_services import get_claude_runtime_broker
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
+    LLMProxyError,
     LLMRoute,
     LLMRoutingPlan,
     LLMSocketProxy,
@@ -86,7 +95,10 @@ from tracecat.agent.sandbox.otel_relay import (
 )
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.skill.builtin import BUILTIN_SKILL_NAME_PREFIX
+from tracecat.agent.skill.builtin import (
+    BUILTIN_SKILL_NAME_PREFIX,
+    BUILTIN_WORKSPACE_CHAT_SKILLS,
+)
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -106,6 +118,7 @@ from tracecat.observability.otel import (
     set_current_span_attributes,
 )
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorClassification
 from tracecat.settings.service import SettingsService
 from tracecat.storage import blob
 
@@ -228,6 +241,9 @@ class AgentExecutorResult(BaseModel):
 
     success: bool
     error: str | None = None
+    # Typed terminal attribution produced by the trusted executor boundary.
+    # None keeps activity results recorded before this field replayable.
+    classification: RuntimeErrorClassification | None = None
     # None means a legacy activity result did not carry this field. The
     # workflow treats unknown failed results as already terminal-emitted so old
     # histories keep their original command shape.
@@ -354,7 +370,7 @@ class SandboxedAgentExecutor:
     _otel_receiver: OtelSocketReceiver | None = field(
         default=None, init=False, repr=False
     )
-    _fatal_error: str | None = field(default=None, init=False, repr=False)
+    _fatal_error: LLMProxyError | None = field(default=None, init=False, repr=False)
     _fatal_error_event: asyncio.Event = field(
         default_factory=asyncio.Event, init=False, repr=False
     )
@@ -377,8 +393,8 @@ class SandboxedAgentExecutor:
     async def _create_llm_socket_proxy(self, socket_path: Path) -> LLMSocketProxy:
         """Create the host-side LiteLLM transport proxy for this execution."""
 
-        def on_error(error_msg: str) -> None:
-            self._fatal_error = error_msg
+        def on_error(error: LLMProxyError) -> None:
+            self._fatal_error = error
             self._fatal_error_event.set()
 
         routing_plan = self._llm_routing_plan()
@@ -487,11 +503,11 @@ class SandboxedAgentExecutor:
             Direct route for the model config.
 
         Raises:
-            AgentSandboxExecutionError: If passthrough is enabled without a
+            AgentSandboxValidationError: If passthrough is enabled without a
                 resolved base URL.
         """
         if base_url is None:
-            raise AgentSandboxExecutionError(
+            raise AgentSandboxValidationError(
                 "Custom model provider passthrough requires a resolved base_url."
             )
         return LLMRoute(
@@ -669,12 +685,18 @@ class SandboxedAgentExecutor:
                 otel_socket_path=otel_socket_path,
             )
 
+        except AgentSandboxValidationError as e:
+            logger.error("Agent configuration is invalid", error=str(e))
+            result.error = str(e)
+            result.classification = invalid_agent_configuration(e)
         except AgentSandboxExecutionError as e:
             logger.error("Agent sandbox execution failed", error=str(e))
             result.error = str(e)
+            result.classification = agent_executor_unavailable(e)
         except Exception as e:
             logger.exception("Unexpected error in agent executor", error=str(e))
             result.error = f"Unexpected error: {e}"
+            result.classification = agent_executor_unavailable(e)
         finally:
             await self._cleanup()
 
@@ -742,6 +764,7 @@ class SandboxedAgentExecutor:
         """Copy loopback result fields into the activity result."""
         result.success = loopback_result.success
         result.error = loopback_result.error
+        result.classification = loopback_result.classification
         result.approval_requested = loopback_result.approval_requested
         result.approval_items = loopback_result.approval_items or None
         result.terminal_stream_error_emitted = (
@@ -814,12 +837,15 @@ class SandboxedAgentExecutor:
             otel_socket_path=otel_socket_path,
         )
 
-        async def wait_fatal_error() -> str:
+        async def wait_fatal_error() -> LLMProxyError:
             await self._fatal_error_event.wait()
-            return self._fatal_error or "Unknown LLM error"
+            return self._fatal_error or LLMProxyError(
+                message="Unknown LLM error",
+                classification=agent_executor_protocol_failed(),
+            )
 
         broker_task: asyncio.Task[None] | None = None
-        fatal_error_task: asyncio.Task[str] | None = None
+        fatal_error_task: asyncio.Task[LLMProxyError] | None = None
         cancel_signal_task: asyncio.Task[None] | None = None
         try:
             async with broker.session_turn_lease(str(self.input.session_id)):
@@ -858,10 +884,11 @@ class SandboxedAgentExecutor:
                         continue
 
                     if fatal_error_task in done:
-                        error_msg = fatal_error_task.result()
-                        result.error = error_msg
+                        proxy_error = fatal_error_task.result()
+                        result.error = proxy_error.message
+                        result.classification = proxy_error.classification
                         result.terminal_stream_error_emitted = (
-                            await handler.emit_terminal_error(error_msg)
+                            await handler.emit_terminal_error(proxy_error.message)
                         )
                         await broker.cancel_turn(str(self.input.session_id))
                         await _cancel_task_with_timeout(
@@ -898,6 +925,7 @@ class SandboxedAgentExecutor:
                     result.error = (
                         f"Agent execution timed out after {self.timeout_seconds}s"
                     )
+                    result.classification = agent_executor_timed_out()
                     result.terminal_stream_error_emitted = (
                         await handler.emit_terminal_error(result.error)
                     )
@@ -909,6 +937,7 @@ class SandboxedAgentExecutor:
                     broker_task = None
         except Exception as e:
             result.error = str(e)
+            result.classification = agent_executor_unavailable(e)
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
                 result.error
             )
@@ -1145,11 +1174,12 @@ class SandboxedAgentExecutor:
     async def _stage_builtin_skills(self, skills_dir: Path) -> None:
         """Stage always-on built-in platform skills into the run home dir.
 
-        Built-in skills are plain on-disk directories packaged inside
-        ``tracecat`` package. They are identified by name only (resolved from the
+        Built-in skills are plain on-disk directories vendored from the public
+        ``tracecat-plugins`` repository into ``TRACECAT__COPILOT_SKILLS_DIR`` at
+        image build time. They are identified by name only (resolved from the
         config, which set them when the org is workspace-chat entitled), so this
-        method maps each reserved-prefix name to its packaged directory and
-        copies it into the staged skills directory. Built-in skills own the
+        method maps each reserved-prefix name to its directory and copies it
+        into the staged skills directory. Built-in skills own the
         ``tracecat-`` namespace and are staged BEFORE preset
         ``resolved_skills``, which skip any name already staged here — so a
         legacy user skill with a reserved-prefix name can never overlay or be
@@ -1160,26 +1190,46 @@ class SandboxedAgentExecutor:
         if not names:
             return
 
-        skills_root = files("tracecat.agent.skill.builtin")
+        requested_names: list[str] = []
         for name in dict.fromkeys(names):
             if (
                 not name.startswith(BUILTIN_SKILL_NAME_PREFIX)
                 or "/" in name
                 or name in {".", ".."}
+                or name not in BUILTIN_WORKSPACE_CHAT_SKILLS
             ):
                 logger.warning("Skipping invalid built-in skill name", skill=name)
                 continue
-            source = skills_root / name
+            requested_names.append(name)
+        if not requested_names:
+            return
+
+        # The vendored directory lives outside the package tree so that
+        # neither the wheel build nor a development bind mount over `packages/`
+        # can serve a stale copy. Built-ins are part of the Workspace Chat
+        # runtime contract, so fail explicitly if an image omits them instead
+        # of silently starting an entitled session without its guidance.
+        vendored_root = Path(app_config.TRACECAT__COPILOT_SKILLS_DIR)
+        if not vendored_root.is_dir():
+            raise FileNotFoundError(
+                "Vendored copilot skills directory is required when built-in "
+                f"skills are requested: {vendored_root}"
+            )
+        for name in requested_names:
+            source = vendored_root / name
             if not (source / "SKILL.md").is_file():
-                logger.warning("Built-in skill missing SKILL.md; skipping", skill=name)
-                continue
-            with as_file(source) as source_path:
-                await asyncio.to_thread(
-                    shutil.copytree,
-                    source_path,
-                    skills_dir / name,
-                    dirs_exist_ok=True,
+                logger.warning(
+                    "Built-in skill missing SKILL.md; skipping",
+                    skill=name,
+                    skills_root=str(vendored_root),
                 )
+                continue
+            await asyncio.to_thread(
+                shutil.copytree,
+                source,
+                skills_dir / name,
+                dirs_exist_ok=True,
+            )
 
     async def _ensure_cached_skill_dir(
         self,
@@ -1288,17 +1338,19 @@ async def _hydrate_stdio_env(
     if not mcp_servers:
         return mcp_servers
 
+    for cfg in mcp_servers:
+        if is_stdio_mcp_server(cfg) and not cfg.get("id"):
+            raise AgentSandboxValidationError(
+                "Stdio MCP server configuration is missing a source integration id"
+            )
+
     result: list[MCPServerConfig] = []
     async with AgentPresetService.with_session(role=role) as svc:
         for cfg in mcp_servers:
             if not is_stdio_mcp_server(cfg):
                 result.append(cfg)
             else:
-                cfg_id = cfg.get("id")
-                if not cfg_id:
-                    raise ValueError(
-                        f"Stdio MCP server {cfg.get('name')!r} is missing a source integration id"
-                    )
+                cfg_id = cast(str, cfg.get("id"))
                 try:
                     env = await svc.resolve_mcp_integration_secrets(uuid.UUID(cfg_id))
                 except (ValueError, MCPSecretResolutionError):
@@ -1447,12 +1499,21 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         # ``config.mcp_servers`` arrive in refs-only shape (no ``env``) — hydrate
         # from the DB here so the spawned processes get their credentials.
         config = cast(Any, input.config)
-        config.mcp_servers = await _hydrate_stdio_env(
-            config.mcp_servers, role=input.role
-        )
-        for subagent in input.subagents:
-            subagent.config.mcp_servers = await _hydrate_stdio_env(
-                subagent.config.mcp_servers, role=input.role
+        try:
+            config.mcp_servers = await _hydrate_stdio_env(
+                config.mcp_servers, role=input.role
+            )
+            for subagent in input.subagents:
+                subagent.config.mcp_servers = await _hydrate_stdio_env(
+                    subagent.config.mcp_servers, role=input.role
+                )
+        except AgentSandboxValidationError as e:
+            classification = invalid_agent_configuration(e)
+            return AgentExecutorResult(
+                success=False,
+                error=classification.message,
+                classification=classification,
+                terminal_stream_error_emitted=False,
             )
 
         timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
