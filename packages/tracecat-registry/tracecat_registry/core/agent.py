@@ -287,7 +287,8 @@ async def agent(
     session_id: Annotated[
         str | None,
         Doc(
-            "Optional existing agent session ID to continue from. If provided, the session must already exist."
+            "Optional existing agent session ID to fork. The action continues from "
+            "its history in a new independent session."
         ),
     ] = None,
     model_settings: Annotated[
@@ -353,7 +354,8 @@ async def preset_agent(
     session_id: Annotated[
         str | None,
         Doc(
-            "Optional existing agent session ID to continue from. If provided, the session must already exist."
+            "Optional existing agent session ID to fork. The action continues from "
+            "its history in a new independent session."
         ),
     ] = None,
     max_tool_calls: Annotated[

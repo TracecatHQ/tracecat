@@ -166,6 +166,48 @@ async def test_create_session_preserves_null_preset_version_for_current() -> Non
 
 
 @pytest.mark.anyio
+async def test_fork_session_preserves_parent_runtime_state() -> None:
+    service, session, role = _build_service()
+    assert role.workspace_id is not None
+    parent_session_id = uuid.uuid4()
+    parent_snapshot = {"bucket": "agent-workspaces", "key": "parent.tar.gz"}
+    parent = AgentSession(
+        id=parent_session_id,
+        workspace_id=role.workspace_id,
+        title="Parent",
+        entity_type=AgentSessionEntity.WORKFLOW.value,
+        entity_id=uuid.uuid4(),
+        harness_type="claude_code",
+        work_dir_snapshot=parent_snapshot,
+    )
+    service.get_session = AsyncMock(return_value=parent)
+    service._validate_preset_version_for_assignment = AsyncMock(return_value=None)
+    service._resolve_agents_binding_for_preset_version_id = AsyncMock(return_value=None)
+    child_session_id = uuid.uuid4()
+
+    created = await service.fork_session(
+        parent_session_id,
+        child_args=AgentSessionCreate(
+            id=child_session_id,
+            title="Workflow fork",
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+            tools=["core.http_request"],
+        ),
+    )
+
+    service.get_session.assert_awaited_with(parent_session_id)
+    assert created.id == child_session_id
+    assert created.parent_session_id == parent_session_id
+    assert created.harness_type == parent.harness_type
+    assert created.work_dir_snapshot == parent_snapshot
+    assert created.work_dir_snapshot is not parent_snapshot
+    session.add.assert_called_once_with(created)
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(created)
+
+
+@pytest.mark.anyio
 async def test_create_workspace_chat_session_applies_current_default_tools() -> None:
     service, session, _role = _build_service()
     validate_mock = AsyncMock(return_value=None)

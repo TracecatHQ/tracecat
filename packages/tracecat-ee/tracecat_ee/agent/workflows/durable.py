@@ -501,6 +501,12 @@ class AgentWorkflowArgs(BaseModel):
         default=False,
         description=("If true, session_id is caller-supplied and must already exist."),
     )
+    parent_session_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Existing session whose SDK history this newly created session forks."
+        ),
+    )
 
 
 class WorkflowApprovalSubmission(BaseModel):
@@ -1342,24 +1348,29 @@ class DurableAgentWorkflow:
 
         # Create or get the AgentSession - idempotent, safe to call on resume
         # Persist the active workflow token as curr_run_id for approval lookups.
+        create_input = CreateSessionInput(
+            role=self.role,
+            session_id=self.session_id,
+            require_existing=args.continue_existing_session,
+            title=args.title,
+            created_by=self.role.user_id,
+            entity_type=args.entity_type,
+            entity_id=args.entity_id,
+            tools=args.tools,
+            agent_preset_id=args.agent_preset_id,
+            agent_preset_version_id=args.agent_preset_version_id,
+            agents_binding=agents_result.to_agents_binding(),
+            harness_type=HarnessType(self.harness_type),
+            curr_run_id=curr_run_id,
+            initial_user_prompt=args.agent_args.user_prompt,
+        )
+        if args.parent_session_id is not None:
+            create_input = create_input.model_copy(
+                update={"parent_session_id": args.parent_session_id}
+            )
         create_result = await workflow.execute_activity(
             create_session_activity,
-            CreateSessionInput(
-                role=self.role,
-                session_id=self.session_id,
-                require_existing=args.continue_existing_session,
-                title=args.title,
-                created_by=self.role.user_id,
-                entity_type=args.entity_type,
-                entity_id=args.entity_id,
-                tools=args.tools,
-                agent_preset_id=args.agent_preset_id,
-                agent_preset_version_id=args.agent_preset_version_id,
-                agents_binding=agents_result.to_agents_binding(),
-                harness_type=HarnessType(self.harness_type),
-                curr_run_id=curr_run_id,
-                initial_user_prompt=args.agent_args.user_prompt,
-            ),
+            create_input,
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )

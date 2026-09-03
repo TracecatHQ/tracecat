@@ -249,6 +249,7 @@ class TestDSLAgentWiring:
                         dsl=dsl,
                         role=test_role,
                         wf_id=wf_id,
+                        registry_lock=RegistryLock(origins={}, actions={}),
                     ),
                     id=wf_exec_id,
                     task_queue=config.TEMPORAL__CLUSTER_QUEUE,
@@ -265,14 +266,14 @@ class TestDSLAgentWiring:
 
     @pytest.mark.anyio
     @pytest.mark.integration
-    async def test_dsl_workflow_marks_existing_agent_session_as_required(
+    async def test_dsl_workflow_forks_existing_agent_session(
         self,
         test_role: Role,
         temporal_client: Client,
         test_worker_factory: Callable[..., Worker],
         agent_worker_factory: Callable[..., Worker],
     ) -> None:
-        session_id = uuid.uuid4()
+        parent_session_id = uuid.uuid4()
         captured_inputs: list[CreateSessionInput] = []
 
         agent_activities = list(get_agent_worker_activities())
@@ -289,7 +290,7 @@ class TestDSLAgentWiring:
 
         dsl = DSLInput(
             title="DSL agent existing session wiring",
-            description="Verify ai.agent reuses a provided session ID",
+            description="Verify ai.agent forks a provided session ID",
             entrypoint=DSLEntrypoint(ref="agent"),
             actions=[
                 ActionStatement(
@@ -299,7 +300,7 @@ class TestDSLAgentWiring:
                         "user_prompt": "Continue this investigation",
                         "model_name": "gpt-4o-mini",
                         "model_provider": "openai",
-                        "session_id": str(session_id),
+                        "session_id": str(parent_session_id),
                     },
                 )
             ],
@@ -322,6 +323,7 @@ class TestDSLAgentWiring:
                         dsl=dsl,
                         role=test_role,
                         wf_id=wf_id,
+                        registry_lock=RegistryLock(origins={}, actions={}),
                     ),
                     id=generate_exec_id(wf_id),
                     task_queue=config.TEMPORAL__CLUSTER_QUEUE,
@@ -332,5 +334,7 @@ class TestDSLAgentWiring:
         data = await to_data(result)
         assert data["output"] == "dsl-agent-existing-session"
         assert len(captured_inputs) == 1
-        assert captured_inputs[0].session_id == session_id
-        assert captured_inputs[0].require_existing is True
+        create_input = captured_inputs[0]
+        assert create_input.session_id != parent_session_id
+        assert create_input.parent_session_id == parent_session_id
+        assert create_input.require_existing is False
