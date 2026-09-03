@@ -11,21 +11,11 @@ from typing import (
 )
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from pydantic_ai.messages import ModelMessage, ModelResponse
-from pydantic_ai.models import ModelRequestParameters
-from pydantic_ai.settings import ModelSettings
-from pydantic_ai.tools import DeferredToolResults
 
+from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.subagents import AgentSubagentsConfig
-from tracecat.agent.types import AgentConfig
-from tracecat.auth.types import Role
+from tracecat.agent.types import AgentConfig, DeferredToolResults
 from tracecat.chat.schemas import ChatMessage
-
-
-class ModelInfo(BaseModel):
-    name: str
-    provider: str
-    base_url: str | None
 
 
 class DefaultModelSelection(BaseModel):
@@ -85,8 +75,6 @@ class RunAgentArgs(BaseModel):
         """Ensure either config or preset_slug is provided."""
         if self.config is None and self.preset_slug is None:
             raise ValueError("Either 'config' or 'preset_slug' must be provided")
-        if self.preset_version is not None and self.preset_slug is None:
-            raise ValueError("'preset_version' requires 'preset_slug'")
         return self
 
 
@@ -218,71 +206,12 @@ class AgentOutput(BaseModel):
     session_id: uuid.UUID
 
 
-class ExecuteToolCallArgs(BaseModel):
-    tool_name: str = Field(..., description="Name of the tool to execute")
-    tool_args: dict[str, Any] = Field(..., description="Arguments for the tool")
-    tool_call_id: str = Field(..., description="ID of the tool call")
-
-
-class ExecuteToolCallResult(BaseModel):
-    type: Literal["result", "error", "retry"] = Field(..., description="Type of result")
-    result: Any = Field(default=None, description="Tool return part")
-    error: str | None = Field(
-        default=None, description="Error message if execution failed"
-    )
-    retry_message: str | None = Field(
-        default=None, description="Retry message if ModelRetry was raised"
-    )
-
-
-class ModelRequestArgs(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-    role: Role
-    messages: list[ModelMessage]
-    model_settings: ModelSettings | None
-    model_request_parameters: ModelRequestParameters
-    model_info: ModelInfo
-
-
-class ModelRequestResult(BaseModel):
-    model_response: ModelResponse = Field(..., description="Model response")
-
-
 class ToolFilters(BaseModel):
     actions: list[str] | None = None
     namespaces: list[str] | None = None
 
 
-# ============================================================================
-# Internal Request Schemas (for SDK/UDF use via internal router)
-# ============================================================================
-
-
-class MCPHttpServerConfigSchema(TypedDict):
-    """HTTP/SSE MCP server configuration for request validation."""
-
-    type: NotRequired[Literal["http"]]
-    name: str
-    url: str
-    headers: NotRequired[dict[str, str]]
-    transport: NotRequired[Literal["http", "sse"]]
-    timeout: NotRequired[int]
-
-
-class MCPStdioServerConfigSchema(TypedDict):
-    """Stdio MCP server configuration for request validation."""
-
-    type: Literal["stdio"]
-    name: str
-    command: str
-    args: NotRequired[list[str]]
-    env: NotRequired[dict[str, str]]
-    timeout: NotRequired[int]
-
-
-type MCPServerConfigSchema = MCPHttpServerConfigSchema | MCPStdioServerConfigSchema
-
-
+# Pinned registry contract; do not change until all pre-removal locks expire.
 class AgentConfigSchema(BaseModel):
     """Agent configuration for request validation."""
 
@@ -296,7 +225,7 @@ class AgentConfigSchema(BaseModel):
     namespaces: list[str] | None = None
     tool_approvals: dict[str, bool] | None = None
     model_settings: dict[str, Any] | None = None
-    mcp_servers: list[MCPServerConfigSchema] | None = None
+    mcp_servers: list[MCPServerConfig] | None = None
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     retries: int = Field(default=20)
     enable_thinking: bool = Field(default=True)
@@ -324,39 +253,17 @@ class InternalRunAgentRequest(BaseModel):
         """Ensure either config or preset_slug is provided."""
         if self.config is None and self.preset_slug is None:
             raise ValueError("Either 'config' or 'preset_slug' must be provided")
-        if self.preset_version is not None and self.preset_slug is None:
-            raise ValueError("'preset_version' requires 'preset_slug'")
         return self
 
 
 class InternalRankItemsRequest(BaseModel):
-    """Request body for /internal/agent/rank endpoint."""
+    """Request body for /internal/agent/rank and /rank-pairwise. Extra pairwise fields are ignored."""
 
     items: list[RankableItemSchema]
     criteria_prompt: str
     model_name: str
     model_provider: str
     catalog_id: uuid.UUID | None = None
-    model_settings: dict[str, Any] | None = None
-    max_requests: int = 5
-    retries: int = 3
-    base_url: str | None = None
-    min_items: int | None = None
-    max_items: int | None = None
-
-
-class InternalRankItemsPairwiseRequest(BaseModel):
-    """Request body for /internal/agent/rank-pairwise endpoint."""
-
-    items: list[RankableItemSchema]
-    criteria_prompt: str
-    model_name: str
-    model_provider: str
-    catalog_id: uuid.UUID | None = None
-    id_field: str = "id"
-    batch_size: int = 10
-    num_passes: int = 10
-    refinement_ratio: float = 0.5
     model_settings: dict[str, Any] | None = None
     max_requests: int = 5
     retries: int = 3

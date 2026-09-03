@@ -1018,8 +1018,8 @@ class AgentManagementService(BaseOrgService):
 
         # Cloud catalog rows store the invocation target inside the encrypted
         # blob (same shape as the legacy org-secret). Extract it so the
-        # returned ``ModelConfig.name`` matches what pydantic-ai /
-        # Temporal callers expect: the string sent to the provider.
+        # returned ``ModelConfig.name`` matches what runtime callers expect:
+        # the string sent to the provider.
         provider = model_config.provider
         if not provider:
             # Re-fetch the catalog row when we didn't have a pydantic
@@ -1065,9 +1065,8 @@ class AgentManagementService(BaseOrgService):
                 )
             model_config = model_config.model_copy(update={"name": vertex_model})
 
-        # Expose credentials in both env and registry secrets context so
-        # legacy pydantic-ai consumers (auto-title, ranker) pick them up
-        # through ``registry_secrets`` / env vars unchanged.
+        # Expose credentials in both environment and registry secret contexts
+        # for callers that use either credential source.
         with self._credentials_sandbox(credentials):
             yield model_config
 

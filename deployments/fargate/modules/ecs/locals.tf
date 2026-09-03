@@ -138,6 +138,7 @@ locals {
         TRACECAT__DB_ENDPOINT             = local.core_db_hostname
         TRACECAT__SERVICE_NAME            = "worker"
         TRACECAT__PUBLIC_API_URL          = local.public_api_url
+        TRACECAT__PUBLIC_APP_URL          = local.public_app_url
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT = var.executor_client_timeout
         TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
         SENTRY_DSN                        = var.sentry_dsn

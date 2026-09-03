@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import orjson
 import pytest
-from pydantic_ai.tools import ToolApproved
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import (
@@ -21,7 +20,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, ToolApproved
 from tracecat.auth.types import Role
 from tracecat.chat import tokens
 from tracecat.chat.enums import MessageKind
