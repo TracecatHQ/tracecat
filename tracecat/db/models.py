@@ -5422,7 +5422,7 @@ class GroupMember(Base):
         UUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
     )
     group_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("group.id", ondelete="CASCADE"), primary_key=True
+        UUID, ForeignKey("group.id", ondelete="CASCADE"), primary_key=True, index=True
     )
     added_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
@@ -5458,7 +5458,7 @@ class GroupRoleAssignment(Base):
         UUID, ForeignKey("group.id", ondelete="CASCADE")
     )
     workspace_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID, ForeignKey("workspace.id", ondelete="CASCADE")
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("role.id", ondelete="RESTRICT"), index=True
@@ -5507,7 +5507,7 @@ class UserRoleAssignment(Base):
         UUID, ForeignKey("user.id", ondelete="CASCADE")
     )
     workspace_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID, ForeignKey("workspace.id", ondelete="CASCADE")
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("role.id", ondelete="RESTRICT"), index=True

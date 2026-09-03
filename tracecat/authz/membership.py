@@ -50,7 +50,7 @@ class OrgRoleName:
     """An org-wide role resolved for a user."""
 
     name: str
-    slug: str
+    slug: str | None
 
 
 async def resolve_org_role_names(
@@ -62,7 +62,7 @@ async def resolve_org_role_names(
 
     A user can hold several org-wide roles at once, so the rule is: a direct
     assignment wins over a group-derived one, and ties break on role name
-    ascending. Users with no org-wide role are absent from the result.
+    then slug ascending. Users with no org-wide role are absent from the result.
     """
     if not user_ids:
         return {}
@@ -100,6 +100,7 @@ async def resolve_org_role_names(
         candidates.c.user_id,
         candidates.c.priority,
         candidates.c.name,
+        candidates.c.slug,
     )
     resolved: dict[UUID, OrgRoleName] = {}
     for user_id, name, slug in (await session.execute(stmt)).tuples().all():

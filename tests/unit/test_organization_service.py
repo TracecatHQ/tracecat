@@ -1568,6 +1568,15 @@ class TestOrganizationServiceInvitations:
             token=standalone_invitation.token,
         )
         assert standalone_org_id == org1.id
+        standalone_assignment = await session.scalar(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == standalone_superuser.id,
+                UserRoleAssignment.organization_id == org1.id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+        assert standalone_assignment is not None
+        assert standalone_assignment.role_id == org1_member_role.id
 
         user_role = Role(
             type="user",
@@ -1633,6 +1642,15 @@ class TestOrganizationServiceInvitations:
             token=standalone_invitation.token,
         )
         assert standalone_org_id == org1.id
+        standalone_assignment = await session.scalar(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == standalone_superuser.id,
+                UserRoleAssignment.organization_id == org1.id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+        assert standalone_assignment is not None
+        assert standalone_assignment.role_id == org1_member_role.id
 
         user_role = Role(
             type="user",

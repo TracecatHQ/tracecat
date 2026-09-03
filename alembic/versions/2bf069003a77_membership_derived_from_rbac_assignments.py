@@ -183,6 +183,15 @@ REPOPULATE_ORG_MEMBERSHIP = (
     "ON CONFLICT DO NOTHING"
 )
 
+# Workspace-leading indexes replace the dropped membership indexes; the existing
+# unique constraints lead with user_id / group_id, so listing a workspace's
+# members would otherwise scan the assignment tables.
+WORKSPACE_INDEXES = (
+    ("ix_user_role_assignment_workspace_id", "user_role_assignment", "workspace_id"),
+    ("ix_group_role_assignment_workspace_id", "group_role_assignment", "workspace_id"),
+    ("ix_group_member_group_id", "group_member", "group_id"),
+)
+
 DROP_COMPAT_VIEWS = (
     "DROP VIEW IF EXISTS membership",
     "DROP VIEW IF EXISTS organization_membership",
@@ -248,8 +257,14 @@ def upgrade() -> None:
     op.execute(CREATE_MEMBERSHIP_VIEW)
     op.execute(CREATE_ORG_MEMBERSHIP_VIEW)
 
+    for name, table, column in WORKSPACE_INDEXES:
+        op.create_index(name, table, [column], unique=False)
+
 
 def downgrade() -> None:
+    for name, table, _ in WORKSPACE_INDEXES:
+        op.drop_index(name, table_name=table)
+
     # The views own these names until dropped; the tables below reclaim them.
     for statement in DROP_COMPAT_VIEWS:
         op.execute(statement)

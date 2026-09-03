@@ -14,6 +14,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
+from psycopg.errors import InsufficientPrivilege
 from sqlalchemy import Connection, Engine, create_engine, select, text
 from sqlalchemy.exc import ProgrammingError
 
@@ -227,7 +228,9 @@ def _insert_assignment(
                 },
             )
             return True
-        except ProgrammingError:
+        except ProgrammingError as exc:
+            if not isinstance(exc.orig, InsufficientPrivilege):
+                raise
             return False
 
 
